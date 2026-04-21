@@ -1,6 +1,12 @@
 ﻿const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const {
+  MOJIBAKE_MARKERS,
+  REQUIRED_ROUTE_COPY,
+  TIMEOUTS,
+  createShippingAuditData,
+} = require('./lib/shipping-browser-audit-fixtures.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -8,33 +14,7 @@ const SHOT_DIR = path.join(OUTPUT_DIR, 'shipping-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'shipping-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
-const DATA = {
-  ocrTrackingNo: `OCR-${RUN_ID}`,
-  linkedTrackingNo: `LINK-${RUN_ID}`,
-  ocrProduct: `SHIP-OCR-${RUN_ID}`,
-  linkedProduct: `SHIP-LINK-${RUN_ID}`,
-  customerName: `SHIP-BROWSER-CUS-${RUN_ID}`,
-  batchNo: `SHIP-BROWSER-BATCH-${RUN_ID}`,
-  stockQuantity: 24,
-  carrier: `AUDIT-CARRIER-${RUN_ID.slice(-4)}`,
-  quantity: 12,
-};
-
-const REQUIRED_ROUTE_COPY = ['\u53d1\u8d27', 'OCR', '\u8bc6\u522b\u9884\u89c8'];
-// Keep the legacy corruption markers in one place so the shipping audit stays readable.
-const MOJIBAKE_MARKERS = [
-  'undefined',
-  '\ufffd',
-  '\u951f\u91d1\u62f7',
-];
-
-const TIMEOUTS = {
-  login: 15000,
-  route: 20000,
-  save: 25000,
-  api: 15000,
-  readBack: 15000,
-};
+const DATA = createShippingAuditData(RUN_ID);
 
 const report = {
   appUrl: APP_URL,
