@@ -225,6 +225,57 @@ async function runProcurementFlow(manager) {
   assertEqual(approveOrder.json.data.status, 'approved', 'purchase order approve status');
   recordStep({ step: 'procurement-approve-order', result: 'passed', orderId: order.id });
 
+  const mismatchReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
+    method: 'POST',
+    data: { quantity: 3, acceptedQuantity: 2, rejectedQuantity: 0 },
+  }, manager.token);
+  assertEqual(mismatchReceipt.status, 400, 'mismatched receipt quantities must be blocked');
+
+  const negativeReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
+    method: 'POST',
+    data: { quantity: -1, acceptedQuantity: -1, rejectedQuantity: 0 },
+  }, manager.token);
+  assertEqual(negativeReceipt.status, 400, 'negative receipt quantity must be blocked');
+
+  const zeroReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
+    method: 'POST',
+    data: { quantity: 0, acceptedQuantity: 0, rejectedQuantity: 0 },
+  }, manager.token);
+  assertEqual(zeroReceipt.status, 400, 'zero receipt quantity must be blocked');
+
+  const invalidDateReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
+    method: 'POST',
+    data: {
+      quantity: 1,
+      acceptedQuantity: 1,
+      rejectedQuantity: 0,
+      receivedAt: 'not-a-date',
+    },
+  }, manager.token);
+  assertEqual(invalidDateReceipt.status, 400, 'invalid receipt date must be blocked');
+
+  const receiptsAfterInvalidInput = await expectOk('read receipts after invalid procurement inputs', apiFetch(
+    `/procurement/orders/${order.id}/receipts`,
+    {},
+    manager.token,
+  ));
+  assertEqual(receiptsAfterInvalidInput.json.data.receipts.length, 0, 'invalid receipt inputs must not create receipt rows');
+  assertNumber(
+    receiptsAfterInvalidInput.json.data.receiptSummary.processedQuantity,
+    0,
+    'invalid receipt inputs must not change processed quantity',
+  );
+  recordStep({
+    step: 'procurement-block-invalid-receipt-inputs',
+    result: 'passed',
+    statuses: {
+      mismatch: mismatchReceipt.status,
+      negative: negativeReceipt.status,
+      zero: zeroReceipt.status,
+      invalidDate: invalidDateReceipt.status,
+    },
+  });
+
   const receiptOne = await expectOk('create first purchase receipt', apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
     data: {

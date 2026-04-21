@@ -153,6 +153,7 @@ function getTasks(profile) {
     ...core,
     task('orders-api-chain', 'node', ['scripts/orders-api-audit-v1.cjs']),
     task('procurement-api-chain', 'node', ['scripts/procurement-api-audit-v1.cjs']),
+    task('partial-receipt-chain', 'node', ['scripts/partial-receipt-api-audit-v1.cjs']),
     task('money-goods-chain', 'node', ['scripts/money-goods-chain-api-audit-v1.cjs']),
     task('chemical-bom-production-chain', 'node', ['scripts/chemical-bom-production-chain-audit-v1.cjs']),
     task('backup-restore-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),
