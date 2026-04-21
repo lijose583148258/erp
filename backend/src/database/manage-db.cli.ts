@@ -95,8 +95,11 @@ const restoreBackup = async (fileName: string) => {
     throw new Error('Current database is not SQLite file mode, restore is not available');
   }
 
-  await BackupService.restoreBackup(fileName);
-  console.log(`Database restored from backup: ${fileName}`);
+  const result = await BackupService.restoreBackup(fileName);
+  const integrity = result.integrity.manifestExists
+    ? result.integrity.verified ? 'manifest verified' : 'manifest failed'
+    : 'legacy backup without manifest';
+  console.log(`Database restored from backup: ${result.fileName} (${integrity})`);
 };
 
 const run = async () => {

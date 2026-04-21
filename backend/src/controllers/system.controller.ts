@@ -89,14 +89,14 @@ export class SystemController {
                 });
             }
 
-            const restoredName = await BackupService.restoreBackup(fileName);
+            const restoreResult = await BackupService.restoreBackup(fileName);
 
             await prisma.auditLog.create({
                 data: {
                     userId: (req as any).user.userId,
                     action: 'SYSTEM_RESTORE',
                     resource: 'database',
-                    details: `Database restored from backup: ${restoredName}`,
+                    details: `Database restored from backup: ${restoreResult.fileName}`,
                     ipAddress: req.ip,
                     userAgent: req.get('user-agent'),
                 }
@@ -104,8 +104,8 @@ export class SystemController {
 
             res.json({
                 success: true,
-                message: `数据库已从备份 ${restoredName} 恢复成功`,
-                data: { fileName: restoredName },
+                message: `数据库已从备份 ${restoreResult.fileName} 恢复成功`,
+                data: restoreResult,
             });
         } catch (error) {
             logger.error('Restore backup controller error', error);

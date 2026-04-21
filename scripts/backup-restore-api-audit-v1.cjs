@@ -9,7 +9,7 @@ const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
 const report = {
   name: 'Backup Restore API Audit',
-  version: '1.1',
+  version: '1.2',
   appUrl: APP_URL,
   startedAt: new Date().toISOString(),
   runId: RUN_ID,
@@ -132,7 +132,21 @@ async function run() {
     if (!found) {
       throw new Error(`Created backup was not found in list: ${backupFileName}`);
     }
-    recordStep({ step: 'verify-backup-in-list', result: 'passed', totalBackups: backups.length });
+    if (!found.manifestExists || !found.checksumSha256) {
+      throw new Error(`Created backup does not have integrity manifest evidence: ${backupFileName}`);
+    }
+    report.createdBackupIntegrity = {
+      manifestExists: Boolean(found.manifestExists),
+      checksumSha256: found.checksumSha256,
+      size: found.size,
+    };
+    recordStep({
+      step: 'verify-backup-in-list',
+      result: 'passed',
+      totalBackups: backups.length,
+      manifestExists: found.manifestExists,
+      checksumSha256: found.checksumSha256,
+    });
 
     const restoreResult = await apiFetch('/system/restore', {
       method: 'POST',
@@ -141,7 +155,17 @@ async function run() {
     if (!restoreResult.ok) {
       throw new Error(`Restore backup failed: HTTP ${restoreResult.status} ${restoreResult.json?.message || ''}`);
     }
-    recordStep({ step: 'restore-from-backup', result: 'passed', restoredFrom: backupFileName });
+    const restoreIntegrity = restoreResult.json?.data?.integrity;
+    if (!restoreIntegrity?.manifestExists || !restoreIntegrity?.verified) {
+      throw new Error(`Restore did not verify backup manifest: ${backupFileName}`);
+    }
+    recordStep({
+      step: 'restore-from-backup',
+      result: 'passed',
+      restoredFrom: backupFileName,
+      manifestVerified: restoreIntegrity.verified,
+      verifiedFiles: Array.isArray(restoreIntegrity.files) ? restoreIntegrity.files.length : 0,
+    });
 
     const statusAfter = await apiFetch('/system/status', {}, admin.token);
     if (!statusAfter.ok) {

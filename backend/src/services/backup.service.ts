@@ -1,5 +1,6 @@
 ﻿import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { getBackupDir, getSqliteDbPath, loadRuntimeEnv, runtime } from '../config/runtime';
 
@@ -10,6 +11,35 @@ export interface BackupFileInfo {
     filename: string;
     size: number;
     createdAt: Date;
+    manifestExists: boolean;
+    checksumSha256: string | null;
+}
+
+interface BackupManifestFile {
+    filename: string;
+    size: number;
+    sha256: string;
+}
+
+interface BackupManifest {
+    version: 1;
+    createdAt: string;
+    backupFileName: string;
+    sourceDatabasePath: string;
+    files: BackupManifestFile[];
+}
+
+export interface BackupIntegrityResult {
+    fileName: string;
+    manifestExists: boolean;
+    verified: boolean;
+    reason: string | null;
+    files: Array<BackupManifestFile & { exists: boolean; matches: boolean }>;
+}
+
+export interface RestoreBackupResult {
+    fileName: string;
+    integrity: BackupIntegrityResult;
 }
 
 export interface DatabaseStatus {
@@ -77,6 +107,52 @@ export class BackupService {
         return SQLITE_BACKUP_COMPANION_SUFFIXES.map((suffix) => `${basePath}${suffix}`);
     }
 
+    private static getManifestPath(backupPath: string) {
+        return `${backupPath}.manifest.json`;
+    }
+
+    private static async hashFile(filePath: string) {
+        return new Promise<string>((resolve, reject) => {
+            const hash = crypto.createHash('sha256');
+            const stream = fs.createReadStream(filePath);
+            stream.on('data', chunk => hash.update(chunk));
+            stream.on('error', reject);
+            stream.on('end', () => resolve(hash.digest('hex')));
+        });
+    }
+
+    private static async describeFileForManifest(filePath: string): Promise<BackupManifestFile> {
+        const stats = fs.statSync(filePath);
+        return {
+            filename: path.basename(filePath),
+            size: stats.size,
+            sha256: await this.hashFile(filePath),
+        };
+    }
+
+    private static async writeBackupManifest(backupPath: string, sourceDatabasePath: string, copiedFilePaths: string[]) {
+        const manifest: BackupManifest = {
+            version: 1,
+            createdAt: new Date().toISOString(),
+            backupFileName: path.basename(backupPath),
+            sourceDatabasePath,
+            files: await Promise.all(copiedFilePaths.map(filePath => this.describeFileForManifest(filePath))),
+        };
+
+        fs.writeFileSync(this.getManifestPath(backupPath), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+    }
+
+    private static readBackupManifest(backupPath: string): BackupManifest | null {
+        const manifestPath = this.getManifestPath(backupPath);
+        if (!fs.existsSync(manifestPath)) return null;
+
+        const parsed = JSON.parse(fs.readFileSync(manifestPath, 'utf8')) as BackupManifest;
+        if (parsed.version !== 1 || parsed.backupFileName !== path.basename(backupPath) || !Array.isArray(parsed.files)) {
+            throw new Error(`Backup manifest is invalid: ${path.basename(manifestPath)}`);
+        }
+        return parsed;
+    }
+
     private static copyExistingFile(sourcePath: string, targetPath: string) {
         if (!fs.existsSync(sourcePath)) {
             return false;
@@ -120,12 +196,17 @@ export class BackupService {
         const backupPath = path.join(this.ensureBackupDir(), backupFileName);
 
         try {
+            const copiedFilePaths: string[] = [];
             this.copyExistingFile(dbPath, backupPath);
+            copiedFilePaths.push(backupPath);
             this.getCompanionFilePaths(dbPath).forEach((companionPath) => {
                 const companionSuffix = companionPath.slice(dbPath.length);
                 const targetCompanionPath = path.join(this.ensureBackupDir(), `${backupFileName}${companionSuffix}`);
-                this.copyExistingFile(companionPath, targetCompanionPath);
+                if (this.copyExistingFile(companionPath, targetCompanionPath)) {
+                    copiedFilePaths.push(targetCompanionPath);
+                }
             });
+            await this.writeBackupManifest(backupPath, dbPath, copiedFilePaths);
             logger.info(`Database backup created: ${backupFileName}`);
             this.cleanupOldBackups();
             return backupFileName;
@@ -135,7 +216,47 @@ export class BackupService {
         }
     }
 
-    static async restoreBackup(fileName: string): Promise<string> {
+    static async verifyBackupIntegrity(fileName: string): Promise<BackupIntegrityResult> {
+        const backupPath = this.resolveSafeBackupPath(fileName);
+        const manifest = this.readBackupManifest(backupPath);
+        if (!manifest) {
+            return {
+                fileName: path.basename(fileName),
+                manifestExists: false,
+                verified: false,
+                reason: 'missing-manifest',
+                files: [],
+            };
+        }
+
+        const files = await Promise.all(manifest.files.map(async (file) => {
+            const safeFileName = path.basename(file.filename);
+            const filePath = path.join(this.ensureBackupDir(), safeFileName);
+            const exists = fs.existsSync(filePath);
+            if (!exists) {
+                return { ...file, exists, matches: false };
+            }
+
+            const stats = fs.statSync(filePath);
+            const sha256 = await this.hashFile(filePath);
+            return {
+                ...file,
+                exists,
+                matches: stats.size === file.size && sha256 === file.sha256,
+            };
+        }));
+
+        const verified = files.every(file => file.exists && file.matches);
+        return {
+            fileName: path.basename(fileName),
+            manifestExists: true,
+            verified,
+            reason: verified ? null : 'manifest-mismatch',
+            files,
+        };
+    }
+
+    static async restoreBackup(fileName: string): Promise<RestoreBackupResult> {
         this.init();
 
         const configuredDbPath = getSqliteDbPath();
@@ -148,6 +269,10 @@ export class BackupService {
         if (!fs.existsSync(backupPath)) {
             throw new Error(`Backup file not found: ${fileName}`);
         }
+        const integrity = await this.verifyBackupIntegrity(fileName);
+        if (integrity.manifestExists && !integrity.verified) {
+            throw new Error(`Backup integrity verification failed: ${integrity.reason}`);
+        }
 
         const dbDir = path.dirname(dbPath);
         if (!fs.existsSync(dbDir)) {
@@ -157,13 +282,21 @@ export class BackupService {
         try {
             const restoreSnapshotName = `restore-pre-${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
             const restoreSnapshotPath = path.join(this.ensureBackupDir(), restoreSnapshotName);
+            const restoreSnapshotFilePaths: string[] = [];
 
-            this.copyExistingFile(dbPath, restoreSnapshotPath);
+            if (this.copyExistingFile(dbPath, restoreSnapshotPath)) {
+                restoreSnapshotFilePaths.push(restoreSnapshotPath);
+            }
             this.getCompanionFilePaths(dbPath).forEach((companionPath) => {
                 const companionSuffix = companionPath.slice(dbPath.length);
                 const targetCompanionPath = path.join(this.ensureBackupDir(), `${restoreSnapshotName}${companionSuffix}`);
-                this.copyExistingFile(companionPath, targetCompanionPath);
+                if (this.copyExistingFile(companionPath, targetCompanionPath)) {
+                    restoreSnapshotFilePaths.push(targetCompanionPath);
+                }
             });
+            if (restoreSnapshotFilePaths.length > 0) {
+                await this.writeBackupManifest(restoreSnapshotPath, dbPath, restoreSnapshotFilePaths);
+            }
 
             this.getCompanionFilePaths(dbPath).forEach((companionPath) => this.removeIfExists(companionPath));
             this.copyExistingFile(backupPath, dbPath);
@@ -173,7 +306,10 @@ export class BackupService {
                 this.copyExistingFile(companionPath, targetCompanionPath);
             });
             logger.info(`Database restored from backup: ${path.basename(fileName)}`);
-            return path.basename(fileName);
+            return {
+                fileName: path.basename(fileName),
+                integrity,
+            };
         } catch (error) {
             logger.error('Database restore failed', error);
             throw error;
@@ -223,6 +359,7 @@ export class BackupService {
                     if (ageInDays > MAX_AGE_DAYS) {
                         fs.unlinkSync(filePath);
                         this.getCompanionFilePaths(filePath).forEach((companionPath) => this.removeIfExists(companionPath));
+                        this.removeIfExists(this.getManifestPath(filePath));
                         logger.info(`Expired backup removed: ${file}`);
                     }
                 } catch (fileError) {
@@ -231,6 +368,21 @@ export class BackupService {
             });
         } catch (error) {
             logger.error('Failed to clean old backups', error);
+        }
+    }
+
+    private static getBackupManifestSummary(filePath: string) {
+        try {
+            const manifest = this.readBackupManifest(filePath);
+            return {
+                exists: Boolean(manifest),
+                checksumSha256: manifest?.files.find(file => file.filename === path.basename(filePath))?.sha256 || null,
+            };
+        } catch {
+            return {
+                exists: false,
+                checksumSha256: null,
+            };
         }
     }
 
@@ -243,10 +395,13 @@ export class BackupService {
                 .map(file => {
                     const filePath = path.join(backupDir, file);
                     const stats = fs.statSync(filePath);
+                    const manifest = this.getBackupManifestSummary(filePath);
                     return {
                         filename: file,
                         size: stats.size,
                         createdAt: stats.mtime,
+                        manifestExists: manifest.exists,
+                        checksumSha256: manifest.checksumSha256,
                     };
                 })
                 .filter(item => item.filename.endsWith('.db'))
