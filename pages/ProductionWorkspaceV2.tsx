@@ -4,26 +4,26 @@ import { assetService, ProductBatch } from '../services/asset.service';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
 import { productionService, ProductionBom, ProductionSummary, ProductionWorkOrder, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
 import { isCanceledApiError } from '../utils/api';
-import { type BomItemDraft } from './production/ProductionBomLineGrid';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
 import { CompleteWorkOrderModal } from './production/CompleteWorkOrderModal';
 import {
-  TEMPLATES,
   getJsonSummary,
-  newBomItems,
   newStep,
   type AdjustmentStatusFilter,
   type BatchStatusFilter,
-  type BomLifecycleStatus,
-  type BomType,
-  type StepDraft,
   type WorkOrderFilter,
 } from './production/productionWorkspaceConfig';
 import {
   ProductionWorkspaceHeader,
 } from './production/ProductionWorkspaceHeader';
+import {
+  useProductionAdjustmentForm,
+  useProductionBomForm,
+  useProductionQualityForm,
+  useProductionWorkOrderForm,
+} from './production/useProductionWorkspaceForms';
 
 const ProductionWorkspaceV2 = () => {
   const { t, notify } = useAppContext();
@@ -45,46 +45,20 @@ const ProductionWorkspaceV2 = () => {
   const [selectedWorkOrderId, setSelectedWorkOrderId] = useState<number | null>(null);
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completingWorkOrderId, setCompletingWorkOrderId] = useState<number | null>(null);
-  
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
 
-  const [bomProductName, setBomProductName] = useState('');
-  const [bomVersion, setBomVersion] = useState('v1');
-  const [bomType, setBomType] = useState<BomType>('standard');
-  const [bomStatus, setBomStatus] = useState<BomLifecycleStatus>('draft');
-  const [bomFormulationMode, setBomFormulationMode] = useState('fixed');
-  const [bomOutputUnit, setBomOutputUnit] = useState('kg');
-  const [bomStandardBatchSize, setBomStandardBatchSize] = useState('');
-  const [bomBatchSizeUnit, setBomBatchSizeUnit] = useState('kg');
-  const [bomDensity, setBomDensity] = useState('');
-  const [bomSolidContent, setBomSolidContent] = useState('');
-  const [bomEffectiveFrom, setBomEffectiveFrom] = useState('');
-  const [bomEffectiveTo, setBomEffectiveTo] = useState('');
-  const [bomProcessText, setBomProcessText] = useState('');
-  const [bomQualitySpecText, setBomQualitySpecText] = useState('');
-  const [bomNotes, setBomNotes] = useState('');
-  const [bomItems, setBomItems] = useState<BomItemDraft[]>(newBomItems());
-
-  const [woProductName, setWoProductName] = useState('');
-  const [woTargetQuantity, setWoTargetQuantity] = useState('');
-  const [woProducedQuantity, setWoProducedQuantity] = useState('');
-  const [woLossQuantity, setWoLossQuantity] = useState('');
-  const [woPlannedStartAt, setWoPlannedStartAt] = useState('');
-  const [woPlannedEndAt, setWoPlannedEndAt] = useState('');
-  const [woNote, setWoNote] = useState('');
-  const [woSteps, setWoSteps] = useState<StepDraft[]>([newStep('备料'), newStep('生产'), newStep('质检')]);
-
-  const [qcResult, setQcResult] = useState<'pass' | 'fail'>('pass');
-  const [qcDefectRate, setQcDefectRate] = useState('');
-  const [qcNote, setQcNote] = useState('');
-  const [qcCheckedBy, setQcCheckedBy] = useState('');
-
-  const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
-  const [adjustmentQuantity, setAdjustmentQuantity] = useState('');
-  const [adjustmentReason, setAdjustmentReason] = useState(TEMPLATES[0].reason);
-  const [adjustmentNote, setAdjustmentNote] = useState('');
-
-  const selectedTemplate = useMemo(() => TEMPLATES.find(item => item.id === templateId) || TEMPLATES[0], [templateId]);
+  const createInitialWorkOrderSteps = useCallback(
+    () => [newStep('备料'), newStep('生产'), newStep('质检')],
+    [],
+  );
+  const bomForm = useProductionBomForm();
+  const workOrderForm = useProductionWorkOrderForm(createInitialWorkOrderSteps);
+  const qualityForm = useProductionQualityForm();
+  const adjustmentForm = useProductionAdjustmentForm();
+  const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
+  const { woProductName, setWoProductName, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
+  const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
+  const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
   const selectedBom = useMemo(() => boms.find(item => item.id === selectedBomId) || null, [boms, selectedBomId]);
   const selectedWorkOrder = useMemo(() => workOrders.find(item => item.id === selectedWorkOrderId) || null, [workOrders, selectedWorkOrderId]);
   const completingWorkOrder = useMemo(
@@ -126,8 +100,8 @@ const ProductionWorkspaceV2 = () => {
     void loadData(controller.signal);
     return () => controller.abort();
   }, [loadData]);
-  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); if (selectedBom) setBomOutputUnit(selectedBom.outputUnit || 'kg'); }, [selectedBom, woProductName]);
-  useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductName(selectedBatch.productName); }, [selectedBatch, woProductName]);
+  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); if (selectedBom) setBomOutputUnit(selectedBom.outputUnit || 'kg'); }, [selectedBom, setBomOutputUnit, setWoProductName, woProductName]);
+  useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductName(selectedBatch.productName); }, [selectedBatch, setWoProductName, woProductName]);
 
   const displayedBoms = useMemo(() => {
     const keyword = bomKeyword.trim().toLowerCase();
@@ -184,36 +158,6 @@ const ProductionWorkspaceV2 = () => {
     events.sort((a, b) => a.time.getTime() - b.time.getTime());
     return events;
   }, [selectedBatch, workOrders]);
-
-  const resetBomForm = () => {
-    setBomProductName('');
-    setBomVersion('v1');
-    setBomType('standard');
-    setBomStatus('draft');
-    setBomFormulationMode('fixed');
-    setBomOutputUnit('kg');
-    setBomStandardBatchSize('');
-    setBomBatchSizeUnit('kg');
-    setBomDensity('');
-    setBomSolidContent('');
-    setBomEffectiveFrom('');
-    setBomEffectiveTo('');
-    setBomProcessText('');
-    setBomQualitySpecText('');
-    setBomNotes('');
-    setBomItems(newBomItems());
-  };
-
-  const resetWoForm = () => {
-    setWoProductName('');
-    setWoTargetQuantity('');
-    setWoProducedQuantity('');
-    setWoLossQuantity('');
-    setWoPlannedStartAt('');
-    setWoPlannedEndAt('');
-    setWoNote('');
-    setWoSteps([newStep('备料'), newStep('生产'), newStep('质检')]);
-  };
 
   const handleCreateBom = async () => {
     if (!bomProductName.trim() || !bomOutputUnit.trim()) return notify('warning', '请填写 BOM 产品名称和输出单位');
@@ -384,9 +328,7 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
         checkedBy: qcCheckedBy.trim() || null,
       });
       notify('success', '质检记录已保存');
-      setQcDefectRate('');
-      setQcNote('');
-      setQcCheckedBy('');
+      resetQualityForm();
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '保存质检记录失败');
