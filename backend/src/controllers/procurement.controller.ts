@@ -19,6 +19,11 @@ import {
 import { createPurchaseOrder } from '../services/procurement-order.service';
 import { createSupplierRecord } from '../services/procurement-supplier.service';
 import { changePurchaseOrderStatus } from '../services/procurement-status.service';
+import {
+  getB2BStatusForSalesOrder,
+  linkPurchaseOrderToSalesOrder,
+  syncB2BSalesStatusToPurchase,
+} from '../services/procurement-b2b.service';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
 
 const PROCUREMENT_DATA_SCOPE = 'procurement_visible' as const;
@@ -392,77 +397,51 @@ export class ProcurementController {
 
       const { id } = req.params;
       const { salesOrderId } = req.body;
-
-      const order = await prisma.purchaseOrder.findUnique({ where: { id: Number(id) } });
-      if (!order) {
-        return res.status(404).json({ success: false, message: '采购单不存在' });
-      }
-
-      const salesOrder = await prisma.order.findUnique({
-        where: { id: Number(salesOrderId) },
-        select: { id: true, orderNo: true },
-      });
-      if (!salesOrder) {
-        return res.status(404).json({ success: false, message: '关联销售订单不存在' });
-      }
-
-      const updated = await prisma.purchaseOrder.update({
-        where: { id: Number(id) },
-        data: {
-          salesOrderId: salesOrder.id,
-          salesOrderRef: salesOrder.orderNo,
-          isB2B: true,
-        },
-        include: { supplier: true, salesOrder: true },
-      });
+      const result = await prisma.$transaction(tx => linkPurchaseOrderToSalesOrder(tx, {
+        purchaseOrderId: id,
+        salesOrderId,
+      }));
 
       await writeAuditLog({
         req,
         action: 'LINK_B2B',
         resource: 'purchase_order',
-        resourceId: updated.id,
-        details: `采购单 ${updated.id} 关联销售订单 ${salesOrder.orderNo}`,
+        resourceId: result.purchaseOrder.id,
+        details: `采购单 ${result.purchaseOrder.id} 关联销售订单 ${result.salesOrder.orderNo}`,
       });
 
       return res.json({
         success: true,
         data: {
-          purchaseOrder: mapPurchaseOrder(updated),
-          salesOrder,
+          purchaseOrder: mapPurchaseOrder(result.purchaseOrder),
+          salesOrder: result.salesOrder,
         },
         message: 'B2B 关联成功',
       });
     } catch (error) {
       logger.error('关联 B2B 销售订单错误:', error);
-      return res.status(500).json({ success: false, message: '服务器内部错误' });
+      if (error instanceof AppError && error.message === 'PURCHASE_ORDER_NOT_FOUND') {
+        return res.status(error.statusCode).json({ success: false, message: '采购单不存在' });
+      }
+      if (error instanceof AppError && error.message === 'SALES_ORDER_NOT_FOUND') {
+        return res.status(error.statusCode).json({ success: false, message: '关联销售订单不存在' });
+      }
+      return res.status(getProcurementErrorStatus(error)).json({ success: false, message: '服务器内部错误' });
     }
   }
 
   async getB2BStatus(req: AuthRequest, res: Response) {
     try {
       const { salesOrderId } = req.params;
-      if (req.user?.role === 'sales') {
-        const salesOrder = await prisma.order.findFirst({
-          where: {
-            id: Number(salesOrderId),
-            createdBy: req.user.userId,
-          },
-          select: { id: true },
-        });
-
-        if (!salesOrder) {
-          return res.status(404).json({ success: false, message: '关联销售订单不存在' });
-        }
-      } else if (!canViewProcurementOrders(req)) {
+      if (req.user?.role !== 'sales' && !canViewProcurementOrders(req)) {
         return rejectProcurementScope(res);
       }
+      const result = await prisma.$transaction(tx => getB2BStatusForSalesOrder(tx, {
+        salesOrderId,
+        salesUserId: req.user?.role === 'sales' ? req.user.userId : null,
+      }));
 
-      const purchaseOrder = await prisma.purchaseOrder.findFirst({
-        where: { salesOrderId: Number(salesOrderId) },
-        include: { supplier: true, salesOrder: true },
-      });
-
-      if (!purchaseOrder) {
+      if (!result.linked) {
         return res.json({ success: true, data: { linked: false } });
       }
 
@@ -470,12 +449,15 @@ export class ProcurementController {
         success: true,
         data: {
           linked: true,
-          purchaseOrder: mapPurchaseOrder(purchaseOrder),
+          purchaseOrder: mapPurchaseOrder(result.purchaseOrder),
         },
       });
     } catch (error) {
       logger.error('获取 B2B 状态错误:', error);
-      return res.status(500).json({ success: false, message: '服务器内部错误' });
+      if (error instanceof AppError && error.message === 'SALES_ORDER_NOT_FOUND') {
+        return res.status(error.statusCode).json({ success: false, message: '关联销售订单不存在' });
+      }
+      return res.status(getProcurementErrorStatus(error)).json({ success: false, message: '服务器内部错误' });
     }
   }
 
@@ -487,51 +469,36 @@ export class ProcurementController {
 
       const { salesOrderId } = req.params;
       const { salesStatus } = req.body;
-      const purchaseOrder = await prisma.purchaseOrder.findFirst({
-        where: { salesOrderId: Number(salesOrderId) },
-        include: { supplier: true, salesOrder: true },
-      });
+      const result = await prisma.$transaction(tx => syncB2BSalesStatusToPurchase(tx, {
+        salesOrderId,
+        salesStatus,
+        createdBy: req.user?.userId || null,
+      }));
 
-      if (!purchaseOrder) {
+      if (!result.linked) {
         return res.json({ success: true, data: { linked: false } });
       }
-
-      const statusMap: Record<string, string> = {
-        pending: 'pending',
-        confirmed: 'approved',
-        shipped: 'in_transit',
-        delivered: 'received',
-        cancelled: 'cancelled',
-      };
-      const nextStatus = normalizePurchaseStatus(statusMap[String(salesStatus)] || purchaseOrder.status);
-
-      const updated = await prisma.$transaction(tx => changePurchaseOrderStatus(tx, {
-        purchaseOrderId: purchaseOrder.id,
-        nextStatus,
-        createdBy: req.user?.userId || null,
-        enforceTransition: false,
-      }));
 
       await writeAuditLog({
         req,
         action: 'SYNC_B2B',
         resource: 'purchase_order',
-        resourceId: updated.id,
+        resourceId: result.purchaseOrder.id,
         details: `销售订单 ${salesOrderId} 状态同步为 ${salesStatus}`,
       });
 
       return res.json({
         success: true,
         data: {
-          purchaseOrder: mapPurchaseOrder(updated),
-          salesOrder: updated.salesOrder,
+          purchaseOrder: mapPurchaseOrder(result.purchaseOrder),
+          salesOrder: result.salesOrder,
         },
         message: 'B2B 状态同步成功',
       });
     } catch (error) {
       logger.error('同步 B2B 状态错误:', error);
-      if (error instanceof AppError && error.message === 'PURCHASE_ORDER_NOT_FOUND') {
-        return res.status(error.statusCode).json({ success: false, message: '采购单不存在' });
+      if (error instanceof AppError && error.message === 'SALES_ORDER_NOT_FOUND') {
+        return res.status(error.statusCode).json({ success: false, message: '关联销售订单不存在' });
       }
       if (error instanceof AppError && error.message === PARTIAL_RECEIPT_ERROR) {
         return res.status(error.statusCode).json({ success: false, message: PARTIAL_RECEIPT_MESSAGE });
