@@ -370,7 +370,17 @@ async function createShipmentViaOcr(page) {
     await page.getByTestId('shipping-ocr-textarea').fill(ocrText);
     await page.getByTestId('shipping-ocr-parse-button').click();
     await page.waitForTimeout(1400);
-    await page.getByTestId('shipping-ocr-apply-button').click();
+    const applyButton = page.getByTestId('shipping-ocr-apply-button');
+    await applyButton.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await applyButton.scrollIntoViewIfNeeded();
+    const createResponsePromise = page.waitForResponse((response) => (
+      response.url().includes('/api/shipping') && response.request().method() === 'POST'
+    ), { timeout: 8000 }).catch(() => null);
+    await applyButton.click();
+    const createResponse = await createResponsePromise;
+    if (createResponse && !createResponse.ok()) {
+      throw new Error(`OCR shipment create failed: ${createResponse.status()}`);
+    }
 
     let shipment = null;
     for (let index = 0; index < 20; index += 1) {
