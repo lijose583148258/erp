@@ -177,13 +177,26 @@ function createBrowserHumanFlowAuditContext({
     return text;
   }
 
+  async function waitForRouteReady(page, moduleName, expectedTexts) {
+    const started = Date.now();
+    let lastText = '';
+    while (Date.now() - started < timeouts.route) {
+      lastText = await assertRouteText(page, moduleName, expectedTexts);
+      const isStillLoading = /LOADING\.\.\.|加载中|載入中|Đang tải/i.test(lastText);
+      if (!isStillLoading) {
+        return lastText;
+      }
+      await page.waitForTimeout(300);
+    }
+    throw new Error(`${moduleName} route matched navigation text but content stayed loading`);
+  }
+
   async function openHash(page, hash, moduleName, expectedTexts) {
     await withTimeout(`route-${moduleName}`, timeouts.route, async () => {
       await page.evaluate((nextHash) => {
         window.location.hash = nextHash;
       }, hash);
-      await page.waitForTimeout(1200);
-      await assertRouteText(page, moduleName, expectedTexts);
+      await waitForRouteReady(page, moduleName, expectedTexts);
     });
     return safeScreenshot(page, `route-${moduleName}`);
   }
