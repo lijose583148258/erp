@@ -41,6 +41,7 @@ export default defineConfig(() => {
     plugins: [react()],
     build: {
       outDir: 'dist',
+      emptyOutDir: true,
       sourcemap: false,
       minify: 'esbuild',
       rollupOptions: {
