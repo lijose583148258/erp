@@ -53,11 +53,54 @@ export async function changePurchaseOrderStatus(
     }
   }
 
-  const updated = await tx.purchaseOrder.update({
-    where: { id: existing.id },
+  const claim = await tx.purchaseOrder.updateMany({
+    where: { id: existing.id, status: existing.status },
     data: { status: nextStatus },
+  });
+
+  if (claim.count !== 1) {
+    const latest = await tx.purchaseOrder.findUnique({
+      where: { id: existing.id },
+      include: { supplier: true, salesOrder: true },
+    });
+
+    if (!latest) {
+      throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND, { purchaseOrderId });
+    }
+
+    const latestStatus = normalizePurchaseStatus(latest.status);
+    if (latestStatus === nextStatus) {
+      return latest;
+    }
+
+    if (input.enforceTransition !== false && !canTransitionPurchaseStatus(latestStatus, nextStatus)) {
+      throw new AppError('PURCHASE_STATUS_TRANSITION_NOT_ALLOWED', 409, ErrorCode.CONFLICT, {
+        from: latestStatus,
+        to: nextStatus,
+      });
+    }
+
+    const retryClaim = await tx.purchaseOrder.updateMany({
+      where: { id: latest.id, status: latest.status },
+      data: { status: nextStatus },
+    });
+
+    if (retryClaim.count !== 1) {
+      throw new AppError('PURCHASE_STATUS_TRANSITION_NOT_ALLOWED', 409, ErrorCode.CONFLICT, {
+        from: latestStatus,
+        to: nextStatus,
+      });
+    }
+  }
+
+  const updated = await tx.purchaseOrder.findUnique({
+    where: { id: existing.id },
     include: { supplier: true, salesOrder: true },
   });
+
+  if (!updated) {
+    throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND, { purchaseOrderId });
+  }
 
   if (shouldPostReceipt) {
     const totals = await getPurchaseReceiptTotals(tx, updated.id);
