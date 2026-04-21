@@ -22,6 +22,7 @@
                     "audit:human-flow:list":  "node .\\scripts\\browser-human-flow-audit-v1.cjs --list-modules",
                     "audit:collection:human-flow":  "node .\\scripts\\collection-center-human-flow-browser-audit-v1.cjs",
                     "audit:collection:concurrency":  "node .\\scripts\\collection-concurrency-reconcile-audit-v1.cjs",
+                    "audit:barter:concurrency":  "node .\\scripts\\barter-concurrency-reconcile-audit-v1.cjs",
                     "test:acceptance:dual-port":  "node .\\scripts\\dual-port-audit-v2.cjs",
                     "preview":  "vite preview",
                     "start:stable":  "powershell -ExecutionPolicy Bypass -File .\\scripts\\start-stable-v2.ps1",

@@ -277,7 +277,20 @@ export class BarterService {
       });
 
       if (claim.count !== 1) {
-        throw new Error('Barter settlement has already been posted. Please refresh before retrying.');
+        const latest = await tx.barterSettlement.findUnique({
+          where: { id: settlement.id },
+          select: { id: true, status: true },
+        });
+        if (!latest) {
+          throw new Error('Barter settlement not found');
+        }
+        if (latest.status === 'posted') {
+          throw new Error('Barter settlement has already been posted. Please refresh before retrying.');
+        }
+        if (latest.status === 'reversed') {
+          throw new Error('Barter settlement was reversed before posting. Please refresh before retrying.');
+        }
+        throw new Error(`Barter settlement status changed by another operation: ${settlement.status} -> ${latest.status}`);
       }
 
       if (settlement.agreementId) {
@@ -445,7 +458,7 @@ export class BarterService {
 
     await withDbRetry(() => prisma.$transaction(async (tx) => {
       const claim = await tx.barterSettlement.updateMany({
-        where: { id: settlement.id, status: { in: ['approved', 'posted'] } },
+        where: { id: settlement.id, status: settlement.status },
         data: {
           status: 'reversed',
           reversedAt: new Date(),
@@ -453,7 +466,17 @@ export class BarterService {
       });
 
       if (claim.count !== 1) {
-        return;
+        const latest = await tx.barterSettlement.findUnique({
+          where: { id: settlement.id },
+          select: { id: true, status: true },
+        });
+        if (!latest) {
+          throw new Error('Barter settlement not found');
+        }
+        if (latest.status === 'reversed') {
+          return;
+        }
+        throw new Error(`Barter settlement status changed by another operation: ${settlement.status} -> ${latest.status}`);
       }
 
       if (settlement.paymentRecordId) {
