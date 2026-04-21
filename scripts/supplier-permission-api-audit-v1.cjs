@@ -63,6 +63,27 @@ function unwrapList(payload) {
   return [];
 }
 
+async function assertNoSupplierByName(token, name) {
+  if (!name) return;
+  const rows = await searchSuppliers(token, name);
+  const found = rows.find((row) => String(row.name) === String(name) || String(row.nameZh) === String(name));
+  if (found) {
+    throw new Error(`非法供应商被写入数据库: ${JSON.stringify(found)}`);
+  }
+}
+
+async function assertSupplierCreateRejected(token, label, payload, expectedStatus) {
+  const response = await apiFetch('/procurement/suppliers', {
+    method: 'POST',
+    data: payload,
+  }, token);
+  if (response.status !== expectedStatus) {
+    throw new Error(`${label} 期望 HTTP ${expectedStatus}，实际 ${response.status} ${JSON.stringify(response.json)}`);
+  }
+  await assertNoSupplierByName(token, payload.name || payload.nameZh || payload.nameEn || payload.nameVi);
+  return response.status;
+}
+
 async function login(username, password) {
   const response = await apiFetch('/auth/login', {
     method: 'POST',
@@ -212,6 +233,76 @@ async function run() {
       salesRole: sales.user.role,
       financeRole: finance.user.role,
       warehouseRole: warehouse.user.role,
+    });
+
+    const invalidSupplierBase = {
+      name: `SUP-BAD-BASE-${RUN_ID}`,
+      nameZh: `供应商坏数据-${RUN_ID}`,
+      nameEn: `Bad Supplier ${RUN_ID}`,
+      category: 'Chemical raw materials',
+      rating: 4,
+      leadTimeDays: 7,
+      riskLevel: 'medium',
+      contact: `Bad Contact ${RUN_ID.slice(-4)}`,
+      status: 'active',
+      contacts: [{ name: `Bad Contact ${RUN_ID.slice(-4)}`, phone: DATA.supplierPhone }],
+      addresses: [{ label: 'bad address', countryCode: 'VN', fullAddress: DATA.supplierAddress }],
+    };
+    const invalidSupplierStatuses = {
+      emptyName: await assertSupplierCreateRejected(manager.token, '空名称供应商', {
+        ...invalidSupplierBase,
+        name: '',
+        nameZh: '',
+        nameEn: '',
+        nameVi: '',
+      }, 400),
+      emptyCategory: await assertSupplierCreateRejected(manager.token, '空分类供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-CATEGORY-${RUN_ID}`,
+        nameZh: `供应商坏分类-${RUN_ID}`,
+        category: '',
+      }, 400),
+      invalidRating: await assertSupplierCreateRejected(manager.token, '非法评级供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-RATING-${RUN_ID}`,
+        nameZh: `供应商坏评级-${RUN_ID}`,
+        rating: 9,
+      }, 400),
+      invalidLeadTime: await assertSupplierCreateRejected(manager.token, '非法交期供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-LEAD-${RUN_ID}`,
+        nameZh: `供应商坏交期-${RUN_ID}`,
+        leadTimeDays: -1,
+      }, 400),
+      invalidRiskLevel: await assertSupplierCreateRejected(manager.token, '非法风险等级供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-RISK-${RUN_ID}`,
+        nameZh: `供应商坏风险-${RUN_ID}`,
+        riskLevel: 'critical',
+      }, 400),
+      invalidStatus: await assertSupplierCreateRejected(manager.token, '非法状态供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-STATUS-${RUN_ID}`,
+        nameZh: `供应商坏状态-${RUN_ID}`,
+        status: 'deleted',
+      }, 400),
+      invalidContacts: await assertSupplierCreateRejected(manager.token, '非法联系人供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-CONTACTS-${RUN_ID}`,
+        nameZh: `供应商坏联系人-${RUN_ID}`,
+        contacts: ['not-an-object'],
+      }, 400),
+      invalidAddresses: await assertSupplierCreateRejected(manager.token, '非法地址供应商', {
+        ...invalidSupplierBase,
+        name: `SUP-BAD-ADDRESS-${RUN_ID}`,
+        nameZh: `供应商坏地址-${RUN_ID}`,
+        addresses: { label: 'not-array' },
+      }, 400),
+    };
+    recordStep({
+      step: 'block-invalid-supplier-create',
+      result: 'passed',
+      statuses: invalidSupplierStatuses,
     });
 
     const supplier = await createSupplier(manager.token);

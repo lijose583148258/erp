@@ -67,6 +67,7 @@ export type Permission =
   | 'warehouse.write'
   | 'finance.read'
   | 'finance.currency.sync'
+  | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
   | 'procurement.b2b.read'
@@ -141,6 +142,7 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'warehouse.read', resource: 'warehouse', action: 'read', label: '查看仓储', group: '仓储' },
   { code: 'warehouse.write', resource: 'warehouse', action: 'write', label: '管理仓储', group: '仓储' },
   { code: 'finance.read', resource: 'finance', action: 'read', label: '查看财务', group: '财务' },
+  { code: 'procurement.suppliers.read', resource: 'procurement.suppliers', action: 'read', label: '查看供应商基础资料', group: '采购' },
   { code: 'procurement.read', resource: 'procurement', action: 'read', label: '查看采购', group: '采购' },
   { code: 'procurement.write', resource: 'procurement', action: 'write', label: '管理采购', group: '采购' },
   { code: 'procurement.b2b.read', resource: 'procurement.b2b', action: 'read', label: '查看 B2B 采购状态', group: '采购' },
@@ -219,6 +221,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'warehouse.write',
     'finance.read',
     'finance.currency.sync',
+    'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
@@ -286,6 +289,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'warehouse.write',
     'finance.read',
     'finance.currency.sync',
+    'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
@@ -321,6 +325,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'shipping.receipts.read',
     'rma.read',
     'rma.write',
+    'procurement.suppliers.read',
     'procurement.b2b.read',
     ],
   },
@@ -348,6 +353,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
@@ -384,6 +390,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'adjustments.reverse',
     'finance.read',
     'finance.currency.sync',
+    'procurement.suppliers.read',
     'procurement.read',
     ],
   },

@@ -399,12 +399,19 @@ async function moduleProcurementAndWarehouse(page) {
 
 async function waitForInventoryQueryResult(page, expectedText, timeoutMs = TIMEOUTS.readBack) {
   const started = Date.now();
+  let lastRetryAt = started;
+  const queryButton = page.locator('[data-testid="warehouse-inventory-query-button"]');
+  await queryButton.click();
   while (Date.now() - started < timeoutMs) {
-    await page.locator('[data-testid="warehouse-inventory-query-button"]').click();
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(300);
     const body = await getBodyText(page);
     if (body.includes(expectedText)) {
       return body;
+    }
+    const elapsed = Date.now() - started;
+    if (elapsed > 3500 && Date.now() - lastRetryAt > 3000) {
+      await queryButton.click();
+      lastRetryAt = Date.now();
     }
   }
   throw new Error(`warehouse inventory query did not show: ${expectedText}`);

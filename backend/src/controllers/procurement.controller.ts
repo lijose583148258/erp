@@ -10,8 +10,6 @@ import {
   mapPurchaseOrder,
   mapSupplier,
   normalizePurchaseStatus,
-  serializeJsonList,
-  serializeSupplierAliases,
 } from '../services/procurement-domain.service';
 import {
   createPartialReceiptError,
@@ -23,6 +21,7 @@ import {
   postProcurementReceiptIfMissing,
 } from '../services/procurement-receipt.service';
 import { createPurchaseOrder } from '../services/procurement-order.service';
+import { createSupplierRecord } from '../services/procurement-supplier.service';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
 
 const PROCUREMENT_DATA_SCOPE = 'procurement_visible' as const;
@@ -41,12 +40,6 @@ function canViewSupplierSensitiveData(req: AuthRequest) {
 
 function canViewProcurementOrders(req: AuthRequest) {
   return canUseOperationalDataScope(req, PROCUREMENT_DATA_SCOPE);
-}
-
-async function getSupplierColumnSet() {
-  // SAFE: 参数为硬编码表名 'suppliers'，无用户输入拼接
-  const rows = await prisma.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info('suppliers')`);
-  return new Set((rows || []).map(row => String(row.name)));
 }
 
 async function writeAuditLog(params: {
@@ -91,16 +84,14 @@ export class ProcurementController {
       if (status) where.status = String(status);
       if (riskLevel) where.riskLevel = String(riskLevel);
 
-      const scopedWhere = mergeWhereAnd(where, buildOperationalDataScopeWhere(req, PROCUREMENT_DATA_SCOPE));
-
       const [suppliers, total] = await Promise.all([
         prisma.supplier.findMany({
-          where: scopedWhere,
+          where,
           orderBy: { createdAt: 'desc' },
           skip: offset,
           take: limit,
         }),
-        prisma.supplier.count({ where: scopedWhere }),
+        prisma.supplier.count({ where }),
       ]);
 
       return res.json({
@@ -125,43 +116,7 @@ export class ProcurementController {
         return rejectProcurementScope(res);
       }
 
-      const {
-        name,
-        nameZh,
-        nameEn,
-        nameVi,
-        nameAliases,
-        contacts,
-        addresses,
-        category,
-        rating,
-        leadTimeDays,
-        riskLevel,
-        contact,
-        status,
-      } = req.body;
-
-      const supplierColumns = await getSupplierColumnSet();
-      const supplierData: Prisma.SupplierCreateInput = {
-        name,
-        category,
-        rating: rating !== undefined ? Number(rating) : 4,
-        leadTimeDays: leadTimeDays !== undefined ? Number(leadTimeDays) : 7,
-        riskLevel: riskLevel || 'medium',
-        contact: contact || '',
-        status: status || 'active',
-      };
-
-      if (supplierColumns.has('name_zh')) supplierData.nameZh = nameZh || null;
-      if (supplierColumns.has('name_en')) supplierData.nameEn = nameEn || null;
-      if (supplierColumns.has('name_vi')) supplierData.nameVi = nameVi || null;
-      if (supplierColumns.has('name_aliases')) supplierData.nameAliases = serializeSupplierAliases(nameAliases);
-      if (supplierColumns.has('contacts_json')) supplierData.contactsJson = serializeJsonList(contacts);
-      if (supplierColumns.has('addresses_json')) supplierData.addressesJson = serializeJsonList(addresses);
-
-      const supplier = await prisma.supplier.create({
-        data: supplierData,
-      });
+      const supplier = await prisma.$transaction(tx => createSupplierRecord(tx, req.body));
 
       await writeAuditLog({
         req,
@@ -178,7 +133,24 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('创建供应商错误:', error);
-      return res.status(500).json({ success: false, message: '服务器内部错误' });
+      const statusCode = error instanceof AppError ? error.statusCode : 500;
+      const errorKey = error instanceof Error ? error.message : '';
+      const details = error instanceof AppError ? error.details : undefined;
+      const messages: Record<string, string> = {
+        SUPPLIER_INVALID_NAME: '供应商至少需要一个公司名称',
+        SUPPLIER_INVALID_CATEGORY: '供应商分类不能为空',
+        SUPPLIER_INVALID_RATING: '供应商评级必须是 0 到 5 之间的数字',
+        SUPPLIER_INVALID_LEAD_TIME: '交期天数必须是大于等于 0 的整数',
+        SUPPLIER_INVALID_RISK_LEVEL: '供应商风险等级不正确',
+        SUPPLIER_INVALID_STATUS: '供应商状态不正确',
+        SUPPLIER_INVALID_CONTACTS: '供应商联系人必须是对象数组',
+        SUPPLIER_INVALID_ADDRESSES: '供应商地址必须是对象数组',
+      };
+      return res.status(statusCode).json({
+        success: false,
+        message: messages[errorKey] || '创建供应商失败',
+        details,
+      });
     }
   }
 

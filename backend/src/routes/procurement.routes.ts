@@ -16,7 +16,7 @@ const procurementController = new ProcurementController();
 
 router.use(authenticate);
 
-router.get('/suppliers', authorizePermission('procurement.read'), procurementController.getSuppliers);
+router.get('/suppliers', authorizePermission('procurement.suppliers.read'), procurementController.getSuppliers);
 router.post('/suppliers', authorizePermission('procurement.write'), validateZod(createSupplierSchema), procurementController.createSupplier);
 
 router.get('/orders', authorizePermission('procurement.read'), procurementController.getOrders);
