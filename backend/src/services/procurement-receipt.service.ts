@@ -114,6 +114,31 @@ function toOptionalReceiptText(value: unknown) {
   return String(value);
 }
 
+async function claimPurchaseReceiptWrite(tx: TransactionClient, purchaseOrderId: number) {
+  const normalizedId = Number(purchaseOrderId);
+  if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
+    throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
+  }
+
+  // Make the first operation a write so concurrent partial receipts serialize before remaining quantity is calculated.
+  const claim = await tx.purchaseOrder.updateMany({
+    where: { id: normalizedId },
+    data: { updatedAt: new Date() },
+  });
+  if (claim.count !== 1) {
+    throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
+  }
+
+  const order = await tx.purchaseOrder.findUnique({
+    where: { id: normalizedId },
+    include: { supplier: true, salesOrder: true },
+  });
+  if (!order) {
+    throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
+  }
+  return order;
+}
+
 export function createPartialReceiptError() {
   return new AppError(PARTIAL_RECEIPT_ERROR, 409, ErrorCode.CONFLICT);
 }
@@ -297,13 +322,7 @@ export async function createPurchaseReceiptBatch(
   input: CreatePurchaseReceiptBatchInput,
 ) {
   const { inputQuantity, acceptedQuantity, rejectedQuantity } = normalizeReceiptQuantities(input);
-  const order = await tx.purchaseOrder.findUnique({
-    where: { id: input.purchaseOrderId },
-    include: { supplier: true, salesOrder: true },
-  });
-  if (!order) {
-    throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
-  }
+  const order = await claimPurchaseReceiptWrite(tx, input.purchaseOrderId);
   if (order.status === 'cancelled') {
     throw new AppError('PURCHASE_ORDER_CANCELLED', 409, ErrorCode.CONFLICT);
   }

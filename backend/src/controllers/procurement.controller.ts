@@ -25,6 +25,7 @@ import {
   syncB2BSalesStatusToPurchase,
 } from '../services/procurement-b2b.service';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
+import { withDbRetry } from '../utils/dbRetry';
 
 const PROCUREMENT_DATA_SCOPE = 'procurement_visible' as const;
 
@@ -246,7 +247,7 @@ export class ProcurementController {
       }
 
       const purchaseOrderId = Number(req.params.id);
-      const result = await prisma.$transaction(tx => createPurchaseReceiptBatch(tx, {
+      const result = await withDbRetry(() => prisma.$transaction(tx => createPurchaseReceiptBatch(tx, {
         purchaseOrderId,
         quantity: req.body.quantity,
         acceptedQuantity: req.body.acceptedQuantity,
@@ -257,7 +258,7 @@ export class ProcurementController {
         discrepancyType: req.body.discrepancyType,
         note: req.body.note,
         createdBy: req.user?.userId || null,
-      }));
+      })), { label: 'createPurchaseReceipt' });
 
       await writeAuditLog({
         req,
