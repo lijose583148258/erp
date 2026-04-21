@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Shipment, AssetSummary, AssetTransaction, AssetType, Customer } from '../../types';
 import { useAppContext } from '../../app/AppContext';
-import { shipmentService, ShipmentReceiptBundle } from '../../services/shipping.service';
+import { shipmentService } from '../../services/shipping.service';
 import { assetService } from '../../services/asset.service';
 import { customerService } from '../../services/customer.service';
 import { OcrDocumentData, parseOcrDocument, matchCustomer } from '../../services/smartFormService';
 import { getCustomerDisplayName } from '../../utils/customerName';
 import { isCanceledApiError } from '../../utils/api';
 import { reportClientIssue } from '../../utils/clientIssue';
+import { useShippingReceipts } from './useShippingReceipts';
 
 export const useShipping = () => {
     const { t, notify, language } = useAppContext();
@@ -26,25 +27,6 @@ export const useShipping = () => {
 
     const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
     const [aiInsights, setAiInsights] = useState<{ title: string; desc: string; level: 'low' | 'medium' | 'high' }[]>([]);
-    const [uploadingId, setUploadingId] = useState<string | null>(null);
-    const [receiptDrawerShipment, setReceiptDrawerShipment] = useState<Shipment | null>(null);
-    const [receiptBundle, setReceiptBundle] = useState<ShipmentReceiptBundle | null>(null);
-    const [isReceiptLoading, setIsReceiptLoading] = useState(false);
-    const [receiptForm, setReceiptForm] = useState<{
-        quantity: string;
-        acceptedQuantity: string;
-        rejectedQuantity: string;
-        discrepancyReason: string;
-        note: string;
-        file: File | null;
-    }>({
-        quantity: '',
-        acceptedQuantity: '',
-        rejectedQuantity: '0',
-        discrepancyReason: '',
-        note: '',
-        file: null,
-    });
 
     const [isAssetModalOpen, setIsAssetModalOpen] = useState(false);
     const [assetForm, setAssetForm] = useState<{
@@ -63,7 +45,7 @@ export const useShipping = () => {
         note: ''
     });
 
-    const fileInputRef = useRef<HTMLInputElement>(null);
+    const receipts = useShippingReceipts({ t, notify, setShipments });
     const ocrFileInputRef = useRef<HTMLInputElement>(null);
 
     const loadData = async (signal?: AbortSignal) => {
@@ -304,76 +286,6 @@ export const useShipping = () => {
         }
     };
 
-    const handleFileUpload = (id: string) => {
-        setUploadingId(id);
-        fileInputRef.current?.click();
-    };
-
-    const resetReceiptForm = (shipment?: Shipment | null, bundle?: ShipmentReceiptBundle | null) => {
-        const remaining = bundle?.receiptSummary.remainingQuantity ?? shipment?.quantity ?? 0;
-        const nextQuantity = remaining > 0 ? String(remaining) : '';
-        setReceiptForm({
-            quantity: nextQuantity,
-            acceptedQuantity: nextQuantity,
-            rejectedQuantity: '0',
-            discrepancyReason: '',
-            note: '',
-            file: null,
-        });
-    };
-
-    const handleOpenReceiptEvents = async (shipment: Shipment) => {
-        try {
-            setReceiptDrawerShipment(shipment);
-            setIsReceiptLoading(true);
-            const bundle = await shipmentService.getReceiptEvents(shipment.id);
-            setReceiptBundle(bundle);
-            resetReceiptForm(bundle.shipment, bundle);
-        } catch (err) {
-            reportClientIssue('shipping.receipt-events-load', err);
-            notify('error', t.saveFail || '签收批次读取失败');
-        } finally {
-            setIsReceiptLoading(false);
-        }
-    };
-
-    const handleReceiptFileChange = (file: File | null) => {
-        setReceiptForm(prev => ({ ...prev, file }));
-    };
-
-    const handleSubmitReceiptEvent = async () => {
-        if (!receiptDrawerShipment) return;
-        const quantity = Number(receiptForm.quantity);
-        const acceptedQuantity = Number(receiptForm.acceptedQuantity || 0);
-        const rejectedQuantity = Number(receiptForm.rejectedQuantity || 0);
-        if (!Number.isFinite(quantity) || quantity <= 0 || Math.abs(quantity - acceptedQuantity - rejectedQuantity) > 0.000001) {
-            notify('error', '本次签收必须等于正常签收与异常数量之和');
-            return;
-        }
-
-        try {
-            setIsReceiptLoading(true);
-            const bundle = await shipmentService.createReceiptEvent(receiptDrawerShipment.id, {
-                quantity,
-                acceptedQuantity,
-                rejectedQuantity,
-                discrepancyReason: receiptForm.discrepancyReason || undefined,
-                note: receiptForm.note || undefined,
-                file: receiptForm.file,
-            });
-            setReceiptBundle(bundle);
-            setReceiptDrawerShipment(bundle.shipment);
-            setShipments(prev => prev.map(item => item.id === bundle.shipment.id ? bundle.shipment : item));
-            resetReceiptForm(bundle.shipment, bundle);
-            notify('success', '签收批次已记录');
-        } catch (err) {
-            reportClientIssue('shipping.receipt-event-submit', err);
-            notify('error', t.saveFail || '签收批次保存失败');
-        } finally {
-            setIsReceiptLoading(false);
-        }
-    };
-
     const handleShipmentStatusUpdate = async (id: string, status: 'in_transit' | 'exception') => {
         try {
             const updatedShipment = await shipmentService.updateStatus(id, status);
@@ -389,23 +301,6 @@ export const useShipping = () => {
         if (!Array.isArray(newData)) return;
         setShipments(prev => [...newData, ...prev]);
         notify('success', `${t.importSuccessCount || 'Imported successfully'} (${newData.length})`);
-    };
-
-    const onFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
-        if (e.target.files?.[0] && uploadingId) {
-            const file = e.target.files[0];
-            try {
-                const updatedShipment = await shipmentService.uploadReceipt(uploadingId, file);
-                setShipments(prev => prev.map(s => s.id === uploadingId ? updatedShipment : s));
-                setUploadingId(null);
-                notify('success', t.podSuccess || '签收凭证已上传');
-            } catch (err) {
-                reportClientIssue('shipping.receipt-upload', err);
-                notify('error', t.saveFail || 'Failed to update status');
-            } finally {
-                e.target.value = '';
-            }
-        }
     };
 
     const laneStats = useMemo(() => {
@@ -484,13 +379,13 @@ export const useShipping = () => {
         previewMode,
         isAiPanelOpen,
         aiInsights,
-        fileInputRef,
+        fileInputRef: receipts.fileInputRef,
         ocrFileInputRef,
-        uploadingId,
-        receiptDrawerShipment,
-        receiptBundle,
-        receiptForm,
-        isReceiptLoading,
+        uploadingId: receipts.uploadingId,
+        receiptDrawerShipment: receipts.receiptDrawerShipment,
+        receiptBundle: receipts.receiptBundle,
+        receiptForm: receipts.receiptForm,
+        isReceiptLoading: receipts.isReceiptLoading,
         isAssetModalOpen,
         assetForm,
         setAssetForm,
@@ -504,15 +399,15 @@ export const useShipping = () => {
         togglePreviewMode,
         handleApplyOcr,
         handleAssetSubmit,
-        handleFileUpload,
-        handleOpenReceiptEvents,
-        handleReceiptFileChange,
-        handleSubmitReceiptEvent,
-        setReceiptDrawerShipment,
-        setReceiptForm,
+        handleFileUpload: receipts.handleFileUpload,
+        handleOpenReceiptEvents: receipts.handleOpenReceiptEvents,
+        handleReceiptFileChange: receipts.handleReceiptFileChange,
+        handleSubmitReceiptEvent: receipts.handleSubmitReceiptEvent,
+        setReceiptDrawerShipment: receipts.setReceiptDrawerShipment,
+        setReceiptForm: receipts.setReceiptForm,
         handleShipmentStatusUpdate,
         handleImport,
-        onFileChange,
+        onFileChange: receipts.onFileChange,
         laneStats,
         coldChainSeries,
         generateAiInsights,
