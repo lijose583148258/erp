@@ -21,7 +21,7 @@ services:
       LOG_DIR: ${LOG_DIR:-/data/logs}
       UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-90}
-      JWT_SECRET: ${JWT_SECRET:-change-me-before-server-deploy}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set before server deploy}
       CORS_ORIGIN: ${CORS_ORIGIN:-http://127.0.0.1:5001,http://localhost:5001}
       API_RATE_LIMIT_WINDOW_MS: ${API_RATE_LIMIT_WINDOW_MS:-900000}
       API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-2000}
