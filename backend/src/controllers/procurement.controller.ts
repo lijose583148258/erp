@@ -40,6 +40,10 @@ function canViewSupplierSensitiveData(req: AuthRequest) {
   return canUseOperationalDataScope(req, PROCUREMENT_DATA_SCOPE);
 }
 
+function canViewSupplierDirectory(req: AuthRequest) {
+  return req.user?.role === 'sales' || canViewSupplierSensitiveData(req);
+}
+
 function canViewProcurementOrders(req: AuthRequest) {
   return canUseOperationalDataScope(req, PROCUREMENT_DATA_SCOPE);
 }
@@ -85,15 +89,19 @@ export class ProcurementController {
 
       if (status) where.status = String(status);
       if (riskLevel) where.riskLevel = String(riskLevel);
+      const scopedWhere = mergeWhereAnd(
+        where,
+        canViewSupplierDirectory(req) ? {} : buildOperationalDataScopeWhere(req, PROCUREMENT_DATA_SCOPE),
+      );
 
       const [suppliers, total] = await Promise.all([
         prisma.supplier.findMany({
-          where,
+          where: scopedWhere,
           orderBy: { createdAt: 'desc' },
           skip: offset,
           take: limit,
         }),
-        prisma.supplier.count({ where }),
+        prisma.supplier.count({ where: scopedWhere }),
       ]);
 
       return res.json({

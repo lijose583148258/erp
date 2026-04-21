@@ -15,18 +15,26 @@ import type {
   CreateBarterSettlementInput,
 } from './barter/barter.types';
 import { computeItemValue, previewBarterSettlement, roundMoney } from './barter/barter.calculations';
-import {
-  determineAgreementStatus,
-  parseBarterMetadata,
-  resolveCounterpartyIds,
-  toDisplayName,
-} from './barter/barter.formatters';
+import { parseBarterMetadata } from './barter/barter.formatters';
 import {
   assertBarterApprovalTransition,
   assertBarterPostingTransition,
   assertBarterReversalTransition,
 } from './barter/barter.transitions';
 import { postBarterStockEntries, postBarterStockReversalEntries } from './barter/barter.stock';
+import { validateCounterpartyAndOrderLinks } from './barter/barter-counterparty.service';
+import {
+  createBarterAgreement,
+  createBarterBatchForAgreement,
+  getBarterAgreement,
+  listBarterAgreements,
+  syncBarterAgreementProgress,
+} from './barter/barter-agreement.service';
+import {
+  getBarterSettlement,
+  getBarterSummary,
+  listBarterSettlements,
+} from './barter/barter-query.service';
 
 export type {
   BarterAgreementListQuery,
@@ -48,588 +56,41 @@ export class BarterService {
     return previewBarterSettlement(input);
   }
 
-  private static async validateCounterpartyAndOrderLinks(input: {
-    counterpartyType: BarterCounterpartyType;
-    customerId?: number | null;
-    supplierId?: number | null;
-    orderId?: number | null;
-  }) {
-    const { customerId, supplierId } = resolveCounterpartyIds(input);
-
-    if (input.counterpartyType === 'customer' && !customerId) {
-      throw new Error('Customer is required for customer barter settlement');
-    }
-
-    if (input.counterpartyType === 'supplier' && !supplierId) {
-      throw new Error('Supplier is required for supplier barter settlement');
-    }
-
-    if (customerId) {
-      const customer = await prisma.customer.findUnique({
-        where: { id: customerId },
-        select: { id: true },
-      });
-
-      if (!customer) {
-        throw new Error('Customer not found for barter settlement');
-      }
-    }
-
-    if (supplierId) {
-      const supplier = await prisma.supplier.findUnique({
-        where: { id: supplierId },
-        select: { id: true },
-      });
-
-      if (!supplier) {
-        throw new Error('Supplier not found for barter settlement');
-      }
-    }
-
-    if (input.orderId) {
-      const linkedOrder = await prisma.order.findUnique({
-        where: { id: input.orderId },
-        select: {
-          id: true,
-          customerId: true,
-          status: true,
-        },
-      });
-
-      if (!linkedOrder) {
-        throw new Error('Linked order not found');
-      }
-
-      if (linkedOrder.status === 'cancelled') {
-        throw new Error('Cancelled order cannot be linked to barter settlement');
-      }
-
-      if (customerId && linkedOrder.customerId !== customerId) {
-        throw new Error('Linked order does not belong to the selected customer');
-      }
-    }
-
-    return { customerId, supplierId };
-  }
-
   static async syncAgreementProgress(agreementId: number, client: TransactionClient = prisma) {
-    const agreement = await client.barterAgreement.findUnique({
-      where: { id: agreementId },
-      select: {
-        id: true,
-        agreedOffsetAmount: true,
-        status: true,
-      },
-    });
-
-    if (!agreement) {
-      throw new Error('Barter agreement not found');
-    }
-
-    const settlements = await client.barterSettlement.findMany({
-      where: { agreementId },
-      select: {
-        status: true,
-        offsetPostings: {
-          select: {
-            offsetAmount: true,
-          },
-        },
-      },
-    });
-
-    const executedOffsetAmount = roundMoney(settlements.reduce((sum, settlement) => {
-      if (settlement.status !== 'posted') {
-        return sum;
-      }
-      return sum + settlement.offsetPostings.reduce((postingTotal, posting) => postingTotal + Number(posting.offsetAmount), 0);
-    }, 0));
-    const agreedOffsetAmount = roundMoney(Number(agreement.agreedOffsetAmount || 0));
-    const remainingOffsetAmount = roundMoney(Math.max(agreedOffsetAmount - executedOffsetAmount, 0));
-    const completionRatio = agreedOffsetAmount <= 0 ? 0 : roundMoney(Math.min(executedOffsetAmount / agreedOffsetAmount, 1));
-    const status = determineAgreementStatus(String(agreement.status || 'active'), executedOffsetAmount, remainingOffsetAmount);
-
-    return client.barterAgreement.update({
-      where: { id: agreementId },
-      data: {
-        executedOffsetAmount,
-        remainingOffsetAmount,
-        completionRatio,
-        status,
-      },
-    });
+    return syncBarterAgreementProgress(agreementId, client);
   }
 
   static async getSummary(where: Prisma.BarterSettlementWhereInput = {}) {
-    const settlements = await prisma.barterSettlement.findMany({
-      where,
-      select: {
-        status: true,
-        totalPartyAValue: true,
-        totalPartyBValue: true,
-        cashDifference: true,
-        offsetPostings: { select: { offsetAmount: true } },
-      },
-    });
-
-    const settlementCount = settlements.length;
-    const quotedCount = settlements.filter(item => item.status === 'draft' || item.status === 'quoted').length;
-    const approvedCount = settlements.filter(item => item.status === 'approved').length;
-    const postedCount = settlements.filter(item => item.status === 'posted').length;
-    const reversedCount = settlements.filter(item => item.status === 'reversed').length;
-
-    const totalOffset = settlements.reduce((sum, settlement) => {
-      const postingSum = settlement.offsetPostings.reduce((postingTotal, posting) => postingTotal + Number(posting.offsetAmount), 0);
-      return sum + postingSum;
-    }, 0);
-
-    const totalCashDifference = settlements.reduce((sum, settlement) => sum + Number(settlement.cashDifference), 0);
-
-    return {
-      settlementCount,
-      quotedCount,
-      approvedCount,
-      postedCount,
-      reversedCount,
-      totalOffset: roundMoney(totalOffset),
-      totalCashDifference: roundMoney(totalCashDifference),
-    };
+    return getBarterSummary(where);
   }
 
   static async listAgreements(query: BarterAgreementListQuery) {
-    const page = Math.max(1, Number(query.page || 1));
-    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 10)));
-    const where: Prisma.BarterAgreementWhereInput = {};
-
-    if (query.status) {
-      where.status = query.status;
-    }
-
-    if (query.counterpartyType) {
-      where.counterpartyType = query.counterpartyType;
-    }
-
-    if (query.search) {
-      const normalizedSearch = String(query.search).trim();
-      where.OR = [
-        { agreementNo: { contains: normalizedSearch } },
-        { counterpartyName: { contains: normalizedSearch } },
-      ];
-    }
-    const finalWhere: Prisma.BarterAgreementWhereInput = query.where && Object.keys(query.where).length > 0
-      ? { AND: [where, query.where] }
-      : where;
-
-    const [total, items] = await Promise.all([
-      prisma.barterAgreement.count({ where: finalWhere }),
-      prisma.barterAgreement.findMany({
-        where: finalWhere,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: {
-          id: true,
-          agreementNo: true,
-          counterpartyType: true,
-          counterpartyName: true,
-          settlementMode: true,
-          totalPartyAValue: true,
-          totalPartyBValue: true,
-          agreedOffsetAmount: true,
-          executedOffsetAmount: true,
-          remainingOffsetAmount: true,
-          completionRatio: true,
-          currency: true,
-          status: true,
-          agreementDate: true,
-          valuationDate: true,
-          createdAt: true,
-          updatedAt: true,
-          customer: { select: { name: true, nameZh: true, nameEn: true, nameVi: true } },
-          supplier: { select: { name: true, nameZh: true, nameEn: true, nameVi: true } },
-          order: { select: { orderNo: true } },
-          _count: { select: { settlements: true } },
-        },
-      }),
-    ]);
-
-    return {
-      total,
-      page,
-      pageSize,
-      items: items.map(item => ({
-        ...item,
-        customerDisplayName: toDisplayName(item.customer),
-        supplierDisplayName: toDisplayName(item.supplier),
-        batchCount: Number(item._count?.settlements || 0),
-      })),
-    };
+    return listBarterAgreements(query);
   }
 
   static async getAgreement(id: number) {
-    const agreement = await prisma.barterAgreement.findUnique({
-      where: { id },
-      include: {
-        creator: { select: { id: true, username: true } },
-        customer: { select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true } },
-        supplier: { select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true } },
-        order: { select: { id: true, orderNo: true } },
-        items: { orderBy: { id: 'asc' } },
-        settlements: {
-          orderBy: [{ batchIndex: 'desc' }, { createdAt: 'desc' }],
-          include: {
-            items: { orderBy: { id: 'asc' } },
-            offsetPostings: { orderBy: { id: 'asc' } },
-            reversalLogs: { orderBy: { id: 'asc' } },
-            paymentRecord: { select: { id: true, amount: true, status: true, method: true, date: true } },
-          },
-        },
-      },
-    });
-
-    if (!agreement) {
-      throw new Error('Barter agreement not found');
-    }
-
-    return {
-      ...agreement,
-      customerDisplayName: toDisplayName(agreement.customer),
-      supplierDisplayName: toDisplayName(agreement.supplier),
-    };
+    return getBarterAgreement(id);
   }
 
   static async createAgreement(input: CreateBarterAgreementInput) {
-    const preview = this.preview({ items: input.items, settlementMode: input.settlementMode });
-    const { customerId, supplierId } = await this.validateCounterpartyAndOrderLinks(input);
-
-    const agreement = await prisma.barterAgreement.create({
-      data: {
-        agreementNo: buildBusinessNo('BTA'),
-        counterpartyType: input.counterpartyType,
-        counterpartyName: input.counterpartyName,
-        customerId,
-        supplierId,
-        orderId: input.orderId ?? null,
-        settlementMode: input.settlementMode || 'mixed',
-        totalPartyAValue: preview.totalPartyAValue,
-        totalPartyBValue: preview.totalPartyBValue,
-        agreedOffsetAmount: preview.suggestedOffsetAmount,
-        executedOffsetAmount: 0,
-        remainingOffsetAmount: preview.suggestedOffsetAmount,
-        completionRatio: 0,
-        currency: input.currency || 'CNY',
-        agreementDate: input.agreementDate || new Date(),
-        valuationDate: input.valuationDate || input.agreementDate || new Date(),
-        note: input.note || null,
-        createdBy: input.createdBy,
-        status: 'active',
-        items: {
-          create: input.items.map((item) => ({
-            side: item.side,
-            itemName: item.itemName,
-            specification: item.specification || null,
-            unit: item.unit,
-            quantity: Number(item.quantity),
-            unitPrice: Number(item.unitPrice),
-            qualityFactor: item.qualityFactor ?? 1,
-            lossFactor: item.lossFactor ?? 1,
-            marketValue: computeItemValue(item),
-            valuationMethod: item.valuationMethod || 'market',
-            sourceDocument: item.sourceDocument || null,
-            note: item.note || null,
-          })),
-        },
-      },
-    });
-
-    return this.getAgreement(agreement.id);
+    return createBarterAgreement(input);
   }
 
   static async createBatchForAgreement(agreementId: number, input: CreateBarterBatchInput) {
-    const agreement = await prisma.barterAgreement.findUnique({
-      where: { id: agreementId },
-      select: {
-        id: true,
-        counterpartyType: true,
-        customerId: true,
-        supplierId: true,
-        orderId: true,
-      },
-    });
-
-    if (!agreement) {
-      throw new Error('Barter agreement not found');
-    }
-
-    await this.validateCounterpartyAndOrderLinks({
-      counterpartyType: agreement.counterpartyType as BarterCounterpartyType,
-      customerId: agreement.customerId,
-      supplierId: agreement.supplierId,
-      orderId: input.orderId ?? agreement.orderId ?? null,
-    });
-
-    const duplicateWindowStart = new Date(Date.now() - 15_000);
-    const createdSettlement = await withDbRetry(() => prisma.$transaction(async (tx) => {
-      // Touching the parent agreement serializes concurrent batch creation in SQLite,
-      // so two identical clicks cannot both compute the same next batch index.
-      await tx.barterAgreement.update({
-        where: { id: agreementId },
-        data: { updatedAt: new Date() },
-      });
-
-      const liveAgreement = await tx.barterAgreement.findUnique({
-        where: { id: agreementId },
-        include: {
-          settlements: {
-            select: {
-              id: true,
-              batchIndex: true,
-            },
-            orderBy: { batchIndex: 'desc' },
-            take: 1,
-          },
-        },
-      });
-
-      if (!liveAgreement) {
-        throw new Error('Barter agreement not found');
-      }
-
-      if (liveAgreement.status === 'closed' || liveAgreement.status === 'terminated') {
-        throw new Error(`Barter agreement status ${liveAgreement.status} cannot create new execution batches`);
-      }
-
-      if (Number(liveAgreement.remainingOffsetAmount || 0) <= 0) {
-        throw new Error('Barter agreement has no remaining offset amount');
-      }
-
-      const preview = this.preview({ items: input.items, settlementMode: liveAgreement.settlementMode as BarterSettlementMode });
-      if (preview.suggestedOffsetAmount > Number(liveAgreement.remainingOffsetAmount || 0)) {
-        throw new Error(`Batch offset amount cannot exceed agreement remaining amount ${liveAgreement.remainingOffsetAmount}`);
-      }
-
-      const duplicateBatch = await tx.barterSettlement.findFirst({
-        where: {
-          agreementId: liveAgreement.id,
-          createdBy: input.createdBy,
-          note: input.note || null,
-          status: { in: ['quoted', 'approved', 'posted'] },
-          totalPartyAValue: preview.totalPartyAValue,
-          totalPartyBValue: preview.totalPartyBValue,
-          cashDifference: preview.cashDifference,
-          createdAt: { gte: duplicateWindowStart },
-        },
-        select: { id: true },
-      });
-
-      if (duplicateBatch) {
-        const error = new Error('Duplicate barter batch submission detected. Please refresh settlement batches before submitting again.');
-        throw error;
-      }
-
-      const batchIndex = Number(liveAgreement.settlements[0]?.batchIndex || 0) + 1;
-      return tx.barterSettlement.create({
-        data: {
-          settlementNo: buildBusinessNo('BT'),
-          agreementId: liveAgreement.id,
-          batchIndex,
-          counterpartyType: liveAgreement.counterpartyType,
-          counterpartyName: liveAgreement.counterpartyName,
-          customerId: liveAgreement.customerId,
-          supplierId: liveAgreement.supplierId,
-          orderId: input.orderId ?? liveAgreement.orderId ?? null,
-          settlementMode: liveAgreement.settlementMode,
-          totalPartyAValue: preview.totalPartyAValue,
-          totalPartyBValue: preview.totalPartyBValue,
-          cashDifference: preview.cashDifference,
-          currency: liveAgreement.currency,
-          valuationDate: input.valuationDate || liveAgreement.valuationDate || new Date(),
-          note: input.note || null,
-          createdBy: input.createdBy,
-          status: 'quoted',
-          items: {
-            create: input.items.map(item => ({
-              side: item.side,
-              itemName: item.itemName,
-              specification: item.specification || null,
-              unit: item.unit,
-              quantity: Number(item.quantity),
-              unitPrice: Number(item.unitPrice),
-              qualityFactor: item.qualityFactor ?? 1,
-              lossFactor: item.lossFactor ?? 1,
-              marketValue: computeItemValue(item),
-              valuationMethod: item.valuationMethod || 'market',
-              sourceDocument: item.sourceDocument || null,
-              note: item.note || null,
-            })),
-          },
-          valuationSnapshots: {
-            create: input.items.map(item => ({
-              itemName: item.itemName,
-              referencePrice: Number(item.unitPrice),
-              referenceSource: item.sourceDocument || null,
-              marketArea: null,
-              validUntil: null,
-              note: item.note || null,
-            })),
-          },
-        },
-        select: { id: true },
-      });
-    }), { label: 'createBarterBatchForAgreement' });
-
-    return this.getSettlement(createdSettlement.id);
+    return createBarterBatchForAgreement(agreementId, input);
   }
 
   static async listSettlements(query: BarterListQuery) {
-    const page = Math.max(1, Number(query.page || 1));
-    const pageSize = Math.min(100, Math.max(1, Number(query.pageSize || 10)));
-    const where: Prisma.BarterSettlementWhereInput = {};
-
-    if (query.status) {
-      where.status = query.status;
-    }
-
-    if (query.counterpartyType) {
-      where.counterpartyType = query.counterpartyType;
-    }
-
-    if (query.search) {
-      const normalizedSearch = String(query.search).trim();
-      where.OR = [
-        { settlementNo: { contains: normalizedSearch } },
-        { counterpartyName: { contains: normalizedSearch } },
-      ];
-    }
-    const finalWhere: Prisma.BarterSettlementWhereInput = query.where && Object.keys(query.where).length > 0
-      ? { AND: [where, query.where] }
-      : where;
-
-    const [total, items] = await Promise.all([
-      prisma.barterSettlement.count({ where: finalWhere }),
-      prisma.barterSettlement.findMany({
-        where: finalWhere,
-        orderBy: { createdAt: 'desc' },
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: {
-          id: true,
-          settlementNo: true,
-          agreementId: true,
-          batchIndex: true,
-          counterpartyType: true,
-          counterpartyName: true,
-          settlementMode: true,
-          totalPartyAValue: true,
-          totalPartyBValue: true,
-          cashDifference: true,
-          currency: true,
-          status: true,
-          valuationDate: true,
-          createdAt: true,
-          approvedAt: true,
-          postedAt: true,
-          reversedAt: true,
-          agreement: { select: { agreementNo: true } },
-          customer: { select: { name: true, nameZh: true, nameEn: true, nameVi: true } },
-          supplier: { select: { name: true, nameZh: true, nameEn: true, nameVi: true } },
-          order: { select: { orderNo: true } },
-          items: {
-            select: {
-              id: true,
-              side: true,
-              itemName: true,
-              specification: true,
-              unit: true,
-              quantity: true,
-              unitPrice: true,
-              qualityFactor: true,
-              lossFactor: true,
-              marketValue: true,
-              valuationMethod: true,
-            },
-            orderBy: { id: 'asc' },
-          },
-          valuationSnapshots: {
-            select: {
-              id: true,
-              itemName: true,
-              referencePrice: true,
-              referenceSource: true,
-              marketArea: true,
-              validUntil: true,
-              appraisedAt: true,
-            },
-            orderBy: { id: 'asc' },
-          },
-          offsetPostings: {
-            select: {
-              id: true,
-              offsetAmount: true,
-              offsetType: true,
-              postedAt: true,
-              paymentRecordId: true,
-            },
-            orderBy: { id: 'asc' },
-          },
-          reversalLogs: {
-            select: {
-              id: true,
-              originalStatus: true,
-              reason: true,
-              reversedAt: true,
-            },
-            orderBy: { id: 'asc' },
-          },
-        },
-      }),
-    ]);
-
-    return {
-      total,
-      page,
-      pageSize,
-      items: items.map(item => ({
-        ...item,
-        agreementNo: item.agreement?.agreementNo || null,
-        customerDisplayName: toDisplayName(item.customer),
-        supplierDisplayName: toDisplayName(item.supplier),
-      })),
-    };
+    return listBarterSettlements(query);
   }
 
   static async getSettlement(id: number) {
-    const settlement = await prisma.barterSettlement.findUnique({
-      where: { id },
-      include: {
-        creator: { select: { id: true, username: true } },
-        agreement: { select: { id: true, agreementNo: true, status: true, agreedOffsetAmount: true, executedOffsetAmount: true, remainingOffsetAmount: true } },
-        customer: { select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true } },
-        supplier: { select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true } },
-        order: { select: { id: true, orderNo: true } },
-        paymentRecord: { select: { id: true, amount: true, method: true, status: true, date: true, barterMetadata: true } },
-        items: { orderBy: { id: 'asc' } },
-        valuationSnapshots: { orderBy: { id: 'asc' } },
-        offsetPostings: { orderBy: { id: 'asc' } },
-        reversalLogs: { orderBy: { id: 'asc' } },
-      },
-    });
-
-    if (!settlement) {
-      throw new Error('Barter settlement not found');
-    }
-
-    return {
-      ...settlement,
-      agreementNo: settlement.agreement?.agreementNo || null,
-      customerDisplayName: toDisplayName(settlement.customer),
-      supplierDisplayName: toDisplayName(settlement.supplier),
-    };
+    return getBarterSettlement(id);
   }
 
   static async createSettlement(input: CreateBarterSettlementInput) {
     const preview = this.preview({ items: input.items, settlementMode: input.settlementMode });
-    const { customerId, supplierId } = await this.validateCounterpartyAndOrderLinks(input);
+    const { customerId, supplierId } = await validateCounterpartyAndOrderLinks(input);
 
     if (input.agreementId) {
       const agreement = await prisma.barterAgreement.findUnique({

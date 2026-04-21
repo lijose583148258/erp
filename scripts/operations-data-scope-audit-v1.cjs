@@ -256,8 +256,8 @@ async function createFixtureData(managerToken) {
 
 async function makeScopedUsers(adminToken) {
   const roleSpecs = [
-    { key: 'procurementScope', dataScopes: ['procurement_visible'], permissions: ['procurement.read'] },
-    { key: 'procurementNone', dataScopes: [], permissions: ['procurement.read'] },
+    { key: 'procurementScope', dataScopes: ['procurement_visible'], permissions: ['procurement.read', 'procurement.suppliers.read'] },
+    { key: 'procurementNone', dataScopes: [], permissions: ['procurement.read', 'procurement.suppliers.read'] },
     { key: 'warehouseScope', dataScopes: ['warehouse_visible'], permissions: ['warehouse.read'] },
     { key: 'warehouseNone', dataScopes: [], permissions: ['warehouse.read'] },
     { key: 'assetScope', dataScopes: ['finance_visible'], permissions: ['assets.read'] },
