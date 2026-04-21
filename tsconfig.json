@@ -39,6 +39,7 @@
     "src",
     "temp_compare_cleanmigration",
     "tempdb",
+    "utils/quarantine",
     "历史归档",
     "文档归档",
     "测试"

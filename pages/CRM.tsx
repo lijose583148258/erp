@@ -41,7 +41,7 @@ const CRM = () => {
           title={crm.viewMode === 'public' ? crm.t.publicPool : crm.t.myCustomers}
           columns={crm.columns}
           data={crm.filteredData}
-          onImport={crm.canImportCustomer ? crm.handleImport : undefined}
+          onImport={crm.canImportCustomer ? (rows) => { void crm.handleImport(rows as any[]); } : undefined}
           rowTestId={(row) => `crm-customer-row-${row.id}`}
           onRowClick={(row) => { crm.setSelectedCustomer(row); }}
         />

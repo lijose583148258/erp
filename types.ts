@@ -337,6 +337,7 @@ export interface Shipment {
   carrier?: string;
   trackingNo?: string;
   shippedAt: string;
+  deliveredAt?: string;
   status: 'delivered' | 'in_transit' | 'exception' | 'pending' | string;
   signedReceiptUrl?: string;
   route?: string;
@@ -414,6 +415,9 @@ export interface RmaRecord {
   status: RmaStatus;
   type: 'return' | 'refund' | 'exchange' | string;
   createdAt: string;
+  orderId?: string;
+  refundAmount?: number;
+  requestDate?: string;
 }
 
 export type AssetType = 'IBC Tank' | 'Iron Drum 200L' | 'Plastic Drum 200L' | 'Wooden Pallet' | 'Plastic Pallet';

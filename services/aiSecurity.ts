@@ -2,7 +2,7 @@ import type { CurrentUser } from '../types';
 
 export type AIModelPrivacyMode = 'local-only' | 'external-allowed';
 
-export interface SafeAIContext {
+export interface SafeAIContext extends Record<string, unknown> {
   currency?: string;
   language?: string;
   currentPage?: string;

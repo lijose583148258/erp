@@ -101,7 +101,7 @@ const mapOrderResponse = (value: unknown): SalesOrder => {
         || customerName,
     );
 
-    return decorateSalesOrder({
+    const order: SalesOrder = {
         ...item,
         id: toStringValue(item.id),
         orderNo: toOptionalString(item.orderNo),
@@ -112,11 +112,16 @@ const mapOrderResponse = (value: unknown): SalesOrder => {
         customerNameEn,
         customerNameVi,
         customerDisplayName,
+        taxInclusive: Boolean(item.taxInclusive),
+        discountTotal: toNumberValue(item.discountTotal),
+        taxTotal: toNumberValue(item.taxTotal),
         totalAmount: toNumberValue(item.totalAmount),
         finalAmount: item.finalAmount != null ? toNumberValue(item.finalAmount) : undefined,
         baseAmount: item.baseAmount != null ? toNumberValue(item.baseAmount) : undefined,
         paidAmount: toNumberValue(item.paidAmount),
         commissionAmount: item.commissionAmount != null ? toNumberValue(item.commissionAmount) : undefined,
+        commissionRateSubmitted: item.commissionRateSubmitted != null ? toNumberValue(item.commissionRateSubmitted) : undefined,
+        commissionStatus: item.commissionStatus as CommissionStatus | undefined,
         paymentTermsDays: toNumberValue(item.paymentTermsDays ?? item.paymentTerms),
         items: toApiRecordArray(item.items).map(mapSalesOrderItem),
         extraItems: toUnknownArray(item.extraItems).map(mapExtraItem),
@@ -125,7 +130,11 @@ const mapOrderResponse = (value: unknown): SalesOrder => {
         collectionPromises: toUnknownArray(item.collectionPromises).map(mapCollectionPromise),
         orderDate: normalizeDate(item.orderDate),
         dueDate: item.dueDate ? normalizeDate(item.dueDate) : undefined,
-    });
+        status: toStringValue(item.status, OrderStatus.PENDING) as OrderStatus,
+        paymentStatus: toStringValue(item.paymentStatus, 'unpaid') as SalesOrder['paymentStatus'],
+    };
+
+    return decorateSalesOrder(order);
 };
 
 export const orderService = {

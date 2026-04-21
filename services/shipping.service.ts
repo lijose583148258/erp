@@ -42,16 +42,22 @@ const mapShipment = (value: unknown, index = 0): Shipment => {
     const isColdChain = item.isColdChain ?? index % 3 === 0;
     const temperature = item.temperature ?? (isColdChain ? 2 + (index % 4) : 22 + (index % 5));
     const firstItem = toApiRecordArray(item.items)[0] || {};
+    const productName = toStringValue(item.productName || item.product || firstItem.productName, 'Chemical Goods');
+    const quantity = toNumberValue(item.quantity ?? item.qty);
 
     return {
         ...item,
         id: toStringValue(item.id),
         orderId: toStringValue(item.orderNo || item.orderId),
-        quantity: toNumberValue(item.quantity),
-        shippedAt: item.shippedAt ? new Date(item.shippedAt).toISOString().split('T')[0] : '-',
-        deliveredAt: item.deliveredAt ? new Date(item.deliveredAt).toISOString().split('T')[0] : undefined,
+        customerId: toOptionalString(item.customerId),
+        customerName: toStringValue(item.customerName || item.customerDisplayName || item.counterpartyName, 'Unknown'),
+        sku: toStringValue(item.sku || item.productSku || firstItem.sku, productName),
+        qty: quantity,
+        quantity,
+        shippedAt: item.shippedAt ? new Date(String(item.shippedAt)).toISOString().split('T')[0] : '-',
+        deliveredAt: item.deliveredAt ? new Date(String(item.deliveredAt)).toISOString().split('T')[0] : undefined,
         status: toStringValue(item.status, 'pending'),
-        productName: toStringValue(item.productName || item.product, 'Chemical Goods'),
+        productName,
         casNo: toOptionalString(item.casNo || item.cas || item.productCasNo || firstItem.casNo),
         msdsStatus: toStringValue(item.msdsStatus || item.msds_status || (item.msdsUrl || item.msdsDocumentUrl ? 'valid' : 'missing')),
         msdsUrl: toOptionalString(item.msdsUrl || item.msdsDocumentUrl),
@@ -67,6 +73,7 @@ const mapReceiptEvent = (value: unknown): ShipmentReceiptEvent => {
     return {
     ...item,
     id: toStringValue(item.id),
+    receiptNo: toStringValue(item.receiptNo),
     shipmentId: toStringValue(item.shipmentId),
     quantity: toNumberValue(item.quantity),
     acceptedQuantity: toNumberValue(item.acceptedQuantity),

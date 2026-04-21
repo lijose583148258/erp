@@ -354,4 +354,4 @@ export const getNumericField = (value: unknown, field: string): number => {
 };
 
 export const sumOrderAmount = (orders: unknown[]): number =>
-  orders.reduce((sum, order) => sum + getNumericField(order, 'totalAmount'), 0);
+  orders.reduce<number>((sum, order) => sum + getNumericField(order, 'totalAmount'), 0);
