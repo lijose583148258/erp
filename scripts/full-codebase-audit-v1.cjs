@@ -15,6 +15,7 @@ const {
   EXCLUDED_DIRS,
   SOURCE_EXTENSIONS,
 } = require('./lib/full-codebase-audit-policy.cjs');
+const { buildFullCodebaseAuditMarkdown } = require('./lib/full-codebase-audit-report.cjs');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
@@ -415,6 +416,8 @@ function main() {
     .filter(([, files]) => files.length > 1)
     .map(([name, files]) => ({ name, files }))
     .sort((a, b) => b.files.length - a.files.length || a.name.localeCompare(b.name));
+  const suspiciousDuplicateNames = [];
+  const governedDuplicateNames = [];
 
   for (const dup of duplicateNames) {
     const activeDup = dup.files.filter(file => !file.startsWith('历史归档/'));
@@ -422,8 +425,16 @@ function main() {
       && activeDup.some(file => file.startsWith('backend/src/'))
       && activeDup.some(file => /^(services|utils)\//.test(file));
     const isCommonBarrel = /^(index|types)\.(ts|tsx|js|cjs|mjs)$/i.test(dup.name);
-    if (activeDup.length >= 2 && /\.(ts|tsx|js|cjs|mjs)$/i.test(dup.name) && !isCrossLayerPair && !isCommonBarrel) {
+    const isSourceDuplicate = activeDup.length >= 2 && /\.(ts|tsx|js|cjs|mjs)$/i.test(dup.name);
+    if (isSourceDuplicate && !isCrossLayerPair && !isCommonBarrel) {
+      suspiciousDuplicateNames.push({ ...dup, activeFiles: activeDup });
       addFinding(findings, 'P2', 'duplication', 'Duplicate active source basename can confuse maintenance', activeDup[0], null, `${dup.name}: ${activeDup.join(', ')}`);
+    } else if (isSourceDuplicate) {
+      governedDuplicateNames.push({
+        ...dup,
+        activeFiles: activeDup,
+        reason: isCommonBarrel ? 'common-barrel-or-types-entry' : 'frontend-backend-layer-pair',
+      });
     }
   }
 
@@ -469,6 +480,8 @@ function main() {
       consoleHeavyUtilityAssets: consoleHeavyUtilityAssets.sort((a, b) => a.file.localeCompare(b.file)),
       governedRuntimeScriptAssets: governedRuntimeScriptAssets.sort((a, b) => a.file.localeCompare(b.file)),
       duplicateNames: duplicateNames.slice(0, 80),
+      suspiciousDuplicateNames: suspiciousDuplicateNames.slice(0, 80),
+      governedDuplicateNames: governedDuplicateNames.slice(0, 80),
     },
     routeAudit,
     findings: findings.sort((a, b) => {
@@ -483,7 +496,9 @@ function main() {
     activeSourceFiles: activeSourceFiles.length,
     oversizedFiles: oversizedFiles.length,
     routeFiles: routeAudit.length,
-    duplicateNameGroups: duplicateNames.length,
+    duplicateNameGroups: suspiciousDuplicateNames.length,
+    duplicateNameGroupsAll: duplicateNames.length,
+    governedDuplicateNameGroups: governedDuplicateNames.length,
     legacyNamedFiles: suspiciousLegacyNamedFiles.length,
     legacyNamedFilesAll: legacyNamedFiles.length,
     governedNamedActiveFiles: governedNamedActiveFiles.length,
@@ -495,75 +510,7 @@ function main() {
   report.status = report.summary.findingCounts.P0 ? 'failed' : report.findings.length ? 'warning' : 'passed';
 
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-
-  const md = [];
-  md.push('# Full Codebase Audit v1');
-  md.push('');
-  md.push(`- started: ${report.meta.startedAt}`);
-  md.push(`- finished: ${report.meta.finishedAt}`);
-  md.push(`- active source files: ${report.summary.activeSourceFiles}`);
-  md.push(`- disabled legacy files: ${report.summary.disabledLegacyFiles}`);
-  md.push(`- suspicious legacy-named files: ${report.summary.legacyNamedFiles}`);
-  md.push(`- governed legacy/clean-named active files: ${report.summary.governedNamedActiveFiles}`);
-  md.push(`- test credential assets: ${report.summary.testCredentialAssets}`);
-  md.push(`- console-heavy utility assets: ${report.summary.consoleHeavyUtilityAssets}`);
-  md.push(`- governed runtime script assets: ${report.summary.governedRuntimeScriptAssets}`);
-  md.push(`- findings: ${JSON.stringify(report.summary.findingCounts)}`);
-  md.push('');
-  md.push('## P0/P1 Findings');
-  for (const finding of report.findings.filter(item => item.priority === 'P0' || item.priority === 'P1')) {
-    md.push(`- ${finding.priority} ${finding.category}: ${finding.title}`);
-    md.push(`  - file: ${finding.file}${finding.line ? `:${finding.line}` : ''}`);
-    md.push(`  - detail: ${finding.detail}`);
-  }
-  md.push('');
-  md.push('## Largest Active Source Files');
-  for (const file of report.structure.topLargestFiles.slice(0, 20)) {
-    md.push(`- ${file.lines} lines / ${file.bytes} bytes / ${file.domain}: ${file.file}`);
-  }
-  md.push('');
-  md.push('## Route Audit');
-  for (const route of report.routeAudit) {
-    md.push(`- ${route.file}: routes=${route.routeCount}, routerUseAuth=${route.hasRouterUseAuthenticate}, permissionRoutes=${route.permissionRoutes}, fixedRoleRoutes=${route.fixedRoleRoutes}, manualRoleGuardRoutes=${route.manualRoleGuardRoutes}, unauthenticatedCandidates=${route.unauthenticatedCandidates}`);
-  }
-  md.push('');
-  md.push('## Suspicious Legacy-Named Active Files');
-  if (report.structure.suspiciousLegacyNamedFiles.length === 0) md.push('- none');
-  for (const file of report.structure.suspiciousLegacyNamedFiles) {
-    md.push(`- ${file}`);
-  }
-  md.push('');
-  md.push('## Governed Legacy/Clean-Named Active Files');
-  if (report.structure.governedNamedActiveFiles.length === 0) md.push('- none');
-  for (const file of report.structure.governedNamedActiveFiles) {
-    md.push(`- ${file}`);
-  }
-  md.push('');
-  md.push('## Expected Test Credential Assets');
-  for (const asset of report.structure.testCredentialAssets.slice(0, 30)) {
-    md.push(`- ${asset.file}:${asset.line} (${asset.count} matches)`);
-  }
-  if (report.structure.testCredentialAssets.length > 30) {
-    md.push(`- ... ${report.structure.testCredentialAssets.length - 30} more test/audit assets`);
-  }
-  md.push('');
-  md.push('## Console-heavy Utility Assets');
-  for (const asset of report.structure.consoleHeavyUtilityAssets.slice(0, 30)) {
-    md.push(`- ${asset.file}:${asset.line} (${asset.count} console calls)`);
-  }
-  if (report.structure.consoleHeavyUtilityAssets.length > 30) {
-    md.push(`- ... ${report.structure.consoleHeavyUtilityAssets.length - 30} more utility assets`);
-  }
-  md.push('');
-  md.push('## Governed Runtime Script Assets');
-  for (const asset of report.structure.governedRuntimeScriptAssets) {
-    md.push(`- ${asset.file}:${asset.line} (${asset.operation}, ${asset.count} matches)`);
-  }
-  md.push('');
-  md.push('## Reports');
-  md.push(`- JSON: ${JSON_REPORT}`);
-  md.push(`- Markdown: ${MD_REPORT}`);
-  fs.writeFileSync(MD_REPORT, `${md.join('\n')}\n`, 'utf8');
+  fs.writeFileSync(MD_REPORT, buildFullCodebaseAuditMarkdown(report, JSON_REPORT, MD_REPORT), 'utf8');
 
   console.log(JSON.stringify({
     status: report.status,
