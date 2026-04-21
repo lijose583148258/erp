@@ -195,6 +195,7 @@ function getRuntimeTasks(options) {
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
     npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),
+    task('stable-entrypoint-policy', 'node', ['scripts/stable-entrypoint-policy-audit-v1.cjs']),
     task('dist-entry-asset-audit', 'node', ['scripts/dist-entry-asset-audit-v1.cjs']),
     task('shipping-ocr-regression', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/shipping-ocr-regression-v1.ts'] : ['tsx', 'scripts/shipping-ocr-regression-v1.ts']),
     task('backup-restore-api-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),

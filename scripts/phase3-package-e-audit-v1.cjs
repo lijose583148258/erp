@@ -30,6 +30,7 @@ function psTask(name, args, expectedEvidence) {
 const TASKS = [
   psTask('runtime-check', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1'], 'stable runtime 5001 health/assets all 200'),
   nodeTask('active-source-inventory', 'scripts/active-source-inventory-v1.cjs', 'obsolete active paths and package references are zero'),
+  nodeTask('stable-entrypoint-policy', 'scripts/stable-entrypoint-policy-audit-v1.cjs', 'root launchers and npm start default to the stable 5001 entry'),
   nodeTask('legacy-interface-disconnect', 'scripts/legacy-interface-disconnect-audit-v1.cjs', 'legacy timber APIs return 410 with replacement marker'),
   nodeTask('dual-port-and-encoding', 'scripts/dual-port-audit-v2.cjs', '5001 endpoints are healthy and API text has no mojibake'),
   nodeTask('concurrency-consistency', 'scripts/concurrency-consistency-audit-v1.cjs', 'two payments, verification, and long read loop keep order/customer values stable'),

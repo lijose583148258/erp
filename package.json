@@ -25,6 +25,7 @@
                     "check:timebox":  "powershell -ExecutionPolicy Bypass -File .\\check-timeboxed-health.ps1",
                     "check:runtime":  "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-runtime.ps1",
                     "audit:active-source":  "node .\\scripts\\active-source-inventory-v1.cjs",
+                    "audit:entrypoints":  "node .\\scripts\\stable-entrypoint-policy-audit-v1.cjs",
                     "audit:dist-assets":  "node .\\scripts\\dist-entry-asset-audit-v1.cjs",
                     "audit:backup-restore":  "node .\\scripts\\backup-restore-api-audit-v1.cjs",
                     "audit:migration:offline":  "node .\\scripts\\db-migration-probe.cjs",
