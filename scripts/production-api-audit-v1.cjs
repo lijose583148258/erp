@@ -1,10 +1,16 @@
 const fs = require('fs');
 const path = require('path');
+const { createChemicalBomAuditContext } = require('./lib/chemical-bom-audit-utils.cjs');
 
 const REPORT_DIR = path.join(__dirname, '../output/playwright');
 const REPORT_PATH = path.join(REPORT_DIR, 'production-api-audit-report-v1.json');
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5001';
+const chemicalAudit = createChemicalBomAuditContext({
+  appUrl: APP_URL,
+  reportDir: REPORT_DIR,
+  reportPath: path.join(REPORT_DIR, 'production-api-chemical-helper-report-v1.json'),
+});
 
 const report = {
   name: "Production Mainline API Audit",
@@ -262,6 +268,19 @@ async function main() {
       standardBatchSize: createdBom.standardBatchSize,
     });
 
+    const warehouseBootstrap = await chemicalAudit.ensureWarehouseAndLocations(adminToken);
+    const rawLocation = warehouseBootstrap.locations['LOC-RAW'];
+    const seededBalances = [];
+    for (const item of createdBom.items) {
+      const materialCode = item.materialCode || item.materialName;
+      const balance = await chemicalAudit.ensureRawStock(adminToken, rawLocation.id, materialCode, 50, 12);
+      seededBalances.push(balance);
+    }
+    recordStep('seed_raw_consumption_stock', 'passed', {
+      materialCount: seededBalances.length,
+      rawLocationId: rawLocation.id,
+    });
+
     // 4. Create Work Order to prove compatibility with existing quantity-based costing/work-order chain
     const woPayload = {
       bomId,
@@ -302,7 +321,13 @@ async function main() {
     recordStep('create_quality_check', 'passed');
 
     // 7. Complete Work Order
-    const completeWOPayload = { status: "completed" };
+    const completeWOPayload = {
+      status: "completed",
+      consumptionRecords: seededBalances.map(balance => ({
+        stockBalanceId: balance.id,
+        quantity: 1,
+      })),
+    };
     await apiFetch(`/api/production/work-orders/${workOrderId}/status`, {
       method: 'PATCH',
       headers: { 'Authorization': `Bearer ${adminToken}` },
@@ -354,7 +379,6 @@ async function main() {
     const adjustmentPayload = {
       domain: 'production',
       targetType: 'productBatch',
-      targetId: batchId,
       batchId,
       targetRef: batchNo,
       quantityDelta: -1,
