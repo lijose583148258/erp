@@ -38,6 +38,12 @@ loadRuntimeEnv();
 const app: Application = express();
 const PORT = runtime.port;
 const allowedOrigins = getAllowedOrigins();
+const cspConnectSources = Array.from(new Set([
+  "'self'",
+  ...allowedOrigins,
+  'ws:',
+  'wss:',
+]));
 
 app.set('trust proxy', runtime.trustProxy);
 
@@ -49,15 +55,7 @@ app.use(helmet({
       styleSrc: ["'self'", "'unsafe-inline'"],
       fontSrc: ["'self'", 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      connectSrc: [
-        "'self'",
-        'http://127.0.0.1:3000',
-        'http://127.0.0.1:5001',
-        'http://localhost:3000',
-        'http://localhost:5001',
-        'ws:',
-        'wss:',
-      ],
+      connectSrc: cspConnectSources,
       objectSrc: ["'none'"],
       baseUri: ["'self'"],
       frameAncestors: ["'self'"],

@@ -109,22 +109,19 @@ export const runtime = {
 };
 
 export const getAllowedOrigins = () => {
-  const defaults = [
-    'http://localhost:3000',
-    'http://localhost:3001',
-    'http://localhost:3002',
-    'http://localhost:4173',
-    'http://localhost:5173',
-    'http://localhost:8080',
-    'http://127.0.0.1:3000',
-    'http://127.0.0.1:3001',
-    'http://127.0.0.1:3002',
-    'http://127.0.0.1:4173',
-    'http://127.0.0.1:5173',
-    'http://127.0.0.1:8080',
+  const stableOrigins = [
+    'http://127.0.0.1:5001',
+    'http://localhost:5001',
   ];
+  const devOrigins = [
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+  ];
+  const allowDevOrigins = runtime.nodeEnv !== 'production'
+    || ['1', 'true', 'yes'].includes(String(process.env.AILAODA_ALLOW_DEV_ORIGINS || '').toLowerCase());
 
-  return runtime.corsOrigins.length > 0 ? runtime.corsOrigins : defaults;
+  if (runtime.corsOrigins.length > 0) return runtime.corsOrigins;
+  return Array.from(new Set([...stableOrigins, ...(allowDevOrigins ? devOrigins : [])]));
 };
 
 export const getBackupDir = () => runtime.backupDir;

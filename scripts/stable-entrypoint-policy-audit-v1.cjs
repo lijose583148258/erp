@@ -143,6 +143,54 @@ function checkRuntimeCheck(findings) {
   }
 }
 
+function checkRuntimePortPolicy(findings) {
+  const startStable = requireText(findings, 'scripts/start-stable-v2.ps1', 'runtime-port-policy');
+  if (startStable && !/set\s+NODE_ENV=production/i.test(startStable)) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must set NODE_ENV=production before launching backend/dist/server.js');
+  }
+  if (startStable
+    && (!/stableCorsOrigin\s*=\s*'http:\/\/127\.0\.0\.1:5001,http:\/\/localhost:5001'/i.test(startStable)
+      || !/set\s+CORS_ORIGIN=\$stableCorsOrigin/i.test(startStable))) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must override old local .env CORS_ORIGIN with the stable 5001 origins');
+  }
+
+  const runtimeConfig = requireText(findings, 'backend/src/config/runtime.ts', 'runtime-port-policy');
+  if (runtimeConfig) {
+    if (!/http:\/\/127\.0\.0\.1:5001/.test(runtimeConfig) || !/http:\/\/localhost:5001/.test(runtimeConfig)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'default CORS origins must include both stable 5001 loopback origins');
+    }
+    if (!/AILAODA_ALLOW_DEV_ORIGINS/.test(runtimeConfig)) {
+      addFinding(findings, 'P1', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'dev CORS origins should require an explicit switch outside production defaults');
+    }
+    if (/localhost:(3001|3002|4173|5173|5180|8080)|127\.0\.0\.1:(3001|3002|4173|5173|5180|8080)/.test(runtimeConfig)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'runtime default origins must not keep stale broad dev/foreign ports');
+    }
+  }
+
+  const server = requireText(findings, 'backend/src/server.ts', 'runtime-port-policy');
+  if (server) {
+    if (!/cspConnectSources/.test(server) || !/\.\.\.allowedOrigins/.test(server)) {
+      addFinding(findings, 'P1', 'runtime-port-policy', 'backend/src/server.ts', 'CSP connect-src should derive from getAllowedOrigins instead of hardcoded old ports');
+    }
+    if (/http:\/\/127\.0\.0\.1:5173|http:\/\/localhost:5173|http:\/\/127\.0\.0\.1:5180|http:\/\/localhost:5180/.test(server)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/server.ts', 'server CSP must not include 5173/5180');
+    }
+  }
+
+  const backendEnvExample = requireText(findings, 'backend/.env.example', 'runtime-port-policy');
+  if (backendEnvExample) {
+    if (!/CORS_ORIGIN=.*127\.0\.0\.1:5001.*localhost:5001/.test(backendEnvExample)) {
+      addFinding(findings, 'P1', 'runtime-port-policy', 'backend/.env.example', 'backend env example should document stable 5001 CORS origins first');
+    }
+    if (/5173|5180/.test(backendEnvExample)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/.env.example', 'backend env example must not mention 5173/5180');
+    }
+    if (!/AILAODA_RUNTIME_DB_PATH/.test(backendEnvExample)) {
+      addFinding(findings, 'P1', 'runtime-port-policy', 'backend/.env.example', 'backend env example should document D:\\AilaoDaRuntime stable database path override');
+    }
+  }
+}
+
 function writeReports(report) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -171,6 +219,7 @@ function main() {
   checkStopBat(findings);
   checkPowerShellGuards(findings);
   checkRuntimeCheck(findings);
+  checkRuntimePortPolicy(findings);
 
   const hasP0 = findings.some((finding) => finding.level === 'P0');
   const report = {
