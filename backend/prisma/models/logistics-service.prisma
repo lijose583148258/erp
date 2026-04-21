@@ -1,0 +1,196 @@
+// 样品表
+model Sample {
+  id              Int       @id @default(autoincrement())
+  sampleNo        String    @unique @map("sample_no")
+  customerId      Int       @map("customer_id")
+  productName     String    @map("product_name")
+  quantity        Float
+  unit            String
+  status          String    @default("requested")
+  shippingAddress String?   @map("shipping_address")
+  trackingNo      String?   @map("tracking_no")
+  feedback        String?
+  requestedBy     Int       @map("requested_by")
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  sentAt          DateTime? @map("sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  requester       User      @relation(fields: [requestedBy], references: [id])
+
+  @@index([customerId])
+  @@index([status])
+  @@index([requestedBy])
+  @@map("samples")
+}
+
+// 物流发货表
+
+// 物流发货表
+model Shipment {
+  id              Int       @id @default(autoincrement())
+  shipmentNo      String    @unique @map("shipment_no")
+  orderId         Int?      @map("order_id")
+  customerId      Int       @map("customer_id")
+  productName     String    @map("product_name")
+  quantity        Float
+  unit            String
+  packageType     String?   @map("package_type")
+  trackingNo      String?   @map("tracking_no")
+  carrier         String?
+    status          String    @default("pending")
+    shippedAt       DateTime? @map("shipped_at")
+    deliveredAt     DateTime? @map("delivered_at")
+    signedReceiptUrl String?  @map("signed_receipt_url")
+    notes           String?
+  createdBy       Int       @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  order           Order?    @relation(fields: [orderId], references: [id])
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+
+  isColdChain     Boolean   @default(false) @map("is_cold_chain")
+  temperature     Float?
+  batchNo         String?   @map("batch_no")
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([status])
+  @@map("shipments")
+}
+
+// 售后退货表
+
+// 售后退货表
+model Rma {
+  id              Int       @id @default(autoincrement())
+  rmaNo           String    @unique @map("rma_no")
+  customerId      Int       @map("customer_id")
+  productName     String    @map("product_name")
+  quantity        Float
+  unit            String
+  reason          String
+  status          String    @default("pending")
+  resolution      String?
+  refundAmount    Float?    @map("refund_amount")
+  createdBy       Int       @map("created_by")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+
+  @@index([customerId])
+  @@index([status])
+  @@map("rmas")
+}
+
+model ReceiptDiscrepancyCase {
+  id               Int       @id @default(autoincrement())
+  caseNo           String    @unique @map("case_no")
+  sourceType       String    @map("source_type")
+  sourceRef        String    @map("source_ref")
+  sourceId         Int?      @map("source_id")
+  relatedModule    String    @map("related_module")
+  relatedId        Int       @map("related_id")
+  businessRef      String?   @map("business_ref")
+  counterpartyType String    @map("counterparty_type")
+  counterpartyId   Int?      @map("counterparty_id")
+  counterpartyName String?   @map("counterparty_name")
+  productName      String    @map("product_name")
+  quantity         Float
+  unit             String    @default("kg")
+  discrepancyType  String    @default("other") @map("discrepancy_type")
+  reason           String
+  severity         String    @default("normal")
+  status           String    @default("pending")
+  toleranceRuleId  Int?      @map("tolerance_rule_id")
+  toleranceAction  String    @default("manual_review") @map("tolerance_action")
+  tolerancePercent Float?    @map("tolerance_percent")
+  toleranceQuantity Float?   @map("tolerance_quantity")
+  varianceRate     Float?    @map("variance_rate")
+  withinTolerance  Boolean   @default(false) @map("within_tolerance")
+  requiresQualityCheck Boolean @default(false) @map("requires_quality_check")
+  suggestedAction  String?   @map("suggested_action")
+  resolution       String?
+  actionRef        String?   @map("action_ref")
+  note             String?
+  createdBy        Int?      @map("created_by")
+  resolvedBy       Int?      @map("resolved_by")
+  resolvedAt       DateTime? @map("resolved_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([sourceType, sourceRef])
+  @@index([relatedModule, relatedId])
+  @@index([status])
+  @@index([counterpartyType, counterpartyId])
+  @@index([discrepancyType])
+  @@map("receipt_discrepancy_cases")
+}
+
+model ReceiptDiscrepancyAction {
+  id              Int       @id @default(autoincrement())
+  actionNo        String    @unique @map("action_no")
+  caseId          Int       @map("case_id")
+  actionType      String    @map("action_type")
+  status          String    @default("pending")
+  sourceModule    String?   @map("source_module")
+  sourceRef       String?   @map("source_ref")
+  targetModule    String?   @map("target_module")
+  targetId        Int?      @map("target_id")
+  targetRef       String?   @map("target_ref")
+  quantity        Float?
+  unit            String?
+  amount          Float?
+  currency        String    @default("CNY")
+  reasonCode      String?   @map("reason_code")
+  dispositionCode String?   @map("disposition_code")
+  note            String?
+  createdBy       Int?      @map("created_by")
+  approvedBy      Int?      @map("approved_by")
+  postedAt        DateTime? @map("posted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([caseId])
+  @@index([actionType])
+  @@index([status])
+  @@index([targetModule, targetId])
+  @@map("receipt_discrepancy_actions")
+}
+
+model ReceiptToleranceRule {
+  id                       Int      @id @default(autoincrement())
+  ruleNo                   String   @unique @map("rule_no")
+  name                     String
+  sourceType               String   @default("all") @map("source_type")
+  discrepancyType          String   @default("all") @map("discrepancy_type")
+  counterpartyType         String   @default("all") @map("counterparty_type")
+  counterpartyId           Int?     @map("counterparty_id")
+  productName              String?  @map("product_name")
+  quantityTolerancePercent Float    @default(0) @map("quantity_tolerance_percent")
+  quantityToleranceAbs     Float    @default(0) @map("quantity_tolerance_abs")
+  actionWithinTolerance    String   @default("warn") @map("action_within_tolerance")
+  actionOutsideTolerance   String   @default("manual_review") @map("action_outside_tolerance")
+  severityWithinTolerance  String   @default("low") @map("severity_within_tolerance")
+  severityOutsideTolerance String   @default("normal") @map("severity_outside_tolerance")
+  requiresQualityCheck     Boolean  @default(false) @map("requires_quality_check")
+  status                   String   @default("active")
+  priority                 Int      @default(100)
+  note                     String?
+  createdBy                Int?     @map("created_by")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@index([sourceType, discrepancyType, counterpartyType, counterpartyId, productName])
+  @@index([status])
+  @@map("receipt_tolerance_rules")
+}

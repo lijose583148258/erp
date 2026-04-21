@@ -8,7 +8,9 @@
     "build": "tsc",
     "start": "node dist/server.js",
     "test": "jest",
-    "migrate": "prisma migrate dev",
+    "migrate": "prisma migrate dev --schema prisma",
+    "prisma:validate": "prisma validate --schema prisma",
+    "prisma:generate": "prisma generate --schema prisma",
     "db:manage": "npm run build && node dist/database/manage-db.cli.js",
     "db:prepare": "npm run db:manage -- prepare",
     "db:repair": "npm run db:manage -- repair",
@@ -25,6 +27,9 @@
     "sales",
     "crm"
   ],
+  "prisma": {
+    "schema": "prisma"
+  },
   "author": "",
   "license": "MIT",
   "dependencies": {

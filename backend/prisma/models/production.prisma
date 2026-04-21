@@ -1,0 +1,123 @@
+model ProductionBom {
+  id          Int      @id @default(autoincrement())
+  bomNo       String   @unique @map("bom_no")
+  productName String   @map("product_name")
+  version     String   @default("v1")
+  bomType     String   @default("standard") @map("bom_type")
+  status      String   @default("draft")
+  formulationMode String? @map("formulation_mode")
+  outputUnit  String   @map("output_unit")
+  standardBatchSize Float? @map("standard_batch_size")
+  batchSizeUnit String? @map("batch_size_unit")
+  density     Float?
+  solidContent Float?  @map("solid_content")
+  effectiveFrom DateTime? @map("effective_from")
+  effectiveTo DateTime? @map("effective_to")
+  processJson String?  @map("process_json")
+  qualitySpecJson String? @map("quality_spec_json")
+  notes       String?
+  createdBy   Int      @map("created_by")
+  creator     User     @relation("ProductionBomCreator", fields: [createdBy], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items       ProductionBomItem[]
+  workOrders  ProductionWorkOrder[]
+
+  @@index([productName])
+  @@index([createdBy])
+  @@map("production_boms")
+}
+
+model ProductionBomItem {
+  id              Int           @id @default(autoincrement())
+  bomId           Int           @map("bom_id")
+  bom             ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  materialName    String        @map("material_name")
+  materialCode    String?       @map("material_code")
+  ingredientRole  String?       @map("ingredient_role")
+  dosageMode      String?       @map("dosage_mode")
+  percentage      Float?
+  quantityPerUnit Float         @map("quantity_per_unit")
+  unit            String
+  lossRate        Float         @default(0) @map("loss_rate")
+  allowedVarianceRate Float?    @map("allowed_variance_rate")
+  processStage    String?       @map("process_stage")
+  substituteGroup String?       @map("substitute_group")
+  yieldContribution Float?      @map("yield_contribution")
+  notes           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([bomId])
+  @@map("production_bom_items")
+}
+
+model ProductionWorkOrder {
+  id               Int               @id @default(autoincrement())
+  workOrderNo      String            @unique @map("work_order_no")
+  bomId            Int?              @map("bom_id")
+  bom              ProductionBom?    @relation(fields: [bomId], references: [id], onDelete: SetNull)
+  batchId          Int?              @map("batch_id")
+  productBatch     ProductBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  productName      String            @map("product_name")
+  targetQuantity   Float             @map("target_quantity")
+  producedQuantity Float             @default(0) @map("produced_quantity")
+  lossQuantity     Float             @default(0) @map("loss_quantity")
+  status           String            @default("draft")
+  plannedStartAt   DateTime?         @map("planned_start_at")
+  plannedEndAt     DateTime?         @map("planned_end_at")
+  actualStartAt    DateTime?         @map("actual_start_at")
+  actualEndAt      DateTime?         @map("actual_end_at")
+  note             String?
+  createdBy        Int               @map("created_by")
+  creator          User              @relation("ProductionWorkOrderCreator", fields: [createdBy], references: [id])
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  steps            ProductionProcessStep[]
+  qualityChecks    ProductionQualityCheck[]
+  inventoryCostLedgers InventoryCostLedger[]
+
+  @@index([bomId])
+  @@index([batchId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("production_work_orders")
+}
+
+model ProductionProcessStep {
+  id            Int                 @id @default(autoincrement())
+  workOrderId   Int                 @map("work_order_id")
+  workOrder     ProductionWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  stepNo        Int                 @map("step_no")
+  title         String
+  status        String              @default("pending")
+  operatorName  String?             @map("operator_name")
+  startedAt     DateTime?           @map("started_at")
+  completedAt   DateTime?           @map("completed_at")
+  note          String?
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  @@index([workOrderId])
+  @@index([status])
+  @@map("production_process_steps")
+}
+
+model ProductionQualityCheck {
+  id            Int                 @id @default(autoincrement())
+  workOrderId   Int                 @map("work_order_id")
+  workOrder     ProductionWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  checkNo       String              @unique @map("check_no")
+  result        String              @default("pending")
+  defectRate    Float?              @map("defect_rate")
+  note          String?
+  checkedBy     String?             @map("checked_by")
+  checkedAt     DateTime?           @map("checked_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  @@index([workOrderId])
+  @@index([result])
+  @@map("production_quality_checks")
+}

@@ -1,0 +1,113 @@
+// 用户表
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  passwordHash  String    @map("password_hash")
+  email         String?
+  role          String
+  segment       String?   @map("segment")
+  avatar        String?
+  isActive      Boolean   @default(true) @map("is_active")
+  lastLoginAt   DateTime? @map("last_login_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customers     Customer[]
+  orders        Order[]
+  samples       Sample[]
+  shipments     Shipment[]
+  rmas          Rma[]
+  logs          AuditLog[]
+  assetTransactions AssetTransaction[]
+  contracts     Contract[]
+  adjustmentsCreated AdjustmentRecord[] @relation("AdjustmentCreator")
+  adjustmentsApproved AdjustmentRecord[] @relation("AdjustmentApprover")
+  productionBomsCreated ProductionBom[] @relation("ProductionBomCreator")
+  productionWorkOrdersCreated ProductionWorkOrder[] @relation("ProductionWorkOrderCreator")
+  inventoryCostLedgersCreated InventoryCostLedger[] @relation("InventoryCostLedgerCreator")
+  stockEntriesCreated StockEntry[] @relation("StockEntryCreator")
+  collectionPromises CollectionPromise[]
+  collectionDisputes CollectionDispute[]
+  barterAgreementsCreated BarterAgreement[]
+  customerPoolUpdates Customer[] @relation("CustomerPoolUpdater")
+  barterSettlementsCreated BarterSettlement[]
+
+  @@map("users")
+}
+
+model AuthRole {
+  id             Int      @id @default(autoincrement())
+  code           String   @unique
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false) @map("is_system")
+  isActive       Boolean  @default(true) @map("is_active")
+  dataScopesJson String?  @map("data_scopes_json")
+  createdBy      Int?     @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  permissions    AuthRolePermission[]
+
+  @@index([isActive])
+  @@map("auth_roles")
+}
+
+model AuthPermission {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  resource    String
+  action      String
+  label       String
+  description String?
+  group       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  roles       AuthRolePermission[]
+
+  @@index([resource])
+  @@index([group])
+  @@map("auth_permissions")
+}
+
+model AuthRolePermission {
+  id             Int      @id @default(autoincrement())
+  roleCode       String   @map("role_code")
+  permissionCode String   @map("permission_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  role           AuthRole       @relation(fields: [roleCode], references: [code], onDelete: Cascade)
+  permission     AuthPermission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+
+  @@unique([roleCode, permissionCode])
+  @@index([permissionCode])
+  @@map("auth_role_permissions")
+}
+
+// 客户表
+
+// 审计日志表
+model AuditLog {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  action          String
+  resource        String
+  resourceId      Int?      @map("resource_id")
+  details         String?
+  ipAddress       String?   @map("ip_address")
+  userAgent       String?   @map("user_agent")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // 关联
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@index([resource, resourceId]) // 复合索引：优化特定资源的审计追踪
+  @@map("audit_logs")
+}
+
+// 资产余额表 (包装物/容器)

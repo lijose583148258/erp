@@ -4,9 +4,10 @@ const path = require('path');
 
 const REPORT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(REPORT_DIR, 'db-migration-probe-report.json');
-const SCHEMA_PATH = path.join(process.cwd(), 'backend', 'prisma', 'schema.prisma');
-const TEMP_SCHEMA_RELATIVE = path.join('backend', 'prisma', 'schema.postgres.probe.prisma');
-const TEMP_SCHEMA_PATH = path.join(process.cwd(), TEMP_SCHEMA_RELATIVE);
+const SCHEMA_DIR = path.join(process.cwd(), 'backend', 'prisma');
+const SCHEMA_PATH = path.join(SCHEMA_DIR, 'schema.prisma');
+const TEMP_SCHEMA_DIR = path.join(process.cwd(), 'output', 'prisma-postgres-probe', 'prisma');
+const TEMP_SCHEMA_PATH = path.join(TEMP_SCHEMA_DIR, 'schema.prisma');
 const PRISMA_CLI_PATH = path.join(process.cwd(), 'node_modules', 'prisma', 'build', 'index.js');
 const TIMEOUT_MS = Number(process.env.MIGRATION_PROBE_TIMEOUT_MS || 60000);
 
@@ -32,6 +33,29 @@ function recordStep(name, status, details = {}) {
   console.log(`[${status}] ${name}`);
 }
 
+function copySchemaDirectoryForProbe() {
+  fs.rmSync(path.dirname(TEMP_SCHEMA_DIR), { recursive: true, force: true });
+
+  const copyPrismaFiles = (sourceDir) => {
+    for (const entry of fs.readdirSync(sourceDir, { withFileTypes: true })) {
+      const sourcePath = path.join(sourceDir, entry.name);
+      const relative = path.relative(SCHEMA_DIR, sourcePath).replace(/\\/g, '/');
+      if (relative.startsWith('migrations/')) continue;
+      if (entry.isDirectory()) {
+        copyPrismaFiles(sourcePath);
+        continue;
+      }
+      if (!entry.isFile() || !entry.name.endsWith('.prisma')) continue;
+
+      const targetPath = path.join(TEMP_SCHEMA_DIR, relative);
+      fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+      fs.copyFileSync(sourcePath, targetPath);
+    }
+  };
+
+  copyPrismaFiles(SCHEMA_DIR);
+}
+
 function runProbe() {
   writeReport();
 
@@ -44,7 +68,9 @@ function runProbe() {
       throw new Error(`Local Prisma CLI not found: ${PRISMA_CLI_PATH}`);
     }
 
-    const originalSchema = fs.readFileSync(SCHEMA_PATH, 'utf8');
+    copySchemaDirectoryForProbe();
+
+    const originalSchema = fs.readFileSync(TEMP_SCHEMA_PATH, 'utf8');
     const postgresSchema = originalSchema.replace(/provider\s*=\s*"sqlite"/g, 'provider = "postgresql"');
 
     if (postgresSchema === originalSchema) {
@@ -53,11 +79,11 @@ function runProbe() {
 
     fs.writeFileSync(TEMP_SCHEMA_PATH, postgresSchema, 'utf8');
     recordStep('write-temp-postgres-schema', 'passed', {
-      tempSchema: TEMP_SCHEMA_RELATIVE,
-      note: 'Temporary probe schema only; original schema.prisma is unchanged.',
+      tempSchema: path.relative(process.cwd(), TEMP_SCHEMA_DIR),
+      note: 'Temporary probe schema directory only; original schema.prisma is unchanged.',
     });
 
-    execFileSync(process.execPath, [PRISMA_CLI_PATH, 'validate', `--schema=${TEMP_SCHEMA_RELATIVE}`], {
+    execFileSync(process.execPath, [PRISMA_CLI_PATH, 'validate', `--schema=${TEMP_SCHEMA_DIR}`], {
       cwd: process.cwd(),
       env: {
         ...process.env,
@@ -84,9 +110,7 @@ function runProbe() {
     });
     process.exitCode = 1;
   } finally {
-    if (fs.existsSync(TEMP_SCHEMA_PATH)) {
-      fs.unlinkSync(TEMP_SCHEMA_PATH);
-    }
+    fs.rmSync(TEMP_SCHEMA_DIR, { recursive: true, force: true });
     report.finishedAt = new Date().toISOString();
     writeReport();
   }

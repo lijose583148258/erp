@@ -1,0 +1,216 @@
+model ProductBatch {
+  id              Int       @id @default(autoincrement())
+  batchNo         String    @unique @map("batch_no")
+  productName     String    @map("product_name")
+  productionDate  DateTime  @map("production_date")
+  expiryDate      DateTime  @map("expiry_date")
+  storageTemp     String?   @map("storage_temp")
+  isColdChain     Boolean   @default(false) @map("is_cold_chain")
+  stockQuantity   Float     @default(0) @map("stock_quantity")
+  unit            String
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  adjustments     AdjustmentRecord[] @relation("BatchAdjustments")
+  productionWorkOrders ProductionWorkOrder[]
+  inventoryCostLedgers InventoryCostLedger[]
+
+  @@index([productName])
+  @@index([expiryDate])
+  @@map("product_batches")
+}
+
+model InventoryCostLedger {
+  id               Int                 @id @default(autoincrement())
+  ledgerNo         String              @unique @map("ledger_no")
+  batchId          Int                 @map("batch_id")
+  productBatch     ProductBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  sourceType       String              @map("source_type")
+  sourceRef        String?             @map("source_ref")
+  workOrderId      Int?                @map("work_order_id")
+  workOrder        ProductionWorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  adjustmentId     Int?                @unique @map("adjustment_id")
+  adjustment       AdjustmentRecord?   @relation(fields: [adjustmentId], references: [id], onDelete: SetNull)
+  quantityBefore   Float               @default(0) @map("quantity_before")
+  quantityDelta    Float               @map("quantity_delta")
+  quantityAfter    Float               @default(0) @map("quantity_after")
+  costBefore       Float               @default(0) @map("cost_before")
+  costAmountDelta  Float               @default(0) @map("cost_amount_delta")
+  costAfter        Float               @default(0) @map("cost_after")
+  unitCost         Float?              @map("unit_cost")
+  note             String?
+  createdBy        Int                 @map("created_by")
+  creator          User                @relation("InventoryCostLedgerCreator", fields: [createdBy], references: [id])
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@index([sourceType])
+  @@index([workOrderId])
+  @@index([adjustmentId])
+  @@index([createdBy])
+  @@map("inventory_cost_ledgers")
+}
+
+// 审计日志表
+
+// 资产余额表 (包装物/容器)
+model AssetBalance {
+  id              Int       @id @default(autoincrement())
+  customerId      Int       @map("customer_id")
+  assetType       String    @map("asset_type")
+  balance         Int       @default(0)
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  @@unique([customerId, assetType])
+  @@map("asset_balances")
+}
+
+// 资产流转记录表
+
+// 资产流转记录表
+model AssetTransaction {
+  id              Int       @id @default(autoincrement())
+  customerId      Int       @map("customer_id")
+  assetType       String    @map("asset_type")
+  quantity        Int
+  action          String    // outbound (发货), return (回收)
+  relatedOrderNo  String?   @map("related_order_no")
+  note            String?
+  createdBy       Int       @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+
+  @@index([customerId])
+  @@index([assetType])
+  @@index([createdAt])
+  @@map("asset_transactions")
+}
+
+// 合同表
+
+// 新增: 实体仓库表 (Shadow Warehouse Extension)
+model Warehouse {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  type        String   @default("physical") // physical, virtual
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  locations   Location[]
+  stockEntries StockEntry[]
+
+  @@map("warehouses")
+}
+
+// 新增: 库位表
+
+// 新增: 库位表
+model Location {
+  id          Int      @id @default(autoincrement())
+  warehouseId Int      @map("warehouse_id")
+  code        String   @unique
+  name        String
+  type        String   @default("internal") // internal, supplier, production, scrap, customer
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  stockBalances StockBalance[]
+  stockEntries StockEntry[]
+  stockMovements StockMovement[]
+
+  @@index([warehouseId])
+  @@map("locations")
+}
+
+// 新增: 平滑扩容库存台账 (挂靠 productName 和 batchNo)
+
+// 新增: 平滑扩容库存台账 (挂靠 productName 和 batchNo)
+model StockBalance {
+  id          Int      @id @default(autoincrement())
+  locationId  Int      @map("location_id")
+  productName String   @map("product_name")
+  batchNo     String   @map("batch_no")
+  quantity    Float    @default(0)
+  unit        String   @default("kg")
+  lastMoveAt  DateTime? @map("last_move_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  movements   StockMovement[]
+
+  @@unique([locationId, productName, batchNo])
+  @@index([productName])
+  @@index([batchNo])
+  @@map("stock_balances")
+}
+
+// 库存凭证头：所有真实改变库存余额的动作都必须先落一张凭证。
+
+// 库存凭证头：所有真实改变库存余额的动作都必须先落一张凭证。
+model StockEntry {
+  id          Int      @id @default(autoincrement())
+  entryNo     String   @unique @map("entry_no")
+  sourceType  String   @map("source_type")
+  sourceRef   String?  @map("source_ref")
+  direction   String   @default("inbound")
+  status      String   @default("posted")
+  warehouseId Int?     @map("warehouse_id")
+  locationId  Int?     @map("location_id")
+  reason      String?
+  note        String?
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  postedAt    DateTime @default(now()) @map("posted_at")
+
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  creator     User?      @relation("StockEntryCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  movements   StockMovement[]
+
+  @@index([sourceType])
+  @@index([sourceRef])
+  @@index([warehouseId])
+  @@index([locationId])
+  @@index([createdAt])
+  @@map("stock_entries")
+}
+
+// 库存流水行：记录每个批次/库位的变动前、变动量、变动后，便于回滚和对账。
+
+// 库存流水行：记录每个批次/库位的变动前、变动量、变动后，便于回滚和对账。
+model StockMovement {
+  id             Int      @id @default(autoincrement())
+  entryId        Int      @map("entry_id")
+  stockBalanceId Int?     @map("stock_balance_id")
+  locationId     Int      @map("location_id")
+  productName    String   @map("product_name")
+  batchNo        String   @map("batch_no")
+  unit           String   @default("kg")
+  quantityBefore Float    @default(0) @map("quantity_before")
+  quantityDelta  Float    @map("quantity_delta")
+  quantityAfter  Float    @default(0) @map("quantity_after")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  entry        StockEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  stockBalance StockBalance? @relation(fields: [stockBalanceId], references: [id], onDelete: SetNull)
+  location     Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([stockBalanceId])
+  @@index([locationId])
+  @@index([productName])
+  @@index([batchNo])
+  @@map("stock_movements")
+}
