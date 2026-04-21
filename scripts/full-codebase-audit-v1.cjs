@@ -9,30 +9,18 @@
 const fs = require('fs');
 const path = require('path');
 const { isActiveSource } = require('./lib/active-source-scope.cjs');
+const {
+  ACTIVE_EXTENSIONS,
+  EXCLUDED_DIR_PREFIXES,
+  EXCLUDED_DIRS,
+  SOURCE_EXTENSIONS,
+} = require('./lib/full-codebase-audit-policy.cjs');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
 const JSON_REPORT = path.join(OUTPUT_DIR, 'full-codebase-audit-v1.json');
 const MD_REPORT = path.join(OUTPUT_DIR, 'full-codebase-audit-v1.md');
 const STARTED_AT = new Date();
-
-const EXCLUDED_DIRS = new Set([
-  '.git',
-  '.vite-cache',
-  'node_modules',
-  'dist',
-  'output',
-  'logs',
-  'backups',
-  'uploads',
-  '.playwright',
-  '.playwright-cli',
-  '.playwright-daemon',
-]);
-
-const EXCLUDED_DIR_PREFIXES = [
-  'AilaoDa_Stable_Package',
-];
 
 const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'check-timeboxed-health.ps1',
@@ -55,40 +43,6 @@ const HISTORICAL_DIR_NAMES = new Set([
   '测试',
   '99_隔离区',
   'quarantine',
-]);
-
-const ACTIVE_EXTENSIONS = new Set([
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.cjs',
-  '.mjs',
-  '.json',
-  '.prisma',
-  '.css',
-  '.html',
-  '.ps1',
-  '.bat',
-  '.md',
-  '.yml',
-  '.yaml',
-  '.toml',
-  '.env',
-]);
-
-const SOURCE_EXTENSIONS = new Set([
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.cjs',
-  '.mjs',
-  '.prisma',
-  '.css',
-  '.html',
-  '.ps1',
-  '.bat',
 ]);
 
 function ensureDir(dir) {
