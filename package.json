@@ -26,6 +26,7 @@
                     "check:runtime":  "powershell -ExecutionPolicy Bypass -File .\\scripts\\check-runtime.ps1",
                     "audit:active-source":  "node .\\scripts\\active-source-inventory-v1.cjs",
                     "audit:dist-assets":  "node .\\scripts\\dist-entry-asset-audit-v1.cjs",
+                    "audit:shipping:ocr":  "npx tsx .\\scripts\\shipping-ocr-regression-v1.ts",
                     "verify:release:core":  "node .\\scripts\\run-release-verification-v1.cjs --profile=core",
                     "verify:release":  "node .\\scripts\\run-release-verification-v1.cjs --profile=full",
                     "verify:phase3":  "node .\\scripts\\phase3-readiness-audit-v1.cjs",

@@ -166,6 +166,11 @@ function assertNoMojibake(text, scopeName) {
   }
 }
 
+const compactText = (value, limit = 800) => String(value || '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, limit);
+
 async function ensureSalesAuth(page) {
   if (!salesAuth) {
     salesAuth = await loginApi(page, 'sales', 'sales123');
@@ -373,14 +378,36 @@ async function createShipmentViaOcr(page) {
     const applyButton = page.getByTestId('shipping-ocr-apply-button');
     await applyButton.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
     await applyButton.scrollIntoViewIfNeeded();
+    const previewText = await applyButton.locator('..').innerText().catch(() => '');
     const createResponsePromise = page.waitForResponse((response) => (
       response.url().includes('/api/shipping') && response.request().method() === 'POST'
     ), { timeout: 8000 }).catch(() => null);
     await applyButton.click();
     const createResponse = await createResponsePromise;
+    if (!createResponse) {
+      const bodyText = await page.locator('body').innerText().catch(() => '');
+      recordStep({
+        step: 'shipping-ocr-submit-request-evidence',
+        result: 'failed',
+        reason: 'no-post-after-apply',
+        expectedTrackingNo: DATA.ocrTrackingNo,
+        expectedCustomerName: customerName,
+        previewText: compactText(previewText),
+        bodyText: compactText(bodyText, 1200),
+      });
+      throw new Error('OCR apply did not submit POST /api/shipping; check customer matching, validation toast, or stale customer list');
+    }
     if (createResponse && !createResponse.ok()) {
       throw new Error(`OCR shipment create failed: ${createResponse.status()}`);
     }
+    recordStep({
+      step: 'shipping-ocr-submit-request-evidence',
+      result: 'passed',
+      status: createResponse.status(),
+      expectedTrackingNo: DATA.ocrTrackingNo,
+      expectedCustomerName: customerName,
+      previewText: compactText(previewText),
+    });
 
     let shipment = null;
     for (let index = 0; index < 20; index += 1) {
