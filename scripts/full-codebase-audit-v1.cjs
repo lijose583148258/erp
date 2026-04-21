@@ -289,6 +289,8 @@ function main() {
   const legacyNamedFiles = [];
   const sourceLineStats = [];
   const disabledLegacyFiles = [];
+  const suspiciousLegacyNamedFiles = [];
+  const governedNamedActiveFiles = [];
   const testCredentialAssets = [];
   const consoleHeavyUtilityAssets = [];
   const governedRuntimeScriptAssets = [];
@@ -319,7 +321,11 @@ function main() {
     if (/(^|[._-])(bak|old|legacy|tmp|temp|fix|clean|current)([._-]|$)/i.test(item.name)) {
       legacyNamedFiles.push(item.rel);
       const isAuditOrTest = isAuditOrTestAsset(item);
-      if (!isAuditOrTest && !GOVERNED_NAMED_ACTIVE_FILES.has(item.rel)) {
+      const isGovernedName = isAuditOrTest || GOVERNED_NAMED_ACTIVE_FILES.has(item.rel);
+      if (isGovernedName) {
+        governedNamedActiveFiles.push(item.rel);
+      } else {
+        suspiciousLegacyNamedFiles.push(item.rel);
         const priority = item.rel.startsWith('scripts/') ? 'P3' : 'P2';
         addFinding(findings, priority, 'stale-file', 'Legacy/temporary naming remains in active tree', item.rel, null, item.name);
       }
@@ -456,6 +462,8 @@ function main() {
       topLargestFiles: largestFiles.slice(0, 35),
       oversizedFiles,
       legacyNamedFiles: legacyNamedFiles.sort(),
+      suspiciousLegacyNamedFiles: suspiciousLegacyNamedFiles.sort(),
+      governedNamedActiveFiles: governedNamedActiveFiles.sort(),
       disabledLegacyFiles: disabledLegacyFiles.sort(),
       testCredentialAssets: testCredentialAssets.sort((a, b) => a.file.localeCompare(b.file)),
       consoleHeavyUtilityAssets: consoleHeavyUtilityAssets.sort((a, b) => a.file.localeCompare(b.file)),
@@ -476,7 +484,9 @@ function main() {
     oversizedFiles: oversizedFiles.length,
     routeFiles: routeAudit.length,
     duplicateNameGroups: duplicateNames.length,
-    legacyNamedFiles: legacyNamedFiles.length,
+    legacyNamedFiles: suspiciousLegacyNamedFiles.length,
+    legacyNamedFilesAll: legacyNamedFiles.length,
+    governedNamedActiveFiles: governedNamedActiveFiles.length,
     disabledLegacyFiles: disabledLegacyFiles.length,
     testCredentialAssets: testCredentialAssets.length,
     consoleHeavyUtilityAssets: consoleHeavyUtilityAssets.length,
@@ -493,6 +503,8 @@ function main() {
   md.push(`- finished: ${report.meta.finishedAt}`);
   md.push(`- active source files: ${report.summary.activeSourceFiles}`);
   md.push(`- disabled legacy files: ${report.summary.disabledLegacyFiles}`);
+  md.push(`- suspicious legacy-named files: ${report.summary.legacyNamedFiles}`);
+  md.push(`- governed legacy/clean-named active files: ${report.summary.governedNamedActiveFiles}`);
   md.push(`- test credential assets: ${report.summary.testCredentialAssets}`);
   md.push(`- console-heavy utility assets: ${report.summary.consoleHeavyUtilityAssets}`);
   md.push(`- governed runtime script assets: ${report.summary.governedRuntimeScriptAssets}`);
@@ -513,6 +525,18 @@ function main() {
   md.push('## Route Audit');
   for (const route of report.routeAudit) {
     md.push(`- ${route.file}: routes=${route.routeCount}, routerUseAuth=${route.hasRouterUseAuthenticate}, permissionRoutes=${route.permissionRoutes}, fixedRoleRoutes=${route.fixedRoleRoutes}, manualRoleGuardRoutes=${route.manualRoleGuardRoutes}, unauthenticatedCandidates=${route.unauthenticatedCandidates}`);
+  }
+  md.push('');
+  md.push('## Suspicious Legacy-Named Active Files');
+  if (report.structure.suspiciousLegacyNamedFiles.length === 0) md.push('- none');
+  for (const file of report.structure.suspiciousLegacyNamedFiles) {
+    md.push(`- ${file}`);
+  }
+  md.push('');
+  md.push('## Governed Legacy/Clean-Named Active Files');
+  if (report.structure.governedNamedActiveFiles.length === 0) md.push('- none');
+  for (const file of report.structure.governedNamedActiveFiles) {
+    md.push(`- ${file}`);
   }
   md.push('');
   md.push('## Expected Test Credential Assets');
