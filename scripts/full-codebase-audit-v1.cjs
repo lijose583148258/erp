@@ -36,10 +36,17 @@ const EXCLUDED_DIR_PREFIXES = [
 
 const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'check-timeboxed-health.ps1',
+  'scripts/clean-dist-v1.ps1',
   'scripts/start-cdp-browser.ps1',
   'scripts/start-stable-v2.ps1',
   'scripts/stop-runtime.ps1',
   '启动系统.bat',
+]);
+
+const GOVERNED_NAMED_ACTIVE_FILES = new Set([
+  'scripts/clean-dist-v1.cjs',
+  'scripts/clean-dist-v1.ps1',
+  'scripts/legacy-interface-disconnect-audit-v1.cjs',
 ]);
 
 const HISTORICAL_DIR_NAMES = new Set([
@@ -358,7 +365,7 @@ function main() {
     if (/(^|[._-])(bak|old|legacy|tmp|temp|fix|clean|current)([._-]|$)/i.test(item.name)) {
       legacyNamedFiles.push(item.rel);
       const isAuditOrTest = isAuditOrTestAsset(item);
-      if (!isAuditOrTest) {
+      if (!isAuditOrTest && !GOVERNED_NAMED_ACTIVE_FILES.has(item.rel)) {
         const priority = item.rel.startsWith('scripts/') ? 'P3' : 'P2';
         addFinding(findings, priority, 'stale-file', 'Legacy/temporary naming remains in active tree', item.rel, null, item.name);
       }
