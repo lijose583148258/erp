@@ -79,6 +79,35 @@ Copy-Item -LiteralPath (Join-Path $root 'scripts\start-stable-v2.ps1') -Destinat
 Copy-Item -LiteralPath (Join-Path $root 'scripts\stop-runtime.ps1') -Destination (Join-Path $dest 'scripts\stop-runtime.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $root 'scripts\check-runtime.ps1') -Destination (Join-Path $dest 'scripts\check-runtime.ps1') -Force
 
+$envExample = Join-Path $root '.env.production.example'
+if (Test-Path -LiteralPath $envExample) {
+  Copy-Item -LiteralPath $envExample -Destination (Join-Path $dest '.env.production.example') -Force
+}
+
+$packageManifest = @(
+  'AilaoDa stable package whitelist',
+  '',
+  'Included runtime files:',
+  '- dist/',
+  '- backend/dist/',
+  '- backend/prisma/',
+  '- backend/package.json',
+  '- backend/package-lock.json',
+  '- backend/node_modules/',
+  '- scripts/start-stable-v2.ps1',
+  '- scripts/stop-runtime.ps1',
+  '- scripts/check-runtime.ps1',
+  '- .env.production.example',
+  '',
+  'Excluded by design:',
+  '- source pages/components/services',
+  '- output/logs/backups/user runtime database',
+  '- historical packages and governance archives',
+  '',
+  'Writable runtime data must stay outside this package, for example D:\AilaoDaRuntime\stable.db.'
+)
+$packageManifest | Set-Content -LiteralPath (Join-Path $dest 'PACKAGE_CONTENTS.txt') -Encoding UTF8
+
 Write-Host ''
 Write-Host "Package complete: $dest"
 Write-Host "Entry: $(Join-Path $dest $mainLauncherName)"

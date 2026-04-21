@@ -183,10 +183,18 @@ function task(name, command, args, timeoutMs = DEFAULT_TIMEOUT_MS) {
   return { name, command, args, timeoutMs };
 }
 
+function npxTask(name, args, timeoutMs = DEFAULT_TIMEOUT_MS) {
+  if (process.platform === 'win32') {
+    return task(name, 'cmd.exe', ['/d', '/s', '/c', ['npx', ...args].join(' ')], timeoutMs);
+  }
+  return task(name, 'npx', args, timeoutMs);
+}
+
 function getRuntimeTasks(options) {
   const tasks = [
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
+    npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),
     task('dist-entry-asset-audit', 'node', ['scripts/dist-entry-asset-audit-v1.cjs']),
     task('shipping-ocr-regression', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/shipping-ocr-regression-v1.ts'] : ['tsx', 'scripts/shipping-ocr-regression-v1.ts']),
     task('backup-restore-api-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),

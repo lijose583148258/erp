@@ -140,6 +140,7 @@ function getTasks(profile) {
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     task('dual-port-stable-audit', 'node', ['scripts/dual-port-audit-v2.cjs']),
     task('cdp-core-pages-smoke', 'node', ['scripts/cdp-core-pages-smoke-audit-v1.cjs']),
+    npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),
     npmTask('frontend-build', ['run', 'build']),
     npmTask('backend-build', ['--prefix', 'backend', 'run', 'build']),
     npmTask('lint', ['run', 'lint']),

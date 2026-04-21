@@ -141,8 +141,25 @@ async function searchSuppliers(token, search) {
   return unwrapList(response);
 }
 
+async function searchCustomers(token, search) {
+  const response = await apiFetch(`/customers?pageSize=50&search=${encodeURIComponent(search)}`, {}, token);
+  if (!response.ok) {
+    throw new Error(`客户搜索失败: ${response.status} ${JSON.stringify(response.json)}`);
+  }
+  return unwrapList(response);
+}
+
 function findSupplier(rows) {
   return rows.find((row) => String(row.name) === DATA.supplierName || String(row.nameZh) === DATA.supplierName);
+}
+
+function findCustomerByDisplayName(rows, name) {
+  return rows.find((row) =>
+    String(row.name || '') === String(name) ||
+    String(row.nameZh || '') === String(name) ||
+    String(row.nameEn || '') === String(name) ||
+    String(row.nameVi || '') === String(name)
+  );
 }
 
 async function createCustomer(token, name, poolState = 'private') {
@@ -335,6 +352,12 @@ async function run() {
     }
     recordStep({ step: 'verify-sales-cannot-reverse-search-sensitive-supplier-fields', result: 'passed' });
 
+    const customerSearchBySupplierName = await searchCustomers(manager.token, DATA.supplierName);
+    if (findCustomerByDisplayName(customerSearchBySupplierName, DATA.supplierName)) {
+      throw new Error('客户搜索不应返回同名供应商主数据');
+    }
+    recordStep({ step: 'verify-customer-search-does-not-return-supplier-masterdata', result: 'passed' });
+
     const financeRows = await searchSuppliers(finance.token, DATA.supplierPhone);
     const financeSupplier = findSupplier(financeRows);
     if (!financeSupplier || !financeSupplier.contacts?.length) {
@@ -388,6 +411,13 @@ async function run() {
       managerLinkedPurchaseOrderId: String(managerLinkedPO.id),
     };
     recordStep({ step: 'create-b2b-linked-orders', result: 'passed', ...report.created });
+
+    const supplierSearchBySalesCustomer = await searchSuppliers(manager.token, DATA.salesCustomerName);
+    const supplierSearchByManagerCustomer = await searchSuppliers(manager.token, DATA.managerCustomerName);
+    if (findSupplier(supplierSearchBySalesCustomer) || findSupplier(supplierSearchByManagerCustomer)) {
+      throw new Error('供应商搜索不应返回客户主数据');
+    }
+    recordStep({ step: 'verify-supplier-search-does-not-return-customer-masterdata', result: 'passed' });
 
     const ownB2B = await apiFetch(`/procurement/b2b-status/${salesOrder.id}`, {}, sales.token);
     if (!ownB2B.ok || !ownB2B.json?.data?.linked) {

@@ -262,7 +262,8 @@ async function main() {
     await runRoleAccessChecks('created-sales', createdAsSales.token, [
       { label: 'dashboard-allowed', endpoint: '/dashboard', expected: [200] },
       { label: 'orders-allowed', endpoint: '/orders?pageSize=1', expected: [200] },
-      { label: 'procurement-suppliers-denied', endpoint: '/procurement/suppliers?pageSize=1', expected: [403] },
+      { label: 'procurement-suppliers-basic-redacted-allowed', endpoint: '/procurement/suppliers?pageSize=1', expected: [200] },
+      { label: 'procurement-orders-denied', endpoint: '/procurement/orders?pageSize=1', expected: [403] },
       { label: 'warehouses-denied', endpoint: '/warehouses', expected: [403] },
       { label: 'finance-denied', endpoint: '/finance/summary', expected: [403] },
     ]);

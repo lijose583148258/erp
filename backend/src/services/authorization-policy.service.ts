@@ -50,6 +50,8 @@ type RolePermissionRow = {
 };
 
 const ROLE_CODE_PATTERN = /^[a-z][a-z0-9_:-]{1,49}$/;
+let authorizationSeeded = false;
+let authorizationSeedPromise: Promise<void> | null = null;
 
 const toBool = (value: number | boolean) => value === true || value === 1;
 
@@ -148,9 +150,23 @@ async function replaceRolePermissions(roleCode: string, permissions: Permission[
 }
 
 export async function ensureAuthorizationPolicySeed() {
-  await upsertPermissionDefinitions();
-  await upsertSystemRoles();
-  resetAuthorizationEnforcer();
+  if (authorizationSeeded) return;
+
+  if (!authorizationSeedPromise) {
+    authorizationSeedPromise = (async () => {
+      await upsertPermissionDefinitions();
+      await upsertSystemRoles();
+      resetAuthorizationEnforcer();
+      authorizationSeeded = true;
+    })().catch((error) => {
+      authorizationSeeded = false;
+      throw error;
+    }).finally(() => {
+      authorizationSeedPromise = null;
+    });
+  }
+
+  await authorizationSeedPromise;
 }
 
 export async function listPermissions() {

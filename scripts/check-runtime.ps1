@@ -6,6 +6,9 @@ if ([string]::IsNullOrWhiteSpace($BaseUrl)) {
   $BaseUrl = 'http://127.0.0.1:5001'
 }
 $BaseUrl = $BaseUrl.TrimEnd('/')
+$OutputDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'output\audit'
+$ReportPath = Join-Path $OutputDir 'runtime-check-v1.json'
+$startedAt = (Get-Date).ToUniversalTime().ToString('o')
 
 function Check-Url {
   param(
@@ -50,7 +53,18 @@ try {
   }
   $assetPaths = $assetPaths | Select-Object -Unique | Select-Object -First 6
   foreach ($assetPath in $assetPaths) {
-    $assetUrl = if ($assetPath.StartsWith('http')) { $assetPath } else { "$BaseUrl/$($assetPath.TrimStart('/'))" }
+    if ($assetPath -match '^https?://') {
+      $results.Add([PSCustomObject]@{
+        Name = "asset:$assetPath"
+        Url = $assetPath
+        Status = 'external asset is not allowed for offline/EXE runtime'
+        Bytes = 0
+        Ok = $false
+      })
+      continue
+    }
+
+    $assetUrl = "$BaseUrl/$($assetPath.TrimStart('/'))"
     $results.Add((Check-Url -Name "asset:$assetPath" -Url $assetUrl))
   }
 } catch {
@@ -65,6 +79,30 @@ try {
 
 $results | Format-Table -AutoSize
 
-if ($results.Where({ -not $_.Ok }).Count -gt 0) {
+New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
+$failedResults = @($results | Where-Object { -not $_.Ok })
+$status = if ($failedResults.Count -gt 0) { 'failed' } else { 'passed' }
+$resultArray = @($results | ForEach-Object {
+  [ordered]@{
+    name = $_.Name
+    url = $_.Url
+    httpStatus = $_.Status
+    bytes = $_.Bytes
+    ok = [bool]$_.Ok
+  }
+})
+$report = [ordered]@{
+  name = 'Runtime Check'
+  version = '1.1'
+  baseUrl = $BaseUrl
+  startedAt = $startedAt
+  finishedAt = (Get-Date).ToUniversalTime().ToString('o')
+  status = $status
+  results = $resultArray
+}
+$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+Write-Host "Runtime check report: $ReportPath"
+
+if ($failedResults.Count -gt 0) {
   exit 1
 }

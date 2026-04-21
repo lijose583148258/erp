@@ -36,7 +36,8 @@ const MATRIX = [
 
   { label: 'dashboard-summary', endpoint: '/dashboard', allow: ['admin', 'manager', 'sales', 'warehouse', 'finance'], deny: [], allowStatuses: [200] },
   { label: 'dashboard-trends', endpoint: '/dashboard/trends', allow: ['admin', 'manager', 'sales', 'warehouse', 'finance'], deny: [], allowStatuses: [200] },
-  { label: 'procurement-suppliers', endpoint: '/procurement/suppliers?pageSize=1', allow: ['admin', 'manager', 'warehouse', 'finance'], deny: ['sales'], allowStatuses: [200] },
+  { label: 'procurement-suppliers-basic-directory', endpoint: '/procurement/suppliers?pageSize=1', allow: ['admin', 'manager', 'sales', 'warehouse', 'finance'], deny: [], allowStatuses: [200] },
+  { label: 'procurement-orders-list', endpoint: '/procurement/orders?pageSize=1', allow: ['admin', 'manager', 'warehouse', 'finance'], deny: ['sales'], allowStatuses: [200] },
   {
     label: 'legacy-timber-summary-disabled',
     endpoint: '/timber/summary',

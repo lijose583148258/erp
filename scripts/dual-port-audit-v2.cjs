@@ -55,6 +55,15 @@ const MOJIBAKE_TOKENS = [
   '\u68f0\u6fc6',
   '\u7ecb\u5b2a',
   '\u93c1\u7248',
+  '鍖栧',
+  '鑳舵',
+  '浜у',
+  '骞跺',
+  '鑱旂',
+  '瀹㈡',
+  '绛炬',
+  '鐢ㄦ',
+  '楠岃',
 ];
 
 function looksMojibake(value) {
@@ -175,6 +184,7 @@ async function run() {
 
   const results = [];
   let passed = 0;
+  let statusMatched = 0;
   let encodingCleanCount = 0;
 
   for (const endpoint of API_ENDPOINTS.filter((item) => item.method === 'GET')) {
@@ -184,11 +194,13 @@ async function run() {
       : { status: 'skipped', encodingClean: true };
 
     const match = compareFrontend ? backendRes.status === frontendRes.status : true;
-    const endpointPassed = compareFrontend
+    const statusOk = compareFrontend
       ? match && backendRes.status === 200 && frontendRes.status === 200
       : backendRes.status === 200;
     const encodingClean = Boolean(backendRes.encodingClean && frontendRes.encodingClean);
+    const endpointPassed = statusOk && encodingClean;
 
+    if (statusOk) statusMatched += 1;
     if (endpointPassed) passed += 1;
     if (encodingClean) encodingCleanCount += 1;
 
@@ -203,6 +215,7 @@ async function run() {
       backendStatus: backendRes.status,
       frontendStatus: frontendRes.status,
       match,
+      statusOk,
       passed: endpointPassed,
       hasChinese: backendRes.hasChinese,
       chineseSample: backendRes.chineseSample,
@@ -219,7 +232,7 @@ async function run() {
   }
 
   console.log('-'.repeat(98));
-  console.log(`\nSummary: ${passed}/${results.length} status matches, ${encodingCleanCount}/${results.length} encoding-clean`);
+  console.log(`\nSummary: ${statusMatched}/${results.length} status matches, ${encodingCleanCount}/${results.length} encoding-clean, ${passed}/${results.length} fully passed`);
 
   console.log(`Frontend home: HTTP ${frontendHtml.status}, ${frontendHtml.bodyLen} bytes`);
 
@@ -245,6 +258,7 @@ async function run() {
       total: results.length,
       passed,
       failed: results.length - passed,
+      statusMatched,
       chineseEncodingOk: encodingCleanCount === results.length,
       encodingClean: encodingCleanCount,
     },
@@ -256,6 +270,10 @@ async function run() {
   const outPath = path.join(outDir, 'dual-port-audit-report.json');
   fs.writeFileSync(outPath, JSON.stringify(report, null, 2), 'utf8');
   console.log(`\nReport written to ${outPath}`);
+
+  if (passed !== results.length) {
+    process.exitCode = 1;
+  }
 }
 
 run().catch((error) => {
