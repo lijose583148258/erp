@@ -1,6 +1,7 @@
 ﻿import prisma from '../config/database';
 import { CollectionStateService } from './collection-state.service';
 import { buildBusinessNo } from '../utils/businessNo';
+import { withDbRetry } from '../utils/dbRetry';
 
 const ACTIVE_DISPUTE_STATUSES = ['open', 'reviewing'] as const;
 
@@ -113,28 +114,66 @@ export class CollectionMutationService {
     }
 
     static async updatePromiseStatus(promiseId: number, status: 'kept' | 'missed' | 'cancelled') {
-        const promise = await prisma.collectionPromise.findUnique({
-            where: { id: promiseId },
-            select: { id: true, customerId: true, status: true },
-        });
+        const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
+            const promise = await tx.collectionPromise.findUnique({
+                where: { id: promiseId },
+                select: { id: true, customerId: true, status: true },
+            });
 
-        if (!promise) {
-            throw new Error('Promise record not found');
+            if (!promise) {
+                throw new Error('Promise record not found');
+            }
+
+            if (promise.status === status) {
+                const record = await tx.collectionPromise.findUnique({ where: { id: promiseId } });
+                if (!record) {
+                    throw new Error('Promise record not found');
+                }
+                return { changed: false, customerId: promise.customerId, record };
+            }
+
+            assertPromiseTransition(promise.status, status);
+
+            const claim = await tx.collectionPromise.updateMany({
+                where: { id: promiseId, status: promise.status },
+                data: { status },
+            });
+
+            if (claim.count !== 1) {
+                const latest = await tx.collectionPromise.findUnique({
+                    where: { id: promiseId },
+                    select: { id: true, customerId: true, status: true },
+                });
+
+                if (!latest) {
+                    throw new Error('Promise record not found');
+                }
+
+                if (latest.status === status) {
+                    const record = await tx.collectionPromise.findUnique({ where: { id: promiseId } });
+                    if (!record) {
+                        throw new Error('Promise record not found');
+                    }
+                    return { changed: false, customerId: latest.customerId, record };
+                }
+
+                assertPromiseTransition(latest.status, status);
+                throw new Error(`Promise status cannot transition from ${latest.status} to ${status}`);
+            }
+
+            const record = await tx.collectionPromise.findUnique({ where: { id: promiseId } });
+            if (!record) {
+                throw new Error('Promise record not found');
+            }
+
+            return { changed: true, customerId: record.customerId, record };
+        }), { label: 'updatePromiseStatus' });
+
+        if (result.changed) {
+            await CollectionStateService.refreshCustomerCollectionState(result.customerId);
         }
 
-        if (promise.status === status) {
-            return promise;
-        }
-
-        assertPromiseTransition(promise.status, status);
-
-        const updated = await prisma.collectionPromise.update({
-            where: { id: promiseId },
-            data: { status },
-        });
-
-        await CollectionStateService.refreshCustomerCollectionState(promise.customerId);
-        return updated;
+        return result.record;
     }
 
     static async createDispute(input: {
@@ -169,29 +208,70 @@ export class CollectionMutationService {
     }
 
     static async updateDisputeStatus(disputeId: number, status: 'reviewing' | 'resolved' | 'rejected' | 'withdrawn') {
-        const dispute = await prisma.collectionDispute.findUnique({
-            where: { id: disputeId },
-            select: { id: true, customerId: true, orderId: true, status: true },
-        });
+        const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
+            const dispute = await tx.collectionDispute.findUnique({
+                where: { id: disputeId },
+                select: { id: true, customerId: true, orderId: true, status: true },
+            });
 
-        if (!dispute) {
-            throw new Error('Dispute record not found');
+            if (!dispute) {
+                throw new Error('Dispute record not found');
+            }
+
+            if (dispute.status === status) {
+                const record = await tx.collectionDispute.findUnique({ where: { id: disputeId } });
+                if (!record) {
+                    throw new Error('Dispute record not found');
+                }
+                return { changed: false, customerId: dispute.customerId, orderId: dispute.orderId, record };
+            }
+
+            assertDisputeTransition(dispute.status, status);
+
+            const claim = await tx.collectionDispute.updateMany({
+                where: { id: disputeId, status: dispute.status },
+                data: {
+                    status,
+                    resolvedAt: status === 'resolved' ? new Date() : null,
+                },
+            });
+
+            if (claim.count !== 1) {
+                const latest = await tx.collectionDispute.findUnique({
+                    where: { id: disputeId },
+                    select: { id: true, customerId: true, orderId: true, status: true },
+                });
+
+                if (!latest) {
+                    throw new Error('Dispute record not found');
+                }
+
+                if (latest.status === status) {
+                    const record = await tx.collectionDispute.findUnique({ where: { id: disputeId } });
+                    if (!record) {
+                        throw new Error('Dispute record not found');
+                    }
+                    return { changed: false, customerId: latest.customerId, orderId: latest.orderId, record };
+                }
+
+                assertDisputeTransition(latest.status, status);
+                throw new Error(`Dispute status cannot transition from ${latest.status} to ${status}`);
+            }
+
+            const record = await tx.collectionDispute.findUnique({ where: { id: disputeId } });
+            if (!record) {
+                throw new Error('Dispute record not found');
+            }
+
+            return { changed: true, customerId: record.customerId, orderId: record.orderId, record };
+        }), { label: 'updateDisputeStatus' });
+
+        if (result.changed) {
+            await syncOrderDisputeShipmentHold(result.orderId);
+            await CollectionStateService.refreshCustomerCollectionState(result.customerId);
         }
 
-        assertDisputeTransition(dispute.status, status);
-
-        const updated = await prisma.collectionDispute.update({
-            where: { id: disputeId },
-            data: {
-                status,
-                resolvedAt: status === 'resolved' ? new Date() : null,
-            },
-        });
-
-        await syncOrderDisputeShipmentHold(dispute.orderId);
-
-        await CollectionStateService.refreshCustomerCollectionState(dispute.customerId);
-        return updated;
+        return result.record;
     }
 
     static async setCustomerHold(customerId: number, type: 'credit' | 'shipment', reason: string, source = 'manual') {
