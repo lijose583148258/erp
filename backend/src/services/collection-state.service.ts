@@ -52,17 +52,139 @@ export class CollectionStateService {
     }
 
     static async syncAllCustomerOverdueAmounts(): Promise<number> {
-        const customers = await prisma.customer.findMany({
-            select: { id: true },
-        });
+        const [customers, orders, openPromises, openDisputes] = await Promise.all([
+            prisma.customer.findMany({
+                select: {
+                    id: true,
+                    overdueAmount: true,
+                    dunningLevel: true,
+                    collectionsStatus: true,
+                    nextActionAt: true,
+                    creditHold: true,
+                    creditHoldReason: true,
+                    creditHoldSource: true,
+                    shipmentHold: true,
+                    shipmentHoldReason: true,
+                    shipmentHoldSource: true,
+                },
+            }),
+            prisma.order.findMany({
+                where: {
+                    status: { not: 'cancelled' },
+                    paymentStatus: { not: 'paid' },
+                },
+                select: {
+                    customerId: true,
+                    finalAmount: true,
+                    paidAmount: true,
+                    paymentTerms: true,
+                    createdAt: true,
+                },
+            }),
+            prisma.collectionPromise.findMany({
+                where: { status: 'open' },
+                orderBy: { promisedAt: 'asc' },
+                select: {
+                    customerId: true,
+                    promisedAt: true,
+                },
+            }),
+            prisma.collectionDispute.findMany({
+                where: { status: { in: ['open', 'reviewing'] } },
+                select: { customerId: true },
+            }),
+        ]);
 
-        let updated = 0;
-        for (const customer of customers) {
-            await this.syncCustomerOverdueAmount(customer.id);
-            updated++;
+        const now = new Date();
+        const orderStateByCustomer = new Map<number, { overdueAmount: number; dunningLevel: number }>();
+        for (const order of orders) {
+            const current = orderStateByCustomer.get(order.customerId) || { overdueAmount: 0, dunningLevel: 0 };
+            if (isOverdue(order.createdAt, order.paymentTerms, Number(order.finalAmount), Number(order.paidAmount), now)) {
+                const daysOverdue = getOverdueDays(order.createdAt, order.paymentTerms, now);
+                current.overdueAmount += getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+                current.dunningLevel = Math.max(current.dunningLevel, getDunningLevel(daysOverdue));
+            }
+            orderStateByCustomer.set(order.customerId, current);
         }
 
-        return updated;
+        const promisedAtByCustomer = new Map<number, Date>();
+        for (const promise of openPromises) {
+            if (!promisedAtByCustomer.has(promise.customerId)) {
+                promisedAtByCustomer.set(promise.customerId, promise.promisedAt);
+            }
+        }
+
+        const disputedCustomers = new Set(openDisputes.map(dispute => dispute.customerId));
+        const updates = customers.map(customer => {
+            const orderState = orderStateByCustomer.get(customer.id) || { overdueAmount: 0, dunningLevel: 0 };
+            const hasPromise = promisedAtByCustomer.has(customer.id);
+            const hasDispute = disputedCustomers.has(customer.id);
+            const promisedAt = promisedAtByCustomer.get(customer.id) || null;
+            const autoCreditHold = orderState.dunningLevel >= 3 || hasDispute;
+            const autoShipmentHold = orderState.dunningLevel >= 4 || hasDispute;
+
+            let collectionsStatus = 'normal';
+            if (customer.creditHold || customer.shipmentHold) {
+                collectionsStatus = 'hold';
+            } else if (hasDispute) {
+                collectionsStatus = 'disputed';
+            } else if (hasPromise) {
+                collectionsStatus = 'promised';
+            } else if (orderState.dunningLevel >= 4) {
+                collectionsStatus = 'legal';
+            } else if (orderState.dunningLevel >= 3) {
+                collectionsStatus = 'hold';
+            } else if (orderState.dunningLevel >= 1) {
+                collectionsStatus = 'watch';
+            }
+
+            const data: Record<string, any> = {
+                overdueAmount: orderState.overdueAmount,
+                dunningLevel: orderState.dunningLevel,
+                collectionsStatus,
+                nextActionAt: promisedAt,
+            };
+
+            if (customer.creditHoldSource !== 'manual') {
+                if (autoCreditHold) {
+                    data.creditHold = true;
+                    data.creditHoldReason = hasDispute ? 'Open dispute under review' : `System hold: dunning level ${orderState.dunningLevel}`;
+                    data.creditHoldSource = hasDispute ? 'dispute' : 'system';
+                    data.creditHoldUpdatedAt = now;
+                } else if (customer.creditHold) {
+                    data.creditHold = false;
+                    data.creditHoldReason = null;
+                    data.creditHoldSource = null;
+                    data.creditHoldUpdatedAt = now;
+                }
+            }
+
+            if (customer.shipmentHoldSource !== 'manual') {
+                if (autoShipmentHold) {
+                    data.shipmentHold = true;
+                    data.shipmentHoldReason = hasDispute ? 'Open dispute blocks shipment' : `System hold: dunning level ${orderState.dunningLevel}`;
+                    data.shipmentHoldSource = hasDispute ? 'dispute' : 'system';
+                    data.shipmentHoldUpdatedAt = now;
+                } else if (customer.shipmentHold) {
+                    data.shipmentHold = false;
+                    data.shipmentHoldReason = null;
+                    data.shipmentHoldSource = null;
+                    data.shipmentHoldUpdatedAt = now;
+                }
+            }
+
+            return prisma.customer.update({
+                where: { id: customer.id },
+                data,
+            });
+        });
+
+        const chunkSize = 80;
+        for (let index = 0; index < updates.length; index += chunkSize) {
+            await prisma.$transaction(updates.slice(index, index + chunkSize));
+        }
+
+        return customers.length;
     }
 
     static async recalculateOrderPaymentState(orderId: number) {

@@ -157,7 +157,7 @@ const CollectionCenterView: React.FC = () => {
               <p className="text-xs font-bold tracking-[0.16em] text-slate-400">异常处理</p>
               <h3 className="mt-2 text-2xl font-black tracking-tighter text-slate-900 dark:text-white">承诺付款执行表</h3>
             </div>
-            <button type="button" onClick={tables.exportPromises} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
+            <button type="button" data-testid="collection-export-promises" onClick={tables.exportPromises} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
               导出承诺表
             </button>
           </div>
@@ -172,6 +172,7 @@ const CollectionCenterView: React.FC = () => {
               <button
                 key={item.id}
                 type="button"
+                data-testid={`collection-promise-filter-${item.id}`}
                 onClick={() => state.setPromiseFilter(item.id)}
                 className={`${filterChipClass} ${state.promiseFilter === item.id ? 'border-amber-500 bg-amber-500 text-white' : 'border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300'}`}
               >
@@ -186,6 +187,7 @@ const CollectionCenterView: React.FC = () => {
               <button
                 key={item.id}
                 type="button"
+                data-testid={`collection-promise-sort-${item.id}`}
                 onClick={() => state.setPromiseSort(item.id)}
                 className={`${sortChipClass} ${state.promiseSort === item.id ? 'border-blue-500 bg-blue-500 text-white' : 'border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300'}`}
               >
@@ -234,7 +236,7 @@ const CollectionCenterView: React.FC = () => {
                 <p className="text-xs font-bold tracking-[0.16em] text-slate-400">异常处理</p>
                 <h3 className="mt-2 text-2xl font-black tracking-tighter text-slate-900 dark:text-white">争议处理表</h3>
               </div>
-              <button type="button" onClick={tables.exportDisputes} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
+              <button type="button" data-testid="collection-export-disputes" onClick={tables.exportDisputes} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
                 导出争议表
               </button>
             </div>
@@ -249,6 +251,7 @@ const CollectionCenterView: React.FC = () => {
                 <button
                   key={item.id}
                   type="button"
+                  data-testid={`collection-dispute-filter-${item.id}`}
                   onClick={() => state.setDisputeFilter(item.id)}
                   className={`${filterChipClass} ${state.disputeFilter === item.id ? 'border-rose-500 bg-rose-500 text-white' : 'border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300'}`}
                 >
@@ -298,7 +301,7 @@ const CollectionCenterView: React.FC = () => {
                 <p className="text-xs font-bold tracking-[0.16em] text-slate-400">系统状态</p>
                 <h3 className="mt-2 text-2xl font-black tracking-tighter text-slate-900 dark:text-white">追款拦截表</h3>
               </div>
-              <button type="button" onClick={tables.exportHolds} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
+              <button type="button" data-testid="collection-export-holds" onClick={tables.exportHolds} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
                 导出拦截表
               </button>
             </div>
@@ -311,6 +314,7 @@ const CollectionCenterView: React.FC = () => {
                 <button
                   key={item.id}
                   type="button"
+                  data-testid={`collection-hold-filter-${item.id}`}
                   onClick={() => state.setHoldFilter(item.id)}
                   className={`${filterChipClass} ${state.holdFilter === item.id ? 'border-rose-500 bg-rose-500 text-white' : 'border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300'}`}
                 >
@@ -326,6 +330,7 @@ const CollectionCenterView: React.FC = () => {
                 <button
                   key={item.id}
                   type="button"
+                  data-testid={`collection-hold-scope-${item.id}`}
                   onClick={() => state.setHoldScopeFilter(item.id)}
                   className={`${filterChipClass} ${state.holdScopeFilter === item.id ? 'border-blue-500 bg-blue-500 text-white' : 'border-slate-200 text-slate-500 dark:border-slate-700 dark:text-slate-300'}`}
                 >

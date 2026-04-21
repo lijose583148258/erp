@@ -63,6 +63,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
           columns={ledgerEnterpriseColumns}
           data={sortedLedger}
           rowKey={(row) => String(row.id)}
+          getRowTestId={(row) => `collection-ledger-row-${row.id}`}
           onRowClick={(row) => onFocusOrder(row.orderId)}
           emptyTitle="暂无收款流水"
           emptyDescription="当订单产生回款记录后，会在这里进行核销和对账。"
@@ -70,6 +71,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
             row.status !== 'verified' && permissions.canVerifyPayment ? (
               <button
                 type="button"
+                data-testid={`collection-ledger-verify-${row.id}`}
                 onClick={(event) => {
                   event.stopPropagation();
                   void onVerifyPayment(row.id);
@@ -93,6 +95,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
           columns={milestoneEnterpriseColumns}
           data={sortedMilestones}
           rowKey={(row) => String(row.id)}
+          getRowTestId={(row) => `collection-milestone-row-${row.id}`}
           emptyTitle="暂无合同回款节点"
           emptyDescription="有关联合同后会自动形成回款节点视图。"
           defaultPageSize={10}
@@ -107,6 +110,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
         columns={overdueEnterpriseColumns}
         data={sortedOverdue}
         rowKey={(row) => String(row.orderId)}
+        getRowTestId={(row) => `collection-overdue-row-${row.orderId}`}
         onRowClick={onSelectOverdue}
         rowClassName={(row) => selectedOverdue?.orderId === row.orderId ? 'bg-blue-50/80 dark:bg-blue-950/20' : ''}
         emptyTitle="暂无逾期订单"
@@ -118,6 +122,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
               {permissions.canCreateReminder ? (
                 <button
                   type="button"
+                  data-testid={`collection-overdue-reminder-${row.orderId}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelectOverdue(row);
@@ -131,6 +136,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
               {permissions.canManagePromise ? (
                 <button
                   type="button"
+                  data-testid={`collection-overdue-promise-${row.orderId}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelectOverdue(row);
@@ -144,6 +150,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
               {permissions.canManageDispute ? (
                 <button
                   type="button"
+                  data-testid={`collection-overdue-dispute-${row.orderId}`}
                   onClick={(event) => {
                     event.stopPropagation();
                     onSelectOverdue(row);
@@ -169,6 +176,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
           <button
             key={item.id}
             type="button"
+            data-testid={`collection-tab-${item.id}`}
             onClick={() => setActiveTab(item.id)}
             className={`rounded-[24px] border px-5 py-4 text-left transition ${
               activeTab === item.id

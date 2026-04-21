@@ -121,7 +121,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
               <p className="text-xs font-bold text-slate-400">{target.orderNo}</p>
             </div>
           </div>
-          <button onClick={onClose} className="rounded-full bg-slate-100 p-2 dark:bg-slate-800">
+          <button data-testid="collection-action-close" onClick={onClose} className="rounded-full bg-slate-100 p-2 dark:bg-slate-800">
             <X size={20} />
           </button>
         </div>
@@ -170,6 +170,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
                 <label className="ml-2 text-xs font-bold tracking-wide text-slate-400">{t.collectionPromisedAmount}</label>
                 <input
                   type="number"
+                  data-testid="collection-action-promised-amount"
                   className="w-full rounded-2xl bg-slate-50 p-4 text-lg font-black outline-none focus:ring-2 focus:ring-blue-100 dark:bg-slate-800"
                   value={promisedAmount}
                   onChange={(event) => setPromisedAmount(Number(event.target.value))}
@@ -180,6 +181,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
                   <label className="ml-2 text-xs font-bold tracking-wide text-slate-400">{t.collectionPromisedAt}</label>
                   <input
                     type="datetime-local"
+                    data-testid="collection-action-promised-at"
                     className="w-full rounded-2xl bg-slate-50 p-4 font-bold outline-none dark:bg-slate-800"
                     value={promisedAt}
                     onChange={(event) => setPromisedAt(event.target.value)}
@@ -238,6 +240,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
               <div>
                 <label className="ml-2 text-xs font-bold tracking-wide text-slate-400">{t.adjReason}</label>
                 <textarea
+                  data-testid="collection-action-dispute-reason"
                   className="h-28 w-full resize-none rounded-2xl bg-slate-50 p-4 text-sm font-bold outline-none dark:bg-slate-800"
                   value={reason}
                   onChange={(event) => setReason(event.target.value)}
@@ -248,6 +251,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
 
           <input
             type="text"
+            data-testid="collection-action-note"
             className="w-full rounded-2xl bg-slate-50 p-4 text-sm font-bold outline-none dark:bg-slate-800"
             placeholder={t.notes}
             value={note}
