@@ -16,6 +16,15 @@ runtime-db/
 runtime-logs/
 scratchdb/
 tempdb/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+backend/%TEMP%/
+backend/%LOCALAPPDATA%/
+backend/backend/data/
+backend/prisma/tenants/
+backend/prisma/prisma/
 
 # Playwright 缓存
 .playwright/
