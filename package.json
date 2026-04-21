@@ -16,6 +16,7 @@
                     "test:acceptance:browser":  "node .\\scripts\\browser-acceptance-audit-v3.cjs",
                     "audit:production:background":  "node .\\scripts\\production-browser-audit-v1.cjs",
                     "audit:production:visible":  "set BROWSER_AUDIT_VISIBLE=1&& set BROWSER_AUDIT_SLOWMO_MS=400&& node .\\scripts\\production-browser-audit-v1.cjs",
+                    "audit:production:concurrency":  "node .\\scripts\\production-completion-concurrency-audit-v1.cjs",
                     "audit:human-flow":  "node .\\scripts\\browser-human-flow-audit-v1.cjs",
                     "audit:human-flow:crm":  "node .\\scripts\\browser-human-flow-audit-v1.cjs --module=crm",
                     "audit:human-flow:list":  "node .\\scripts\\browser-human-flow-audit-v1.cjs --list-modules",

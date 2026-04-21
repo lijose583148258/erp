@@ -59,6 +59,16 @@ const WORK_ORDER_STATUS_RANK: Record<ProductionWorkOrderStatus, number> = {
   cancelled: 5,
 };
 
+const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.productionWorkOrder.findUnique({
+  where: { id },
+  include: {
+    bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
+    productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+    steps: { orderBy: { stepNo: 'asc' } },
+    qualityChecks: { orderBy: { createdAt: 'desc' } },
+  },
+});
+
 export class ProductionMutationService {
   static async createBom(input: ProductionBomInput, createdBy: number) {
     const bomNo = buildNo('BOM');
@@ -223,15 +233,7 @@ export class ProductionMutationService {
       }
 
       if (workOrder.status === status) {
-        return tx.productionWorkOrder.findUnique({
-          where: { id: workOrder.id },
-          include: {
-            bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-            productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
-            steps: { orderBy: { stepNo: 'asc' } },
-            qualityChecks: { orderBy: { createdAt: 'desc' } },
-          },
-        });
+        return readWorkOrderDetail(tx, workOrder.id);
       }
 
       if (workOrder.status === 'completed' && status !== 'completed') {
@@ -309,10 +311,21 @@ export class ProductionMutationService {
         updateData.actualEndAt = new Date();
       }
 
-      const updated = await tx.productionWorkOrder.update({
-        where: { id },
+      const claim = await tx.productionWorkOrder.updateMany({
+        where: { id, status: workOrder.status },
         data: updateData,
       });
+
+      if (claim.count !== 1) {
+        const latest = await readWorkOrderDetail(tx, id);
+        if (!latest) {
+          throw new Error(`Work order not found: ${id}`);
+        }
+        if (latest.status === status) {
+          return latest;
+        }
+        throw new Error(`Work order status changed by another operation: ${workOrder.status} -> ${latest.status}`);
+      }
 
       if (status === 'completed') {
         const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
@@ -472,15 +485,7 @@ export class ProductionMutationService {
         }
       }
 
-      return tx.productionWorkOrder.findUnique({
-        where: { id: updated.id },
-        include: {
-          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-          productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
-          steps: { orderBy: { stepNo: 'asc' } },
-          qualityChecks: { orderBy: { createdAt: 'desc' } },
-        },
-      });
+      return readWorkOrderDetail(tx, id);
     });
   }
 
