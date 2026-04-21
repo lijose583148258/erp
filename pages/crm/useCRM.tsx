@@ -4,98 +4,12 @@ import { getRiskInsight } from '../../services/geminiService';
 import { customerService } from '../../services/customer.service';
 import teamService from '../../services/team.service';
 import { useAppContext } from '../../app/AppContext';
-import type { Column } from '../../components/DataTable';
-import { splitCustomerTextList } from '../../utils/customerAlias';
 import { getCustomerDisplayName } from '../../utils/customerName';
-import { UserRound } from 'lucide-react';
 import { getCustomerPoolState } from '../../utils/customerPool';
 import { normalizeCustomerAddresses } from '../../utils/customerAddressV2';
 import { matchesScopedSearch } from '../../utils/scopedSearch';
-
-type ImportedCustomerRow = Partial<Customer> & Record<string, unknown>;
-type ContactImportRecord = Partial<Record<keyof Contact, unknown>> & Record<string, unknown>;
-
-const isRecord = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-const readImportValue = (row: ImportedCustomerRow, ...keys: string[]) => {
-  for (const key of keys) {
-    const value = row[key];
-    if (value !== undefined && value !== null && value !== '') return value;
-  }
-  return undefined;
-};
-
-const readImportText = (row: ImportedCustomerRow, keys: string[], fallback?: string) => {
-  const value = readImportValue(row, ...keys);
-  return value === undefined ? fallback : String(value).trim();
-};
-
-const readImportNumber = (row: ImportedCustomerRow, keys: string[], fallback: number) => {
-  const value = readImportValue(row, ...keys);
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-};
-
-const normalizeContactRecord = (value: unknown): Contact | null => {
-  if (!isRecord(value)) return null;
-  const source = value as ContactImportRecord;
-  const name = String(source.name || source['姓名'] || source.contactName || '').trim();
-  const phone = String(source.phone || source.mobile || source['电话'] || source['手机'] || '').trim();
-  const email = String(source.email || source['邮箱'] || '').trim();
-  const position = String(source.position || source.role || source['职务'] || source['角色'] || '').trim();
-
-  if (!name && !phone && !email) return null;
-
-  return {
-    name,
-    position,
-    phone,
-    email,
-    isPrimary: Boolean(source.isPrimary),
-    role: source.role ? String(source.role) : undefined,
-    department: source.department ? String(source.department) : undefined,
-    language: source.language === 'zh' || source.language === 'en' || source.language === 'vi' ? source.language : undefined,
-    mobile: source.mobile ? String(source.mobile) : undefined,
-    whatsapp: source.whatsapp ? String(source.whatsapp) : undefined,
-    wechat: source.wechat ? String(source.wechat) : undefined,
-    addressId: source.addressId ? String(source.addressId) : undefined,
-    siteLabel: source.siteLabel ? String(source.siteLabel) : undefined,
-  };
-};
-
-const parseImportedContacts = (value: unknown): Contact[] => {
-  if (!value) return [];
-  if (Array.isArray(value)) {
-    return value.map(normalizeContactRecord).filter((contact): contact is Contact => Boolean(contact));
-  }
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value);
-      return Array.isArray(parsed)
-        ? parsed.map(normalizeContactRecord).filter((contact): contact is Contact => Boolean(contact))
-        : [];
-    } catch {
-      return [];
-    }
-  }
-  return [];
-};
-
-const parseImportedAddresses = (row: ImportedCustomerRow): CustomerAddress[] => {
-  const addressesValue = readImportValue(row, 'addresses', 'addressesJson', 'Addresses JSON', '地址JSON');
-  const legacyAddress = readImportValue(row, 'address', 'Address', '地址');
-  const addresses = Array.isArray(addressesValue)
-    ? (addressesValue as CustomerAddress[])
-    : typeof addressesValue === 'string'
-      ? addressesValue
-      : undefined;
-
-  return normalizeCustomerAddresses({
-    addresses: addresses || null,
-    address: typeof legacyAddress === 'string' ? legacyAddress : null,
-  });
-};
+import { buildCRMColumns } from './CRMColumns';
+import { formatImportedCustomers, type ImportedCustomerRow } from './useCRMImport';
 
 export function useCRM() {
   const { t, formatPrice, notify, currentUser, language } = useAppContext();
@@ -452,30 +366,7 @@ export function useCRM() {
 
   const handleImport = async (newData: ImportedCustomerRow[]) => {
     try {
-      const formattedData: Customer[] = newData.map((item) => ({
-        id: '',
-        name: readImportText(item, ['客户名称', 'Customer Name', 'name'], 'Unknown') || 'Unknown',
-        nameZh: readImportText(item, ['中文名称', 'nameZh', 'Chinese Name']) || undefined,
-        nameEn: readImportText(item, ['英文名称', 'nameEn', 'English Name']) || undefined,
-        nameVi: readImportText(item, ['越南文名称', 'nameVi', 'Vietnamese Name']) || undefined,
-        nameAliases: splitCustomerTextList(readImportValue(item, '别名/历史名', 'Alias', 'Aliases', 'aliasNames', 'nameAliases') as string[] | string | null),
-        contacts: parseImportedContacts(readImportValue(item, 'contacts', 'contactsJson', 'Contacts JSON', '联系人JSON')),
-        addresses: parseImportedAddresses(item),
-        termsDays: readImportNumber(item, ['Terms Days', 'termsDays'], 30),
-        creditLimit: readImportNumber(item, ['Credit Limit', 'creditLimit'], 50000),
-        usedCredit: 0,
-        riskLevel: readImportText(item, ['Risk Level', 'riskLevel'], 'medium')?.toLowerCase() as RiskLevel,
-        segment: readImportText(item, ['Business Line', 'Segment', 'segment'], managerSegmentScope || 'mixed')?.toLowerCase() as Customer['segment'],
-        poolState: readImportText(item, ['Pool State', 'poolState'], 'internal')?.toLowerCase() as Customer['poolState'],
-        lastOrderDate: new Date().toISOString().split('T')[0],
-        status: 'active',
-        historicalOrderCount: 0,
-        avgOrderInterval: 0,
-        isPublicPool: false,
-        licenseUrl: readImportText(item, ['License URL', 'licenseUrl']) || undefined,
-        licenseStatus: readImportValue(item, 'License URL', 'licenseUrl') ? 'verified' : 'pending',
-      }));
-
+      const formattedData = formatImportedCustomers(newData, managerSegmentScope);
       const created = await customerService.import(formattedData);
       setData(created.map((row) => ({ ...row, displayName: getCustomerDisplayName(row, language) })));
       notify('success', `${t.custImportSuccess}: ${created.length}`);
@@ -571,108 +462,7 @@ export function useCRM() {
     }
   };
 
-  const columns: Column<Customer>[] = [
-    {
-      header: t.customerName,
-      key: 'name',
-      accessor: (row: Customer) => (
-        <div className="flex flex-col">
-          <span className="font-bold text-slate-800 dark:text-white text-base group-hover:text-blue-600 transition-colors">
-            {row.displayName || row.name}
-          </span>
-          <span className="text-[10px] text-slate-400 uppercase font-black mt-0.5">ID: {row.id}</span>
-        </div>
-      ),
-    },
-    {
-      header: t.licenseStatus,
-      key: 'license',
-      accessor: (row) => {
-        const statusColors = {
-          verified: 'bg-emerald-100 text-emerald-600 border-emerald-200',
-          expired: 'bg-rose-100 text-rose-600 border-rose-200',
-          pending: 'bg-slate-100 text-slate-400 border-slate-200',
-        };
-        return (
-          <span className={`px-2 py-0.5 rounded-lg text-[11px] font-black uppercase border ${statusColors[row.licenseStatus || 'pending']}`}>
-            {t[row.licenseStatus || 'pending']}
-          </span>
-        );
-      },
-    },
-    {
-      header: t.salesperson,
-      key: 'tracking',
-      accessor: (row: Customer) => (
-        <div className="flex items-center text-xs group/rep cursor-pointer">
-          <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl mr-3 group-hover/rep:bg-blue-600 group-hover/rep:text-white transition-all shadow-sm">
-            <UserRound size={14} />
-          </div>
-          <div className="flex flex-col text-left">
-            <span className="text-slate-500 dark:text-slate-400 font-bold group-hover/rep:text-blue-500">{row.salespersonName || t.pending}</span>
-            <span className="text-[11px] text-slate-400 font-black uppercase">
-              {row.contacts.length} {t.records}
-            </span>
-          </div>
-        </div>
-      ),
-    },
-    {
-      header: 'Business Line',
-      key: 'segment',
-      accessor: (row: Customer) => {
-        const normalizedSegment = row.segment || 'mixed';
-        const labels: Record<string, { bg: string; text: string; border: string; label: string }> = {
-          direct: { bg: 'bg-blue-100 dark:bg-blue-900/30', text: 'text-blue-600 dark:text-blue-400', border: 'border-blue-200 dark:border-blue-800', label: '直销' },
-          channel: { bg: 'bg-amber-100 dark:bg-amber-900/30', text: 'text-amber-600 dark:text-amber-400', border: 'border-amber-200 dark:border-amber-800', label: '渠道' },
-          mixed: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-200 dark:border-emerald-800', label: '混合' },
-        };
-        const badge = labels[normalizedSegment] || labels.mixed;
-        return (
-          <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest border ${badge.bg} ${badge.text} ${badge.border}`}>
-            {badge.label}
-          </span>
-        );
-      },
-    },
-    {
-      header: 'Pool',
-      key: 'poolState',
-      accessor: (row: Customer) => {
-        const normalizedPool = getCustomerPoolState(row);
-        const labels: Record<string, { bg: string; text: string; border: string; label: string }> = {
-          public: { bg: 'bg-rose-100 dark:bg-rose-900/30', text: 'text-rose-600 dark:text-rose-400', border: 'border-rose-200 dark:border-rose-800', label: '公海' },
-          internal: { bg: 'bg-violet-100 dark:bg-violet-900/30', text: 'text-violet-600 dark:text-violet-400', border: 'border-violet-200 dark:border-violet-800', label: '内部池' },
-          private: { bg: 'bg-emerald-100 dark:bg-emerald-900/30', text: 'text-emerald-600 dark:text-emerald-400', border: 'border-emerald-200 dark:border-emerald-800', label: '私海' },
-        };
-        const badge = labels[normalizedPool] || labels.private;
-        return (
-          <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest border ${badge.bg} ${badge.text} ${badge.border}`}>
-            {badge.label}
-          </span>
-        );
-      },
-    },
-    {
-      header: t.riskLevel,
-      key: 'risk',
-      accessor: (row) => (
-        <span
-          className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${
-            row.riskLevel === RiskLevel.CRITICAL
-              ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800'
-              : row.riskLevel === RiskLevel.HIGH
-                ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800'
-                : row.riskLevel === RiskLevel.MEDIUM
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800'
-                  : 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'
-          }`}
-        >
-          {row.riskLevel}
-        </span>
-      ),
-    },
-  ];
+  const columns = useMemo(() => buildCRMColumns(t), [t]);
 
   return {
     t,
