@@ -231,42 +231,6 @@ const createStockSourceUniqueIndexIfSafe = async (report: SchemaRepairReport) =>
   report.entries.push({ kind: 'index', target: indexName, action: 'created' });
 };
 
-const PRODUCTION_MOJIBAKE_REPLACEMENTS: Array<[string, string]> = [
-  ['鍖栧伐鑳舵按', '化工胶水'],
-  ['鍖栧伐 BOM 浜х嚎瀹¤', '化工 BOM 产线审计'],
-  ['鍖栧伐 BOM 瀹¤鏍锋湰锛屼粎浣跨敤鍐呴儴浠ｅ彿', '化工 BOM 审计样本，仅使用内部代号'],
-];
-
-const PRODUCTION_TEXT_REPAIR_TARGETS: Array<{ table: string; columns: string[] }> = [
-  { table: 'production_work_orders', columns: ['product_name', 'note'] },
-  { table: 'production_boms', columns: ['product_name', 'notes'] },
-  { table: 'product_batches', columns: ['product_name', 'notes'] },
-  { table: 'stock_balances', columns: ['product_name', 'batch_no'] },
-  { table: 'stock_movements', columns: ['product_name', 'batch_no'] },
-];
-
-const repairProductionMojibakeData = async (report: SchemaRepairReport) => {
-  for (const target of PRODUCTION_TEXT_REPAIR_TARGETS) {
-    if (!(await tableExists(target.table))) continue;
-    for (const column of target.columns) {
-      if (!(await columnExists(target.table, column))) continue;
-      for (const [badText, goodText] of PRODUCTION_MOJIBAKE_REPLACEMENTS) {
-        const updated = await prisma.$executeRawUnsafe(
-          `UPDATE "${target.table}"
-           SET "${column}" = REPLACE("${column}", ?, ?)
-           WHERE "${column}" LIKE ?`,
-          badText,
-          goodText,
-          `%${badText}%`,
-        );
-        if (Number(updated || 0) > 0) {
-          report.entries.push({ kind: 'seed', target: `mojibake:${target.table}.${column}`, action: 'updated' });
-        }
-      }
-    }
-  }
-};
-
 export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   const report: SchemaRepairReport = { entries: [] };
 
@@ -906,8 +870,6 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   await createIndexIfMissing(report, 'barter_offset_postings_settlement_id_idx', 'CREATE INDEX "barter_offset_postings_settlement_id_idx" ON "barter_offset_postings"("settlement_id")');
   await createIndexIfMissing(report, 'barter_offset_postings_payment_record_id_idx', 'CREATE INDEX "barter_offset_postings_payment_record_id_idx" ON "barter_offset_postings"("payment_record_id")');
   await createIndexIfMissing(report, 'barter_reversal_logs_settlement_id_idx', 'CREATE INDEX "barter_reversal_logs_settlement_id_idx" ON "barter_reversal_logs"("settlement_id")');
-
-  await repairProductionMojibakeData(report);
 
   return report;
 };
