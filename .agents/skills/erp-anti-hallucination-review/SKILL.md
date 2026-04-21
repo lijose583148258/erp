@@ -42,6 +42,17 @@ Do not skip gates by confidence or intuition.
 - If old entry points still exist, verify active route ownership before editing.
 - Keep report fields collision-safe (`formulaStatus`, `workOrderStatus`, etc.).
 
+## Split/Merge Master Gate (always-on)
+
+Sub-agent reports are leads, not acceptance evidence. After any split/refactor package:
+
+- The main controller must re-check `git status` and inspect the merged diff.
+- The main controller must rerun the relevant full chain after all worker changes land.
+- Do not commit a split package only because a worker says `PASS`.
+- Do not trust a single layer: TypeScript, backend build, lint, mojibake gate, full-codebase audit, production build, stable runtime, targeted API/browser audits, and Phase 3 readiness must be selected based on touched files.
+- If a sub-agent leaves half-split code, stale entry points, duplicate declarations, or disconnected hooks, the main controller must fix or stop before continuing.
+- A commit is allowed only after the main controller records merged evidence and the working tree contains no unrelated partial changes.
+
 ## Encoding Rule (always-on)
 
 For garbled text or label drift, run:

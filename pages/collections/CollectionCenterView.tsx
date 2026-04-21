@@ -1,6 +1,5 @@
-﻿import React, { useMemo } from 'react';
+﻿import React from 'react';
 import { BellRing, CheckCircle2, Sparkles } from 'lucide-react';
-import type { Column } from '../../components/DataTable';
 import { adaptDataTableColumns, EnterpriseDataGrid } from '../../components/ui';
 import CollectionActionModal from '../../components/collections/CollectionActionModal';
 import CollectionActionWorkspace from './CollectionActionWorkspace';
@@ -9,17 +8,8 @@ import CollectionPrimaryGrid from './CollectionPrimaryGrid';
 import {
   CollectionDisputeRecord,
   CollectionHoldRecord,
-  CollectionLedgerRecord,
-  CollectionMilestoneRecord,
-  CollectionOverdueRecord,
   CollectionPromiseRecord,
 } from '../../services/collections.service';
-import {
-  exportRows,
-  formatDateTime,
-  getCollectionCustomerLabel,
-  getPromiseTiming,
-} from './collectionCenter.helpers';
 import useCollectionCenterState, {
   DisputeFilter,
   HoldFilter,
@@ -27,50 +17,10 @@ import useCollectionCenterState, {
   PromiseFilter,
   PromiseSort,
 } from './useCollectionCenter';
+import { useCollectionCenterTables } from './useCollectionCenterTables';
 
 const filterChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
 const sortChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
-
-const holdScopeLabelMap: Record<string, string> = {
-  'customer-credit': '客户授信',
-  'customer-shipment': '客户发货',
-  'order-shipment': '订单发货',
-};
-
-const holdSourceLabelMap: Record<string, string> = {
-  manual: '人工设置',
-  system: '系统生成',
-  dispute: '争议联动',
-};
-
-const ledgerStatusLabelMap: Record<string, string> = {
-  verified: '已核销',
-  pending: '待核销',
-};
-
-const promiseStatusLabelMap: Record<string, string> = {
-  open: '待兑现',
-  kept: '已兑现',
-  missed: '已失约',
-  cancelled: '已取消',
-};
-
-const disputeStatusLabelMap: Record<string, string> = {
-  open: '待处理',
-  reviewing: '处理中',
-  resolved: '已解决',
-  rejected: '已驳回',
-  withdrawn: '已撤回',
-};
-
-const riskLevelLabelMap: Record<string, string> = {
-  low: '低风险',
-  medium: '中风险',
-  high: '高风险',
-  critical: '关键风险',
-};
-
-const holdStatusLabel = (active: boolean) => (active ? '生效中' : '已释放');
 
 const Metric = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
   <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -82,90 +32,8 @@ const Metric = ({ label, value, hint }: { label: string; value: string; hint?: s
 
 const CollectionCenterView: React.FC = () => {
   const state = useCollectionCenterState();
+  const tables = useCollectionCenterTables(state);
   const metricsLoading = state.loading && !state.summary;
-
-  const ledgerColumns = useMemo<Column<CollectionLedgerRecord>[]>(() => [
-    { header: '收款单', key: 'id', accessor: (row) => `#${row.id}` },
-    { header: '订单号', key: 'orderNo', accessor: 'orderNo' },
-    { header: '客户', key: 'customer', accessor: (row) => getCollectionCustomerLabel(row) },
-    { header: '金额', key: 'amount', accessor: (row) => state.formatPrice(row.amount) },
-    { header: '方式', key: 'method', accessor: 'method' },
-    { header: '状态', key: 'status', accessor: (row) => ledgerStatusLabelMap[row.status] || row.status },
-    { header: '录入时间', key: 'createdAt', accessor: (row) => formatDateTime(row.createdAt) },
-  ], [state]);
-
-  const overdueColumns = useMemo<Column<CollectionOverdueRecord>[]>(() => [
-    { header: '订单号', key: 'orderNo', accessor: 'orderNo' },
-    { header: '客户', key: 'customer', accessor: (row) => getCollectionCustomerLabel(row) },
-    { header: '逾期天数', key: 'daysOverdue', accessor: (row) => `${row.daysOverdue} 天` },
-    { header: '未收金额', key: 'outstanding', accessor: (row) => state.formatPrice(row.outstanding) },
-    { header: '风险', key: 'riskLevel', accessor: (row) => riskLevelLabelMap[row.riskLevel] || row.riskLevel },
-    { header: '下一动作', key: 'nextAction', accessor: 'nextAction' },
-  ], [state]);
-
-  const milestoneColumns = useMemo<Column<CollectionMilestoneRecord>[]>(() => [
-    { header: '里程碑', key: 'title', accessor: 'title' },
-    { header: '合同号', key: 'contractNo', accessor: 'contractNo' },
-    { header: '客户', key: 'customer', accessor: (row) => getCollectionCustomerLabel(row) },
-    { header: '目标金额', key: 'targetAmount', accessor: (row) => state.formatPrice(row.targetAmount) },
-    { header: '已收金额', key: 'paidAmount', accessor: (row) => state.formatPrice(row.paidAmount) },
-    { header: '剩余金额', key: 'remainingAmount', accessor: (row) => state.formatPrice(row.remainingAmount) },
-  ], [state]);
-
-  const promiseColumns = useMemo<Column<CollectionPromiseRecord>[]>(() => [
-    { header: '承诺单', key: 'promiseNo', accessor: 'promiseNo' },
-    { header: '客户', key: 'customer', accessor: (row) => getCollectionCustomerLabel(row) },
-    { header: '订单号', key: 'orderNo', accessor: 'orderNo' },
-    { header: '承诺金额', key: 'promisedAmount', accessor: (row) => state.formatPrice(row.promisedAmount) },
-    { header: '承诺时间', key: 'promisedAt', accessor: (row) => formatDateTime(row.promisedAt) },
-    { header: '时效', key: 'timing', accessor: (row) => getPromiseTiming(row.promisedAt) },
-    { header: '状态', key: 'status', accessor: (row) => promiseStatusLabelMap[row.status] || row.status },
-  ], [state]);
-
-  const disputeColumns = useMemo<Column<CollectionDisputeRecord>[]>(() => [
-    { header: '争议单', key: 'disputeNo', accessor: 'disputeNo' },
-    { header: '客户', key: 'customer', accessor: (row) => getCollectionCustomerLabel(row) },
-    { header: '订单号', key: 'orderNo', accessor: 'orderNo' },
-    { header: '争议金额', key: 'disputedAmount', accessor: (row) => row.disputedAmount === null ? '-' : state.formatPrice(row.disputedAmount) },
-    { header: '原因', key: 'reason', accessor: 'reason' },
-    { header: '状态', key: 'status', accessor: (row) => disputeStatusLabelMap[row.status] || row.status },
-  ], [state]);
-
-  const holdColumns = useMemo<Column<CollectionHoldRecord>[]>(() => [
-    { header: '范围', key: 'scope', accessor: (row) => holdScopeLabelMap[row.scope] || row.scope },
-    { header: '客户', key: 'customer', accessor: (row) => getCollectionCustomerLabel(row) },
-    { header: '订单号', key: 'orderNo', accessor: (row) => row.orderNo || '-' },
-    { header: '原因', key: 'reason', accessor: (row) => row.reason || '-' },
-    { header: '来源', key: 'source', accessor: (row) => row.source ? (holdSourceLabelMap[row.source] || row.source) : '-' },
-    { header: '状态', key: 'status', accessor: (row) => holdStatusLabel(row.status) },
-  ], []);
-
-  const exportPromises = () => exportRows('回款中心_承诺付款执行表.xlsx', state.sortedPromises.map((row) => ({
-    承诺单: row.promiseNo,
-    客户: getCollectionCustomerLabel(row),
-    订单号: row.orderNo,
-    承诺金额: row.promisedAmount,
-    承诺时间: formatDateTime(row.promisedAt),
-    状态: promiseStatusLabelMap[row.status] || row.status,
-  })));
-
-  const exportDisputes = () => exportRows('回款中心_争议处理表.xlsx', state.sortedDisputes.map((row) => ({
-    争议单: row.disputeNo,
-    客户: getCollectionCustomerLabel(row),
-    订单号: row.orderNo,
-    争议金额: row.disputedAmount ?? '',
-    原因: row.reason,
-    状态: disputeStatusLabelMap[row.status] || row.status,
-  })));
-
-  const exportHolds = () => exportRows('回款中心_追款拦截表.xlsx', state.sortedHolds.map((row) => ({
-    范围: holdScopeLabelMap[row.scope] || row.scope,
-    客户: getCollectionCustomerLabel(row),
-    订单号: row.orderNo || '',
-    原因: row.reason || '',
-    来源: row.source ? (holdSourceLabelMap[row.source] || row.source) : '',
-    状态: holdStatusLabel(row.status),
-  })));
 
   return (
     <div className="space-y-8">
@@ -247,9 +115,9 @@ const CollectionCenterView: React.FC = () => {
           activeTab={state.activeTab}
           setActiveTab={state.setActiveTab}
           selectedOrderId={state.selectedOrderId}
-          overdueColumns={overdueColumns}
-          ledgerColumns={ledgerColumns}
-          milestoneColumns={milestoneColumns}
+          overdueColumns={tables.overdueColumns}
+          ledgerColumns={tables.ledgerColumns}
+          milestoneColumns={tables.milestoneColumns}
           sortedOverdue={state.sortedOverdue}
           sortedLedger={state.sortedLedger}
           sortedMilestones={state.sortedMilestones}
@@ -289,7 +157,7 @@ const CollectionCenterView: React.FC = () => {
               <p className="text-xs font-bold tracking-[0.16em] text-slate-400">异常处理</p>
               <h3 className="mt-2 text-2xl font-black tracking-tighter text-slate-900 dark:text-white">承诺付款执行表</h3>
             </div>
-            <button type="button" onClick={exportPromises} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
+            <button type="button" onClick={tables.exportPromises} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
               导出承诺表
             </button>
           </div>
@@ -332,7 +200,7 @@ const CollectionCenterView: React.FC = () => {
             <EnterpriseDataGrid<CollectionPromiseRecord>
               title="承诺付款明细"
               description="承诺付款只是沟通承诺，不替代实际核销。"
-              columns={adaptDataTableColumns(promiseColumns, {
+              columns={adaptDataTableColumns(tables.promiseColumns, {
                 promiseNo: '150px',
                 customer: '180px',
                 orderNo: '160px',
@@ -366,7 +234,7 @@ const CollectionCenterView: React.FC = () => {
                 <p className="text-xs font-bold tracking-[0.16em] text-slate-400">异常处理</p>
                 <h3 className="mt-2 text-2xl font-black tracking-tighter text-slate-900 dark:text-white">争议处理表</h3>
               </div>
-              <button type="button" onClick={exportDisputes} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
+              <button type="button" onClick={tables.exportDisputes} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
                 导出争议表
               </button>
             </div>
@@ -395,7 +263,7 @@ const CollectionCenterView: React.FC = () => {
               <EnterpriseDataGrid<CollectionDisputeRecord>
                 title="争议处理明细"
                 description="争议记录用于追踪异常，不直接改写应收账。"
-                columns={adaptDataTableColumns(disputeColumns, {
+                columns={adaptDataTableColumns(tables.disputeColumns, {
                   disputeNo: '150px',
                   customer: '180px',
                   orderNo: '150px',
@@ -430,7 +298,7 @@ const CollectionCenterView: React.FC = () => {
                 <p className="text-xs font-bold tracking-[0.16em] text-slate-400">系统状态</p>
                 <h3 className="mt-2 text-2xl font-black tracking-tighter text-slate-900 dark:text-white">追款拦截表</h3>
               </div>
-              <button type="button" onClick={exportHolds} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
+              <button type="button" onClick={tables.exportHolds} className="rounded-full border border-slate-200 px-4 py-2 text-xs font-bold tracking-[0.12em] text-slate-600">
                 导出拦截表
               </button>
             </div>
@@ -472,7 +340,7 @@ const CollectionCenterView: React.FC = () => {
               <EnterpriseDataGrid<CollectionHoldRecord>
                 title="追款拦截明细"
                 description="拦截状态只在释放后关闭，保留来源与原因。"
-                columns={adaptDataTableColumns(holdColumns, {
+                columns={adaptDataTableColumns(tables.holdColumns, {
                   scope: '130px',
                   customer: '180px',
                   orderNo: '150px',
