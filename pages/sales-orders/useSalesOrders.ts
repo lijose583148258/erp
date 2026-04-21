@@ -6,10 +6,11 @@ import { contractService } from '../../services/contract.service';
 import freeAIService from '../../services/freeAIService';
 import { assetService, ProductBatch } from '../../services/asset.service';
 import { ExtractedFormData, DocumentType, OcrDocumentData, parseOcrDocument } from '../../services/smartFormService';
-import { getCustomerDisplayName } from '../../utils/customerName';
 import { SalesOrder, OrderStatus, CommissionStatus, SalesOrderItem, Customer, PaymentRecord } from '../../types';
 import type { CollectionActionMode, CollectionActionTarget } from '../../components/collections/CollectionActionModal';
 import { applyOcrResultToForm, applySmartFillToForm, buildImportedSalesOrderPayloads, buildInventoryInsights, buildPriceSuggestions, calculateOrderTotals, createEmptySalesOrderItem, createInitialPaymentForm, createProductScanOrderItem, getCollectionView, getOfflineProductScanCount, getOutstandingAmount, initialOrderForm, mergeOrderItemIntoDraft, normalizeOrderItem, parseOrderItemsFromGrid, saveOfflineProductScan, toNumericId, updateDimensionalItem, type ImportedSalesOrderRow, type PaymentForm, type SalesOrderFormData } from './salesOrderFormHelpers';
+import { getSalesOrderCustomerLabel, getSalesOrderCustomerLabelFromOrder } from './salesOrderLabels';
+import { canAuditCommissionRole, canCreateOrderRole, canEditSalesOrderForUser, canRecordPaymentRole, canVerifyPaymentRole } from './salesOrderPermissions';
 
 export { createEmptySalesOrderItem, initialOrderForm, type SalesOrderFormData } from './salesOrderFormHelpers';
 export const useSalesOrders = () => {
@@ -38,15 +39,8 @@ export const useSalesOrders = () => {
     const [paymentForm, setPaymentForm] = useState<PaymentForm>(createInitialPaymentForm());
     const [formData, setFormData] = useState<SalesOrderFormData>(initialOrderForm);
 
-    const getCustomerLabel = (customer?: Pick<Customer, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'displayName'> | null) => {
-        if (!customer) return '';
-        return getCustomerDisplayName(customer, language);
-    };
-
-    const getOrderCustomerLabel = (order?: Pick<SalesOrder, 'customerName' | 'customerNameZh' | 'customerNameEn' | 'customerNameVi' | 'customerDisplayName'> | null) => {
-        if (!order) return '';
-        return order.customerDisplayName || order.customerNameZh || order.customerNameEn || order.customerNameVi || order.customerName || '';
-    };
+    const getCustomerLabel = (customer?: Pick<Customer, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'displayName'> | null) => getSalesOrderCustomerLabel(customer, language);
+    const getOrderCustomerLabel = getSalesOrderCustomerLabelFromOrder;
 
     const upsertOrder = (nextOrder: SalesOrder) => {
         setOrders(prev => {
@@ -124,15 +118,11 @@ export const useSalesOrders = () => {
         setDraftAvailable(Boolean(saved));
     }, [isCreateOpen]);
 
-    const canAuditCommission = ['admin', 'manager'].includes(currentUser.role);
-    const canRecordPayment = ['admin', 'finance', 'manager', 'sales'].includes(currentUser.role);
-    const canVerifyPayment = ['admin', 'finance'].includes(currentUser.role);
-    const canCreateOrder = ['admin', 'manager', 'sales'].includes(currentUser.role);
-    const canEditOrder = (order: SalesOrder) => {
-        if (['admin', 'manager'].includes(currentUser.role)) return true;
-        if (currentUser.role === 'sales' && order.salespersonId === currentUser.id && order.status === OrderStatus.PENDING) return true;
-        return false;
-    };
+    const canAuditCommission = canAuditCommissionRole(currentUser.role);
+    const canRecordPayment = canRecordPaymentRole(currentUser.role);
+    const canVerifyPayment = canVerifyPaymentRole(currentUser.role);
+    const canCreateOrder = canCreateOrderRole(currentUser.role);
+    const canEditOrder = (order: SalesOrder) => canEditSalesOrderForUser(currentUser, order);
 
     const displayedOrders = useMemo(() => orders, [orders]);
 
