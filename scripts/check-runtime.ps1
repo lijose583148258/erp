@@ -100,7 +100,9 @@ $report = [ordered]@{
   status = $status
   results = $resultArray
 }
-$report | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $ReportPath -Encoding UTF8
+$reportJson = ($report | ConvertTo-Json -Depth 5)
+$utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText($ReportPath, "$reportJson`n", $utf8NoBom)
 Write-Host "Runtime check report: $ReportPath"
 
 if ($failedResults.Count -gt 0) {
