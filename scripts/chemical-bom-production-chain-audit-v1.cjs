@@ -172,7 +172,7 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
     recordStep('create_work_order', 'passed', {
       workOrderId: workOrder.id,
       workOrderNo: workOrder.workOrderNo,
-      status: workOrder.status,
+      workOrderStatus: workOrder.status,
     });
 
     const preview = await getPreviewConsumption(adminToken, workOrder.id);
@@ -234,7 +234,8 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
     }
     recordStep('complete_work_order', 'passed', {
       workOrderId: workOrder.id,
-      status: completed?.data?.status || completed?.status || 'completed',
+      returnedWorkOrderStatus: completed?.data?.status || 'completed',
+      httpStatus: completed?.status || 200,
       batchId: completed?.data?.batchId || null,
     });
 
@@ -350,6 +351,9 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       batchNo,
       incompleteBlocked,
       incompleteIssues,
+      bomLineCount: bomItem.items.length,
+      previewLineCount: preview.length,
+      rawMaterialDeductionCount: rawBalanceChecks.length,
       consumptionEntryCount: consumptionEntries.length,
       outputEntryCount: outputEntries.length,
       finishedGoodsCostLedgerRows: ledgerItems.length,

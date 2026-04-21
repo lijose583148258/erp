@@ -192,6 +192,7 @@ function getRuntimeTasks(options) {
     task('backup-restore-api-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),
     task('supplier-permission-api-chain', 'node', ['scripts/supplier-permission-api-audit-v1.cjs']),
     task('procurement-api-chain', 'node', ['scripts/procurement-api-audit-v1.cjs']),
+    task('chemical-bom-production-chain', 'node', ['scripts/chemical-bom-production-chain-audit-v1.cjs']),
     task('shipping-api-chain', 'node', ['scripts/shipping-api-audit-v1.cjs']),
     task('ai-security-regression', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/ai-security-regression.ts'] : ['tsx', 'scripts/ai-security-regression.ts']),
   ];

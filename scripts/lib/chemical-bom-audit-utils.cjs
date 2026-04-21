@@ -125,12 +125,12 @@ const createChemicalBomAuditContext = ({ appUrl, reportDir, reportPath }) => {
 
   const ensureWarehouseAndLocations = async (token) => {
     const desired = {
-      warehouse: { code: 'WH-MAIN', name: '涓讳粨搴?', type: 'physical' },
+      warehouse: { code: 'WH-MAIN', name: '主仓库', type: 'physical' },
       locations: [
-        { code: 'LOC-RAW', name: '鍘熸枡鍖?', type: 'internal' },
-        { code: 'LOC-FG', name: '鎴愬搧鍖?', type: 'internal' },
-        { code: 'LOC-WIP', name: '鍗婃垚鍝佸尯', type: 'production' },
-        { code: 'LOC-SCRAP', name: '搴熸枡鍖?', type: 'scrap' },
+        { code: 'LOC-RAW', name: '原料区', type: 'internal' },
+        { code: 'LOC-FG', name: '成品区', type: 'internal' },
+        { code: 'LOC-WIP', name: '半成品区', type: 'production' },
+        { code: 'LOC-SCRAP', name: '废料区', type: 'scrap' },
       ],
     };
 
