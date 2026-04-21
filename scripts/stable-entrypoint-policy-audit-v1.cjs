@@ -145,13 +145,13 @@ function checkRuntimeCheck(findings) {
 
 function checkRuntimePortPolicy(findings) {
   const startStable = requireText(findings, 'scripts/start-stable-v2.ps1', 'runtime-port-policy');
-  if (startStable && !/set\s+NODE_ENV=production/i.test(startStable)) {
-    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must set NODE_ENV=production before launching backend/dist/server.js');
+  if (startStable && !/set\s+"NODE_ENV=production"/i.test(startStable)) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must set NODE_ENV=production with Windows-safe quoted set syntax before launching backend/dist/server.js');
   }
   if (startStable
     && (!/stableCorsOrigin\s*=\s*'http:\/\/127\.0\.0\.1:5001,http:\/\/localhost:5001'/i.test(startStable)
-      || !/set\s+CORS_ORIGIN=\$stableCorsOrigin/i.test(startStable))) {
-    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must override old local .env CORS_ORIGIN with the stable 5001 origins');
+      || !/set\s+""CORS_ORIGIN=\$stableCorsOrigin""/i.test(startStable))) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must override old local .env CORS_ORIGIN with the stable 5001 origins using Windows-safe quoted set syntax');
   }
 
   const runtimeConfig = requireText(findings, 'backend/src/config/runtime.ts', 'runtime-port-policy');

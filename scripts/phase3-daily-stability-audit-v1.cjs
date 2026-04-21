@@ -6,6 +6,8 @@ const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit', 'phase3-daily');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 const REPORT_PATH = path.join(OUTPUT_DIR, `phase3-daily-stability-${RUN_ID}.json`);
+const LEDGER_PATH = path.join(ROOT, 'output', 'audit', 'phase3-daily-stability-ledger-v1.jsonl');
+const SUMMARY_PATH = path.join(ROOT, 'output', 'audit', 'phase3-daily-stability-ledger-v1.json');
 const REQUEST_TIMEOUT_MS = 30_000;
 
 const report = {
@@ -18,6 +20,87 @@ const report = {
 
 function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
+}
+
+function readLedgerEntries() {
+  if (!fs.existsSync(LEDGER_PATH)) return [];
+  return fs.readFileSync(LEDGER_PATH, 'utf8')
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
+function countTrailingPasses(entries) {
+  let count = 0;
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    if (entries[i].status !== 'passed') break;
+    count += 1;
+  }
+  return count;
+}
+
+function compactDailyRun(finalReport) {
+  const failedSteps = finalReport.steps.filter(step => step.result !== 'passed');
+  const maxStepDurationMs = finalReport.steps.reduce((max, step) => Math.max(max, step.durationMs || 0), 0);
+  const systemStatus = finalReport.steps.find(step => step.step === 'system-status');
+  const backupList = finalReport.steps.find(step => step.step === 'backup-list');
+  const health = finalReport.steps.find(step => step.step === 'health');
+
+  return {
+    runId: finalReport.runId,
+    appUrl: finalReport.appUrl,
+    startedAt: finalReport.startedAt,
+    finishedAt: finalReport.finishedAt,
+    status: finalReport.status,
+    durationMs: Date.parse(finalReport.finishedAt) - Date.parse(finalReport.startedAt),
+    stepCount: finalReport.steps.length,
+    failedStepCount: failedSteps.length,
+    failedSteps: failedSteps.map(step => step.step),
+    maxStepDurationMs,
+    runtimeMode: health?.mode || null,
+    uptime: health?.uptime || null,
+    databaseType: systemStatus?.databaseType || null,
+    databaseExists: systemStatus?.databaseExists ?? null,
+    backupCount: backupList?.backupCount ?? systemStatus?.backupCount ?? null,
+    reportPath: REPORT_PATH,
+  };
+}
+
+function writeLedger(finalReport) {
+  fs.mkdirSync(path.dirname(LEDGER_PATH), { recursive: true });
+  const entry = compactDailyRun(finalReport);
+  fs.appendFileSync(LEDGER_PATH, `${JSON.stringify(entry)}\n`, 'utf8');
+
+  const entries = readLedgerEntries();
+  const failedEntries = entries.filter(item => item.status !== 'passed');
+  const summary = {
+    generatedAt: new Date().toISOString(),
+    ledgerPath: LEDGER_PATH,
+    totalRuns: entries.length,
+    passedRuns: entries.filter(item => item.status === 'passed').length,
+    failedRuns: failedEntries.length,
+    consecutivePasses: countTrailingPasses(entries),
+    latestStatus: entries.at(-1)?.status || 'unknown',
+    latestRunId: entries.at(-1)?.runId || null,
+    latestReportPath: entries.at(-1)?.reportPath || null,
+    lastFailureAt: failedEntries.at(-1)?.finishedAt || null,
+    maxStepDurationMs: entries.reduce((max, item) => Math.max(max, item.maxStepDurationMs || 0), 0),
+  };
+  fs.writeFileSync(SUMMARY_PATH, `${JSON.stringify(summary, null, 2)}\n`, 'utf8');
+  finalReport.ledger = {
+    appended: true,
+    ledgerPath: LEDGER_PATH,
+    summaryPath: SUMMARY_PATH,
+    consecutivePasses: summary.consecutivePasses,
+    totalRuns: summary.totalRuns,
+  };
 }
 
 async function withTimeout(label, fn, timeoutMs = REQUEST_TIMEOUT_MS) {
@@ -125,6 +208,7 @@ async function main() {
   } finally {
     report.finishedAt = new Date().toISOString();
     fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+    writeLedger(report);
     fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
   }
 

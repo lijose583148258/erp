@@ -315,7 +315,14 @@ if (Test-Path $backendOut) { Remove-Item -LiteralPath $backendOut -Force -ErrorA
 if (Test-Path $backendErr) { Remove-Item -LiteralPath $backendErr -Force -ErrorAction SilentlyContinue }
 
 $stableCorsOrigin = 'http://127.0.0.1:5001,http://localhost:5001'
-$serverCommand = "set NODE_ENV=production && set CORS_ORIGIN=$stableCorsOrigin && set DATABASE_URL=$runtimeDbUrl && set SERVE_FRONTEND=true && set PORT=5001 && node backend/dist/server.js 1>""$backendOut"" 2>""$backendErr"""
+$serverCommand = @(
+  'set "NODE_ENV=production"',
+  "set ""CORS_ORIGIN=$stableCorsOrigin""",
+  "set ""DATABASE_URL=$runtimeDbUrl""",
+  'set "SERVE_FRONTEND=true"',
+  'set "PORT=5001"',
+  "node backend/dist/server.js 1>""$backendOut"" 2>""$backendErr"""
+) -join ' && '
 
 $server = Start-Process -FilePath 'cmd.exe' `
   -ArgumentList '/c', $serverCommand `
