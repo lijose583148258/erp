@@ -2,11 +2,10 @@ import { Response } from 'express';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { AppError, ErrorCode } from '../middleware/errorHandler';
+import { AppError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 import {
   buildSupplierSearchClause,
-  calculatePurchaseValuation,
   canTransitionPurchaseStatus,
   mapPurchaseOrder,
   mapSupplier,
@@ -23,6 +22,7 @@ import {
   PARTIAL_RECEIPT_MESSAGE,
   postProcurementReceiptIfMissing,
 } from '../services/procurement-receipt.service';
+import { createPurchaseOrder } from '../services/procurement-order.service';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
 
 const PROCUREMENT_DATA_SCOPE = 'procurement_visible' as const;
@@ -326,87 +326,7 @@ export class ProcurementController {
         return rejectProcurementScope(res);
       }
 
-      const {
-        supplierId,
-        item,
-        quantity,
-        unit,
-        price,
-        eta,
-        status,
-        salesOrderRef,
-        salesOrderId,
-        isB2B,
-        currency,
-        exchangeRate,
-        taxRate,
-        taxAmount,
-        freightCost,
-        dutyCost,
-        insuranceCost,
-        otherCost,
-      } = req.body;
-      const initialStatus = normalizePurchaseStatus(status);
-      if (initialStatus === 'received') {
-        return res.status(409).json({ success: false, message: '采购入库必须通过收货动作完成，不能在创建时直接设为已收货' });
-      }
-      const supplier = await prisma.supplier.findUnique({ where: { id: Number(supplierId) } });
-      if (!supplier) {
-        return res.status(404).json({ success: false, message: '供应商不存在' });
-      }
-
-      let salesOrder = null;
-      if (salesOrderId) {
-        salesOrder = await prisma.order.findUnique({
-          where: { id: Number(salesOrderId) },
-          select: { id: true, orderNo: true, status: true },
-        });
-        if (!salesOrder) {
-          return res.status(404).json({ success: false, message: '关联销售订单不存在' });
-        }
-        if (salesOrder.status === 'cancelled') {
-          return res.status(409).json({ success: false, message: '已取消销售订单不能关联采购单' });
-        }
-      }
-
-      const valuation = calculatePurchaseValuation({
-        quantity,
-        price,
-        currency,
-        exchangeRate,
-        taxRate,
-        taxAmount,
-        freightCost,
-        dutyCost,
-        insuranceCost,
-        otherCost,
-      });
-
-      const order = await prisma.purchaseOrder.create({
-        data: {
-          supplierId: Number(supplierId),
-          item,
-          quantity: Number(quantity),
-          unit,
-          price: Number(price),
-          currency: valuation.currency,
-          exchangeRate: valuation.exchangeRate,
-          taxRate: valuation.taxRate,
-          taxAmount: valuation.taxAmount,
-          freightCost: valuation.freightCost,
-          dutyCost: valuation.dutyCost,
-          insuranceCost: valuation.insuranceCost,
-          otherCost: valuation.otherCost,
-          landedCostAmount: valuation.landedCostAmount,
-          landedUnitCost: valuation.landedUnitCost,
-          eta: eta ? new Date(eta) : new Date(),
-          status: initialStatus,
-          salesOrderRef: salesOrderRef || salesOrder?.orderNo || null,
-          salesOrderId: salesOrder ? salesOrder.id : (salesOrderId ? Number(salesOrderId) : null),
-          isB2B: Boolean(isB2B),
-        },
-        include: { supplier: true, salesOrder: true },
-      });
+      const order = await prisma.$transaction(tx => createPurchaseOrder(tx, req.body));
 
       await writeAuditLog({
         req,
@@ -423,7 +343,29 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('创建采购单错误:', error);
-      return res.status(500).json({ success: false, message: '服务器内部错误' });
+      const statusCode = error instanceof AppError ? error.statusCode : 500;
+      const errorKey = error instanceof Error ? error.message : '';
+      const details = error instanceof AppError ? error.details : undefined;
+      const messages: Record<string, string> = {
+        PURCHASE_ORDER_INVALID_SUPPLIER_ID: '供应商参数不正确',
+        PURCHASE_ORDER_INVALID_SALES_ORDER_ID: '关联销售订单参数不正确',
+        PURCHASE_ORDER_INVALID_ITEM: '采购物料不能为空',
+        PURCHASE_ORDER_INVALID_QUANTITY: '采购数量必须大于 0',
+        PURCHASE_ORDER_INVALID_PRICE: '采购单价不能为负，且必须为有效数字',
+        PURCHASE_ORDER_INVALID_EXCHANGE_RATE: '汇率必须大于 0',
+        PURCHASE_ORDER_INVALID_COST: '税费和附加成本不能为负，且必须为有效数字',
+        PURCHASE_ORDER_INVALID_DATE: '预计到货日期格式不正确',
+        PURCHASE_ORDER_INVALID_STATUS: '采购单创建状态不正确',
+        PURCHASE_ORDER_DIRECT_RECEIVE_NOT_ALLOWED: '采购入库必须通过收货动作完成，不能在创建时直接设为已收货',
+        SUPPLIER_NOT_FOUND: '供应商不存在',
+        SALES_ORDER_NOT_FOUND: '关联销售订单不存在',
+        SALES_ORDER_CANCELLED: '已取消销售订单不能关联采购单',
+      };
+      return res.status(statusCode).json({
+        success: false,
+        message: messages[errorKey] || '创建采购单失败',
+        details,
+      });
     }
   }
 

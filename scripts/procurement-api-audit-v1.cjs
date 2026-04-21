@@ -114,6 +114,30 @@ function procurementCostPayload() {
   };
 }
 
+async function assertNoPurchaseOrderByItem(token, item) {
+  if (!item) return;
+  const response = await apiFetch(`/procurement/orders?search=${encodeURIComponent(item)}&pageSize=50`, {}, token);
+  if (!response.ok) {
+    throw new Error(`非法采购单回读检查失败: ${response.status} — ${JSON.stringify(response.json)}`);
+  }
+  const found = unwrapList(response).find((row) => String(row.item) === String(item));
+  if (found) {
+    throw new Error(`非法采购单被写入数据库: ${JSON.stringify(found)}`);
+  }
+}
+
+async function assertPurchaseOrderCreateRejected(token, label, payload, expectedStatus) {
+  const response = await apiFetch('/procurement/orders', {
+    method: 'POST',
+    data: payload,
+  }, token);
+  if (response.status !== expectedStatus) {
+    throw new Error(`${label} 期望 HTTP ${expectedStatus}，实际 ${response.status} — ${JSON.stringify(response.json)}`);
+  }
+  await assertNoPurchaseOrderByItem(token, payload.item);
+  return response.status;
+}
+
 async function createSalesOrder(token, customerId, productName, notes) {
   const response = await apiFetch('/orders', {
     method: 'POST',
@@ -361,6 +385,62 @@ async function run() {
     );
     report.salesOrder = { id: String(salesOrder.id), orderNo: salesOrder.orderNo };
     recordStep({ step: 'ensure-sales-order', result: 'passed', orderId: salesOrder.id });
+
+    const validOrderBase = {
+      supplierId: Number(supplier.id),
+      salesOrderId: Number(salesOrder.id),
+      quantity: 1,
+      unit: 'kg',
+      ...procurementCostPayload(),
+      eta: '2026-04-30',
+    };
+    const invalidCreateStatuses = {
+      missingSupplier: await assertPurchaseOrderCreateRejected(manager.token, '无供应商采购单', {
+        ...validOrderBase,
+        supplierId: 999999999,
+        item: `API-PO-BAD-SUP-${RUN_ID}`,
+      }, 404),
+      emptyItem: await assertPurchaseOrderCreateRejected(manager.token, '空物料采购单', {
+        ...validOrderBase,
+        item: '',
+      }, 400),
+      negativeQuantity: await assertPurchaseOrderCreateRejected(manager.token, '负数量采购单', {
+        ...validOrderBase,
+        item: `API-PO-BAD-QTY-${RUN_ID}`,
+        quantity: -1,
+      }, 400),
+      negativePrice: await assertPurchaseOrderCreateRejected(manager.token, '负价格采购单', {
+        ...validOrderBase,
+        item: `API-PO-BAD-PRICE-${RUN_ID}`,
+        price: -1,
+      }, 400),
+      invalidExchangeRate: await assertPurchaseOrderCreateRejected(manager.token, '无效汇率采购单', {
+        ...validOrderBase,
+        item: `API-PO-BAD-FX-${RUN_ID}`,
+        currency: 'USD',
+        exchangeRate: 0,
+      }, 400),
+      negativeCost: await assertPurchaseOrderCreateRejected(manager.token, '负附加成本采购单', {
+        ...validOrderBase,
+        item: `API-PO-BAD-COST-${RUN_ID}`,
+        freightCost: -1,
+      }, 400),
+      invalidEta: await assertPurchaseOrderCreateRejected(manager.token, '无效 ETA 采购单', {
+        ...validOrderBase,
+        item: `API-PO-BAD-ETA-${RUN_ID}`,
+        eta: 'not-a-date',
+      }, 400),
+      directReceived: await assertPurchaseOrderCreateRejected(manager.token, '直建已收货采购单', {
+        ...validOrderBase,
+        item: `API-PO-BAD-RECEIVED-${RUN_ID}`,
+        status: 'received',
+      }, 409),
+    };
+    recordStep({
+      step: 'block-invalid-purchase-order-create',
+      result: 'passed',
+      statuses: invalidCreateStatuses,
+    });
 
     // 步骤 5：创建采购单
     const createPO = await apiFetch('/procurement/orders', {
