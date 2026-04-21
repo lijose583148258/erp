@@ -9,6 +9,8 @@ import { ExtractedFormData, DocumentType, OcrDocumentData, parseOcrDocument } fr
 import { SalesOrder, OrderStatus, CommissionStatus, SalesOrderItem, Customer, PaymentRecord } from '../../types';
 import type { CollectionActionMode, CollectionActionTarget } from '../../components/collections/CollectionActionModal';
 import { applyOcrResultToForm, applySmartFillToForm, buildImportedSalesOrderPayloads, buildInventoryInsights, buildPriceSuggestions, calculateOrderTotals, createEmptySalesOrderItem, createInitialPaymentForm, createProductScanOrderItem, getCollectionView, getOfflineProductScanCount, getOutstandingAmount, initialOrderForm, mergeOrderItemIntoDraft, normalizeOrderItem, parseOrderItemsFromGrid, saveOfflineProductScan, toNumericId, updateDimensionalItem, type ImportedSalesOrderRow, type PaymentForm, type SalesOrderFormData } from './salesOrderFormHelpers';
+import { useSalesOrderCommandShortcuts } from './useSalesOrderCommandShortcuts';
+import { useSalesOrderNetworkStatus } from './useSalesOrderNetworkStatus';
 import { getSalesOrderCustomerLabel, getSalesOrderCustomerLabelFromOrder } from './salesOrderLabels';
 import { canAuditCommissionRole, canCreateOrderRole, canEditSalesOrderForUser, canRecordPaymentRole, canVerifyPaymentRole } from './salesOrderPermissions';
 
@@ -25,7 +27,7 @@ export const useSalesOrders = () => {
     const [isScanning, setIsScanning] = useState(false);
     const [creditInfo] = useState<{ limit: number; exposure: number; usage: number; status: string } | null>(null);
     const [draftAvailable, setDraftAvailable] = useState(false);
-    const [isOffline, setIsOffline] = useState(!navigator.onLine);
+    const isOffline = useSalesOrderNetworkStatus();
 
     const [isCreateOpen, setIsCreateOpen] = useState(false);
     const [isEditMode, setIsEditMode] = useState(false);
@@ -100,16 +102,6 @@ export const useSalesOrders = () => {
 
     useEffect(() => {
         assetService.getBatches().then(setBatches).catch(() => setBatches([]));
-    }, []);
-
-    useEffect(() => {
-        const handleNetwork = () => setIsOffline(!navigator.onLine);
-        window.addEventListener('online', handleNetwork);
-        window.addEventListener('offline', handleNetwork);
-        return () => {
-            window.removeEventListener('online', handleNetwork);
-            window.removeEventListener('offline', handleNetwork);
-        };
     }, []);
 
     useEffect(() => {
@@ -393,11 +385,11 @@ export const useSalesOrders = () => {
         }
     };
 
-    const openCreateModal = () => {
+    const openCreateModal = useCallback(() => {
         setFormData(initialOrderForm);
         setIsEditMode(false);
         setIsCreateOpen(true);
-    };
+    }, []);
 
     const openEditModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
@@ -417,21 +409,7 @@ export const useSalesOrders = () => {
         setIsCreateOpen(true);
     };
 
-    useEffect(() => {
-        const handleCreate = () => openCreateModal();
-        const handleOcrInvoice = () => {
-            openCreateModal();
-            setOcrDocType('invoice');
-            setOcrText('');
-            setOcrResult(null);
-        };
-        window.addEventListener('command:create-order', handleCreate as EventListener);
-        window.addEventListener('command:ocr-invoice', handleOcrInvoice as EventListener);
-        return () => {
-            window.removeEventListener('command:create-order', handleCreate as EventListener);
-            window.removeEventListener('command:ocr-invoice', handleOcrInvoice as EventListener);
-        };
-    }, []);
+    useSalesOrderCommandShortcuts({ openCreateModal, setOcrDocType, setOcrText, setOcrResult });
 
     const openPaymentModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
