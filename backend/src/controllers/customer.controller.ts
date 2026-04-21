@@ -1,4 +1,3 @@
-
 import { Response } from 'express';
 import prisma from '../config/database';
 import type { Prisma } from '@prisma/client';
@@ -6,18 +5,11 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { logger } from '../utils/logger';
 import { withDbRetry } from '../utils/dbRetry';
-import { buildCustomerExportWorkbook, buildCustomerImportData } from '../services/customer-io.service';
-import type { CustomerImportData } from '../services/customer-io.service';
-import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { getPrimaryCustomerAddress } from '../utils/customerAddressV2';
 import {
-  buildCustomerExportWhere,
   buildCustomerWhere,
   canCreateCustomer,
   canEditCustomerProfile,
-  canImportCustomer,
-  canManageCustomerPool,
-  canViewCustomerSensitiveRelations,
   getNormalizedUserSegment,
   isOwnCustomerOperator,
   resolveWritableSegment,
@@ -32,7 +24,6 @@ import {
   normalizeCustomerContacts,
   normalizePoolState,
   pickCustomerName,
-  resolvePoolAuditAction,
   serializeCustomerAliases,
 } from './customer/customer.payload';
 import {
@@ -40,29 +31,25 @@ import {
   loadCustomerContactMap,
   loadCustomerForRequest,
   loadOrderStats,
-  parseAuditDetails,
   persistCustomerAddresses,
   persistCustomerContacts,
   writeCustomerAuditLog,
 } from './customer/customer.persistence';
-import { CustomerPoolAction, CustomerPoolState, CustomerSegment, MAX_CUSTOMER_PAGE_SIZE } from './customer/customer.types';
-
-type CustomerRequestBody = Record<string, unknown>;
-
-const asRequestBody = (value: unknown): CustomerRequestBody =>
-  value && typeof value === 'object' && !Array.isArray(value) ? value as CustomerRequestBody : {};
-
-const toOptionalString = (value: unknown) => {
-  if (value === undefined || value === null) return undefined;
-  const text = String(value).trim();
-  return text || undefined;
-};
-
-const toNullableString = (value: unknown) => toOptionalString(value) || null;
-
-const toCustomerPoolState = (value: unknown, fallback: CustomerPoolState): CustomerPoolState => {
-  return value === 'public' || value === 'internal' || value === 'private' ? value : fallback;
-};
+import { CustomerPoolState, CustomerSegment, MAX_CUSTOMER_PAGE_SIZE } from './customer/customer.types';
+import { asRequestBody, toCustomerPoolState, toNullableString, toOptionalString } from './customer/customer-request.helpers';
+import {
+  exportCustomers as exportCustomersHandler,
+  importCustomers as importCustomersHandler,
+} from './customer/customer-io.controller';
+import {
+  getCustomerAssets as getCustomerAssetsHandler,
+  getCustomerOrders as getCustomerOrdersHandler,
+  getCustomerRmas as getCustomerRmasHandler,
+} from './customer/customer-relations.controller';
+import {
+  getCustomerPoolHistory as getCustomerPoolHistoryHandler,
+  updateCustomerPool as updateCustomerPoolHandler,
+} from './customer/customer-pool.controller';
 
 export class CustomerController {
   async getCustomers(req: AuthRequest, res: Response) {
@@ -582,469 +569,17 @@ export class CustomerController {
     }
   }
 
-  async importCustomers(req: AuthRequest, res: Response) {
-    try {
-      if (!canImportCustomer(req)) {
-        return res.status(403).json({
-          success: false,
-          message: '当前角色不能导入客户',
-        } as ApiResponse);
-      }
+  async importCustomers(req: AuthRequest, res: Response) { return importCustomersHandler(req, res); }
 
-      const importBody = asRequestBody(req.body);
-      const payload = Array.isArray(req.body)
-        ? req.body
-        : Array.isArray(importBody.customers)
-          ? importBody.customers
-          : [];
-      const { result, validCustomers } = await buildCustomerImportData(req, payload);
-      result.success = 0;
-      result.imported = 0;
+  async exportCustomers(req: AuthRequest, res: Response) { return exportCustomersHandler(req, res); }
 
-      if (validCustomers.length > 0) {
-        for (const customer of validCustomers as CustomerImportData[]) {
-          const { addresses, contacts, salespersonId, __row, ...rest } = customer;
-          if (salespersonId) {
-            const salespersonCheck = await validateAssignedSalesperson(Number(salespersonId), (rest.segment as CustomerSegment) || 'mixed');
-            if (!salespersonCheck.ok) {
-              result.failed += 1;
-              result.errors.push({
-                row: __row || result.success + result.failed,
-                message: salespersonCheck.message,
-              });
-              continue;
-            }
-          }
-          try {
-            await withDbRetry(() => prisma.$transaction(async (tx) => {
-              const created = await tx.customer.create({
-                data: {
-                  ...rest,
-                  poolUpdatedAt: new Date(),
-                  poolUpdatedByUser: { connect: { id: req.user!.userId } },
-                  ...(salespersonId ? { salesperson: { connect: { id: salespersonId } } } : {}),
-                },
-              });
+  async getCustomerOrders(req: AuthRequest, res: Response) { return getCustomerOrdersHandler(req, res); }
 
-              await persistCustomerAddresses(tx, created.id, addresses);
-              await persistCustomerContacts(tx, created.id, contacts || []);
-            }), { label: 'importCustomer' });
-            result.success += 1;
-            result.imported = result.success;
-          } catch (error) {
-            result.failed += 1;
-            result.errors.push({
-              row: __row || result.success + result.failed,
-              message: error instanceof Error ? error.message : '客户导入失败',
-            });
-          }
-        }
-      }
+  async getCustomerRmas(req: AuthRequest, res: Response) { return getCustomerRmasHandler(req, res); }
 
-      await writeCustomerAuditLog({
-        userId: req.user!.userId,
-        action: 'IMPORT',
-        details: `批量导入客户: success ${result.success}, failed ${result.failed}`,
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-      });
+  async getCustomerAssets(req: AuthRequest, res: Response) { return getCustomerAssetsHandler(req, res); }
 
-      return res.json({
-        success: true,
-        data: {
-          ...result,
-          imported: result.imported || result.success,
-        },
-        message: '客户导入完成',
-      } as ApiResponse);
-    } catch (error) {
-      logger.error('导入客户错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
+  async updateCustomerPool(req: AuthRequest, res: Response) { return updateCustomerPoolHandler(req, res); }
 
-  async exportCustomers(req: AuthRequest, res: Response) {
-    try {
-      const { workbook, customers } = await buildCustomerExportWorkbook(req, {
-        status: req.query.status,
-        riskLevel: req.query.riskLevel,
-      }, buildCustomerExportWhere(req));
-
-      const fileName = `customers_${new Date().toISOString().split('T')[0]}.xlsx`;
-      res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-      res.setHeader('Content-Disposition', `attachment; filename=${fileName}`);
-
-      await writeCustomerAuditLog({
-        userId: req.user!.userId,
-        action: 'EXPORT',
-        details: `导出客户: ${customers.length}`,
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-      });
-
-      await workbook.xlsx.write(res);
-      res.end();
-    } catch (error) {
-      logger.error('导出客户错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
-
-  async getCustomerOrders(req: AuthRequest, res: Response) {
-    try {
-      const id = Number(req.params.id);
-      const customer = await loadCustomerForRequest(req, id);
-
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: '客户不存在',
-        } as ApiResponse);
-      }
-
-      const result = await OrderWorkspaceService.getOrders(
-        {
-          customerId: id,
-          page: 1,
-          pageSize: MAX_CUSTOMER_PAGE_SIZE,
-          sortBy: 'createdAt',
-          sortOrder: 'desc',
-        },
-        req,
-      );
-
-      return res.json({
-        success: true,
-        data: result.data,
-        meta: result.meta,
-      } as ApiResponse);
-    } catch (error) {
-      logger.error('获取客户订单错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
-
-  async getCustomerRmas(req: AuthRequest, res: Response) {
-    try {
-      const id = Number(req.params.id);
-      const customer = await loadCustomerForRequest(req, id);
-
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: '客户不存在',
-        } as ApiResponse);
-      }
-
-      const rmas = await prisma.rma.findMany({
-        where: {
-          customerId: id,
-          ...(req.user?.role === 'sales' ? { createdBy: req.user.userId } : {}),
-        },
-        include: {
-          creator: { select: { id: true, username: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-      });
-
-      return res.json({
-        success: true,
-        data: rmas.map(rma => ({
-          ...rma,
-          quantity: Number(rma.quantity),
-          refundAmount: rma.refundAmount !== null ? Number(rma.refundAmount) : null,
-          createdAt: rma.createdAt.toISOString(),
-          resolvedAt: rma.resolvedAt ? rma.resolvedAt.toISOString() : null,
-          creatorName: rma.creator.username,
-        })),
-      } as ApiResponse);
-    } catch (error) {
-      logger.error('获取客户售后错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
-
-  async getCustomerAssets(req: AuthRequest, res: Response) {
-    try {
-      const id = Number(req.params.id);
-      const customer = await loadCustomerForRequest(req, id);
-
-      if (!customer) {
-        return res.status(404).json({
-          success: false,
-          message: '客户不存在',
-        } as ApiResponse);
-      }
-
-      if (!canViewCustomerSensitiveRelations(req, customer)) {
-        return res.status(403).json({
-          success: false,
-          message: '当前角色无权查看该客户的资产流转明细',
-        } as ApiResponse);
-      }
-
-      const [balances, transactions] = await Promise.all([
-        prisma.assetBalance.findMany({
-          where: { customerId: id },
-          orderBy: { updatedAt: 'desc' },
-        }),
-        prisma.assetTransaction.findMany({
-          where: { customerId: id },
-          include: {
-            creator: { select: { id: true, username: true } },
-          },
-          orderBy: { createdAt: 'desc' },
-        }),
-      ]);
-
-      return res.json({
-        success: true,
-        data: {
-          balances: balances.map(balance => ({
-            id: balance.id,
-            customerId: balance.customerId,
-            assetType: balance.assetType,
-            balance: Number(balance.balance),
-            updatedAt: balance.updatedAt.toISOString(),
-          })),
-          transactions: transactions.map(transaction => ({
-            id: transaction.id,
-            customerId: transaction.customerId,
-            assetType: transaction.assetType,
-            quantity: Number(transaction.quantity),
-            action: transaction.action,
-            relatedOrderNo: transaction.relatedOrderNo,
-            note: transaction.note,
-            createdAt: transaction.createdAt.toISOString(),
-            creatorName: transaction.creator.username,
-          })),
-        },
-      } as ApiResponse);
-    } catch (error) {
-      logger.error('获取客户资产错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
-
-  async updateCustomerPool(req: AuthRequest, res: Response) {
-    try {
-      if (!canManageCustomerPool(req)) {
-        return res.status(403).json({
-          success: false,
-          message: '当前角色不能调整客户池',
-        } as ApiResponse);
-      }
-
-      const id = Number(req.params.id);
-      const existing = await loadCustomerForRequest(req, id);
-
-      if (!existing) {
-        return res.status(404).json({
-          success: false,
-          message: '客户不存在',
-        } as ApiResponse);
-      }
-
-      const poolState = req.body.poolState as CustomerPoolState;
-      const reason = req.body.reason || null;
-      const requestedSalespersonId = req.body.salespersonId !== undefined && req.body.salespersonId !== null
-        ? Number(req.body.salespersonId)
-        : null;
-
-      let salespersonId: number | null = null;
-      if (poolState === 'private') {
-        salespersonId = requestedSalespersonId || existing.salespersonId || null;
-        if (!salespersonId) {
-          return res.status(400).json({
-            success: false,
-            message: '私海客户必须指定销售负责人',
-          } as ApiResponse);
-        }
-      }
-
-      const previousPoolState = normalizePoolState(existing);
-      const nextSalespersonId = poolState === 'private' ? salespersonId : null;
-      const samePool =
-        previousPoolState === poolState &&
-        String(existing.salespersonId || '') === String(nextSalespersonId || '');
-
-      const existingAddressMap = await loadCustomerAddressMap([existing.id]);
-      const existingAddresses = deriveAddresses({
-        ...existing,
-        addressesJson: existingAddressMap.get(existing.id)?.addressesJson || null,
-      });
-
-      if (samePool) {
-        return res.json({
-          success: true,
-          data: buildCustomerPayload(existing, undefined, { addresses: existingAddresses }),
-          message: '客户池未变更',
-        } as ApiResponse);
-      }
-
-      if (!reason) {
-        return res.status(400).json({
-          success: false,
-          message: '客户池变更必须填写原因',
-        } as ApiResponse);
-      }
-
-      if (nextSalespersonId) {
-        const salespersonCheck = await validateAssignedSalesperson(nextSalespersonId, (existing.segment as CustomerSegment) || 'mixed');
-        if (!salespersonCheck.ok) {
-          return res.status(400).json({
-            success: false,
-            message: salespersonCheck.message,
-          } as ApiResponse);
-        }
-      }
-
-      const updated = await withDbRetry(() => prisma.customer.update({
-        where: { id },
-        data: {
-          poolState,
-          salesperson: nextSalespersonId ? { connect: { id: nextSalespersonId } } : { disconnect: true },
-          poolReason: reason,
-          poolUpdatedAt: new Date(),
-          poolUpdatedByUser: { connect: { id: req.user!.userId } },
-        },
-        include: {
-          salesperson: { select: { id: true, username: true } },
-          poolUpdatedByUser: { select: { id: true, username: true } },
-        },
-      }), { label: 'updateCustomerPool' });
-
-      const action = resolvePoolAuditAction(previousPoolState, poolState);
-
-      await writeCustomerAuditLog({
-        userId: req.user!.userId,
-        action,
-        resourceId: updated.id,
-        details: JSON.stringify({
-          previousPoolState,
-          nextPoolState: poolState,
-          salespersonId: nextSalespersonId,
-          reason,
-        }),
-        ipAddress: req.ip,
-        userAgent: req.get('user-agent'),
-      });
-
-      return res.json({
-        success: true,
-        data: buildCustomerPayload(updated, undefined, { addresses: existingAddresses }),
-        message: '客户池更新成功',
-      } as ApiResponse);
-    } catch (error) {
-      logger.error('更新客户池错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
-
-  async getCustomerPoolHistory(req: AuthRequest, res: Response) {
-    try {
-      const id = Number(req.params.id);
-      const existing = await loadCustomerForRequest(req, id);
-      if (!existing) {
-        return res.status(404).json({
-          success: false,
-          message: '客户不存在',
-        } as ApiResponse);
-      }
-
-      if (!canViewCustomerSensitiveRelations(req, existing)) {
-        return res.status(403).json({
-          success: false,
-          message: '当前角色无权查看该客户的池归属历史',
-        } as ApiResponse);
-      }
-
-      const logs = await prisma.auditLog.findMany({
-        where: {
-          resource: 'customer',
-          resourceId: id,
-          action: {
-            in: ['POOL_ASSIGN', 'POOL_RELEASE', 'POOL_RECLAIM', 'POOL_TRANSFER'] satisfies CustomerPoolAction[],
-          },
-        },
-        include: {
-          user: { select: { id: true, username: true, role: true } },
-        },
-        orderBy: { createdAt: 'desc' },
-        take: 20,
-      });
-
-      const salespersonIds = Array.from(new Set([
-        ...logs
-          .map(log => parseAuditDetails(log.details).salespersonId)
-          .filter((value): value is number => typeof value === 'number'),
-        ...(existing.salespersonId ? [existing.salespersonId] : []),
-      ]));
-
-      const salespeople = salespersonIds.length > 0
-        ? await prisma.user.findMany({
-            where: { id: { in: salespersonIds } },
-            select: { id: true, username: true },
-          })
-        : [];
-      const salespersonNameMap = new Map(salespeople.map(user => [user.id, user.username]));
-
-      const history = logs.map((log) => {
-        const details = parseAuditDetails(log.details);
-        return {
-          id: log.id,
-          action: log.action,
-          previousPoolState: details.previousPoolState || null,
-          nextPoolState: details.nextPoolState || null,
-          salespersonId: details.salespersonId != null ? String(details.salespersonId) : null,
-          salespersonName: details.salespersonId != null ? (salespersonNameMap.get(Number(details.salespersonId)) || null) : null,
-          reason: details.reason || null,
-          operatorName: log.user.username,
-          operatorRole: log.user.role,
-          createdAt: log.createdAt.toISOString(),
-        };
-      });
-
-      return res.json({
-        success: true,
-        data: {
-          customerId: existing.id,
-          history,
-          latest: history[0] || null,
-          currentPool: {
-            poolState: normalizePoolState(existing),
-            salespersonId: existing.salespersonId != null ? String(existing.salespersonId) : null,
-            salespersonName: existing.salesperson?.username || null,
-            poolReason: existing.poolReason || null,
-            poolUpdatedAt: existing.poolUpdatedAt ? existing.poolUpdatedAt.toISOString() : null,
-            poolUpdatedBy: existing.poolUpdatedByUser?.username || null,
-          },
-        },
-      } as ApiResponse);
-    } catch (error) {
-      logger.error('获取客户池历史错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
-    }
-  }
+  async getCustomerPoolHistory(req: AuthRequest, res: Response) { return getCustomerPoolHistoryHandler(req, res); }
 }
