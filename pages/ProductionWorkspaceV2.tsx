@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Factory, Layers3, PackageCheck, TriangleAlert, ArrowUpRight, ScanBarcode, Play } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { assetService, ProductBatch } from '../services/asset.service';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
@@ -23,8 +22,8 @@ import {
   type WorkOrderFilter,
 } from './production/productionWorkspaceConfig';
 import {
-  StatCard,
-} from './production/ProductionWorkspacePrimitives';
+  ProductionWorkspaceHeader,
+} from './production/ProductionWorkspaceHeader';
 
 const ProductionWorkspaceV2 = () => {
   const { t, notify } = useAppContext();
@@ -438,25 +437,13 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
   const selectedChecks = selectedWorkOrder?.qualityChecks || [];
   return (
     <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-      <div className="flex flex-col gap-6 md:flex-row md:items-end md:justify-between">
-        <div>
-          <h1 className="text-4xl font-black tracking-tighter italic uppercase bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.production || '生产管理'}</h1>
-<p className="text-blue-600 dark:text-blue-400 font-black text-[10px] uppercase tracking-[0.3em] mt-3 opacity-70 px-1">{t.productionDesc || '管理 BOM、工单、工序、质检和批次追踪'}</p>
-        </div>
-        <div className="flex flex-wrap gap-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl p-2 rounded-[28px] border border-white/50 dark:border-slate-800 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
-          <button className="flex items-center px-6 py-3 rounded-[22px] text-[10px] font-black uppercase tracking-widest bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30 active-shrink"><Factory size={16} className="mr-2.5" />{t.production || '生产管理'}</button>
-          <button onClick={() => void loadData()} className="flex items-center px-6 py-3 rounded-[22px] text-[10px] font-black uppercase tracking-widest text-slate-400"><ScanBarcode size={16} className="mr-2.5" />批次追踪</button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-6 gap-8">
-<StatCard title="BOM 数量" value={isInitialLoading ? '加载中...' : stats.totalBoms} color="bg-blue-600" icon={<PackageCheck size={24} />} />
-<StatCard title="工单数量" value={isInitialLoading ? '加载中...' : stats.totalWorkOrders} color="bg-emerald-500" icon={<Layers3 size={24} />} />
-<StatCard title="活跃工单" value={isInitialLoading ? '加载中...' : stats.activeWorkOrders} color="bg-cyan-500" icon={<Play size={24} />} />
-<StatCard title="待质检" value={isInitialLoading ? '加载中...' : stats.qcPendingCount} color="bg-amber-500" icon={<TriangleAlert size={24} />} />
-<StatCard title="批次数量" value={isInitialLoading ? '加载中...' : stats.batchCount} color="bg-violet-500" icon={<ScanBarcode size={24} />} />
-<StatCard title="库存总量" value={isInitialLoading ? '加载中...' : stats.totalStock} color="bg-slate-700" icon={<ArrowUpRight size={24} />} />
-      </div>
+      <ProductionWorkspaceHeader
+        title={t.production || '生产管理'}
+        description={t.productionDesc || '管理 BOM、工单、工序、质检和批次追踪'}
+        stats={stats}
+        isInitialLoading={isInitialLoading}
+        onRefresh={() => void loadData()}
+      />
 
       <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
         <ProductionBomSection
