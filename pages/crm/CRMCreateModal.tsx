@@ -13,7 +13,8 @@ import type { Contact, Customer, CustomerAddress } from '../../types';
 import { RiskLevel } from '../../types';
 import { splitCustomerTextList } from '../../utils/customerAlias';
 import { CRMCreatePreviewPanel } from './CRMCreatePreviewPanel';
-import { AddressCard, ContactCard, createEmptyAddress, createEmptyContact } from './CRMCustomerFormCards';
+import { createEmptyAddress, createEmptyContact } from './CRMCustomerFormFactories';
+import { AddressCard, ContactCard } from './CRMCustomerFormCards';
 
 type Props = {
   t: any;
