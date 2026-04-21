@@ -28,6 +28,10 @@ const toPositiveNumber = (value: unknown) => {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
+const roundQuantity = (value: number, precision = 6) => {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+};
 
 const resolveFinishedGoodsLocationId = async (tx: TransactionClient) => {
   const finishedGoodsLocation = await tx.location.findFirst({
@@ -257,14 +261,14 @@ export class ProductionMutationService {
 
         for (const record of consumptionRecords || []) {
           const stockBalanceId = Number(record.stockBalanceId);
-          const quantity = Number(record.quantity);
+          const quantity = roundQuantity(Number(record.quantity));
           if (!Number.isFinite(stockBalanceId) || stockBalanceId <= 0 || !Number.isInteger(stockBalanceId)) {
             throw new Error('Invalid stock balance id in consumption records');
           }
           if (!Number.isFinite(quantity) || quantity <= 0) {
             throw new Error('Invalid material consumption quantity');
           }
-          aggregatedRecords.set(stockBalanceId, (aggregatedRecords.get(stockBalanceId) || 0) + quantity);
+          aggregatedRecords.set(stockBalanceId, roundQuantity((aggregatedRecords.get(stockBalanceId) || 0) + quantity));
         }
 
         if (requiredMaterialCount > 0 && aggregatedRecords.size === 0) {
@@ -281,7 +285,7 @@ export class ProductionMutationService {
             throw new Error(`Stock balance not found: ${stockBalanceId}`);
           }
 
-          if (Number(currentStock.quantity || 0) < quantity) {
+          if (roundQuantity(Number(currentStock.quantity || 0)) + 0.000001 < quantity) {
             throw new Error(`Insufficient stock for ${currentStock.productName} / ${currentStock.batchNo}`);
           }
 
@@ -421,7 +425,9 @@ export class ProductionMutationService {
               throw new Error(`Confirmed consumption record is missing stock snapshot for work order ${workOrder.workOrderNo}`);
             }
 
-              // 尝试匹配 ProductBatch 写入 CostLedger
+              // Raw materials entered through warehouse/procurement may only
+              // exist as StockBalance rows. ProductBatch is optional here; the
+              // stock voucher above is the authoritative inventory deduction.
               const matchBatch = await tx.productBatch.findFirst({
                 where: {
                   productName: currentStock.productName,
@@ -431,7 +437,7 @@ export class ProductionMutationService {
               });
 
               if (!matchBatch) {
-                throw new Error(`Product batch not found for material consumption: ${currentStock.productName} / ${currentStock.batchNo}`);
+                continue;
               }
 
               const batchQtyBefore = Number(matchBatch.stockQuantity || 0);

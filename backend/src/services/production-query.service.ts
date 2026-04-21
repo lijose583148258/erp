@@ -71,6 +71,10 @@ const normalizeMaterialLookupTokens = (...values: Array<unknown>) => (
     .map(value => String(value ?? '').trim())
     .filter(Boolean)))
 );
+const floorQuantity = (value: number, precision = 6) => {
+  const factor = 10 ** precision;
+  return Math.floor((value + Number.EPSILON) * factor) / factor;
+};
 
 type BomExtraRow = {
   id: number;
@@ -305,7 +309,8 @@ export class ProductionQueryService {
       for (const stock of stocks) {
         if (remainingToDeduct <= 0) break;
         const available = Number(stock.quantity || 0);
-        const deduct = Math.min(available, remainingToDeduct);
+        const deduct = floorQuantity(Math.min(available, remainingToDeduct));
+        if (deduct <= 0) continue;
         pickList.push({
           stockBalanceId: stock.id,
           locationId: stock.locationId,

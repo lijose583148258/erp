@@ -107,7 +107,10 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
-      <div className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-[36px] shadow-2xl border border-slate-100 dark:border-slate-800 p-8">
+      <div
+        data-testid="production-complete-modal"
+        className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-[36px] shadow-2xl border border-slate-100 dark:border-slate-800 p-8"
+      >
         <button
           onClick={onClose}
           className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition"
@@ -135,7 +138,11 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
               {issues.length > 0 && (
                 <div className="space-y-2">
                   {issues.map((issue, index) => (
-                    <div key={`${issue.type || 'issue'}-${index}`} className="rounded-xl bg-white/70 dark:bg-slate-950/40 px-3 py-2 text-xs font-bold text-rose-700 dark:text-rose-300">
+                    <div
+                      key={`${issue.type || 'issue'}-${index}`}
+                      data-testid="production-complete-issue"
+                      className="rounded-xl bg-white/70 dark:bg-slate-950/40 px-3 py-2 text-xs font-bold text-rose-700 dark:text-rose-300"
+                    >
                       <div>{issue.material || 'BOM 原料'}：{issue.message || '完工校验未通过'}</div>
                       {typeof issue.expected === 'number' && typeof issue.actual === 'number' && (
                         <div className="mt-1 text-rose-500/80">
@@ -212,6 +219,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                                 </td>
                                 <td className="px-3 py-2 text-right">
                                   <input
+                                    data-testid={`production-complete-deduct-${pick.stockBalanceId}`}
                                     type="number"
                                     min="0"
                                     max={pick.availableQty}
@@ -243,6 +251,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
               <button
                 onClick={handleSubmit}
                 disabled={submitting}
+                data-testid="production-complete-confirm"
                 className="flex items-center gap-2 px-8 py-3 rounded-[20px] bg-blue-600 text-white text-xs font-black uppercase tracking-widest transition hover:bg-blue-700 hover:scale-[1.02] shadow-xl shadow-blue-500/20 active-shrink disabled:opacity-50"
               >
                 <Save size={16} />

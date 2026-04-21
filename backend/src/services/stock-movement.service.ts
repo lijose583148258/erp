@@ -60,6 +60,11 @@ const normalizeNumber = (value: unknown, label: string) => {
   return parsed;
 };
 
+const roundQuantity = (value: number, precision = 6) => {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+};
+
 const normalizeId = (value: unknown, label: string) => {
   const parsed = Number(value);
   if (!Number.isInteger(parsed) || parsed <= 0) {
@@ -296,7 +301,7 @@ export class StockMovementService {
         locationId: normalizeId(line.locationId, 'locationId'),
         productName: normalizeText(line.productName),
         batchNo: normalizeText(line.batchNo),
-        quantityDelta: normalizeNumber(line.quantityDelta, 'quantityDelta'),
+        quantityDelta: roundQuantity(normalizeNumber(line.quantityDelta, 'quantityDelta')),
         unit: normalizeText(line.unit || 'kg') || 'kg',
         unitCost: normalizeOptionalNumber(line.unitCost, 'unitCost'),
         costAmountDelta: normalizeOptionalNumber(line.costAmountDelta, 'costAmountDelta'),

@@ -149,8 +149,8 @@ const GLUE_FORMULA_SKELETON: BomItemDraft[] = [
 const getPasteLines = (text: string) =>
   text
     .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean);
+    .map((line) => line.replace(/\r$/, ''))
+    .filter((line) => line.trim().length > 0);
 
 export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize }) => {
   const [pasteText, setPasteText] = useState('');
@@ -260,10 +260,10 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
         <ActionToolbar
           className="xl:flex-none"
           actions={[
-            { label: '胶水10原料骨架', onClick: applyGlueSkeleton, tone: 'success' },
-            { label: '补齐10行', onClick: ensureTenRows, tone: 'neutral' },
-            { label: '新增明细', onClick: addItem, tone: 'primary', icon: <Plus size={14} /> },
-            { label: '粘贴 Excel', onClick: () => setShowPastePanel((prev) => !prev), tone: 'neutral', icon: <ClipboardPaste size={14} /> },
+            { label: '胶水10原料骨架', onClick: applyGlueSkeleton, tone: 'success', testId: 'production-bom-apply-glue-skeleton' },
+            { label: '补齐10行', onClick: ensureTenRows, tone: 'neutral', testId: 'production-bom-ensure-ten-rows' },
+            { label: '新增明细', onClick: addItem, tone: 'primary', icon: <Plus size={14} />, testId: 'production-bom-add-line' },
+            { label: '粘贴 Excel', onClick: () => setShowPastePanel((prev) => !prev), tone: 'neutral', icon: <ClipboardPaste size={14} />, testId: 'production-bom-open-paste-panel' },
           ]}
         />
       </div>
@@ -278,6 +278,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
             建议按以下顺序粘贴：物料名、保密代号/编码、角色、剂量模式、百分比、单耗、单位、损耗率、允许偏差%、工艺阶段、替代组、收率、备注。若物料名留空，系统会用代号保存该行。
           </p>
           <textarea
+            data-testid="production-bom-paste-textarea"
             value={pasteText}
             onChange={(e) => setPasteText(e.target.value)}
             placeholder={'\tR-001\tmain_resin\tpercentage\t35\t350\tkg\t2\t3\t预混\t\t\t保密原料可只填代号'}
@@ -294,6 +295,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
             <button
               type="button"
               onClick={handlePasteImport}
+              data-testid="production-bom-apply-paste"
               className="rounded-[16px] bg-blue-600 px-4 py-2 text-xs font-black tracking-[0.16em] text-white"
             >
               智能导入
@@ -303,7 +305,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
       )}
 
       <div className="overflow-x-auto rounded-[24px] border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
-        <table className="min-w-[1180px] w-full border-collapse">
+        <table data-testid="production-bom-line-grid" className="min-w-[1180px] w-full border-collapse">
           <thead>
             <tr>
               <th className="w-10 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">#</th>
@@ -326,6 +328,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
               return (
                 <tr
                   key={index}
+                  data-testid={`production-bom-line-row-${index}`}
                   className="group border-b border-slate-200 transition-colors hover:bg-white dark:border-slate-700 dark:hover:bg-slate-800"
                 >
                   <td className="px-2 py-3 align-top text-xs font-black text-slate-400">{index + 1}</td>

@@ -58,6 +58,8 @@ const S = {
   unitPlaceholder: '\u5355\u4f4d',
   lossRatePlaceholder: '\u635f\u8017',
   variancePlaceholder: '\u504f\u5dee',
+  excelPaste: '\u7c98\u8d34 Excel',
+  smartImport: '\u667a\u80fd\u5bfc\u5165',
   createBom: '\u521b\u5efa BOM',
   selected: '\u9009\u4e2d',
   workOrderDetail: '\u5de5\u5355\u8be6\u60c5',
@@ -145,11 +147,41 @@ const report = {
 let authToken = '';
 let browser = null;
 
+function buildBomPasteText(items) {
+  return items.map((item) => [
+    item.materialName,
+    item.materialCode,
+    item.ingredientRole,
+    item.dosageMode,
+    item.percentage,
+    item.quantityPerUnit,
+    item.unit,
+    item.lossRate,
+    item.allowedVarianceRate,
+    item.processStage,
+    item.substituteGroup,
+    item.yieldContribution,
+    item.notes,
+  ].join('\t')).join('\n');
+}
+
 function parsePayload(payload) {
   const data = payload?.json?.data;
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
   return data || null;
+}
+
+async function waitForAnyBodyText(page, expectedTexts, timeout) {
+  const started = Date.now();
+  const items = Array.isArray(expectedTexts) ? expectedTexts : [expectedTexts];
+  while (Date.now() - started < timeout) {
+    const bodyText = await page.locator('body').innerText();
+    const matched = items.find((item) => bodyText.includes(item));
+    if (matched) return { bodyText, matched };
+    await page.waitForTimeout(300);
+  }
+  throw new Error(`expected any text not visible within ${timeout}ms: ${items.join(' | ')}`);
 }
 
 function recordFinal() {
@@ -214,22 +246,64 @@ async function fillByLabel(page, label, value, index = 0) {
 async function selectByLabel(page, label, value, index = 0) {
   await page.getByLabel(label).nth(index).selectOption(value);
 }
-async function fillBomItem(page, index, item) {
-  const row = page.locator('table').first().locator('tbody tr').nth(index);
-  await row.getByPlaceholder(new RegExp(S.materialNamePlaceholder)).fill(item.materialName);
-  await row.getByPlaceholder(new RegExp(S.materialCodePlaceholder)).fill(item.materialCode);
-  await row.locator('select').nth(0).selectOption(item.ingredientRole);
-  await row.locator('select').nth(1).selectOption(item.dosageMode);
-  await row.getByPlaceholder(new RegExp(`${S.percentagePlaceholder}|\u6bd4\u4f8b/\u5907\u7528`)).fill(item.percentage);
-  await row.getByPlaceholder(S.quantityPerUnitPlaceholder).fill(item.quantityPerUnit);
-  await row.getByPlaceholder(S.unitPlaceholder).fill(item.unit);
-  await row.getByPlaceholder(S.lossRatePlaceholder).fill(item.lossRate);
-  const varianceInput = row.getByPlaceholder(S.variancePlaceholder);
-  if (await varianceInput.count()) await varianceInput.fill(item.allowedVarianceRate || '');
-  await row.getByPlaceholder(S.processStage).fill(item.processStage);
-  await row.getByPlaceholder(S.substituteGroup).fill(item.substituteGroup);
-  await row.getByPlaceholder(S.yieldContribution).fill(item.yieldContribution);
-  await row.getByPlaceholder(S.note).fill(item.notes);
+async function importBomLinesViaExcelPaste(page, recordStep) {
+  await withTimebox(page, recordStep, 'import-bom-lines-via-excel-paste', STEP_TIMEOUT_MS.fill, async () => {
+    const openPasteByTestId = page.getByTestId('production-bom-open-paste-panel');
+    if (await openPasteByTestId.count()) {
+      await openPasteByTestId.click();
+    } else {
+      await page.getByRole('button', { name: new RegExp(S.excelPaste.replace(' ', '\\s*')) }).click();
+    }
+
+    const pasteText = buildBomPasteText(TEST_DATA.items);
+    const pasteBoxByTestId = page.getByTestId('production-bom-paste-textarea');
+    if (await pasteBoxByTestId.count()) {
+      await pasteBoxByTestId.fill(pasteText);
+    } else {
+      await page.locator('textarea').filter({ hasText: '' }).last().fill(pasteText);
+    }
+
+    const applyPasteByTestId = page.getByTestId('production-bom-apply-paste');
+    if (await applyPasteByTestId.count()) {
+      await applyPasteByTestId.click();
+    } else {
+      await page.getByRole('button', { name: new RegExp(S.smartImport) }).click();
+    }
+
+    await page.waitForTimeout(500);
+    for (let index = 0; index < TEST_DATA.items.length; index += 1) {
+      const row = page.getByTestId(`production-bom-line-row-${index}`);
+      const targetRow = (await row.count()) ? row : page.locator('table').first().locator('tbody tr').nth(index);
+      const inputValues = await targetRow.locator('input').evaluateAll((inputs) => inputs.map((input) => input.value));
+      const selectValues = await targetRow.locator('select').evaluateAll((selects) => selects.map((select) => select.value));
+      const expected = TEST_DATA.items[index];
+      if (inputValues[0] !== expected.materialName) {
+        throw new Error(`excel paste materialName mismatch at row ${index + 1}: ${inputValues[0]}`);
+      }
+      if (inputValues[1] !== expected.materialCode) {
+        throw new Error(`excel paste materialCode mismatch at row ${index + 1}: ${inputValues[1]}`);
+      }
+      if (selectValues[0] !== expected.ingredientRole) {
+        throw new Error(`excel paste ingredientRole mismatch at row ${index + 1}: ${selectValues[0]}`);
+      }
+      if (selectValues[1] !== expected.dosageMode) {
+        throw new Error(`excel paste dosageMode mismatch at row ${index + 1}: ${selectValues[1]}`);
+      }
+      if (inputValues[6] !== expected.percentage) {
+        throw new Error(`excel paste percentage mismatch at row ${index + 1}: ${inputValues[6]}`);
+      }
+      if (inputValues[7] !== expected.quantityPerUnit) {
+        throw new Error(`excel paste quantityPerUnit mismatch at row ${index + 1}: ${inputValues[7]}`);
+      }
+    }
+  }, SHOT_DIR);
+  recordStep({
+    step: 'excel-paste-bom-lines-evidence',
+    result: 'passed',
+    importedLineCount: TEST_DATA.items.length,
+    confidentialCodeOnlyRows: TEST_DATA.items.filter((item) => !item.materialName && item.materialCode).length,
+    evidence: await safeScreenshot(page, SHOT_DIR, 'excel-paste-bom-lines'),
+  });
 }
 
 async function createChemicalBom(page, recordStep) {
@@ -248,11 +322,7 @@ async function createChemicalBom(page, recordStep) {
     await fillByLabel(page, S.effectiveFrom, TEST_DATA.effectiveFrom);
     await fillByLabel(page, S.effectiveTo, TEST_DATA.effectiveTo);
     await page.getByLabel(S.qualitySpec, { exact: true }).fill(TEST_DATA.qualitySummary);
-    const ensureTenRowsButton = page.getByRole('button', { name: new RegExp(S.ensureTenRows) });
-    if (await ensureTenRowsButton.count()) await ensureTenRowsButton.click();
-    for (let index = 0; index < TEST_DATA.items.length; index += 1) {
-      await fillBomItem(page, index, TEST_DATA.items[index]);
-    }
+    await importBomLinesViaExcelPaste(page, recordStep);
     await page.getByRole('button', { name: new RegExp(S.createBom.replace(' ', '\\s*')) }).click();
   }, SHOT_DIR);
   await withTimebox(page, recordStep, 'verify-bom-ui-readback', STEP_TIMEOUT_MS.readBack, async () => {
@@ -423,12 +493,60 @@ async function createQualityCheck(page, recordStep, workOrderNo) {
   }, SHOT_DIR);
   recordStep({ step: 'quality-check-evidence', result: 'passed', evidence: await safeScreenshot(page, SHOT_DIR, 'quality-check-saved'), workOrderNo });
 }
+
+async function verifyIncompleteCompletionIsBlocked(page, recordStep) {
+  await withTimebox(page, recordStep, 'verify-incomplete-consumption-blocked-in-browser', STEP_TIMEOUT_MS.save, async () => {
+    const modal = page.getByTestId('production-complete-modal');
+    const numberInputs = modal.locator('input[type="number"]');
+    let inputCount = 0;
+    const started = Date.now();
+    while (Date.now() - started < STEP_TIMEOUT_MS.readBack) {
+      inputCount = await numberInputs.count();
+      if (inputCount >= TEST_DATA.items.length) break;
+      await page.waitForTimeout(300);
+    }
+    if (inputCount < TEST_DATA.items.length) {
+      throw new Error(`completion modal did not expose enough material deduction inputs: ${inputCount}`);
+    }
+    const originalValues = [];
+    for (let index = 0; index < inputCount; index += 1) {
+      originalValues.push(await numberInputs.nth(index).inputValue());
+    }
+    for (let index = 0; index < inputCount; index += 1) {
+      await numberInputs.nth(index).fill(index === 0 ? (originalValues[index] || '1') : '0');
+    }
+    await modal.getByTestId('production-complete-confirm').click();
+    const blocked = await waitForAnyBodyText(page, [
+      'has no confirmed consumption record',
+      'consumption is below expected',
+      '\u5b8c\u5de5\u6821\u9a8c\u672a\u901a\u8fc7',
+      '\u0042\u004f\u004d \u539f\u6599',
+    ], STEP_TIMEOUT_MS.readBack);
+    await waitForBodyText(page, [S.completionModal, S.completeConfirm], STEP_TIMEOUT_MS.readBack);
+    for (let index = 0; index < inputCount; index += 1) {
+      await numberInputs.nth(index).fill(originalValues[index] || '0');
+    }
+    report.incompleteCompletionBlocked = {
+      matchedText: blocked.matched,
+      inputCount,
+    };
+  }, SHOT_DIR);
+  recordStep({
+    step: 'incomplete-consumption-browser-block-evidence',
+    result: 'passed',
+    evidence: await safeScreenshot(page, SHOT_DIR, 'incomplete-consumption-blocked'),
+  });
+}
+
 async function completeWorkOrderAndVerifyBatch(page, recordStep, workOrderNo) {
   await withTimebox(page, recordStep, 'complete-work-order', STEP_TIMEOUT_MS.save, async () => {
     await clickWorkOrderButton(page, workOrderNo, S.completeOrder);
     await waitForBodyText(page, [S.completionModal, S.completeConfirm], STEP_TIMEOUT_MS.readBack);
     assertNoMojibake(await page.locator('body').innerText(), 'complete work order modal', FORBIDDEN_MOJIBAKE);
-    await page.getByRole('button', { name: new RegExp(S.completeConfirm) }).click();
+    await verifyIncompleteCompletionIsBlocked(page, recordStep);
+    const modal = page.getByTestId('production-complete-modal');
+    await modal.getByTestId('production-complete-confirm').click();
+    await modal.waitFor({ state: 'detached', timeout: STEP_TIMEOUT_MS.readBack });
   }, SHOT_DIR);
   const workOrder = await withTimebox(page, recordStep, 'verify-completed-work-order', STEP_TIMEOUT_MS.readBack, async () => {
     const order = await waitForOrderStatus(page, workOrderNo, 'completed');

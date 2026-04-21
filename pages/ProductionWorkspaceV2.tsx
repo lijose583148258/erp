@@ -502,6 +502,7 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '工单完工失败');
+      throw error;
     }
   };
 
