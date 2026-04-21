@@ -1,0 +1,135 @@
+import type { ComponentType, ReactNode } from 'react';
+import { BadgeDollarSign, Factory, Package2 } from 'lucide-react';
+import type {
+  AdjustmentDomain,
+  AdjustmentStatus,
+  AdjustmentTargetType,
+} from '../../services/adjustment.service';
+
+export interface AdjustmentFormState {
+  domain: AdjustmentDomain;
+  targetType: AdjustmentTargetType;
+  targetId: string;
+  orderId: string;
+  batchId: string;
+  customerId: string;
+  targetRef: string;
+  quantityDelta: string;
+  amountDelta: string;
+  reason: string;
+  reasonCategory: string;
+  lossType: string;
+  note: string;
+  status: AdjustmentStatus;
+}
+
+export interface AdjustmentTemplate {
+  id: string;
+  label: string;
+  helperText: string;
+  icon: ComponentType<{ size?: number; className?: string }>;
+  patch: Partial<AdjustmentFormState>;
+}
+
+export interface AdjustmentStatCounts {
+  total: number;
+  posted: number;
+  pending: number;
+  reversed: number;
+}
+
+export type AdjustmentDomainMeta = Record<
+  AdjustmentDomain,
+  { label: string; className: string; icon: ReactNode }
+>;
+
+export type AdjustmentStatusMeta = Record<
+  AdjustmentStatus,
+  { label: string; className: string }
+>;
+
+export const emptyAdjustmentForm: AdjustmentFormState = {
+  domain: 'finance',
+  targetType: 'order',
+  targetId: '',
+  orderId: '',
+  batchId: '',
+  customerId: '',
+  targetRef: '',
+  quantityDelta: '',
+  amountDelta: '',
+  reason: '',
+  reasonCategory: '',
+  lossType: '',
+  note: '',
+  status: 'posted',
+};
+
+export const adjustmentTemplates = [
+  {
+    id: 'finance',
+    label: '\u8d22\u52a1\u8865\u5f55',
+    helperText: '\u8865\u5f55\u7ebf\u4e0b\u5230\u8d26\u6216\u8d22\u52a1\u4fee\u6b63',
+    icon: BadgeDollarSign,
+    patch: {
+      domain: 'finance' as AdjustmentDomain,
+      targetType: 'order' as AdjustmentTargetType,
+      amountDelta: '1000',
+      reason: '\u7ebf\u4e0b\u56de\u6b3e\u8865\u5f55',
+      reasonCategory: 'manual_reconciliation',
+    },
+  },
+  {
+    id: 'production',
+    label: '\u751f\u4ea7\u635f\u8017',
+    helperText: '\u8bb0\u5f55\u751f\u4ea7\u635f\u8017\u4e0e\u62a5\u635f',
+    icon: Factory,
+    patch: {
+      domain: 'production' as AdjustmentDomain,
+      targetType: 'productBatch' as AdjustmentTargetType,
+      quantityDelta: '-1',
+      reason: '\u751f\u4ea7\u635f\u8017\u8c03\u6574',
+      reasonCategory: 'production_loss',
+      lossType: 'loss',
+    },
+  },
+  {
+    id: 'inventory',
+    label: '\u5e93\u5b58\u76d8\u5dee',
+    helperText: '\u76d8\u70b9\u5dee\u5f02\u4fee\u6b63',
+    icon: Package2,
+    patch: {
+      domain: 'inventory' as AdjustmentDomain,
+      targetType: 'productBatch' as AdjustmentTargetType,
+      quantityDelta: '1',
+      reason: '\u5e93\u5b58\u76d8\u70b9\u4fee\u6b63',
+      reasonCategory: 'inventory_discrepancy',
+      lossType: 'count_difference',
+    },
+  },
+] as const satisfies readonly AdjustmentTemplate[];
+
+export const adjustmentDomainMeta: AdjustmentDomainMeta = {
+  finance: {
+    label: '\u8d22\u52a1',
+    className: 'bg-blue-50 text-blue-700 border-blue-100',
+    icon: <BadgeDollarSign size={13} />,
+  },
+  production: {
+    label: '\u751f\u4ea7',
+    className: 'bg-amber-50 text-amber-700 border-amber-100',
+    icon: <Factory size={13} />,
+  },
+  inventory: {
+    label: '\u5e93\u5b58',
+    className: 'bg-emerald-50 text-emerald-700 border-emerald-100',
+    icon: <Package2 size={13} />,
+  },
+};
+
+export const adjustmentStatusMeta: AdjustmentStatusMeta = {
+  pending: { label: '\u5f85\u5904\u7406', className: 'bg-slate-100 text-slate-600 border-slate-200' },
+  posted: { label: '\u5df2\u751f\u6548', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
+  reversed: { label: '\u5df2\u51b2\u9500', className: 'bg-rose-50 text-rose-700 border-rose-100' },
+  rejected: { label: '\u5df2\u9a73\u56de', className: 'bg-amber-50 text-amber-700 border-amber-100' },
+};

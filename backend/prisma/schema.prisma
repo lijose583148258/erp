@@ -1,0 +1,1202 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+model ProductionBom {
+  id          Int      @id @default(autoincrement())
+  bomNo       String   @unique @map("bom_no")
+  productName String   @map("product_name")
+  version     String   @default("v1")
+  bomType     String   @default("standard") @map("bom_type")
+  status      String   @default("draft")
+  formulationMode String? @map("formulation_mode")
+  outputUnit  String   @map("output_unit")
+  standardBatchSize Float? @map("standard_batch_size")
+  batchSizeUnit String? @map("batch_size_unit")
+  density     Float?
+  solidContent Float?  @map("solid_content")
+  effectiveFrom DateTime? @map("effective_from")
+  effectiveTo DateTime? @map("effective_to")
+  processJson String?  @map("process_json")
+  qualitySpecJson String? @map("quality_spec_json")
+  notes       String?
+  createdBy   Int      @map("created_by")
+  creator     User     @relation("ProductionBomCreator", fields: [createdBy], references: [id])
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  items       ProductionBomItem[]
+  workOrders  ProductionWorkOrder[]
+
+  @@index([productName])
+  @@index([createdBy])
+  @@map("production_boms")
+}
+
+model ProductionBomItem {
+  id              Int           @id @default(autoincrement())
+  bomId           Int           @map("bom_id")
+  bom             ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  materialName    String        @map("material_name")
+  materialCode    String?       @map("material_code")
+  ingredientRole  String?       @map("ingredient_role")
+  dosageMode      String?       @map("dosage_mode")
+  percentage      Float?
+  quantityPerUnit Float         @map("quantity_per_unit")
+  unit            String
+  lossRate        Float         @default(0) @map("loss_rate")
+  allowedVarianceRate Float?    @map("allowed_variance_rate")
+  processStage    String?       @map("process_stage")
+  substituteGroup String?       @map("substitute_group")
+  yieldContribution Float?      @map("yield_contribution")
+  notes           String?
+  createdAt       DateTime      @default(now()) @map("created_at")
+
+  @@index([bomId])
+  @@map("production_bom_items")
+}
+
+model ProductionWorkOrder {
+  id               Int               @id @default(autoincrement())
+  workOrderNo      String            @unique @map("work_order_no")
+  bomId            Int?              @map("bom_id")
+  bom              ProductionBom?    @relation(fields: [bomId], references: [id], onDelete: SetNull)
+  batchId          Int?              @map("batch_id")
+  productBatch     ProductBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  productName      String            @map("product_name")
+  targetQuantity   Float             @map("target_quantity")
+  producedQuantity Float             @default(0) @map("produced_quantity")
+  lossQuantity     Float             @default(0) @map("loss_quantity")
+  status           String            @default("draft")
+  plannedStartAt   DateTime?         @map("planned_start_at")
+  plannedEndAt     DateTime?         @map("planned_end_at")
+  actualStartAt    DateTime?         @map("actual_start_at")
+  actualEndAt      DateTime?         @map("actual_end_at")
+  note             String?
+  createdBy        Int               @map("created_by")
+  creator          User              @relation("ProductionWorkOrderCreator", fields: [createdBy], references: [id])
+  createdAt        DateTime          @default(now()) @map("created_at")
+  updatedAt        DateTime          @updatedAt @map("updated_at")
+
+  steps            ProductionProcessStep[]
+  qualityChecks    ProductionQualityCheck[]
+  inventoryCostLedgers InventoryCostLedger[]
+
+  @@index([bomId])
+  @@index([batchId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("production_work_orders")
+}
+
+model ProductionProcessStep {
+  id            Int                 @id @default(autoincrement())
+  workOrderId   Int                 @map("work_order_id")
+  workOrder     ProductionWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  stepNo        Int                 @map("step_no")
+  title         String
+  status        String              @default("pending")
+  operatorName  String?             @map("operator_name")
+  startedAt     DateTime?           @map("started_at")
+  completedAt   DateTime?           @map("completed_at")
+  note          String?
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  @@index([workOrderId])
+  @@index([status])
+  @@map("production_process_steps")
+}
+
+model ProductionQualityCheck {
+  id            Int                 @id @default(autoincrement())
+  workOrderId   Int                 @map("work_order_id")
+  workOrder     ProductionWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  checkNo       String              @unique @map("check_no")
+  result        String              @default("pending")
+  defectRate    Float?              @map("defect_rate")
+  note          String?
+  checkedBy     String?             @map("checked_by")
+  checkedAt     DateTime?           @map("checked_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+  updatedAt     DateTime            @updatedAt @map("updated_at")
+
+  @@index([workOrderId])
+  @@index([result])
+  @@map("production_quality_checks")
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// 用户表
+model User {
+  id            Int       @id @default(autoincrement())
+  username      String    @unique
+  passwordHash  String    @map("password_hash")
+  email         String?
+  role          String
+  segment       String?   @map("segment")
+  avatar        String?
+  isActive      Boolean   @default(true) @map("is_active")
+  lastLoginAt   DateTime? @map("last_login_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customers     Customer[]
+  orders        Order[]
+  samples       Sample[]
+  shipments     Shipment[]
+  rmas          Rma[]
+  logs          AuditLog[]
+  assetTransactions AssetTransaction[]
+  contracts     Contract[]
+  adjustmentsCreated AdjustmentRecord[] @relation("AdjustmentCreator")
+  adjustmentsApproved AdjustmentRecord[] @relation("AdjustmentApprover")
+  productionBomsCreated ProductionBom[] @relation("ProductionBomCreator")
+  productionWorkOrdersCreated ProductionWorkOrder[] @relation("ProductionWorkOrderCreator")
+  inventoryCostLedgersCreated InventoryCostLedger[] @relation("InventoryCostLedgerCreator")
+  stockEntriesCreated StockEntry[] @relation("StockEntryCreator")
+  collectionPromises CollectionPromise[]
+  collectionDisputes CollectionDispute[]
+  barterAgreementsCreated BarterAgreement[]
+  customerPoolUpdates Customer[] @relation("CustomerPoolUpdater")
+  barterSettlementsCreated BarterSettlement[]
+
+  @@map("users")
+}
+
+model AuthRole {
+  id             Int      @id @default(autoincrement())
+  code           String   @unique
+  name           String
+  description    String?
+  isSystem       Boolean  @default(false) @map("is_system")
+  isActive       Boolean  @default(true) @map("is_active")
+  dataScopesJson String?  @map("data_scopes_json")
+  createdBy      Int?     @map("created_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  permissions    AuthRolePermission[]
+
+  @@index([isActive])
+  @@map("auth_roles")
+}
+
+model AuthPermission {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  resource    String
+  action      String
+  label       String
+  description String?
+  group       String?
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  roles       AuthRolePermission[]
+
+  @@index([resource])
+  @@index([group])
+  @@map("auth_permissions")
+}
+
+model AuthRolePermission {
+  id             Int      @id @default(autoincrement())
+  roleCode       String   @map("role_code")
+  permissionCode String   @map("permission_code")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  role           AuthRole       @relation(fields: [roleCode], references: [code], onDelete: Cascade)
+  permission     AuthPermission @relation(fields: [permissionCode], references: [code], onDelete: Cascade)
+
+  @@unique([roleCode, permissionCode])
+  @@index([permissionCode])
+  @@map("auth_role_permissions")
+}
+
+// 客户表
+model Customer {
+  id              Int       @id @default(autoincrement())
+  name            String
+  nameZh          String?   @map("name_zh")
+    nameEn          String?   @map("name_en")
+    nameVi          String?   @map("name_vi")
+    nameAliases     String?   @map("name_aliases")
+    addressesJson   String?   @map("addresses_json")
+    contactsJson    String?   @map("contacts_json")
+    licenseNumber   String?   @map("license_number")
+  creditLimit     Float?    @map("credit_limit")
+  overdueAmount   Float     @default(0) @map("overdue_amount")
+  riskLevel       String?   @map("risk_level")
+  collectionsStatus String   @default("normal") @map("collections_status")
+  dunningLevel    Int       @default(0) @map("dunning_level")
+  nextActionAt    DateTime? @map("next_action_at")
+  creditHold      Boolean   @default(false) @map("credit_hold")
+  creditHoldReason String?  @map("credit_hold_reason")
+  creditHoldSource String?  @map("credit_hold_source")
+  creditHoldUpdatedAt DateTime? @map("credit_hold_updated_at")
+  shipmentHold    Boolean   @default(false) @map("shipment_hold")
+  shipmentHoldReason String? @map("shipment_hold_reason")
+  shipmentHoldSource String? @map("shipment_hold_source")
+  shipmentHoldUpdatedAt DateTime? @map("shipment_hold_updated_at")
+  salespersonId   Int?      @map("salesperson_id")
+  segment         String?
+  poolState       String    @default("private") @map("pool_state")
+  poolReason      String?   @map("pool_reason")
+  poolUpdatedAt   DateTime? @map("pool_updated_at")
+  poolUpdatedBy   Int?      @map("pool_updated_by")
+  status          String    @default("active")
+  contactName     String?   @map("contact_name")
+  contactPhone    String?   @map("contact_phone")
+  contactEmail    String?   @map("contact_email")
+  address         String?
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  salesperson     User?     @relation(fields: [salespersonId], references: [id])
+  poolUpdatedByUser User?   @relation("CustomerPoolUpdater", fields: [poolUpdatedBy], references: [id], onDelete: SetNull)
+  orders          Order[]
+  samples         Sample[]
+  shipments       Shipment[]
+  rmas            Rma[]
+  assetBalances   AssetBalance[]
+  assetTransactions AssetTransaction[]
+  contracts       Contract[]
+  collectionPromises CollectionPromise[]
+  collectionDisputes CollectionDispute[]
+  barterAgreements BarterAgreement[]
+  barterSettlements BarterSettlement[]
+
+  @@index([salespersonId])
+  @@index([riskLevel])
+  @@index([status])
+  @@index([poolState])
+  @@index([name])
+  @@index([licenseNumber])
+  @@map("customers")
+}
+
+// 订单表
+model Order {
+  id              Int       @id @default(autoincrement())
+  orderNo         String    @unique @map("order_no")
+  customerId      Int       @map("customer_id")
+  totalAmount     Float     @map("total_amount")
+  discountAmount  Float     @default(0) @map("discount_amount")
+  finalAmount     Float     @map("final_amount")
+  // ── 多货币支持 (三国体系) ──────────────────────────────────────
+  currency        String    @default("CNY")                           // 交易币种
+  lockedExchangeRate Float? @map("locked_exchange_rate")              // 下单时锁定的1CNY换算汇率快照
+  baseAmount      Float?    @map("base_amount")                       // 等值CNY本位币金额
+  // ─────────────────────────────────────────────────────────────
+  paymentTerms    Int       @default(30) @map("payment_terms")
+  status          String    @default("pending")
+  commissionRate  Float?    @map("commission_rate")
+  commissionAmount Float?   @map("commission_amount")
+  commissionStatus String    @default("pending") @map("commission_status")
+  commissionNotes  String?   @map("commission_notes")
+  notes           String?
+  createdBy       Int       @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+  items           OrderItem[]
+  shipments       Shipment[]
+  purchaseOrders  PurchaseOrder[]
+  paymentRecords  PaymentRecord[]
+  contractId      Int?      @map("contract_id")
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  adjustments     AdjustmentRecord[] @relation("OrderAdjustments")
+  collectionPromises CollectionPromise[]
+  collectionDisputes CollectionDispute[]
+  barterAgreements BarterAgreement[]
+  barterSettlements BarterSettlement[]
+  
+  // 财务统计增强
+  paidAmount      Float     @default(0) @map("paid_amount")
+  paymentStatus   String    @default("unpaid") @map("payment_status") // unpaid, partial, paid
+  shipmentHold    Boolean   @default(false) @map("shipment_hold")
+  shipmentHoldReason String? @map("shipment_hold_reason")
+  shipmentHoldSource String? @map("shipment_hold_source")
+  shipmentHoldUpdatedAt DateTime? @map("shipment_hold_updated_at")
+
+  @@index([customerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdBy])
+  @@index([contractId])
+  @@index([createdAt])
+  @@index([status, createdAt]) // 复合索引：优化状态筛选+时间排序
+  @@map("orders")
+}
+
+// 订单明细表
+model OrderItem {
+  id              Int       @id @default(autoincrement())
+  orderId         Int       @map("order_id")
+  productName     String    @map("product_name")
+  specification   String?
+  quantity        Float
+  unit            String
+  unitPrice       Float     @map("unit_price")
+  totalPrice      Float     @map("total_price")
+  itemType        String    @default("normal") @map("item_type")
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // 关联
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+model Supplier {
+    id            Int      @id @default(autoincrement())
+    name          String
+    nameZh        String?  @map("name_zh")
+    nameEn        String?  @map("name_en")
+    nameVi        String?  @map("name_vi")
+    nameAliases   String?  @map("name_aliases")
+    contactsJson  String?  @map("contacts_json")
+    addressesJson String?  @map("addresses_json")
+    category      String
+    rating        Float    @default(4)
+    leadTimeDays  Int      @default(7) @map("lead_time_days")
+    riskLevel     String   @default("medium") @map("risk_level")
+    contact       String
+    status        String   @default("active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  purchaseOrders PurchaseOrder[]
+  barterAgreements BarterAgreement[]
+  barterSettlements BarterSettlement[]
+
+  @@index([name])
+  @@index([riskLevel])
+  @@index([status])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id            Int      @id @default(autoincrement())
+  supplierId    Int      @map("supplier_id")
+  item          String
+  quantity      Float
+  unit          String
+  price         Float
+  currency      String   @default("CNY")
+  exchangeRate  Float    @default(1.0) @map("exchange_rate")
+  taxRate       Float    @default(0) @map("tax_rate")
+  taxAmount     Float    @default(0) @map("tax_amount")
+  freightCost   Float    @default(0) @map("freight_cost")
+  dutyCost      Float    @default(0) @map("duty_cost")
+  insuranceCost Float    @default(0) @map("insurance_cost")
+  otherCost     Float    @default(0) @map("other_cost")
+  landedCostAmount Float @default(0) @map("landed_cost_amount")
+  landedUnitCost   Float @default(0) @map("landed_unit_cost")
+  eta           DateTime
+  status        String   @default("pending")
+  salesOrderRef String?  @map("sales_order_ref")
+  salesOrderId  Int?     @map("sales_order_id")
+  isB2B         Boolean  @default(false) @map("is_b2b")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  supplier      Supplier @relation(fields: [supplierId], references: [id])
+  salesOrder    Order?   @relation(fields: [salesOrderId], references: [id])
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([salesOrderId])
+  @@map("purchase_orders")
+}
+
+// 样品表
+model Sample {
+  id              Int       @id @default(autoincrement())
+  sampleNo        String    @unique @map("sample_no")
+  customerId      Int       @map("customer_id")
+  productName     String    @map("product_name")
+  quantity        Float
+  unit            String
+  status          String    @default("requested")
+  shippingAddress String?   @map("shipping_address")
+  trackingNo      String?   @map("tracking_no")
+  feedback        String?
+  requestedBy     Int       @map("requested_by")
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  sentAt          DateTime? @map("sent_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  requester       User      @relation(fields: [requestedBy], references: [id])
+
+  @@index([customerId])
+  @@index([status])
+  @@index([requestedBy])
+  @@map("samples")
+}
+
+// 物流发货表
+model Shipment {
+  id              Int       @id @default(autoincrement())
+  shipmentNo      String    @unique @map("shipment_no")
+  orderId         Int?      @map("order_id")
+  customerId      Int       @map("customer_id")
+  productName     String    @map("product_name")
+  quantity        Float
+  unit            String
+  packageType     String?   @map("package_type")
+  trackingNo      String?   @map("tracking_no")
+  carrier         String?
+    status          String    @default("pending")
+    shippedAt       DateTime? @map("shipped_at")
+    deliveredAt     DateTime? @map("delivered_at")
+    signedReceiptUrl String?  @map("signed_receipt_url")
+    notes           String?
+  createdBy       Int       @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  order           Order?    @relation(fields: [orderId], references: [id])
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+
+  isColdChain     Boolean   @default(false) @map("is_cold_chain")
+  temperature     Float?
+  batchNo         String?   @map("batch_no")
+
+  @@index([orderId])
+  @@index([customerId])
+  @@index([status])
+  @@map("shipments")
+}
+
+// 售后退货表
+model Rma {
+  id              Int       @id @default(autoincrement())
+  rmaNo           String    @unique @map("rma_no")
+  customerId      Int       @map("customer_id")
+  productName     String    @map("product_name")
+  quantity        Float
+  unit            String
+  reason          String
+  status          String    @default("pending")
+  resolution      String?
+  refundAmount    Float?    @map("refund_amount")
+  createdBy       Int       @map("created_by")
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+
+  @@index([customerId])
+  @@index([status])
+  @@map("rmas")
+}
+
+model ReceiptDiscrepancyCase {
+  id               Int       @id @default(autoincrement())
+  caseNo           String    @unique @map("case_no")
+  sourceType       String    @map("source_type")
+  sourceRef        String    @map("source_ref")
+  sourceId         Int?      @map("source_id")
+  relatedModule    String    @map("related_module")
+  relatedId        Int       @map("related_id")
+  businessRef      String?   @map("business_ref")
+  counterpartyType String    @map("counterparty_type")
+  counterpartyId   Int?      @map("counterparty_id")
+  counterpartyName String?   @map("counterparty_name")
+  productName      String    @map("product_name")
+  quantity         Float
+  unit             String    @default("kg")
+  discrepancyType  String    @default("other") @map("discrepancy_type")
+  reason           String
+  severity         String    @default("normal")
+  status           String    @default("pending")
+  toleranceRuleId  Int?      @map("tolerance_rule_id")
+  toleranceAction  String    @default("manual_review") @map("tolerance_action")
+  tolerancePercent Float?    @map("tolerance_percent")
+  toleranceQuantity Float?   @map("tolerance_quantity")
+  varianceRate     Float?    @map("variance_rate")
+  withinTolerance  Boolean   @default(false) @map("within_tolerance")
+  requiresQualityCheck Boolean @default(false) @map("requires_quality_check")
+  suggestedAction  String?   @map("suggested_action")
+  resolution       String?
+  actionRef        String?   @map("action_ref")
+  note             String?
+  createdBy        Int?      @map("created_by")
+  resolvedBy       Int?      @map("resolved_by")
+  resolvedAt       DateTime? @map("resolved_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([sourceType, sourceRef])
+  @@index([relatedModule, relatedId])
+  @@index([status])
+  @@index([counterpartyType, counterpartyId])
+  @@index([discrepancyType])
+  @@map("receipt_discrepancy_cases")
+}
+
+model ReceiptDiscrepancyAction {
+  id              Int       @id @default(autoincrement())
+  actionNo        String    @unique @map("action_no")
+  caseId          Int       @map("case_id")
+  actionType      String    @map("action_type")
+  status          String    @default("pending")
+  sourceModule    String?   @map("source_module")
+  sourceRef       String?   @map("source_ref")
+  targetModule    String?   @map("target_module")
+  targetId        Int?      @map("target_id")
+  targetRef       String?   @map("target_ref")
+  quantity        Float?
+  unit            String?
+  amount          Float?
+  currency        String    @default("CNY")
+  reasonCode      String?   @map("reason_code")
+  dispositionCode String?   @map("disposition_code")
+  note            String?
+  createdBy       Int?      @map("created_by")
+  approvedBy      Int?      @map("approved_by")
+  postedAt        DateTime? @map("posted_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([caseId])
+  @@index([actionType])
+  @@index([status])
+  @@index([targetModule, targetId])
+  @@map("receipt_discrepancy_actions")
+}
+
+model ReceiptToleranceRule {
+  id                       Int      @id @default(autoincrement())
+  ruleNo                   String   @unique @map("rule_no")
+  name                     String
+  sourceType               String   @default("all") @map("source_type")
+  discrepancyType          String   @default("all") @map("discrepancy_type")
+  counterpartyType         String   @default("all") @map("counterparty_type")
+  counterpartyId           Int?     @map("counterparty_id")
+  productName              String?  @map("product_name")
+  quantityTolerancePercent Float    @default(0) @map("quantity_tolerance_percent")
+  quantityToleranceAbs     Float    @default(0) @map("quantity_tolerance_abs")
+  actionWithinTolerance    String   @default("warn") @map("action_within_tolerance")
+  actionOutsideTolerance   String   @default("manual_review") @map("action_outside_tolerance")
+  severityWithinTolerance  String   @default("low") @map("severity_within_tolerance")
+  severityOutsideTolerance String   @default("normal") @map("severity_outside_tolerance")
+  requiresQualityCheck     Boolean  @default(false) @map("requires_quality_check")
+  status                   String   @default("active")
+  priority                 Int      @default(100)
+  note                     String?
+  createdBy                Int?     @map("created_by")
+  createdAt                DateTime @default(now()) @map("created_at")
+  updatedAt                DateTime @updatedAt @map("updated_at")
+
+  @@index([sourceType, discrepancyType, counterpartyType, counterpartyId, productName])
+  @@index([status])
+  @@map("receipt_tolerance_rules")
+}
+
+model ProductBatch {
+  id              Int       @id @default(autoincrement())
+  batchNo         String    @unique @map("batch_no")
+  productName     String    @map("product_name")
+  productionDate  DateTime  @map("production_date")
+  expiryDate      DateTime  @map("expiry_date")
+  storageTemp     String?   @map("storage_temp")
+  isColdChain     Boolean   @default(false) @map("is_cold_chain")
+  stockQuantity   Float     @default(0) @map("stock_quantity")
+  unit            String
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  adjustments     AdjustmentRecord[] @relation("BatchAdjustments")
+  productionWorkOrders ProductionWorkOrder[]
+  inventoryCostLedgers InventoryCostLedger[]
+
+  @@index([productName])
+  @@index([expiryDate])
+  @@map("product_batches")
+}
+
+model InventoryCostLedger {
+  id               Int                 @id @default(autoincrement())
+  ledgerNo         String              @unique @map("ledger_no")
+  batchId          Int                 @map("batch_id")
+  productBatch     ProductBatch        @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  sourceType       String              @map("source_type")
+  sourceRef        String?             @map("source_ref")
+  workOrderId      Int?                @map("work_order_id")
+  workOrder        ProductionWorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  adjustmentId     Int?                @unique @map("adjustment_id")
+  adjustment       AdjustmentRecord?   @relation(fields: [adjustmentId], references: [id], onDelete: SetNull)
+  quantityBefore   Float               @default(0) @map("quantity_before")
+  quantityDelta    Float               @map("quantity_delta")
+  quantityAfter    Float               @default(0) @map("quantity_after")
+  costBefore       Float               @default(0) @map("cost_before")
+  costAmountDelta  Float               @default(0) @map("cost_amount_delta")
+  costAfter        Float               @default(0) @map("cost_after")
+  unitCost         Float?              @map("unit_cost")
+  note             String?
+  createdBy        Int                 @map("created_by")
+  creator          User                @relation("InventoryCostLedgerCreator", fields: [createdBy], references: [id])
+  createdAt        DateTime            @default(now()) @map("created_at")
+
+  @@index([batchId])
+  @@index([sourceType])
+  @@index([workOrderId])
+  @@index([adjustmentId])
+  @@index([createdBy])
+  @@map("inventory_cost_ledgers")
+}
+
+// 审计日志表
+model AuditLog {
+  id              Int       @id @default(autoincrement())
+  userId          Int       @map("user_id")
+  action          String
+  resource        String
+  resourceId      Int?      @map("resource_id")
+  details         String?
+  ipAddress       String?   @map("ip_address")
+  userAgent       String?   @map("user_agent")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // 关联
+  user            User      @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([action])
+  @@index([resource])
+  @@index([createdAt])
+  @@index([resource, resourceId]) // 复合索引：优化特定资源的审计追踪
+  @@map("audit_logs")
+}
+
+// 资产余额表 (包装物/容器)
+model AssetBalance {
+  id              Int       @id @default(autoincrement())
+  customerId      Int       @map("customer_id")
+  assetType       String    @map("asset_type")
+  balance         Int       @default(0)
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+
+  @@unique([customerId, assetType])
+  @@map("asset_balances")
+}
+
+// 资产流转记录表
+model AssetTransaction {
+  id              Int       @id @default(autoincrement())
+  customerId      Int       @map("customer_id")
+  assetType       String    @map("asset_type")
+  quantity        Int
+  action          String    // outbound (发货), return (回收)
+  relatedOrderNo  String?   @map("related_order_no")
+  note            String?
+  createdBy       Int       @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+
+  @@index([customerId])
+  @@index([assetType])
+  @@index([createdAt])
+  @@map("asset_transactions")
+}
+
+// 合同表
+model Contract {
+  id              Int       @id @default(autoincrement())
+  contractNo      String    @unique @map("contract_no")
+  type            String    @default("sales") // sales (销售), purchase (采购)
+  customerId      Int       @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  title           String
+  totalAmount     Float     @map("total_amount")
+  currency        String    @default("CNY")
+  status          String    @default("draft") // draft (草稿), active (生效), completed (结案), cancelled (作废)
+  signedAt        DateTime? @map("signed_at")
+  expiredAt       DateTime? @map("expired_at")
+  fileUrl         String?   @map("file_url")
+  ocrMetadata     String?   @map("ocr_metadata") // 存储 OCR 识别的原始 JSON 数据
+  notes           String?
+  createdBy       Int       @map("created_by")
+  creator         User      @relation(fields: [createdBy], references: [id])
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  orders          Order[]
+  milestones      ContractMilestone[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("contracts")
+}
+
+// 付款记录模型 (从 AuditLog 升级为独立实体)
+model PaymentRecord {
+  id              Int       @id @default(autoincrement())
+  orderId         Int       @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // ── 四字段多货币记账 (符合 SAP/NetSuite 国际标准) ──────────────
+  amount          Float                                                // 交易金额（原币）
+  currency        String    @default("CNY") @map("currency")            // 交易币种 CNY/USD/VND/EUR/HKD
+  exchangeRate    Float     @default(1.0) @map("exchange_rate")         // 执行汇率 (1 CNY = X 外币)
+  baseAmount      Float     @default(0) @map("base_amount")             // 本位币金额 (CNY)
+  // ─────────────────────────────────────────────────────────────
+  method          String    // bank_transfer, cash, alipay, wechat, check, wire_transfer
+  date            DateTime  @default(now())
+  payerName       String?   @map("payer_name")
+  isProxy         Boolean   @default(false) @map("is_proxy")
+  note            String?
+  status          String    @default("pending") // pending (待核销), verified (已确认)
+  verifiedBy      Int?      @map("verified_by")
+  milestoneId     Int?      @map("milestone_id")
+  milestone       ContractMilestone? @relation(fields: [milestoneId], references: [id])
+  barterMetadata  String?   @map("barter_metadata") // 存储 JSON 字符串：货抵明细（品名、规格、单价换算等）
+  barterSettlement BarterSettlement?
+  barterOffsetPostings BarterOffsetPosting[]
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([orderId])
+  @@index([status])
+  @@index([milestoneId])
+  @@map("payment_records")
+}
+
+// 合同里程碑 (Phase 3: 节点对账核心)
+model BarterAgreement {
+  id                   Int       @id @default(autoincrement())
+  agreementNo          String    @unique @map("agreement_no")
+  counterpartyType     String    @default("other") @map("counterparty_type")
+  counterpartyName     String    @map("counterparty_name")
+  customerId           Int?      @map("customer_id")
+  supplierId           Int?      @map("supplier_id")
+  orderId              Int?      @map("order_id")
+  settlementMode       String    @default("mixed") @map("settlement_mode")
+  totalPartyAValue     Float     @default(0) @map("total_party_a_value")
+  totalPartyBValue     Float     @default(0) @map("total_party_b_value")
+  agreedOffsetAmount   Float     @default(0) @map("agreed_offset_amount")
+  executedOffsetAmount Float     @default(0) @map("executed_offset_amount")
+  remainingOffsetAmount Float    @default(0) @map("remaining_offset_amount")
+  completionRatio      Float     @default(0) @map("completion_ratio")
+  currency             String    @default("CNY")
+  status               String    @default("active")
+  agreementDate        DateTime? @map("agreement_date")
+  valuationDate        DateTime? @map("valuation_date")
+  note                 String?
+  createdBy            Int       @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  creator              User      @relation(fields: [createdBy], references: [id])
+  customer             Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier             Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  order                Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  items                BarterAgreementItem[]
+  settlements          BarterSettlement[]
+
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([orderId])
+  @@index([status])
+  @@index([counterpartyType])
+  @@map("barter_agreements")
+}
+
+model BarterAgreementItem {
+  id              Int      @id @default(autoincrement())
+  agreementId     Int      @map("agreement_id")
+  side            String
+  itemName        String   @map("item_name")
+  specification   String?
+  unit            String
+  quantity        Float
+  unitPrice       Float    @map("unit_price")
+  qualityFactor   Float    @default(1) @map("quality_factor")
+  lossFactor      Float    @default(1) @map("loss_factor")
+  marketValue     Float    @map("market_value")
+  valuationMethod String   @default("market") @map("valuation_method")
+  sourceDocument  String?  @map("source_document")
+  note            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  agreement       BarterAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@index([side])
+  @@map("barter_agreement_items")
+}
+
+model BarterSettlement {
+  id                 Int       @id @default(autoincrement())
+  settlementNo       String    @unique @map("settlement_no")
+  agreementId        Int?      @map("agreement_id")
+  batchIndex         Int?      @map("batch_index")
+  counterpartyType   String    @default("other") @map("counterparty_type")
+  counterpartyName   String    @map("counterparty_name")
+  customerId         Int?      @map("customer_id")
+  supplierId         Int?      @map("supplier_id")
+  orderId            Int?      @map("order_id")
+  settlementMode     String    @default("mixed") @map("settlement_mode")
+  totalPartyAValue   Float     @default(0) @map("total_party_a_value")
+  totalPartyBValue   Float     @default(0) @map("total_party_b_value")
+  cashDifference     Float     @default(0) @map("cash_difference")
+  currency           String    @default("CNY")
+  status             String    @default("quoted")
+  valuationDate      DateTime? @map("valuation_date")
+  approvedBy         Int?      @map("approved_by")
+  approvedAt         DateTime? @map("approved_at")
+  postedBy           Int?      @map("posted_by")
+  postedAt           DateTime? @map("posted_at")
+  reversedAt         DateTime? @map("reversed_at")
+  paymentRecordId    Int?      @unique @map("payment_record_id")
+  note               String?
+  createdBy          Int       @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  creator            User      @relation(fields: [createdBy], references: [id])
+  agreement          BarterAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  customer           Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier           Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  order              Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  paymentRecord      PaymentRecord? @relation(fields: [paymentRecordId], references: [id], onDelete: SetNull)
+  items              BarterItem[]
+  valuationSnapshots BarterValuationSnapshot[]
+  offsetPostings     BarterOffsetPosting[]
+  reversalLogs       BarterReversalLog[]
+
+  @@index([agreementId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([orderId])
+  @@index([status])
+  @@index([counterpartyType])
+  @@map("barter_settlements")
+}
+
+model BarterItem {
+  id              Int      @id @default(autoincrement())
+  settlementId    Int      @map("settlement_id")
+  side            String
+  itemName        String   @map("item_name")
+  specification   String?
+  unit            String
+  quantity        Float
+  unitPrice       Float    @map("unit_price")
+  qualityFactor   Float    @default(1) @map("quality_factor")
+  lossFactor      Float    @default(1) @map("loss_factor")
+  marketValue     Float    @map("market_value")
+  valuationMethod String   @default("market") @map("valuation_method")
+  sourceDocument  String?  @map("source_document")
+  note            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@index([side])
+  @@map("barter_items")
+}
+
+model BarterValuationSnapshot {
+  id              Int       @id @default(autoincrement())
+  settlementId    Int       @map("settlement_id")
+  itemName        String    @map("item_name")
+  referencePrice  Float     @map("reference_price")
+  referenceSource String?   @map("reference_source")
+  marketArea      String?   @map("market_area")
+  validUntil      DateTime? @map("valid_until")
+  appraisedBy     Int?      @map("appraised_by")
+  appraisedAt     DateTime  @default(now()) @map("appraised_at")
+  note            String?
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@map("barter_valuation_snapshots")
+}
+
+model BarterOffsetPosting {
+  id              Int      @id @default(autoincrement())
+  settlementId    Int      @map("settlement_id")
+  paymentRecordId  Int?     @map("payment_record_id")
+  offsetAmount    Float    @map("offset_amount")
+  offsetType      String   @map("offset_type")
+  note            String?
+  postedBy        Int      @map("posted_by")
+  postedAt        DateTime @default(now()) @map("posted_at")
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  paymentRecord   PaymentRecord? @relation(fields: [paymentRecordId], references: [id], onDelete: SetNull)
+
+  @@index([settlementId])
+  @@index([paymentRecordId])
+  @@map("barter_offset_postings")
+}
+
+model BarterReversalLog {
+  id              Int      @id @default(autoincrement())
+  settlementId    Int      @map("settlement_id")
+  originalStatus  String   @map("original_status")
+  reason          String
+  reversedBy      Int      @map("reversed_by")
+  reversedAt      DateTime @default(now()) @map("reversed_at")
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@map("barter_reversal_logs")
+}
+
+model ContractMilestone {
+  id              Int       @id @default(autoincrement())
+  contractId      Int       @map("contract_id")
+  contract        Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  title           String    // 例如：预付款、到货款、验收款
+  percentage      Float     // 比例 e.g. 30.0
+  amount          Float?    // 固定的绝对金额 (可选)
+  dueDate         DateTime? @map("due_date")
+  status          String    @default("pending") // pending, paid
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  paymentRecords  PaymentRecord[]
+
+  @@index([contractId])
+  @@map("contract_milestones")
+}
+
+model CollectionPromise {
+  id              Int       @id @default(autoincrement())
+  promiseNo       String    @unique @map("promise_no")
+  customerId      Int       @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId         Int       @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  promisedAmount  Float     @map("promised_amount")
+  promisedAt      DateTime  @map("promised_at")
+  channel         String    @default("phone")
+  contactName     String?   @map("contact_name")
+  contactPhone    String?   @map("contact_phone")
+  status          String    @default("open") // open, kept, missed, cancelled
+  note            String?
+  createdBy       Int       @map("created_by")
+  creator         User      @relation(fields: [createdBy], references: [id])
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([promisedAt])
+  @@map("collection_promises")
+}
+
+model CollectionDispute {
+  id              Int       @id @default(autoincrement())
+  disputeNo       String    @unique @map("dispute_no")
+  customerId      Int       @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId         Int       @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  disputedAmount  Float?    @map("disputed_amount")
+  reasonCategory  String    @map("reason_category")
+  reason          String
+  evidenceJson    String?   @map("evidence_json")
+  status          String    @default("open") // open, reviewing, resolved, rejected, withdrawn
+  note            String?
+  createdBy       Int       @map("created_by")
+  creator         User      @relation(fields: [createdBy], references: [id])
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([reasonCategory])
+  @@map("collection_disputes")
+}
+
+model AdjustmentRecord {
+  id              Int       @id @default(autoincrement())
+  adjustmentNo    String    @unique @map("adjustment_no")
+  domain          String
+  targetType      String    @map("target_type")
+  targetId        Int?      @map("target_id")
+  targetRef       String?   @map("target_ref")
+  orderId         Int?      @map("order_id")
+  order           Order?    @relation("OrderAdjustments", fields: [orderId], references: [id], onDelete: SetNull)
+  batchId         Int?      @map("batch_id")
+  productBatch    ProductBatch? @relation("BatchAdjustments", fields: [batchId], references: [id], onDelete: SetNull)
+  customerId      Int?      @map("customer_id")
+  quantityDelta   Float?    @map("quantity_delta")
+  amountDelta     Float?    @map("amount_delta")
+  reason          String
+  reasonCategory  String?   @map("reason_category")
+  lossType        String?   @map("loss_type")
+  beforeSnapshot  String?   @map("before_snapshot")
+  afterSnapshot   String?   @map("after_snapshot")
+  note            String?
+  status          String    @default("posted")
+  createdBy       Int       @map("created_by")
+  creator         User      @relation("AdjustmentCreator", fields: [createdBy], references: [id])
+  approvedBy      Int?      @map("approved_by")
+  approver        User?     @relation("AdjustmentApprover", fields: [approvedBy], references: [id])
+  approvedAt      DateTime? @map("approved_at")
+  appliedAt       DateTime? @map("applied_at")
+  inventoryCostLedger InventoryCostLedger?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([domain])
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([orderId])
+  @@index([batchId])
+  @@index([customerId])
+  @@map("adjustment_records")
+}
+
+// 新增: 实体仓库表 (Shadow Warehouse Extension)
+model Warehouse {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  name        String
+  type        String   @default("physical") // physical, virtual
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  locations   Location[]
+  stockEntries StockEntry[]
+
+  @@map("warehouses")
+}
+
+// 新增: 库位表
+model Location {
+  id          Int      @id @default(autoincrement())
+  warehouseId Int      @map("warehouse_id")
+  code        String   @unique
+  name        String
+  type        String   @default("internal") // internal, supplier, production, scrap, customer
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  warehouse   Warehouse @relation(fields: [warehouseId], references: [id], onDelete: Cascade)
+  stockBalances StockBalance[]
+  stockEntries StockEntry[]
+  stockMovements StockMovement[]
+
+  @@index([warehouseId])
+  @@map("locations")
+}
+
+// 新增: 平滑扩容库存台账 (挂靠 productName 和 batchNo)
+model StockBalance {
+  id          Int      @id @default(autoincrement())
+  locationId  Int      @map("location_id")
+  productName String   @map("product_name")
+  batchNo     String   @map("batch_no")
+  quantity    Float    @default(0)
+  unit        String   @default("kg")
+  lastMoveAt  DateTime? @map("last_move_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  movements   StockMovement[]
+
+  @@unique([locationId, productName, batchNo])
+  @@index([productName])
+  @@index([batchNo])
+  @@map("stock_balances")
+}
+
+// 库存凭证头：所有真实改变库存余额的动作都必须先落一张凭证。
+model StockEntry {
+  id          Int      @id @default(autoincrement())
+  entryNo     String   @unique @map("entry_no")
+  sourceType  String   @map("source_type")
+  sourceRef   String?  @map("source_ref")
+  direction   String   @default("inbound")
+  status      String   @default("posted")
+  warehouseId Int?     @map("warehouse_id")
+  locationId  Int?     @map("location_id")
+  reason      String?
+  note        String?
+  createdBy   Int?     @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  postedAt    DateTime @default(now()) @map("posted_at")
+
+  warehouse   Warehouse? @relation(fields: [warehouseId], references: [id], onDelete: SetNull)
+  location    Location?  @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  creator     User?      @relation("StockEntryCreator", fields: [createdBy], references: [id], onDelete: SetNull)
+  movements   StockMovement[]
+
+  @@index([sourceType])
+  @@index([sourceRef])
+  @@index([warehouseId])
+  @@index([locationId])
+  @@index([createdAt])
+  @@map("stock_entries")
+}
+
+// 库存流水行：记录每个批次/库位的变动前、变动量、变动后，便于回滚和对账。
+model StockMovement {
+  id             Int      @id @default(autoincrement())
+  entryId        Int      @map("entry_id")
+  stockBalanceId Int?     @map("stock_balance_id")
+  locationId     Int      @map("location_id")
+  productName    String   @map("product_name")
+  batchNo        String   @map("batch_no")
+  unit           String   @default("kg")
+  quantityBefore Float    @default(0) @map("quantity_before")
+  quantityDelta  Float    @map("quantity_delta")
+  quantityAfter  Float    @default(0) @map("quantity_after")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  entry        StockEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
+  stockBalance StockBalance? @relation(fields: [stockBalanceId], references: [id], onDelete: SetNull)
+  location     Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+
+  @@index([entryId])
+  @@index([stockBalanceId])
+  @@index([locationId])
+  @@index([productName])
+  @@index([batchNo])
+  @@map("stock_movements")
+}

@@ -1,0 +1,40 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: ailao-backend:latest
+    container_name: ailao-backend
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 5000
+      DATABASE_URL: file:/app/prisma/data/ailao.db
+      BACKUP_DIR: /app/backups
+      LOG_DIR: /app/logs
+      TRUST_PROXY: "true"
+      SERVE_FRONTEND: "false"
+      CORS_ORIGIN: http://localhost:8080,http://127.0.0.1:8080
+    volumes:
+      - backend-data:/app/prisma/data
+      - backend-backups:/app/backups
+      - backend-logs:/app/logs
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ailao-web:latest
+    container_name: ailao-web
+    depends_on:
+      - backend
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+
+volumes:
+  backend-data:
+  backend-backups:
+  backend-logs:

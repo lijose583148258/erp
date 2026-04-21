@@ -1,0 +1,99 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="description" content="爱劳达 ERP+CRM - 专业销售与经营管理系统">
+  <meta name="theme-color" content="#2563eb">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="爱劳达 ERP+CRM">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>爱劳达 ERP+CRM</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" type="image/svg+xml" href="/icon.svg">
+  <link rel="apple-touch-icon" href="/icon.svg">
+  <style>
+    .no-scrollbar::-webkit-scrollbar { display: none; }
+    .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+    .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+    .custom-scrollbar::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 100px; }
+    .dark .custom-scrollbar::-webkit-scrollbar-thumb { background: #334155; }
+    .bouncy { transition: transform 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    .active-shrink:active { transform: scale(0.92); }
+    #loading {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+      z-index: 9999;
+      transition: opacity 0.3s ease-out;
+    }
+    #loading.hidden { opacity: 0; pointer-events: none; }
+    .loader {
+      width: 48px;
+      height: 48px;
+      border: 5px solid #fff;
+      border-bottom-color: transparent;
+      border-radius: 50%;
+      display: inline-block;
+      box-sizing: border-box;
+      animation: rotation 1s linear infinite;
+    }
+    @keyframes rotation {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading">
+    <div style="text-align: center;">
+      <span class="loader"></span>
+      <p style="color: white; margin-top: 20px; font-weight: bold;">系统加载中...</p>
+    </div>
+  </div>
+
+  <div id="root"></div>
+
+  <script type="module" src="/index.tsx"></script>
+  <script>
+    window.addEventListener('load', () => {
+      setTimeout(() => {
+        const loading = document.getElementById('loading');
+        if (loading) {
+          loading.classList.add('hidden');
+          setTimeout(() => loading.remove(), 300);
+        }
+      }, 500);
+    });
+
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('/sw.js')
+          .then((registration) => {
+            console.log('SW registered:', registration);
+          })
+          .catch((error) => {
+            console.log('SW registration failed:', error);
+          });
+      });
+    }
+
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      console.log('PWA install is available.');
+    });
+
+    window.addEventListener('appinstalled', () => {
+      console.log('PWA installed.');
+      deferredPrompt = null;
+    });
+  </script>
+</body>
+</html>

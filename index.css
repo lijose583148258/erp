@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --app-bg: #f6f8fc;
+  --app-bg-soft: #eef3fb;
+  --app-surface: #ffffff;
+  --app-surface-muted: #f8fafc;
+  --app-surface-strong: #0f172a;
+  --app-border: #e2e8f0;
+  --app-border-strong: #cbd5e1;
+  --app-text: #0f172a;
+  --app-text-muted: #64748b;
+  --app-text-soft: #94a3b8;
+  --app-primary: #2563eb;
+  --app-primary-strong: #1d4ed8;
+  --app-primary-soft: #dbeafe;
+  --app-success: #10b981;
+  --app-success-soft: #d1fae5;
+  --app-warning: #f59e0b;
+  --app-warning-soft: #fef3c7;
+  --app-danger: #ef4444;
+  --app-danger-soft: #fee2e2;
+  --app-info: #0ea5e9;
+  --app-info-soft: #e0f2fe;
+  --radius-control: 18px;
+  --radius-card: 28px;
+  --radius-panel: 34px;
+  --shadow-soft: 0 18px 45px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 12px 30px rgba(15, 23, 42, 0.06);
+  --shadow-lift: 0 22px 60px rgba(37, 99, 235, 0.18);
+  --space-page-gutter: clamp(16px, 2.2vw, 32px);
+  --density-control-y: 0.78rem;
+  --density-control-x: 1rem;
+  --font-app: "Nunito", "Segoe UI", "PingFang SC", "Microsoft YaHei", ui-sans-serif, system-ui, sans-serif;
+  --font-data: "JetBrains Mono", "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+
+.dark {
+  --app-bg: #020617;
+  --app-bg-soft: #0f172a;
+  --app-surface: #0f172a;
+  --app-surface-muted: #111827;
+  --app-surface-strong: #f8fafc;
+  --app-border: #1e293b;
+  --app-border-strong: #334155;
+  --app-text: #f8fafc;
+  --app-text-muted: #cbd5e1;
+  --app-text-soft: #94a3b8;
+  --app-primary-soft: rgba(37, 99, 235, 0.18);
+  --app-success-soft: rgba(16, 185, 129, 0.18);
+  --app-warning-soft: rgba(245, 158, 11, 0.18);
+  --app-danger-soft: rgba(239, 68, 68, 0.18);
+  --app-info-soft: rgba(14, 165, 233, 0.18);
+  --shadow-soft: 0 18px 45px rgba(0, 0, 0, 0.28);
+  --shadow-card: 0 12px 30px rgba(0, 0, 0, 0.22);
+  --shadow-lift: 0 22px 60px rgba(37, 99, 235, 0.24);
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  min-height: 100%;
+}
+
+body {
+  padding: 0;
+  font-family: var(--font-app);
+  background-color: var(--app-bg);
+  color: var(--app-text);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior-y: none;
+}
+
+@layer components {
+  .app-card {
+    @apply rounded-[var(--radius-card)] border border-[color:var(--app-border)] bg-[color:var(--app-surface)] shadow-[var(--shadow-card)] dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .app-panel {
+    @apply rounded-[var(--radius-panel)] border border-[color:var(--app-border)] bg-[color:var(--app-surface)] shadow-[var(--shadow-soft)] dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .app-control {
+    @apply rounded-[var(--radius-control)] border border-[color:var(--app-border)] bg-[color:var(--app-surface-muted)] px-[var(--density-control-x)] py-[var(--density-control-y)] text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:focus:ring-blue-900/40;
+  }
+
+  .app-chip {
+    @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em];
+  }
+
+  .app-section-title {
+    @apply text-xs font-black uppercase tracking-[0.18em] text-slate-400;
+  }
+}

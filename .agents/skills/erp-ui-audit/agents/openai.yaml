@@ -1,0 +1,8 @@
+interface:
+  display_name: "ERP UI Audit"
+  short_description: "UI shell, language, states, consistency"
+  default_prompt: "Use $erp-ui-audit to execute this role with strict timeboxes, evidence capture, and minimal-risk fixes."
+
+policy:
+  allow_implicit_invocation: true
+

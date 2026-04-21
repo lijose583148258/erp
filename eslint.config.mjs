@@ -1,0 +1,117 @@
+import js from '@eslint/js';
+import react from 'eslint-plugin-react';
+import reactHooks from 'eslint-plugin-react-hooks';
+import reactRefresh from 'eslint-plugin-react-refresh';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+
+export default [
+  {
+    ignores: [
+      'dist',
+      'dist/**',
+      'node_modules',
+      'node_modules/**',
+      '.vite-cache',
+      '.vite-cache/**',
+      'backend',
+      'backend/**',
+      'coverage',
+      'coverage/**',
+      'output',
+      'output/**',
+      'backups',
+      'backups/**',
+      'logs',
+      'logs/**',
+      'runtime-db',
+      'runtime-db/**',
+      'scratchdb',
+      'scratchdb/**',
+      'temp*',
+      'temp*/**',
+      'uploads',
+      'uploads/**',
+      '.playwright',
+      '.playwright/**',
+      '.playwright-cli',
+      '.playwright-cli/**',
+      '.playwright-daemon',
+      '.playwright-daemon/**',
+      'AilaoDa_Stable_Package',
+      'AilaoDa_Stable_Package/**',
+      'AilaoDa_Stable_Package_previous_*',
+      'AilaoDa_Stable_Package_previous_*/**',
+      'scripts/quarantine',
+      'scripts/quarantine/**',
+      'scripts/tmp-*.cjs',
+      'refactor*.cjs',
+      'playwright-*.cjs',
+      'public/sw.js',
+      'sw.js',
+      '爱劳达软件治理中心',
+      '爱劳达软件治理中心/**',
+      '历史归档',
+      '历史归档/**',
+      '文档归档',
+      '文档归档/**',
+      '测试',
+      '测试/**',
+    ],
+  },
+  js.configs.recommended,
+  {
+    files: ['**/*.{js,cjs,mjs}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.commonjs,
+      },
+    },
+  },
+  ...tseslint.configs.recommended,
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 'latest',
+      sourceType: 'module',
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+      },
+    },
+    plugins: {
+      react,
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    settings: {
+      react: { version: 'detect' },
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-require-imports': 'off',
+      'no-control-regex': 'off',
+      'react/react-in-jsx-scope': 'off',
+      'react/jsx-uses-react': 'off',
+      'react-refresh/only-export-components': 'warn',
+    },
+  },
+  {
+    files: ['**/*.cjs'],
+    rules: {
+      '@typescript-eslint/no-require-imports': 'off',
+      'no-control-regex': 'off',
+      'no-empty': ['error', { allowEmptyCatch: true }],
+      'no-useless-escape': 'off',
+    },
+  },
+];

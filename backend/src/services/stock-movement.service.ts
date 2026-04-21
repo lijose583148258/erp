@@ -1,0 +1,632 @@
+import prisma from '../config/database';
+import { ProductionCostLedgerService } from './production-cost-ledger.service';
+import { buildBusinessNo } from '../utils/businessNo';
+
+export type TransactionClient = Omit<
+  typeof prisma,
+  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
+>;
+
+export type StockSourceType =
+  | 'warehouse_initial'
+  | 'warehouse_manual_inbound'
+  | 'warehouse_adjustment'
+  | 'production_consumption'
+  | 'production_output'
+  | 'procurement_receipt'
+  | 'shipping_issue'
+  | 'barter_receipt'
+  | 'barter_issue'
+  | 'barter_receipt_reversal'
+  | 'barter_issue_reversal';
+
+export interface StockMovementLineInput {
+  locationId: number;
+  productName: string;
+  batchNo: string;
+  quantityDelta: number;
+  unit?: string;
+  unitCost?: number | null;
+  costAmountDelta?: number | null;
+}
+
+export interface PostStockEntryInput {
+  sourceType: StockSourceType;
+  sourceRef?: string | null;
+  reason?: string | null;
+  note?: string | null;
+  createdBy?: number | null;
+  lines: StockMovementLineInput[];
+}
+
+export interface StockEntryResult {
+  entry: Record<string, unknown>;
+  movements: Record<string, unknown>[];
+  balances: Record<string, unknown>[];
+}
+
+export interface StockEntryListFilters {
+  sourceType?: string;
+  sourceRef?: string;
+}
+
+const normalizeText = (value: unknown) => String(value ?? '').trim();
+
+const normalizeNumber = (value: unknown, label: string) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return parsed;
+};
+
+const normalizeId = (value: unknown, label: string) => {
+  const parsed = Number(value);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw new Error(`${label} must be a positive integer`);
+  }
+  return parsed;
+};
+
+const normalizeDbNumber = (value: unknown) =>
+  typeof value === 'bigint' ? Number(value) : Number(value || 0);
+
+const normalizeOptionalNumber = (value: unknown, label: string) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    throw new Error(`${label} must be a finite number`);
+  }
+  return parsed;
+};
+
+const resolveDirection = (lines: StockMovementLineInput[]) => {
+  const hasInbound = lines.some(line => line.quantityDelta > 0);
+  const hasOutbound = lines.some(line => line.quantityDelta < 0);
+  if (hasInbound && hasOutbound) return 'adjustment';
+  if (hasOutbound) return 'outbound';
+  return 'inbound';
+};
+
+const IDEMPOTENT_SOURCE_TYPES = new Set<StockSourceType>([
+  'production_consumption',
+  'production_output',
+  'procurement_receipt',
+  'shipping_issue',
+  'barter_receipt',
+  'barter_issue',
+  'barter_receipt_reversal',
+  'barter_issue_reversal',
+]);
+
+const PRODUCT_BATCH_SYNC_SOURCE_TYPES = new Set<StockSourceType>([
+  'warehouse_initial',
+  'warehouse_manual_inbound',
+  'warehouse_adjustment',
+  'procurement_receipt',
+]);
+
+const DEFAULT_BATCH_SHELF_LIFE_MS = 365 * 24 * 60 * 60 * 1000;
+
+const mapEntryRow = (entry: Record<string, unknown>) => ({
+  ...entry,
+  id: normalizeDbNumber(entry.id),
+  warehouseId: entry.warehouseId == null ? null : normalizeDbNumber(entry.warehouseId),
+  locationId: entry.locationId == null ? null : normalizeDbNumber(entry.locationId),
+  createdBy: entry.createdBy == null ? null : normalizeDbNumber(entry.createdBy),
+});
+
+const loadStockEntryResult = async (
+  tx: TransactionClient,
+  entry: Record<string, unknown>,
+): Promise<StockEntryResult> => {
+  const entryId = normalizeDbNumber(entry.id);
+  const movementRows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+    `SELECT
+       id,
+       entry_id AS entryId,
+       stock_balance_id AS stockBalanceId,
+       location_id AS locationId,
+       product_name AS productName,
+       batch_no AS batchNo,
+       unit,
+       quantity_before AS quantityBefore,
+       quantity_delta AS quantityDelta,
+       quantity_after AS quantityAfter,
+       created_at AS createdAt
+     FROM stock_movements
+     WHERE entry_id = ?
+     ORDER BY id ASC`,
+    entryId,
+  );
+
+  const movements = movementRows.map((movement) => ({
+    ...movement,
+    id: normalizeDbNumber(movement.id),
+    entryId: normalizeDbNumber(movement.entryId),
+    stockBalanceId: movement.stockBalanceId == null ? null : normalizeDbNumber(movement.stockBalanceId),
+    locationId: normalizeDbNumber(movement.locationId),
+    quantityBefore: Number(movement.quantityBefore || 0),
+    quantityDelta: Number(movement.quantityDelta || 0),
+    quantityAfter: Number(movement.quantityAfter || 0),
+  }));
+
+  const balanceIds = Array.from(new Set(
+    movements
+      .map((movement) => Number(movement.stockBalanceId || 0))
+      .filter((id) => id > 0),
+  ));
+  const balances = balanceIds.length > 0
+    ? await tx.stockBalance.findMany({ where: { id: { in: balanceIds } } })
+    : [];
+
+  return {
+    entry: mapEntryRow(entry),
+    movements,
+    balances: balances.map((balance) => ({
+      ...balance,
+      quantity: Number(balance.quantity || 0),
+    })),
+  };
+};
+
+const findPostedEntryResult = async (
+  tx: TransactionClient,
+  sourceType: string,
+  sourceRef?: string | null,
+): Promise<StockEntryResult | null> => {
+  const normalizedSourceRef = normalizeText(sourceRef);
+  if (!IDEMPOTENT_SOURCE_TYPES.has(sourceType as StockSourceType)) return null;
+  if (!normalizedSourceRef) return null;
+
+  const rows = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+    `SELECT
+       id,
+       entry_no AS entryNo,
+       source_type AS sourceType,
+       source_ref AS sourceRef,
+       direction,
+       status,
+       warehouse_id AS warehouseId,
+       location_id AS locationId,
+       reason,
+       note,
+       created_by AS createdBy,
+       created_at AS createdAt,
+       posted_at AS postedAt
+     FROM stock_entries
+     WHERE source_type = ?
+       AND source_ref = ?
+       AND status = 'posted'
+     ORDER BY id ASC
+     LIMIT 1`,
+    sourceType,
+    normalizedSourceRef,
+  );
+
+  return rows[0] ? loadStockEntryResult(tx, rows[0]) : null;
+};
+
+const syncProductBatchForOperationalStock = async (
+  tx: TransactionClient,
+  sourceType: StockSourceType,
+  line: StockMovementLineInput,
+) => {
+  if (!PRODUCT_BATCH_SYNC_SOURCE_TYPES.has(sourceType)) {
+    return null;
+  }
+
+  const batch = await tx.productBatch.findUnique({
+    where: { batchNo: line.batchNo },
+    select: { id: true, productName: true, stockQuantity: true },
+  });
+
+  if (batch && batch.productName !== line.productName) {
+    throw new Error(`Product batch ${line.batchNo} belongs to ${batch.productName}, not ${line.productName}`);
+  }
+
+  if (!batch) {
+    if (line.quantityDelta < 0) {
+      throw new Error(`Product batch not found for outbound stock: ${line.productName} / ${line.batchNo}`);
+    }
+
+    const created = await tx.productBatch.create({
+      data: {
+        batchNo: line.batchNo,
+        productName: line.productName,
+        productionDate: new Date(),
+        expiryDate: new Date(Date.now() + DEFAULT_BATCH_SHELF_LIFE_MS),
+        stockQuantity: line.quantityDelta,
+        unit: line.unit || 'kg',
+        isColdChain: false,
+        notes: `Created from stock entry ${sourceType}`,
+      },
+      select: { id: true, stockQuantity: true },
+    });
+    return {
+      batchId: created.id,
+      quantityBefore: 0,
+      quantityAfter: Number(created.stockQuantity || 0),
+    };
+  }
+
+  const quantityBefore = Number(batch.stockQuantity || 0);
+
+  if (line.quantityDelta < 0) {
+    const updated = await tx.productBatch.updateMany({
+      where: {
+        id: batch.id,
+        stockQuantity: { gte: Math.abs(line.quantityDelta) },
+      },
+      data: {
+        stockQuantity: { decrement: Math.abs(line.quantityDelta) },
+        unit: line.unit || 'kg',
+      },
+    });
+
+    if (updated.count !== 1) {
+      throw new Error(`Insufficient product batch stock for ${line.productName} / ${line.batchNo}`);
+    }
+    return {
+      batchId: batch.id,
+      quantityBefore,
+      quantityAfter: quantityBefore + line.quantityDelta,
+    };
+  }
+
+  const updated = await tx.productBatch.update({
+    where: { id: batch.id },
+    data: {
+      stockQuantity: { increment: line.quantityDelta },
+      unit: line.unit || 'kg',
+    },
+    select: { id: true, stockQuantity: true },
+  });
+  return {
+    batchId: updated.id,
+    quantityBefore,
+    quantityAfter: Number(updated.stockQuantity || 0),
+  };
+};
+
+export class StockMovementService {
+  static async postStockEntry(input: PostStockEntryInput, txClient?: TransactionClient): Promise<StockEntryResult> {
+    const runner = async (tx: TransactionClient): Promise<StockEntryResult> => {
+      const normalizedLines = input.lines.map(line => ({
+        locationId: normalizeId(line.locationId, 'locationId'),
+        productName: normalizeText(line.productName),
+        batchNo: normalizeText(line.batchNo),
+        quantityDelta: normalizeNumber(line.quantityDelta, 'quantityDelta'),
+        unit: normalizeText(line.unit || 'kg') || 'kg',
+        unitCost: normalizeOptionalNumber(line.unitCost, 'unitCost'),
+        costAmountDelta: normalizeOptionalNumber(line.costAmountDelta, 'costAmountDelta'),
+      }));
+
+      if (normalizedLines.length === 0) {
+        throw new Error('Stock entry requires at least one movement line');
+      }
+
+      for (const line of normalizedLines) {
+        if (!line.productName || !line.batchNo) {
+          throw new Error('Stock movement requires product name and batch number');
+        }
+        if (line.quantityDelta === 0) {
+          throw new Error('Stock movement quantity delta cannot be zero');
+        }
+      }
+
+      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, input.sourceRef);
+      if (existingPostedEntry) {
+        return existingPostedEntry;
+      }
+
+      const firstLocation = await tx.location.findUnique({
+        where: { id: normalizedLines[0].locationId },
+        select: { id: true, warehouseId: true },
+      });
+      if (!firstLocation) {
+        throw new Error(`Location not found: ${normalizedLines[0].locationId}`);
+      }
+
+      const entryNo = buildBusinessNo('STK');
+      await tx.$executeRawUnsafe(
+        `INSERT OR IGNORE INTO stock_entries
+          (entry_no, source_type, source_ref, direction, status, warehouse_id, location_id, reason, note, created_by, created_at, posted_at)
+         VALUES (?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+        entryNo,
+        input.sourceType,
+        input.sourceRef || null,
+        resolveDirection(normalizedLines),
+        firstLocation.warehouseId,
+        firstLocation.id,
+        input.reason || null,
+        input.note || null,
+        input.createdBy || null,
+      );
+
+      const entries = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+        `SELECT
+           id,
+           entry_no AS entryNo,
+           source_type AS sourceType,
+           source_ref AS sourceRef,
+           direction,
+           status,
+           warehouse_id AS warehouseId,
+           location_id AS locationId,
+           reason,
+           note,
+           created_by AS createdBy,
+           created_at AS createdAt,
+           posted_at AS postedAt
+         FROM stock_entries
+         WHERE entry_no = ?`,
+        entryNo,
+      );
+      const entry = entries[0];
+      if (!entry) {
+        const existingAfterInsert = await findPostedEntryResult(tx, input.sourceType, input.sourceRef);
+        if (existingAfterInsert) {
+          return existingAfterInsert;
+        }
+        throw new Error(`Stock entry create failed: ${entryNo}`);
+      }
+      const entryId = normalizeDbNumber(entry.id);
+
+      const movements: Record<string, unknown>[] = [];
+      const balances: Record<string, unknown>[] = [];
+
+      for (const line of normalizedLines) {
+        const location = await tx.location.findUnique({
+          where: { id: line.locationId },
+          select: { id: true },
+        });
+        if (!location) {
+          throw new Error(`Location not found: ${line.locationId}`);
+        }
+
+        const existing = await tx.stockBalance.findUnique({
+          where: {
+            locationId_productName_batchNo: {
+              locationId: line.locationId,
+              productName: line.productName,
+              batchNo: line.batchNo,
+            },
+          },
+        });
+
+        let balance;
+        if (existing) {
+          if (line.quantityDelta < 0) {
+            const updated = await tx.stockBalance.updateMany({
+              where: {
+                id: existing.id,
+                quantity: { gte: Math.abs(line.quantityDelta) },
+              },
+              data: {
+                quantity: { decrement: Math.abs(line.quantityDelta) },
+                unit: line.unit,
+                lastMoveAt: new Date(),
+              },
+            });
+            if (updated.count !== 1) {
+              throw new Error(`Insufficient stock for ${line.productName} / ${line.batchNo}`);
+            }
+            balance = await tx.stockBalance.findUnique({ where: { id: existing.id } });
+          } else {
+            balance = await tx.stockBalance.update({
+              where: { id: existing.id },
+              data: {
+                quantity: { increment: line.quantityDelta },
+                unit: line.unit,
+                lastMoveAt: new Date(),
+              },
+            });
+          }
+        } else {
+          if (line.quantityDelta < 0) {
+            throw new Error(`Insufficient stock for ${line.productName} / ${line.batchNo}`);
+          }
+          try {
+            balance = await tx.stockBalance.create({
+              data: {
+                locationId: line.locationId,
+                productName: line.productName,
+                batchNo: line.batchNo,
+                quantity: line.quantityDelta,
+                unit: line.unit,
+                lastMoveAt: new Date(),
+              },
+            });
+          } catch {
+            balance = await tx.stockBalance.update({
+              where: {
+                locationId_productName_batchNo: {
+                  locationId: line.locationId,
+                  productName: line.productName,
+                  batchNo: line.batchNo,
+                },
+              },
+              data: {
+                quantity: { increment: line.quantityDelta },
+                unit: line.unit,
+                lastMoveAt: new Date(),
+              },
+            });
+          }
+        }
+
+        if (!balance) {
+          throw new Error(`Stock balance update failed for ${line.productName} / ${line.batchNo}`);
+        }
+
+        const batchSync = await syncProductBatchForOperationalStock(tx, input.sourceType, line);
+        const explicitCostAmountDelta = line.costAmountDelta ?? (
+          line.unitCost === null ? null : line.quantityDelta * line.unitCost
+        );
+
+        if (batchSync && explicitCostAmountDelta !== null && input.createdBy) {
+          await ProductionCostLedgerService.recordInventoryMovement(tx, {
+            batchId: batchSync.batchId,
+            sourceRef: String(entry.entryNo || entryNo),
+            quantityBefore: batchSync.quantityBefore,
+            quantityDelta: line.quantityDelta,
+            quantityAfter: batchSync.quantityAfter,
+            costAmountDelta: explicitCostAmountDelta,
+            note: input.note || `Stock valuation from ${input.sourceType}`,
+            createdBy: input.createdBy,
+          });
+        }
+
+        const quantityAfter = Number(balance.quantity || 0);
+        const quantityBefore = quantityAfter - line.quantityDelta;
+
+        await tx.$executeRawUnsafe(
+          `INSERT INTO stock_movements
+            (entry_id, stock_balance_id, location_id, product_name, batch_no, unit, quantity_before, quantity_delta, quantity_after, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+          entryId,
+          balance.id,
+          line.locationId,
+          line.productName,
+          line.batchNo,
+          line.unit,
+          quantityBefore,
+          line.quantityDelta,
+          quantityAfter,
+        );
+
+        const latestMovements = await tx.$queryRawUnsafe<Array<Record<string, unknown>>>(
+          `SELECT
+             id,
+             entry_id AS entryId,
+             stock_balance_id AS stockBalanceId,
+             location_id AS locationId,
+             product_name AS productName,
+             batch_no AS batchNo,
+             unit,
+             quantity_before AS quantityBefore,
+             quantity_delta AS quantityDelta,
+             quantity_after AS quantityAfter,
+             created_at AS createdAt
+           FROM stock_movements
+           WHERE entry_id = ? AND stock_balance_id = ?
+           ORDER BY id DESC
+           LIMIT 1`,
+          entryId,
+          balance.id,
+        );
+
+        movements.push(latestMovements[0]);
+        balances.push({
+          ...balance,
+          quantity: Number(balance.quantity || 0),
+        });
+      }
+
+      return { entry, movements, balances };
+    };
+
+    if (txClient) {
+      return runner(txClient);
+    }
+
+    return prisma.$transaction(runner);
+  }
+
+  static async listRecentEntries(limit = 50, filters: StockEntryListFilters = {}) {
+    const safeLimit = Math.min(200, Math.max(1, Math.floor(Number(limit) || 50)));
+    const where: string[] = [];
+    const params: unknown[] = [];
+
+    if (filters.sourceType) {
+      where.push('e.source_type = ?');
+      params.push(String(filters.sourceType));
+    }
+    if (filters.sourceRef) {
+      where.push('e.source_ref = ?');
+      params.push(String(filters.sourceRef));
+    }
+
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+      `SELECT
+         e.id,
+         e.entry_no AS entryNo,
+         e.source_type AS sourceType,
+         e.source_ref AS sourceRef,
+         e.direction,
+         e.status,
+         e.reason,
+         e.note,
+         e.created_by AS createdBy,
+         e.created_at AS createdAt,
+         e.posted_at AS postedAt,
+         e.warehouse_id AS warehouseId,
+         e.location_id AS locationId,
+         COUNT(m.id) AS movementCount,
+         COALESCE(SUM(m.quantity_delta), 0) AS netQuantityDelta
+       FROM stock_entries e
+       LEFT JOIN stock_movements m ON m.entry_id = e.id
+       ${whereSql}
+       GROUP BY e.id
+       ORDER BY e.id DESC
+       LIMIT ?`,
+       ...params,
+       safeLimit,
+     );
+
+    const entryIds = rows.map(row => normalizeDbNumber(row.id)).filter(id => id > 0);
+    const movementRows = entryIds.length > 0
+      ? await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
+          `SELECT
+             id,
+             entry_id AS entryId,
+             stock_balance_id AS stockBalanceId,
+             location_id AS locationId,
+             product_name AS productName,
+             batch_no AS batchNo,
+             unit,
+             quantity_before AS quantityBefore,
+             quantity_delta AS quantityDelta,
+             quantity_after AS quantityAfter,
+             created_at AS createdAt
+           FROM stock_movements
+           WHERE entry_id IN (${entryIds.map(() => '?').join(',')})
+           ORDER BY id ASC`,
+          ...entryIds,
+        )
+      : [];
+    const movementsByEntryId = new Map<number, Array<Record<string, unknown>>>();
+    for (const movement of movementRows) {
+      const entryId = normalizeDbNumber(movement.entryId);
+      const mapped = {
+        ...movement,
+        id: normalizeDbNumber(movement.id),
+        entryId,
+        stockBalanceId: normalizeDbNumber(movement.stockBalanceId),
+        locationId: normalizeDbNumber(movement.locationId),
+        quantityBefore: Number(movement.quantityBefore || 0),
+        quantityDelta: Number(movement.quantityDelta || 0),
+        quantityAfter: Number(movement.quantityAfter || 0),
+      };
+      const bucket = movementsByEntryId.get(entryId) || [];
+      bucket.push(mapped);
+      movementsByEntryId.set(entryId, bucket);
+    }
+
+    return rows.map(row => {
+      const id = normalizeDbNumber(row.id);
+      return {
+      ...row,
+      id,
+      warehouseId: row.warehouseId == null ? null : normalizeDbNumber(row.warehouseId),
+      locationId: row.locationId == null ? null : normalizeDbNumber(row.locationId),
+      createdBy: row.createdBy == null ? null : normalizeDbNumber(row.createdBy),
+      movementCount: normalizeDbNumber(row.movementCount),
+      netQuantityDelta: Number(row.netQuantityDelta || 0),
+      movements: movementsByEntryId.get(id) || [],
+    };
+    });
+  }
+}
