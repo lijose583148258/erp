@@ -1,54 +1,28 @@
 import prisma from '../config/database';
 import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { buildBusinessNo } from '../utils/businessNo';
+import {
+  DEFAULT_BATCH_SHELF_LIFE_MS,
+  IDEMPOTENT_SOURCE_TYPES,
+  PRODUCT_BATCH_SYNC_SOURCE_TYPES,
+} from './stock-movement.policy';
+import type {
+  PostStockEntryInput,
+  StockEntryListFilters,
+  StockEntryResult,
+  StockMovementLineInput,
+  StockSourceType,
+  TransactionClient,
+} from './stock-movement.types';
 
-export type TransactionClient = Omit<
-  typeof prisma,
-  '$connect' | '$disconnect' | '$on' | '$transaction' | '$use' | '$extends'
->;
-
-export type StockSourceType =
-  | 'warehouse_initial'
-  | 'warehouse_manual_inbound'
-  | 'warehouse_adjustment'
-  | 'production_consumption'
-  | 'production_output'
-  | 'procurement_receipt'
-  | 'shipping_issue'
-  | 'barter_receipt'
-  | 'barter_issue'
-  | 'barter_receipt_reversal'
-  | 'barter_issue_reversal';
-
-export interface StockMovementLineInput {
-  locationId: number;
-  productName: string;
-  batchNo: string;
-  quantityDelta: number;
-  unit?: string;
-  unitCost?: number | null;
-  costAmountDelta?: number | null;
-}
-
-export interface PostStockEntryInput {
-  sourceType: StockSourceType;
-  sourceRef?: string | null;
-  reason?: string | null;
-  note?: string | null;
-  createdBy?: number | null;
-  lines: StockMovementLineInput[];
-}
-
-export interface StockEntryResult {
-  entry: Record<string, unknown>;
-  movements: Record<string, unknown>[];
-  balances: Record<string, unknown>[];
-}
-
-export interface StockEntryListFilters {
-  sourceType?: string;
-  sourceRef?: string;
-}
+export type {
+  PostStockEntryInput,
+  StockEntryListFilters,
+  StockEntryResult,
+  StockMovementLineInput,
+  StockSourceType,
+  TransactionClient,
+} from './stock-movement.types';
 
 const normalizeText = (value: unknown) => String(value ?? '').trim();
 
@@ -92,26 +66,6 @@ const resolveDirection = (lines: StockMovementLineInput[]) => {
   if (hasOutbound) return 'outbound';
   return 'inbound';
 };
-
-const IDEMPOTENT_SOURCE_TYPES = new Set<StockSourceType>([
-  'production_consumption',
-  'production_output',
-  'procurement_receipt',
-  'shipping_issue',
-  'barter_receipt',
-  'barter_issue',
-  'barter_receipt_reversal',
-  'barter_issue_reversal',
-]);
-
-const PRODUCT_BATCH_SYNC_SOURCE_TYPES = new Set<StockSourceType>([
-  'warehouse_initial',
-  'warehouse_manual_inbound',
-  'warehouse_adjustment',
-  'procurement_receipt',
-]);
-
-const DEFAULT_BATCH_SHELF_LIFE_MS = 365 * 24 * 60 * 60 * 1000;
 
 const mapEntryRow = (entry: Record<string, unknown>) => ({
   ...entry,
