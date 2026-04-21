@@ -191,6 +191,30 @@ function checkRuntimePortPolicy(findings) {
   }
 }
 
+function checkLegacyScriptRedirects(findings) {
+  const text = requireText(findings, 'scripts/dual-port-audit.cjs', 'legacy-script-redirect');
+  if (text) {
+    if (!/LEGACY_SCRIPT_REDIRECT/.test(text) || !/dual-port-audit-v2\.cjs/.test(text)) {
+      addFinding(findings, 'P1', 'legacy-script-redirect', 'scripts/dual-port-audit.cjs', 'old dual-port audit should be a compatibility redirect to dual-port-audit-v2.cjs');
+    }
+  }
+
+  const packageText = requireText(findings, 'package.json', 'legacy-script-redirect');
+  if (packageText) {
+    let pkg = null;
+    try {
+      pkg = JSON.parse(packageText);
+    } catch {
+      return;
+    }
+    for (const [name, command] of Object.entries(pkg.scripts || {})) {
+      if (/scripts\\dual-port-audit\.cjs|scripts\/dual-port-audit\.cjs/.test(String(command))) {
+        addFinding(findings, 'P0', 'legacy-script-redirect', 'package.json', `script ${name} must use scripts/dual-port-audit-v2.cjs instead of the legacy wrapper`);
+      }
+    }
+  }
+}
+
 function writeReports(report) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -220,6 +244,7 @@ function main() {
   checkPowerShellGuards(findings);
   checkRuntimeCheck(findings);
   checkRuntimePortPolicy(findings);
+  checkLegacyScriptRedirects(findings);
 
   const hasP0 = findings.some((finding) => finding.level === 'P0');
   const report = {

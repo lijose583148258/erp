@@ -101,6 +101,7 @@ const OBSOLETE_ACTIVE_PATHS = new Map([
 const GOVERNED_LEGACY_COMPATIBILITY_PATHS = new Map([
   ['backend/src/routes/timber.routes.ts', 'Intentional 410 Gone route so old /api/timber calls cannot silently work.'],
   ['pages/TimberWorkspace.tsx', 'Compatibility shell that redirects old timber imports to BarterWorkspaceView.'],
+  ['scripts/dual-port-audit.cjs', 'Compatibility shell that redirects stale dual-port audits to scripts/dual-port-audit-v2.cjs.'],
 ]);
 
 function toPosix(filePath) {
