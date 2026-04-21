@@ -306,6 +306,10 @@ function isConsoleHeavyUtilityAsset(item) {
     || file === 'backend/src/stress_test.ts';
 }
 
+function isRuntimePolicyAuditAsset(item) {
+  return item.rel === 'scripts/stable-entrypoint-policy-audit-v1.cjs';
+}
+
 function main() {
   ensureDir(OUTPUT_DIR);
   const bucket = { activeFiles: [], historicalFiles: [], excludedDirs: [] };
@@ -378,7 +382,9 @@ function main() {
       addFinding(findings, 'P1', 'offline', 'External CDN/font dependency in active source', item.rel, externalMatches[0].line, externalMatches[0].value, { matches: externalMatches });
     }
 
-    const dangerousShellMatches = isSelf ? [] : findMatches(text, /\b(taskkill|Stop-Process|Remove-Item|rd\s+\/s\s+\/q|Start-Process|cmd\s+\/k)\b/gi, 20);
+    const dangerousShellMatches = isSelf || isRuntimePolicyAuditAsset(item)
+      ? []
+      : findMatches(text, /\b(taskkill|Stop-Process|Remove-Item|rd\s+\/s\s+\/q|Start-Process|cmd\s+\/k)\b/gi, 20);
     if (dangerousShellMatches.length > 0 && (item.ext === '.ps1' || item.ext === '.bat' || item.rel.startsWith('scripts/'))) {
       if (GOVERNED_RUNTIME_SCRIPT_FILES.has(item.rel)) {
         governedRuntimeScriptAssets.push({
@@ -392,7 +398,9 @@ function main() {
       }
     }
 
-    const globalNodeKill = isSelf ? [] : findMatches(text, /taskkill\s+\/F\s+\/IM\s+node\.exe|Stop-Process[^\n]+node/gi, 5);
+    const globalNodeKill = isSelf || isRuntimePolicyAuditAsset(item)
+      ? []
+      : findMatches(text, /taskkill\s+\/F\s+\/IM\s+node\.exe|Stop-Process[^\n]+node/gi, 5);
     if (globalNodeKill.length > 0) {
       addFinding(findings, 'P0', 'runtime-script', 'Global Node process kill can break other projects', item.rel, globalNodeKill[0].line, globalNodeKill[0].value);
     }
@@ -513,6 +521,7 @@ function main() {
     consoleHeavyUtilityAssets: consoleHeavyUtilityAssets.length,
     governedRuntimeScriptAssets: governedRuntimeScriptAssets.length,
   };
+  report.status = report.summary.findingCounts.P0 ? 'failed' : report.findings.length ? 'warning' : 'passed';
 
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
@@ -572,11 +581,13 @@ function main() {
   fs.writeFileSync(MD_REPORT, `${md.join('\n')}\n`, 'utf8');
 
   console.log(JSON.stringify({
-    status: 'completed',
+    status: report.status,
     summary: report.summary,
     jsonReport: JSON_REPORT,
     markdownReport: MD_REPORT,
   }, null, 2));
+
+  if (report.status === 'failed') process.exitCode = 1;
 }
 
 main();
