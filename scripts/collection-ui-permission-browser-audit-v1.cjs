@@ -9,6 +9,11 @@ const fs = require('fs');
 const path = require('path');
 const { PrismaClient } = require('../backend/node_modules/@prisma/client');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const {
+  PASSWORD,
+  createAuditData,
+  createCollectionUiPermissionSeeder,
+} = require('./lib/collection-ui-permission-seed.cjs');
 
 process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
 
@@ -20,20 +25,7 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'collection-ui-permission-browser-audi
 const REQUEST_TIMEOUT_MS = 10_000;
 const SCRIPT_TIMEOUT_MS = 290_000;
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}_${Math.random().toString(36).slice(2, 7)}`;
-const PASSWORD = 'Audit12345';
-
-const DATA = {
-  roles: {
-    viewer: `coll_ui_view_${RUN_ID}`.slice(0, 48),
-    operator: `coll_ui_oper_${RUN_ID}`.slice(0, 48),
-    finance: `coll_ui_fin_${RUN_ID}`.slice(0, 48),
-  },
-  users: {
-    viewer: `coll_ui_viewer_${RUN_ID}`.slice(0, 48),
-    operator: `coll_ui_operator_${RUN_ID}`.slice(0, 48),
-    finance: `coll_ui_finance_${RUN_ID}`.slice(0, 48),
-  },
-};
+const DATA = createAuditData(RUN_ID);
 
 const report = {
   frontUrl: FRONT_URL,
@@ -119,112 +111,6 @@ async function login(username, password) {
   expect(Boolean(data?.token), `login:${username} missing token`, response.json);
   expect(Array.isArray(data.user?.permissions), `login:${username} missing permission readback`, response.json);
   return { token: data.token, user: data.user };
-}
-
-async function createRole(token, { code, dataScopes, permissions }) {
-  const response = await apiFetch('/roles', {
-    method: 'POST',
-    data: {
-      code,
-      name: code,
-      description: `Created by collection-ui-permission-browser-audit-v1 ${RUN_ID}`,
-      isActive: true,
-      dataScopes,
-      permissions,
-    },
-  }, token);
-  expectStatus(response, [201], `create role ${code}`);
-  return dataOf(response);
-}
-
-async function createTeamMember(token, { username, role, segment = 'direct' }) {
-  const response = await apiFetch('/team', {
-    method: 'POST',
-    data: {
-      username,
-      password: PASSWORD,
-      email: `${username}@example.com`,
-      role,
-      segment,
-    },
-  }, token);
-  expectStatus(response, [201], `create user ${username}`);
-  return dataOf(response);
-}
-
-async function createCustomer(token, label) {
-  const response = await apiFetch('/customers', {
-    method: 'POST',
-    data: {
-      nameZh: `${label}-客户`,
-      nameEn: `${label} Customer`,
-      nameVi: `${label} Khach Hang`,
-      licenseNumber: `LIC-${label}`.slice(0, 64),
-      creditLimit: 100000,
-      riskLevel: 'medium',
-      segment: 'direct',
-      contactName: `${label} Contact`,
-      contactPhone: '0900000000',
-      contactEmail: `${label.toLowerCase()}@example.com`,
-      address: `${label} audit address`,
-      status: 'active',
-    },
-  }, token);
-  expectStatus(response, [201], `create customer ${label}`);
-  const customer = dataOf(response);
-  expect(Boolean(customer?.id), `create customer ${label} returned no id`, response.json);
-  return customer;
-}
-
-async function createOrder(token, customerId, label) {
-  const response = await apiFetch('/orders', {
-    method: 'POST',
-    data: {
-      customerId: Number(customerId),
-      items: [{
-        productName: `${label}-胶水`,
-        specification: 'collection-ui-permission-audit',
-        quantity: 10,
-        unit: 'kg',
-        unitPrice: 120,
-      }],
-      paymentTerms: 30,
-      notes: `collection ui permission audit ${RUN_ID}`,
-    },
-  }, token);
-  expectStatus(response, [201], `create order ${label}`);
-  const order = dataOf(response);
-  expect(Boolean(order?.id), `create order ${label} returned no id`, response.json);
-  return order;
-}
-
-async function recordPayment(token, orderId, label) {
-  const response = await apiFetch(`/orders/${orderId}/payment`, {
-    method: 'POST',
-    data: {
-      amount: 100,
-      method: 'cash',
-      payerName: `${label} payer`,
-      note: `pending payment ${RUN_ID} ${label}`,
-    },
-  }, token);
-  expectStatus(response, [200], `record payment ${label}`);
-}
-
-async function makeOrderOverdue(orderId) {
-  const createdAt = new Date(Date.now() - 65 * 24 * 3600 * 1000);
-  await prisma.order.update({
-    where: { id: Number(orderId) },
-    data: { createdAt },
-  });
-}
-
-async function seedBusinessChain(actor, label) {
-  const customer = await createCustomer(actor.token, label);
-  const order = await createOrder(actor.token, customer.id, label);
-  await recordPayment(actor.token, order.id, label);
-  await makeOrderOverdue(order.id);
-  return { customer, order };
 }
 
 async function saveReport() {
@@ -465,6 +351,18 @@ async function main() {
   try {
     const admin = await login('admin', 'admin123');
     recordStep({ step: 'admin-login', result: 'passed', adminUserId: admin.user.id });
+    const {
+      createRole,
+      createTeamMember,
+      seedBusinessChain,
+    } = createCollectionUiPermissionSeeder({
+      apiFetch,
+      dataOf,
+      expect,
+      expectStatus,
+      prisma,
+      runId: RUN_ID,
+    });
 
     await createRole(admin.token, {
       code: DATA.roles.viewer,
