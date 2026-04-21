@@ -6,22 +6,19 @@ import { AppError } from '../middleware/errorHandler';
 import { logger } from '../utils/logger';
 import {
   buildSupplierSearchClause,
-  canTransitionPurchaseStatus,
   mapPurchaseOrder,
   mapSupplier,
   normalizePurchaseStatus,
 } from '../services/procurement-domain.service';
 import {
-  createPartialReceiptError,
   createPurchaseReceiptBatch,
   getPurchaseOrderReceiptBundle,
-  getPurchaseReceiptTotals,
   PARTIAL_RECEIPT_ERROR,
   PARTIAL_RECEIPT_MESSAGE,
-  postProcurementReceiptIfMissing,
 } from '../services/procurement-receipt.service';
 import { createPurchaseOrder } from '../services/procurement-order.service';
 import { createSupplierRecord } from '../services/procurement-supplier.service';
+import { changePurchaseOrderStatus } from '../services/procurement-status.service';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
 
 const PROCUREMENT_DATA_SCOPE = 'procurement_visible' as const;
@@ -349,46 +346,12 @@ export class ProcurementController {
 
       const { id } = req.params;
       const nextStatus = normalizePurchaseStatus(req.body.status);
-      const existing = await prisma.purchaseOrder.findUnique({
-        where: { id: Number(id) },
-        include: { supplier: true, salesOrder: true },
-      });
-
-      if (!existing) {
-        return res.status(404).json({ success: false, message: '采购单不存在' });
-      }
-
-      if (!canTransitionPurchaseStatus(existing.status, nextStatus)) {
-        return res.status(409).json({
-          success: false,
-          message: `采购单状态不允许从 ${existing.status} 变更为 ${nextStatus}`,
-        });
-      }
-
-      const order = await prisma.$transaction(async tx => {
-        const shouldPostReceipt = normalizePurchaseStatus(existing.status) !== 'received' && nextStatus === 'received';
-        if (shouldPostReceipt) {
-          const totals = await getPurchaseReceiptTotals(tx, existing.id);
-          if (totals.processedQuantity > 0 && totals.processedQuantity + 0.000001 < Number(existing.quantity || 0)) {
-            throw createPartialReceiptError();
-          }
-        }
-
-        const updated = await tx.purchaseOrder.update({
-          where: { id: Number(id) },
-          data: { status: nextStatus },
-          include: { supplier: true, salesOrder: true },
-        });
-
-        if (shouldPostReceipt) {
-          const totals = await getPurchaseReceiptTotals(tx, updated.id);
-          if (totals.processedQuantity <= 0.000001) {
-            await postProcurementReceiptIfMissing(tx, updated, req.user?.userId || null);
-          }
-        }
-
-        return updated;
-      });
+      const order = await prisma.$transaction(tx => changePurchaseOrderStatus(tx, {
+        purchaseOrderId: Number(id),
+        nextStatus,
+        createdBy: req.user?.userId || null,
+        enforceTransition: true,
+      }));
 
       await writeAuditLog({
         req,
@@ -405,6 +368,15 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('更新采购单状态错误:', error);
+      if (error instanceof AppError && error.message === 'PURCHASE_ORDER_NOT_FOUND') {
+        return res.status(error.statusCode).json({ success: false, message: '采购单不存在' });
+      }
+      if (error instanceof AppError && error.message === 'PURCHASE_STATUS_TRANSITION_NOT_ALLOWED') {
+        return res.status(error.statusCode).json({
+          success: false,
+          message: `采购单状态不允许从 ${error.details?.from} 变更为 ${error.details?.to}`,
+        });
+      }
       if (error instanceof AppError && error.message === PARTIAL_RECEIPT_ERROR) {
         return res.status(error.statusCode).json({ success: false, message: PARTIAL_RECEIPT_MESSAGE });
       }
@@ -533,30 +505,12 @@ export class ProcurementController {
       };
       const nextStatus = normalizePurchaseStatus(statusMap[String(salesStatus)] || purchaseOrder.status);
 
-      const updated = await prisma.$transaction(async tx => {
-        const shouldPostReceipt = normalizePurchaseStatus(purchaseOrder.status) !== 'received' && nextStatus === 'received';
-        if (shouldPostReceipt) {
-          const totals = await getPurchaseReceiptTotals(tx, purchaseOrder.id);
-          if (totals.processedQuantity > 0 && totals.processedQuantity + 0.000001 < Number(purchaseOrder.quantity || 0)) {
-            throw createPartialReceiptError();
-          }
-        }
-
-        const updatedOrder = await tx.purchaseOrder.update({
-          where: { id: purchaseOrder.id },
-          data: { status: nextStatus },
-          include: { supplier: true, salesOrder: true },
-        });
-
-        if (shouldPostReceipt) {
-          const totals = await getPurchaseReceiptTotals(tx, updatedOrder.id);
-          if (totals.processedQuantity <= 0.000001) {
-            await postProcurementReceiptIfMissing(tx, updatedOrder, req.user?.userId || null);
-          }
-        }
-
-        return updatedOrder;
-      });
+      const updated = await prisma.$transaction(tx => changePurchaseOrderStatus(tx, {
+        purchaseOrderId: purchaseOrder.id,
+        nextStatus,
+        createdBy: req.user?.userId || null,
+        enforceTransition: false,
+      }));
 
       await writeAuditLog({
         req,
@@ -576,6 +530,9 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('同步 B2B 状态错误:', error);
+      if (error instanceof AppError && error.message === 'PURCHASE_ORDER_NOT_FOUND') {
+        return res.status(error.statusCode).json({ success: false, message: '采购单不存在' });
+      }
       if (error instanceof AppError && error.message === PARTIAL_RECEIPT_ERROR) {
         return res.status(error.statusCode).json({ success: false, message: PARTIAL_RECEIPT_MESSAGE });
       }
