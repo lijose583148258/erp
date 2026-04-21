@@ -6,9 +6,10 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
-import { StockMovementService, type TransactionClient } from '../services/stock-movement.service';
+import type { TransactionClient } from '../services/stock-movement.service';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
 import { RECEIPT_MIME_EXT, storeReceiptFile } from '../services/shipping-receipt-file.service';
+import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
 import {
     buildCustomerDataScopeWhere,
     buildOrderDataScopeWhere,
@@ -240,83 +241,6 @@ async function syncOrderShipmentState(tx: TransactionClient, orderId: number) {
             data: { status: nextStatus },
         });
     }
-}
-
-async function hasShippingIssuePosted(tx: TransactionClient, shipmentNo: string) {
-    const rows = await tx.$queryRawUnsafe<Array<{ id: number }>>(
-        `SELECT id FROM stock_entries WHERE source_type = 'shipping_issue' AND source_ref = ? LIMIT 1`,
-        shipmentNo,
-    );
-    return rows.length > 0;
-}
-
-async function resolveShippingIssueStock(tx: TransactionClient, shipment: {
-    shipmentNo: string;
-    productName: string;
-    quantity: number;
-    unit: string;
-    batchNo?: string | null;
-}) {
-    const quantity = Number(shipment.quantity || 0);
-    if (!Number.isFinite(quantity) || quantity <= 0) {
-        throw new Error('Shipment quantity must be greater than 0 before dispatch');
-    }
-
-    const finishedGoodsLocation = await tx.location.findFirst({
-        where: { code: 'LOC-FG', status: 'active' },
-        select: { id: true },
-    });
-    if (!finishedGoodsLocation) {
-        throw new Error('Finished goods location LOC-FG is not configured');
-    }
-
-    const where: Prisma.StockBalanceWhereInput = {
-        locationId: finishedGoodsLocation.id,
-        productName: shipment.productName,
-        quantity: { gte: quantity },
-    };
-    if (shipment.batchNo) where.batchNo = shipment.batchNo;
-
-    const stock = await tx.stockBalance.findFirst({
-        where,
-        orderBy: { createdAt: 'asc' },
-        include: { location: true },
-    });
-    if (!stock) {
-        throw new Error(`No available stock for shipment ${shipment.shipmentNo}: ${shipment.productName}${shipment.batchNo ? ` / ${shipment.batchNo}` : ''}`);
-    }
-
-    return stock;
-}
-
-async function postShippingIssueIfMissing(tx: TransactionClient, shipment: {
-    shipmentNo: string;
-    productName: string;
-    quantity: number;
-    unit: string;
-    batchNo?: string | null;
-}, createdBy?: number | null) {
-    if (await hasShippingIssuePosted(tx, shipment.shipmentNo)) {
-        return { posted: false, issueStock: null };
-    }
-
-    const issueStock = await resolveShippingIssueStock(tx, shipment);
-    await StockMovementService.postStockEntry({
-        sourceType: 'shipping_issue',
-        sourceRef: shipment.shipmentNo,
-        reason: 'shipment_dispatched',
-        note: `Shipment dispatched: ${shipment.shipmentNo}`,
-        createdBy: createdBy || null,
-        lines: [{
-            locationId: issueStock.locationId,
-            productName: issueStock.productName,
-            batchNo: issueStock.batchNo,
-            quantityDelta: -Number(shipment.quantity || 0),
-            unit: shipment.unit || issueStock.unit || 'kg',
-        }],
-    }, tx);
-
-    return { posted: true, issueStock };
 }
 
 export class ShippingController {

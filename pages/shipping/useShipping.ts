@@ -202,10 +202,11 @@ export const useShipping = () => {
 
     const handleApplyOcr = async () => {
         if (!ocrResult) return;
-        const matched = ocrResult.customerName
+        let candidateCustomers = customers;
+        let matched = ocrResult.customerName
             ? matchCustomer(
                 ocrResult.customerName,
-                customers.map(c => ({
+                candidateCustomers.map(c => ({
                     id: c.id,
                     name: c.name,
                     nameZh: c.nameZh,
@@ -215,6 +216,28 @@ export const useShipping = () => {
                 }))
             )
             : null;
+
+        // OCR can be applied shortly after a backend-created customer appears.
+        // Refresh once before failing so the UI does not depend on a stale list.
+        if (!matched && ocrResult.customerName) {
+            try {
+                candidateCustomers = await customerService.getAll();
+                setCustomers(candidateCustomers);
+                matched = matchCustomer(
+                    ocrResult.customerName,
+                    candidateCustomers.map(c => ({
+                        id: c.id,
+                        name: c.name,
+                        nameZh: c.nameZh,
+                        nameEn: c.nameEn,
+                        nameVi: c.nameVi,
+                        displayName: c.displayName
+                    }))
+                );
+            } catch (err) {
+                reportClientIssue('shipping.ocr-customer-refresh', err);
+            }
+        }
 
         if (!matched) {
             notify('error', t.ocrMissingText || '未识别到可匹配的客户名称');

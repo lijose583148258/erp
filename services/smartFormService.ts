@@ -236,6 +236,11 @@ const parseNumberValue = (value?: string | null) => {
     return Number.isFinite(parsed) ? parsed : undefined;
 };
 
+const stripOcrCustomerLabel = (value: string) => value
+    .replace(/\\n/g, ' ')
+    .replace(/^\s*(?:客户名称|公司名称|名称|购方|客户|收货方|买方|ship\s*to|customer|company|to)\s*[:：]\s*/i, '')
+    .trim();
+
 export const parseOcrDocument = (input: string, docType: DocumentType): OcrDocumentData => {
     const text = input.replace(/\s+/g, ' ').trim();
     const lineSource = input.replace(/\\n/g, '\n').replace(/\r/g, '\n');
@@ -247,14 +252,14 @@ export const parseOcrDocument = (input: string, docType: DocumentType): OcrDocum
     };
 
     const customerMatch = input.match(
-        /(?:购方|客户|客户名称|company|customer|收货方|买方|to|ship\s*to)[:：\s]*([\s\S]*?)(?=(?:\\n|\n|(?:product|产品|quantity|数量|unit|单位|carrier|承运|tracking|追踪|invoice|发票|batch|批次|cas|日期)\s*[:：]|$))/i
+        /(?:客户名称|公司名称|购方|客户|收货方|买方|ship\s*to|customer|company|to)[:：\s]*([\s\S]*?)(?=(?:\\n|\n|(?:product|产品|quantity|数量|unit|单位|carrier|承运|tracking|追踪|invoice|发票|batch|批次|cas|日期)\s*[:：]|$))/i
     );
     if (customerMatch) {
-        result.customerName = customerMatch[1].replace(/\\n/g, ' ').trim();
+        result.customerName = stripOcrCustomerLabel(customerMatch[1]);
     } else {
-        const customerLine = lines.find(line => /^(?:购方|客户|客户名称|company|customer|收货方|买方|to|ship\s*to)\s*[:：]/i.test(line));
+        const customerLine = lines.find(line => /^(?:客户名称|公司名称|购方|客户|收货方|买方|ship\s*to|customer|company|to)\s*[:：]/i.test(line));
         if (customerLine) {
-            result.customerName = customerLine.replace(/^(?:购方|客户|客户名称|company|customer|收货方|买方|to|ship\s*to)\s*[:：]\s*/i, '').trim();
+            result.customerName = stripOcrCustomerLabel(customerLine);
         }
     }
 
@@ -420,7 +425,7 @@ export const matchCustomer = (
 ): { id: string; name: string; nameZh?: string; nameEn?: string; nameVi?: string; nameAliases?: string[]; displayName?: string } | null => {
     if (!name) return null;
 
-    const normalizedInput = name.toLowerCase().replace(/\s+/g, '');
+    const normalizedInput = stripOcrCustomerLabel(name).toLowerCase().replace(/\s+/g, '');
     const suffixes = ['有限责任公司', '有限公司', '集团', '贸易', '科技', '工厂'];
 
     const candidateNames = (customer: { name: string; nameZh?: string; nameEn?: string; nameVi?: string; nameAliases?: string[]; displayName?: string }) => {
