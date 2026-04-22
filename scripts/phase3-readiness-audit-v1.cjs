@@ -255,6 +255,7 @@ function getRuntimeTasks(options) {
     task('dist-entry-asset-audit', 'node', ['scripts/dist-entry-asset-audit-v1.cjs']),
     task('shipping-ocr-regression', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/shipping-ocr-regression-v1.ts'] : ['tsx', 'scripts/shipping-ocr-regression-v1.ts']),
     task('backup-restore-api-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),
+    task('backup-restore-data-fingerprint', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/backup-restore-data-fingerprint-audit-v1.ts'] : ['tsx', 'scripts/backup-restore-data-fingerprint-audit-v1.ts']),
     task('deployment-migration-readiness', 'node', ['scripts/deployment-migration-readiness-audit-v1.cjs']),
     task('supplier-permission-api-chain', 'node', ['scripts/supplier-permission-api-audit-v1.cjs']),
     task('procurement-api-chain', 'node', ['scripts/procurement-api-audit-v1.cjs']),
