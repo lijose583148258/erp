@@ -189,6 +189,8 @@ function npxTask(name, args, options = {}) {
 function getTasks(profile) {
   const core = [
     task('active-source-inventory', 'node', ['scripts/active-source-inventory-v1.cjs']),
+    task('stable-entrypoint-policy', 'node', ['scripts/stable-entrypoint-policy-audit-v1.cjs']),
+    task('legacy-interface-disconnect', 'node', ['scripts/legacy-interface-disconnect-audit-v1.cjs']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
     npxTask('business-rejection-log-classification', ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
@@ -282,7 +284,7 @@ async function main() {
   console.log(JSON.stringify({
     status: 'started',
     profile,
-    totalSteps: tasks.length,
+    totalSteps: tasks.length + 1,
     perStepTimeoutMs: DEFAULT_TIMEOUT_MS,
   }));
 
