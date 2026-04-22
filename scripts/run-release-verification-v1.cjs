@@ -217,6 +217,7 @@ function getTasks(profile) {
     task('chemical-bom-production-chain', 'node', ['scripts/chemical-bom-production-chain-audit-v1.cjs']),
     task('backup-restore-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),
     npxTask('backup-restore-data-fingerprint', ['tsx', 'scripts/backup-restore-data-fingerprint-audit-v1.ts']),
+    npxTask('runtime-write-backup-restore-readback', ['tsx', 'scripts/runtime-write-backup-restore-readback-audit-v1.ts']),
     task('dynamic-role-rbac-chain', 'node', ['scripts/dynamic-role-rbac-audit-v1.cjs']),
     task('crm-permission-ai-chain', 'node', ['scripts/crm-permission-ai-audit-v1.cjs']),
     task('collection-performance-serial', 'node', ['scripts/collection-performance-audit-v1.cjs']),

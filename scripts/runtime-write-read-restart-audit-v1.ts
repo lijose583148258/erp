@@ -2,7 +2,6 @@ import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import type { PrismaClient as PrismaClientType } from '@prisma/client';
 import {
   collectBusinessDataFingerprint,
   compareBusinessDataFingerprints,
@@ -16,6 +15,12 @@ import {
   waitForRuntime,
   type RuntimeCheck,
 } from './lib/runtime-stable-restart';
+import {
+  assertSameAuditProbe,
+  insertAuditProbe,
+  readAuditProbe,
+  type AuditLogProbeRow,
+} from './lib/runtime-audit-probe';
 
 const ROOT = process.cwd();
 const requireFromScript = createRequire(import.meta.url);
@@ -30,25 +35,6 @@ const MD_REPORT = path.join(OUTPUT_DIR, 'runtime-write-read-restart-audit-v1.md'
 const START_TIMEOUT_MS = Number(process.env.AUDIT_RESTART_TIMEOUT_MS || 240_000);
 const REQUEST_TIMEOUT_MS = Number(process.env.AUDIT_REQUEST_TIMEOUT_MS || 10_000);
 const RUNTIME_READY_TIMEOUT_MS = Number(process.env.AUDIT_RUNTIME_READY_TIMEOUT_MS || 20_000);
-const PROBE_ACTION = 'RUNTIME_WRITE_PERSISTENCE_PROBE';
-const PROBE_RESOURCE = 'runtime_persistence_probe';
-
-type UserRow = {
-  id: number;
-  username: string;
-};
-
-type AuditLogRow = {
-  id: number;
-  user_id: number;
-  action: string;
-  resource: string;
-  resource_id: number | null;
-  details: string | null;
-  ip_address: string | null;
-  user_agent: string | null;
-  created_at: string;
-};
 
 function writeReports(report: Record<string, unknown>) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -91,90 +77,6 @@ function writeReports(report: Record<string, unknown>) {
   fs.writeFileSync(MD_REPORT, `${md.join('\n')}\n`, 'utf8');
 }
 
-async function pickProbeUser(client: PrismaClientType) {
-  const users = await client.$queryRawUnsafe<UserRow[]>(
-    "SELECT id, username FROM users ORDER BY CASE WHEN username = 'admin' THEN 0 ELSE 1 END, id ASC LIMIT 1",
-  );
-  const user = users[0];
-  if (!user) {
-    throw new Error('No user exists for runtime write/read persistence probe');
-  }
-  return user;
-}
-
-async function insertProbe(client: PrismaClientType, user: UserRow, probeId: string, databasePath: string) {
-  const details = JSON.stringify({
-    probeId,
-    purpose: 'verify runtime write survives stable restart',
-    databasePath: normalizeDatabasePath(databasePath),
-    generatedAt: new Date().toISOString(),
-  });
-
-  await client.$executeRawUnsafe(
-    `INSERT INTO audit_logs (
-      user_id,
-      action,
-      resource,
-      resource_id,
-      details,
-      ip_address,
-      user_agent,
-      created_at
-    ) VALUES (?, ?, ?, NULL, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    user.id,
-    PROBE_ACTION,
-    PROBE_RESOURCE,
-    details,
-    '127.0.0.1',
-    'runtime-write-read-restart-audit-v1',
-  );
-
-  const row = await readProbe(client, probeId);
-  if (!row) {
-    throw new Error(`Probe was inserted but could not be read immediately: ${probeId}`);
-  }
-  return row;
-}
-
-async function readProbe(client: PrismaClientType, probeId: string) {
-  const rows = await client.$queryRawUnsafe<AuditLogRow[]>(
-    `SELECT
-      id,
-      user_id,
-      action,
-      resource,
-      resource_id,
-      details,
-      ip_address,
-      user_agent,
-      created_at
-    FROM audit_logs
-    WHERE action = ?
-      AND resource = ?
-      AND details LIKE ?
-    ORDER BY id DESC
-    LIMIT 1`,
-    PROBE_ACTION,
-    PROBE_RESOURCE,
-    `%${probeId}%`,
-  );
-  return rows[0] || null;
-}
-
-function assertSameProbe(before: AuditLogRow, after: AuditLogRow | null, probeId: string) {
-  if (!after) return [`Probe row missing after restart: ${probeId}`];
-  const mismatches: string[] = [];
-  for (const field of ['id', 'user_id', 'action', 'resource', 'details'] as const) {
-    if (before[field] !== after[field]) {
-      mismatches.push(`Probe field changed after restart: ${field}`);
-    }
-  }
-  if (!after.details?.includes(probeId)) {
-    mismatches.push(`Probe details no longer include probeId: ${probeId}`);
-  }
-  return mismatches;
-}
-
 async function main() {
   const generatedAt = new Date().toISOString();
   const probeId = `runtime-write-${crypto.randomUUID()}`;
@@ -189,14 +91,19 @@ async function main() {
     client => collectBusinessDataFingerprint(client, 'before-runtime-write-restart'),
   );
 
-  const insertedProbe = await withFingerprintPrisma(beforeDbPath, async client => {
-    const user = await pickProbeUser(client);
-    return insertProbe(client, user, probeId, beforeDbPath);
-  });
+  const insertedProbe = await withFingerprintPrisma(
+    beforeDbPath,
+    client => insertAuditProbe(client, {
+      probeId,
+      databasePath: beforeDbPath,
+      purpose: 'verify runtime write survives stable restart',
+      userAgent: 'runtime-write-read-restart-audit-v1',
+    }),
+  );
 
   const immediateProbe = await withFingerprintPrisma(
     beforeDbPath,
-    client => readProbe(client, probeId),
+    client => readAuditProbe(client, probeId),
   );
 
   const restart = await runStartStable(ROOT, START_TIMEOUT_MS);
@@ -204,7 +111,7 @@ async function main() {
   const normalizedAfterPath = afterDbPath ? normalizeDatabasePath(afterDbPath) : null;
 
   let runtimeChecks: RuntimeCheck[] = [];
-  let afterProbe: AuditLogRow | null = null;
+  let afterProbe: AuditLogProbeRow | null = null;
   let afterBusinessFingerprint = beforeBusinessFingerprint;
   let fingerprintMismatches: ReturnType<typeof compareBusinessDataFingerprints> = [];
 
@@ -218,7 +125,7 @@ async function main() {
 
     afterProbe = await withFingerprintPrisma(
       afterDbPath,
-      client => readProbe(client, probeId),
+      client => readAuditProbe(client, probeId),
     );
     afterBusinessFingerprint = await withFingerprintPrisma(
       afterDbPath,
@@ -228,7 +135,7 @@ async function main() {
   }
 
   const failedRuntimeChecks = runtimeChecks.filter(check => !check.ok);
-  const probeMismatches = assertSameProbe(insertedProbe, afterProbe, probeId);
+  const probeMismatches = assertSameAuditProbe(insertedProbe, afterProbe, probeId);
   const immediateReadBack = Boolean(immediateProbe && immediateProbe.id === insertedProbe.id);
   const restartReadBack = probeMismatches.length === 0;
   const databasePathChanged = normalizedBeforePath !== normalizedAfterPath;

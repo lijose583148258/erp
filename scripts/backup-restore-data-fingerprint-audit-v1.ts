@@ -7,6 +7,12 @@ import {
   normalizeDatabasePath,
   withFingerprintPrisma,
 } from './lib/business-data-fingerprint';
+import {
+  createSystemBackup,
+  loginAsAdmin,
+  resolveRuntimeApiUrl,
+  restoreSystemBackup,
+} from './lib/runtime-system-api';
 
 const ROOT = process.cwd();
 const requireFromScript = createRequire(import.meta.url);
@@ -15,88 +21,11 @@ const { getBackupDir, getSqliteDbPath } = requireFromScript('../backend/src/conf
   getSqliteDbPath: () => string | null;
 };
 
-const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '/');
+const APP_URL = resolveRuntimeApiUrl();
 const REQUEST_TIMEOUT_MS = Number(process.env.AUDIT_REQUEST_TIMEOUT_MS || 10000);
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
 const JSON_REPORT = path.join(OUTPUT_DIR, 'backup-restore-data-fingerprint-audit-v1.json');
 const MD_REPORT = path.join(OUTPUT_DIR, 'backup-restore-data-fingerprint-audit-v1.md');
-
-type ApiResponse = {
-  ok: boolean;
-  status: number;
-  json: any;
-};
-
-async function apiFetch(endpoint: string, options: { method?: string; data?: unknown } = {}, token = ''): Promise<ApiResponse> {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
-
-  try {
-    const response = await fetch(`${APP_URL}api${endpoint}`, {
-      method: options.method || 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: options.data ? JSON.stringify(options.data) : undefined,
-      signal: controller.signal,
-    });
-    const text = await response.text();
-    let json: unknown = null;
-    try {
-      json = text ? JSON.parse(text) : null;
-    } catch {
-      json = { raw: text };
-    }
-    return { ok: response.ok, status: response.status, json };
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function login() {
-  const response = await apiFetch('/auth/login', {
-    method: 'POST',
-    data: { username: 'admin', password: 'admin123' },
-  });
-
-  if (!response.ok) {
-    throw new Error(`Login failed: HTTP ${response.status}`);
-  }
-
-  const token = response.json?.data?.token;
-  if (!token) {
-    throw new Error('Login response does not include a token');
-  }
-  return token as string;
-}
-
-async function createBackup(token: string) {
-  const response = await apiFetch('/system/backups', { method: 'POST' }, token);
-  if (!response.ok) {
-    throw new Error(`Create backup failed: HTTP ${response.status}`);
-  }
-  const fileName = response.json?.data?.fileName;
-  if (!fileName) {
-    throw new Error('Create backup response does not include fileName');
-  }
-  return String(fileName);
-}
-
-async function restoreBackup(token: string, fileName: string) {
-  const response = await apiFetch('/system/restore', {
-    method: 'POST',
-    data: { fileName },
-  }, token);
-  if (!response.ok) {
-    throw new Error(`Restore backup failed: HTTP ${response.status} ${response.json?.message || ''}`);
-  }
-  const integrity = response.json?.data?.integrity;
-  if (!integrity?.manifestExists || !integrity?.verified) {
-    throw new Error(`Restore did not verify backup manifest: ${fileName}`);
-  }
-  return integrity;
-}
 
 function writeReports(report: Record<string, unknown>) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -135,8 +64,8 @@ async function main() {
     throw new Error(`Runtime SQLite database is not available: ${runtimeDbPath || 'not configured'}`);
   }
 
-  const token = await login();
-  const backupFileName = await createBackup(token);
+  const token = await loginAsAdmin(APP_URL, REQUEST_TIMEOUT_MS);
+  const backupFileName = await createSystemBackup(APP_URL, token, REQUEST_TIMEOUT_MS);
   const backupPath = path.join(getBackupDir(), backupFileName);
   if (!fs.existsSync(backupPath)) {
     throw new Error(`Created backup file was not found: ${backupPath}`);
@@ -146,7 +75,7 @@ async function main() {
     backupPath,
     client => collectBusinessDataFingerprint(client, 'backup-file'),
   );
-  const restoreIntegrity = await restoreBackup(token, backupFileName);
+  const restoreIntegrity = await restoreSystemBackup(APP_URL, token, backupFileName, REQUEST_TIMEOUT_MS);
   const restoredFingerprint = await withFingerprintPrisma(
     runtimeDbPath,
     client => collectBusinessDataFingerprint(client, 'restored-runtime'),
