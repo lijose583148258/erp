@@ -126,6 +126,7 @@ export interface CollectionLedgerRecord {
   riskLevel: string;
   finalAmount: number;
   paidAmount: number;
+  receivableAdjustmentAmount?: number;
   paymentStatus: string;
   milestoneId: number | null;
   milestoneTitle: string | null;
@@ -145,6 +146,7 @@ export interface CollectionOverdueRecord {
   outstanding: number;
   finalAmount: number;
   paidAmount: number;
+  receivableAdjustmentAmount?: number;
   paymentStatus: string;
   customerId: number;
   customerName: string;

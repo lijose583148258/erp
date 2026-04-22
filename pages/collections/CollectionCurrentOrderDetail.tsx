@@ -4,6 +4,7 @@ import {
   CollectionHoldRecord,
   CollectionLedgerRecord,
   CollectionMilestoneRecord,
+  CollectionOverdueRecord,
   CollectionPromiseRecord,
 } from '../../services/collections.service';
 import {
@@ -19,6 +20,7 @@ type DetailTab = 'ledger' | 'promises' | 'disputes' | 'holds' | 'milestones';
 
 type Props = {
   selectedOrderId: number | null;
+  selectedOverdue: CollectionOverdueRecord | null;
   ledger: CollectionLedgerRecord[];
   promises: CollectionPromiseRecord[];
   disputes: CollectionDisputeRecord[];
@@ -85,6 +87,7 @@ const milestoneStatusLabelMap: Record<string, string> = {
 
 const CollectionCurrentOrderDetail: React.FC<Props> = ({
   selectedOrderId,
+  selectedOverdue,
   ledger,
   promises,
   disputes,
@@ -118,17 +121,31 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
       return false;
     });
     const relatedMilestones = milestones.filter((row) => row.contractNo && relatedLedger.some((item) => item.contractNo && item.contractNo === row.contractNo));
+    const financialSource = selectedOverdue || relatedLedger[0] || null;
+    const finalAmount = Number(financialSource?.finalAmount || 0);
+    const paidAmount = Number(financialSource?.paidAmount || 0);
+    const receivableAdjustmentAmount = Number(financialSource?.receivableAdjustmentAmount || 0);
+    const effectiveReceivableAmount = Math.max(0, finalAmount - receivableAdjustmentAmount);
+    const outstandingAmount = selectedOverdue
+      ? Number(selectedOverdue.outstanding || 0)
+      : Math.max(0, effectiveReceivableAmount - paidAmount);
 
     return {
       orderNo,
       customerLabel,
+      financialSource,
+      finalAmount,
+      paidAmount,
+      receivableAdjustmentAmount,
+      effectiveReceivableAmount,
+      outstandingAmount,
       relatedLedger,
       relatedPromises,
       relatedDisputes,
       relatedHolds,
       relatedMilestones,
     };
-  }, [selectedOrderId, ledger, promises, disputes, holds, milestones]);
+  }, [selectedOrderId, selectedOverdue, ledger, promises, disputes, holds, milestones]);
 
   const renderEmpty = (text: string) => (
     <div className="rounded-[20px] border border-dashed border-slate-200 px-4 py-6 text-sm font-bold text-slate-400 dark:border-slate-700">
@@ -332,6 +349,23 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
           </button>
         ))}
       </div>
+
+      {selectedOrderId && detail.financialSource ? (
+        <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+          {[
+            { label: '原应收', value: formatPrice(detail.finalAmount) },
+            { label: '已收款', value: formatPrice(detail.paidAmount) },
+            { label: '应收调整', value: formatPrice(detail.receivableAdjustmentAmount) },
+            { label: '有效应收', value: formatPrice(detail.effectiveReceivableAmount) },
+            { label: '剩余未收', value: formatPrice(detail.outstandingAmount), accent: true },
+          ].map((item) => (
+            <div key={item.label} className={`rounded-[20px] border px-4 py-3 ${item.accent ? 'border-rose-100 bg-rose-50/70 text-rose-700' : 'border-slate-100 bg-slate-50/70 text-slate-600'} dark:border-slate-800 dark:bg-slate-800/30`}>
+              <div className="text-[10px] font-black uppercase tracking-[0.14em] opacity-70">{item.label}</div>
+              <div className="mt-1 text-sm font-black">{item.value}</div>
+            </div>
+          ))}
+        </div>
+      ) : null}
 
       <div className="mt-5">
         {selectedOrderId ? renderContent() : renderEmpty('请先从逾期清单或收款台账中选择一个订单。')}

@@ -66,8 +66,24 @@ export const createInitialPaymentForm = (): PaymentForm => ({
 
 export const toNumericId = (value: string) => Number(String(value || '').replace(/\D+/g, '')) || 0;
 
+export const getReceivableAdjustmentAmount = (order: SalesOrder) =>
+    Math.max(0, Number(order.receivableAdjustmentAmount || 0));
+
+export const getEffectiveReceivableAmount = (order: SalesOrder) =>
+    Math.max(
+        0,
+        Number(order.effectiveReceivableAmount ?? (
+            Number(order.finalAmount || order.totalAmount || 0) - getReceivableAdjustmentAmount(order)
+        )),
+    );
+
 export const getOutstandingAmount = (order: SalesOrder) =>
-    Math.max(0, Number(order.finalAmount || order.totalAmount || 0) - Number(order.paidAmount || 0));
+    Math.max(
+        0,
+        Number(order.outstandingAmount ?? (
+            getEffectiveReceivableAmount(order) - Number(order.paidAmount || 0)
+        )),
+    );
 
 export const getOverdueDays = (order: SalesOrder) => {
     if (!order.dueDate) return 0;

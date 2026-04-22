@@ -27,6 +27,7 @@ const report = {
   findings: [],
   seeded: {},
   consoleErrors: [],
+  serverErrors: [],
   pageErrors: [],
 };
 
@@ -39,6 +40,10 @@ function ensureDir(target) {
 function saveReport() {
   ensureDir(path.dirname(REPORT_PATH));
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), 'utf8');
+}
+
+function makeTestId(value) {
+  return String(value ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-');
 }
 
 function recordStep(entry) {
@@ -241,6 +246,25 @@ async function waitForAdjustment(page, orderId, reason, expectedStatus) {
   throw new Error(`receivable adjustment ${reason} did not reach ${expectedStatus || 'any'} status`);
 }
 
+async function verifySalesOrderPaymentModal(page, order) {
+  return withTimeout('verify-sales-order-payment-modal-effective-receivable', STEP_TIMEOUT_MS, async () => {
+    await page.goto(`${APP_URL}#orders`, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT_MS });
+    const row = page.getByTestId(`sales-order-row-${makeTestId(order.id)}`);
+    await row.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS });
+    await row.getByTestId('sales-order-payment-button').click();
+    await page.waitForSelector('[data-testid="sales-order-payment-modal"]', { timeout: STEP_TIMEOUT_MS });
+    const amountValue = Number(await page.getByTestId('sales-order-payment-amount').inputValue());
+    assert(Math.abs(amountValue - 87.66) < 0.01, 'payment modal default amount did not use effective outstanding amount', {
+      amountValue,
+      expected: 87.66,
+    });
+    const summaryText = await page.getByTestId('sales-order-payment-effective-summary').innerText({ timeout: STEP_TIMEOUT_MS });
+    assert(summaryText.includes('\u5e94\u6536\u8c03\u6574'), 'payment modal effective receivable summary missing adjustment label', { summaryText });
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.locator('[data-testid="sales-order-payment-modal"] button').first().click();
+  });
+}
+
 async function postAndReverseByUi(page, order, adjustment) {
   return withTimeout('post-and-reverse-by-ui', STEP_TIMEOUT_MS, async () => {
     await page.getByTestId(`receivable-adjustment-post-${adjustment.id}`).click();
@@ -253,6 +277,9 @@ async function postAndReverseByUi(page, order, adjustment) {
     assert(Number(afterPost.json.data.paidAmount || 0) === 0, 'posted adjustment must not change paidAmount', {
       order: afterPost.json.data,
     });
+
+    await verifySalesOrderPaymentModal(page, order);
+    await openFinancePage(page);
 
     page.once('dialog', async (dialog) => {
       await dialog.accept(`browser reverse ${RUN_ID}`);
@@ -289,6 +316,16 @@ async function main() {
         report.consoleErrors.push({ type: message.type(), text: message.text() });
       }
     });
+    page.on('response', async (response) => {
+      if (response.status() < 500) return;
+      let body = '';
+      try {
+        body = (await response.text()).slice(0, 600);
+      } catch {
+        body = '<unreadable>';
+      }
+      report.serverErrors.push({ status: response.status(), url: response.url(), body });
+    });
     page.on('pageerror', (error) => report.pageErrors.push(String(error?.message || error)));
 
     await loginAndSeedStorage(page);
@@ -300,6 +337,10 @@ async function main() {
     await page.screenshot({ path: screenshot, fullPage: true, timeout: 5000 });
     report.screenshot = screenshot;
     assert(report.pageErrors.length === 0, 'browser page errors detected', { pageErrors: report.pageErrors });
+    assert(report.serverErrors.length === 0, 'browser server 5xx responses detected', { serverErrors: report.serverErrors });
+    assert(!report.consoleErrors.some((entry) => entry.type === 'error'), 'browser console errors detected', {
+      consoleErrors: report.consoleErrors,
+    });
     report.status = report.findings.length ? 'failed' : 'passed';
   } catch (error) {
     markReportFromLaunchError(report, error);

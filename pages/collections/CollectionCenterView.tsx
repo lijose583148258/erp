@@ -137,6 +137,7 @@ const CollectionCenterView: React.FC = () => {
 
       <CollectionCurrentOrderDetail
         selectedOrderId={state.selectedOrderId}
+        selectedOverdue={state.selectedOverdue}
         ledger={state.ledger}
         promises={state.promises}
         disputes={state.disputes}

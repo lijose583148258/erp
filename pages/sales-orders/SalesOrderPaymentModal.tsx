@@ -2,6 +2,11 @@
 import { Info, X } from 'lucide-react';
 import { SalesOrder } from '../../types';
 import { getCustomerDisplayName } from '../../utils/customerName';
+import {
+    getEffectiveReceivableAmount,
+    getOutstandingAmount,
+    getReceivableAdjustmentAmount,
+} from './salesOrderFormHelpers';
 
 type Props = {
     isOpen: boolean;
@@ -24,7 +29,10 @@ type Props = {
 
 const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, language, t, formatPrice, paymentForm, setPaymentForm, onClose, onConfirm }) => {
     if (!isOpen || !selectedOrder) return null;
-    const remainingBalance = Math.max(0, Number(selectedOrder.finalAmount || selectedOrder.totalAmount || 0) - Number(selectedOrder.paidAmount || 0));
+    const finalAmount = Number(selectedOrder.finalAmount || selectedOrder.totalAmount || 0);
+    const receivableAdjustmentAmount = getReceivableAdjustmentAmount(selectedOrder);
+    const effectiveReceivableAmount = getEffectiveReceivableAmount(selectedOrder);
+    const remainingBalance = getOutstandingAmount(selectedOrder);
 
     return (
         <div data-testid="sales-order-payment-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
@@ -48,11 +56,21 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                             nameVi: selectedOrder.customerNameVi,
                             displayName: selectedOrder.customerDisplayName,
                         }, language)}</p>
-                        <p className="text-xs text-slate-500">Remaining Balance: <span className="text-rose-500 font-bold">{formatPrice(remainingBalance)}</span></p>
+                        <div data-testid="sales-order-payment-effective-summary" className="mt-3 grid grid-cols-2 gap-2 text-xs font-bold text-slate-500">
+                            <span>原应收：{formatPrice(finalAmount)}</span>
+                            <span>已收：{formatPrice(selectedOrder.paidAmount || 0)}</span>
+                            <span>应收调整：-{formatPrice(receivableAdjustmentAmount)}</span>
+                            <span>有效未收：<b className="text-rose-500">{formatPrice(remainingBalance)}</b></span>
+                        </div>
+                        {receivableAdjustmentAmount > 0 ? (
+                            <p className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-bold text-amber-700">
+                                本单存在应收调整，回款金额按有效应收 {formatPrice(effectiveReceivableAmount)} 校验。
+                            </p>
+                        ) : null}
                     </div>
                     <div>
                         <label className="text-[10px] font-black uppercase text-slate-400 ml-2">Amount (Partial or Full)</label>
-                        <input type="number" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-blue-100" value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} />
+                        <input data-testid="sales-order-payment-amount" type="number" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-blue-100" value={paymentForm.amount} onChange={e => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>

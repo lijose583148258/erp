@@ -415,7 +415,7 @@ export const useSalesOrders = () => {
         const detailedOrder = await hydrateOrderDetail(order);
         setSelectedOrder(detailedOrder);
         setPaymentForm({
-            amount: Math.max(0, Number(detailedOrder.finalAmount || detailedOrder.totalAmount || 0) - Number(detailedOrder.paidAmount || 0)),
+            amount: getOutstandingAmount(detailedOrder),
             date: new Date().toISOString().split('T')[0],
             method: 'Bank Transfer',
             isProxy: false,
@@ -448,6 +448,11 @@ export const useSalesOrders = () => {
         if (!selectedOrder) return;
         if (paymentForm.amount <= 0) {
             notify('error', '金额无效。');
+            return;
+        }
+        const outstanding = getOutstandingAmount(selectedOrder);
+        if (paymentForm.amount > outstanding + 0.009) {
+            notify('error', `收款金额不能超过有效未收金额：${formatPrice(outstanding)}。`);
             return;
         }
         const payment: PaymentRecord = {

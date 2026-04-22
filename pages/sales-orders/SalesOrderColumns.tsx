@@ -2,6 +2,11 @@ import { AlertTriangle, Calendar, CheckCircle2 } from 'lucide-react';
 import { Column } from '../../components/DataTable';
 import { getCustomerDisplayName } from '../../utils/customerName';
 import { CommissionStatus, SalesOrder } from '../../types';
+import {
+  getEffectiveReceivableAmount,
+  getOutstandingAmount,
+  getReceivableAdjustmentAmount,
+} from './salesOrderFormHelpers';
 
 type CollectionView = {
   label: string;
@@ -174,7 +179,10 @@ export const buildSalesOrderColumns = ({
       const collectionView = getCollectionView(row);
       const isOverdue = row.financialStatus === 'overdue';
       const finalAmount = Number(row.finalAmount || row.totalAmount || 0);
-      const progress = finalAmount > 0 ? Math.min((Number(row.paidAmount || 0) / finalAmount) * 100, 100) : 0;
+      const effectiveReceivableAmount = getEffectiveReceivableAmount(row);
+      const receivableAdjustmentAmount = getReceivableAdjustmentAmount(row);
+      const outstandingAmount = getOutstandingAmount(row);
+      const progress = effectiveReceivableAmount > 0 ? Math.min((Number(row.paidAmount || 0) / effectiveReceivableAmount) * 100, 100) : 0;
       const paidBaseAmount = row.baseAmount && finalAmount > 0 ? (Number(row.paidAmount || 0) / finalAmount) * row.baseAmount : undefined;
 
       return (
@@ -186,6 +194,14 @@ export const buildSalesOrderColumns = ({
           }}
         >
           {renderMultiCurrencyAmount({ amount: Number(row.paidAmount || 0), currency: row.currency, baseAmount: paidBaseAmount })}
+          <div className="mt-1 text-[10px] font-bold text-slate-400">
+            未收 {formatPrice(outstandingAmount)}
+          </div>
+          {receivableAdjustmentAmount > 0 ? (
+            <div className="mt-1 text-[10px] font-bold text-amber-600">
+              应收调整 -{formatPrice(receivableAdjustmentAmount)}
+            </div>
+          ) : null}
           <div className="my-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
             <div
               className={`h-full rounded-full transition-all ${progress === 100 ? 'bg-emerald-500' : isOverdue ? 'bg-rose-400' : 'bg-blue-500'}`}
