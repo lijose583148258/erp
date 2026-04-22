@@ -34,6 +34,59 @@ function truncate(text, max = 6000) {
   return text.length > max ? `${text.slice(0, max)}\n...[truncated ${text.length - max} chars]` : text;
 }
 
+function resolveErrorLogPath() {
+  const configuredLogDir = process.env.LOG_DIR || 'logs';
+  const logDir = path.isAbsolute(configuredLogDir)
+    ? configuredLogDir
+    : path.join(ROOT, configuredLogDir);
+  return path.join(logDir, 'error.log');
+}
+
+function readErrorLogSnapshot() {
+  const filePath = resolveErrorLogPath();
+  if (!fs.existsSync(filePath)) {
+    return { filePath, size: 0 };
+  }
+  return { filePath, size: fs.statSync(filePath).size };
+}
+
+function readErrorLogGrowth(before) {
+  const after = readErrorLogSnapshot();
+  if (after.filePath !== before.filePath || after.size <= before.size || !fs.existsSync(after.filePath)) {
+    return { before, after, grew: false, text: '' };
+  }
+
+  const fd = fs.openSync(after.filePath, 'r');
+  try {
+    const length = Math.min(after.size - before.size, 12_000);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, before.size);
+    return {
+      before,
+      after,
+      grew: true,
+      text: buffer.toString('utf8'),
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function buildErrorLogQuietStep(before) {
+  const taskStarted = Date.now();
+  const growth = readErrorLogGrowth(before);
+  return {
+    name: 'error-log-quiet-window',
+    command: 'compare logs/error.log before and after release gate',
+    status: growth.grew ? 'failed' : 'passed',
+    exitCode: growth.grew ? 1 : 0,
+    durationMs: Date.now() - taskStarted,
+    timedOut: false,
+    stdout: growth.grew ? truncate(`error.log grew from ${growth.before.size} to ${growth.after.size} bytes`) : '',
+    stderr: growth.grew ? truncate(growth.text) : '',
+  };
+}
+
 function runTask(task) {
   return new Promise((resolve) => {
     const taskStarted = Date.now();
@@ -218,6 +271,7 @@ async function main() {
   const { profile } = parseArgs(process.argv.slice(2));
   const tasks = getTasks(profile);
   const results = [];
+  const errorLogBefore = readErrorLogSnapshot();
 
   console.log(JSON.stringify({
     status: 'started',
@@ -240,6 +294,18 @@ async function main() {
     if (result.status !== 'passed') {
       break;
     }
+  }
+
+  if (results.every(item => item.status === 'passed')) {
+    const result = buildErrorLogQuietStep(errorLogBefore);
+    results.push(result);
+    console.log(JSON.stringify({
+      status: result.status,
+      step: result.name,
+      durationMs: result.durationMs,
+      exitCode: result.exitCode,
+      timedOut: result.timedOut,
+    }));
   }
 
   const { report, jsonPath, mdPath } = writeReports(profile, results);

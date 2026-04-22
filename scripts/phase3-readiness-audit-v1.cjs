@@ -44,6 +44,59 @@ function readText(filePath) {
   return fs.readFileSync(filePath, 'utf8');
 }
 
+function resolveErrorLogPath() {
+  const configuredLogDir = process.env.LOG_DIR || 'logs';
+  const logDir = path.isAbsolute(configuredLogDir)
+    ? configuredLogDir
+    : path.join(ROOT, configuredLogDir);
+  return path.join(logDir, 'error.log');
+}
+
+function readErrorLogSnapshot() {
+  const filePath = resolveErrorLogPath();
+  if (!fs.existsSync(filePath)) {
+    return { filePath, size: 0 };
+  }
+  return { filePath, size: fs.statSync(filePath).size };
+}
+
+function readErrorLogGrowth(before) {
+  const after = readErrorLogSnapshot();
+  if (after.filePath !== before.filePath || after.size <= before.size || !fs.existsSync(after.filePath)) {
+    return { before, after, grew: false, text: '' };
+  }
+
+  const fd = fs.openSync(after.filePath, 'r');
+  try {
+    const length = Math.min(after.size - before.size, 12_000);
+    const buffer = Buffer.alloc(length);
+    fs.readSync(fd, buffer, 0, length, before.size);
+    return {
+      before,
+      after,
+      grew: true,
+      text: buffer.toString('utf8'),
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function buildErrorLogQuietStep(before) {
+  const startedAt = Date.now();
+  const growth = readErrorLogGrowth(before);
+  return {
+    name: 'error-log-quiet-window',
+    command: 'compare logs/error.log before and after phase3 gate',
+    status: growth.grew ? 'failed' : 'passed',
+    exitCode: growth.grew ? 1 : 0,
+    durationMs: Date.now() - startedAt,
+    timedOut: false,
+    stdout: growth.grew ? `error.log grew from ${growth.before.size} to ${growth.after.size} bytes` : '',
+    stderr: growth.grew ? growth.text.slice(-4000) : '',
+  };
+}
+
 function parseEnvExample(filePath) {
   const text = readText(filePath);
   const keys = new Set();
@@ -257,6 +310,7 @@ async function main() {
   const startedAt = new Date().toISOString();
   const staticResult = staticReadinessChecks();
   const runtimeSteps = [];
+  const errorLogBefore = readErrorLogSnapshot();
   let stoppedEarly = false;
 
   console.log(JSON.stringify({ status: 'started', gate: 'phase3-readiness', options }));
@@ -269,6 +323,12 @@ async function main() {
       stoppedEarly = true;
       break;
     }
+  }
+
+  if (!stoppedEarly) {
+    const result = buildErrorLogQuietStep(errorLogBefore);
+    runtimeSteps.push(result);
+    console.log(JSON.stringify({ status: result.status, step: result.name, durationMs: result.durationMs, timedOut: result.timedOut }));
   }
 
   const failedRuntime = runtimeSteps.filter(item => item.status !== 'passed');
