@@ -169,7 +169,7 @@ async function main() {
     const permissionsResponse = await apiFetch('/roles/permissions', {}, admin.token);
     expectStatus(permissionsResponse, [200], 'list permissions');
     const permissionCodes = (dataOf(permissionsResponse) || []).map((item) => item.code);
-    for (const code of ['dashboard.read', 'customers.read', 'orders.read', 'procurement.read', 'team.write']) {
+    for (const code of ['dashboard.read', 'customers.read', 'orders.read', 'procurement.read', 'procurement.suppliers.read', 'team.write']) {
       expect(permissionCodes.includes(code), `permission registry missing ${code}`, permissionCodes);
     }
     recordStep({ step: 'permission-registry-readback', count: permissionCodes.length, result: 'passed' });
@@ -230,17 +230,18 @@ async function main() {
       method: 'PUT',
       data: {
         name: `审计动态角色 ${RUN_ID}`,
-        description: 'Grant procurement.read during dynamic-role audit',
+        description: 'Grant procurement supplier read during dynamic-role audit',
         isActive: true,
         dataScopes: ['own_customers'],
-        permissions: ['dashboard.read', 'customers.read', 'orders.read', 'procurement.read'],
+        permissions: ['dashboard.read', 'customers.read', 'orders.read', 'procurement.read', 'procurement.suppliers.read'],
       },
     }, admin.token);
-    expectStatus(updateRoleResponse, [200], 'grant procurement.read to custom role');
+    expectStatus(updateRoleResponse, [200], 'grant procurement supplier read to custom role');
     recordStep({ step: 'update-custom-role-permissions', permissions: dataOf(updateRoleResponse).permissions, result: 'passed' });
 
     const customRelogin = await login(USERNAME, PASSWORD);
     expect(customRelogin.user.permissions.includes('procurement.read'), 'updated login response missing procurement.read', customRelogin.user);
+    expect(customRelogin.user.permissions.includes('procurement.suppliers.read'), 'updated login response missing procurement.suppliers.read', customRelogin.user);
     await assertEndpoint('custom-procurement-allowed-after-update', '/procurement/suppliers?pageSize=1', customRelogin.token, [200]);
 
     const disableRoleResponse = await apiFetch(`/roles/${ROLE_CODE}`, {
@@ -250,7 +251,7 @@ async function main() {
         description: 'Disabled by dynamic-role audit',
         isActive: false,
         dataScopes: ['own_customers'],
-        permissions: ['dashboard.read', 'customers.read', 'orders.read', 'procurement.read'],
+        permissions: ['dashboard.read', 'customers.read', 'orders.read', 'procurement.read', 'procurement.suppliers.read'],
       },
     }, admin.token);
     expectStatus(disableRoleResponse, [200], 'disable custom role');
