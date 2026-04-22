@@ -207,16 +207,12 @@ Write-Host '[2/7] Prepare writable runtime database'
 $runtimeDbPath = Resolve-RuntimeDbPath
 $existingRuntimeDbs = Get-ExistingRuntimeDbCandidates
 
-if ($existingRuntimeDbs.Count -gt 0) {
+if (Test-Path -LiteralPath $runtimeDbPath) {
+  Write-Host "Use existing active runtime database: $runtimeDbPath"
+} elseif ($existingRuntimeDbs.Count -gt 0) {
   $selectedSource = $existingRuntimeDbs | Select-Object -First 1
-  $shouldSync = (-not (Test-Path -LiteralPath $runtimeDbPath)) -or ($selectedSource.FullName -ne $runtimeDbPath)
-  if ($shouldSync) {
-    if (Test-Path -LiteralPath $runtimeDbPath) {
-      $backupName = 'stable.pre-sync-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.db'
-      Copy-Item -LiteralPath $runtimeDbPath -Destination (Join-Path (Split-Path -Parent $runtimeDbPath) $backupName) -Force
-    }
-    Copy-Item -LiteralPath $selectedSource.FullName -Destination $runtimeDbPath -Force
-  }
+  Write-Host "Seed active runtime database from existing candidate: $($selectedSource.FullName)"
+  Copy-Item -LiteralPath $selectedSource.FullName -Destination $runtimeDbPath -Force
 } elseif ((Test-Path -LiteralPath $workspaceSeedDbPath) -and (-not (Test-Path -LiteralPath $runtimeDbPath))) {
   Copy-Item -LiteralPath $workspaceSeedDbPath -Destination $runtimeDbPath -Force
 } elseif (-not (Test-Path -LiteralPath $runtimeDbPath)) {
