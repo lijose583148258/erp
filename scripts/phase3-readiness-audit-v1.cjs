@@ -249,6 +249,7 @@ function getRuntimeTasks(options) {
     task('runtime-db-integrity', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/runtime-db-integrity-audit-v1.ts'] : ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),
     task('runtime-db-shadow-inventory', 'node', ['scripts/runtime-db-shadow-inventory-audit-v1.cjs']),
     task('runtime-restart-persistence', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/runtime-restart-persistence-audit-v1.ts'] : ['tsx', 'scripts/runtime-restart-persistence-audit-v1.ts']),
+    task('runtime-write-read-restart', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/runtime-write-read-restart-audit-v1.ts'] : ['tsx', 'scripts/runtime-write-read-restart-audit-v1.ts']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
     task('business-rejection-log-classification', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/business-rejection-log-classification-audit-v1.ts'] : ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),

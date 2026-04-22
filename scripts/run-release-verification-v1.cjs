@@ -195,6 +195,7 @@ function getTasks(profile) {
     npxTask('runtime-db-integrity', ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),
     task('runtime-db-shadow-inventory', 'node', ['scripts/runtime-db-shadow-inventory-audit-v1.cjs']),
     npxTask('runtime-restart-persistence', ['tsx', 'scripts/runtime-restart-persistence-audit-v1.ts']),
+    npxTask('runtime-write-read-restart', ['tsx', 'scripts/runtime-write-read-restart-audit-v1.ts']),
     task('dual-port-stable-audit', 'node', ['scripts/dual-port-audit-v2.cjs']),
     task('cdp-core-pages-smoke', 'node', ['scripts/cdp-core-pages-smoke-audit-v1.cjs']),
     npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),
