@@ -224,6 +224,8 @@ function getTasks(profile) {
     task('crm-permission-ai-chain', 'node', ['scripts/crm-permission-ai-audit-v1.cjs']),
     task('collection-performance-serial', 'node', ['scripts/collection-performance-audit-v1.cjs']),
     task('concurrency-reconcile-serial', 'node', ['scripts/concurrency-reconcile-deep-audit-v1.cjs']),
+    task('concurrency-consistency-serial', 'node', ['scripts/concurrency-consistency-audit-v1.cjs']),
+    task('stock-ledger-reconcile', 'node', ['scripts/stock-ledger-reconcile-audit-v1.cjs']),
   ];
 }
 

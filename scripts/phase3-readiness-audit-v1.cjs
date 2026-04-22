@@ -257,6 +257,8 @@ function getRuntimeTasks(options) {
     task('stable-entrypoint-policy', 'node', ['scripts/stable-entrypoint-policy-audit-v1.cjs']),
     task('legacy-interface-disconnect', 'node', ['scripts/legacy-interface-disconnect-audit-v1.cjs']),
     task('dist-entry-asset-audit', 'node', ['scripts/dist-entry-asset-audit-v1.cjs']),
+    task('concurrency-consistency', 'node', ['scripts/concurrency-consistency-audit-v1.cjs']),
+    task('stock-ledger-reconcile', 'node', ['scripts/stock-ledger-reconcile-audit-v1.cjs']),
     task('shipping-ocr-regression', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/shipping-ocr-regression-v1.ts'] : ['tsx', 'scripts/shipping-ocr-regression-v1.ts']),
     task('backup-restore-api-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),
     task('backup-restore-data-fingerprint', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/backup-restore-data-fingerprint-audit-v1.ts'] : ['tsx', 'scripts/backup-restore-data-fingerprint-audit-v1.ts']),
