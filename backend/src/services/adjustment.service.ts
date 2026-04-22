@@ -3,6 +3,7 @@ import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import type { TransactionClient } from './stock-movement.service';
+import { applyFinanceAdjustmentTx } from './adjustment/finance-adjustment.service';
 
 export type AdjustmentDomain = 'finance' | 'production' | 'inventory';
 export type AdjustmentTargetType = 'order' | 'productBatch' | 'manual';
@@ -57,112 +58,6 @@ export class AdjustmentService {
         }
 
         return status;
-    }
-
-    private static async recalculateCustomerOverdueAmountTx(tx: AdjustmentTx, customerId: number) {
-        const orders = await tx.order.findMany({
-            where: {
-                customerId,
-                status: { not: 'cancelled' },
-                paymentStatus: { not: 'paid' },
-            },
-            select: {
-                finalAmount: true,
-                paidAmount: true,
-                paymentTerms: true,
-                createdAt: true,
-            },
-        });
-
-        const current = now();
-        const DAY_MS = 24 * 60 * 60 * 1000;
-
-        const overdueAmount = orders.reduce((sum, order) => {
-            const dueDate = new Date(order.createdAt.getTime() + Number(order.paymentTerms || 0) * DAY_MS);
-            const outstanding = Math.max(0, Number(order.finalAmount) - Number(order.paidAmount));
-
-            if (outstanding <= 0) {
-                return sum;
-            }
-
-            if (dueDate.getTime() < current.getTime()) {
-                return sum + outstanding;
-            }
-
-            return sum;
-        }, 0);
-
-        await tx.customer.update({
-            where: { id: customerId },
-            data: { overdueAmount },
-        });
-
-        return overdueAmount;
-    }
-
-    private static async applyToFinanceTx(tx: AdjustmentTx, adjustment: PersistedAdjustment) {
-        const orderId = adjustment.orderId || adjustment.targetId;
-        if (!orderId) {
-            return null;
-        }
-
-        const order = await tx.order.findUnique({
-            where: { id: Number(orderId) },
-            select: {
-                id: true,
-                customerId: true,
-                finalAmount: true,
-                paidAmount: true,
-                paymentStatus: true,
-            },
-        });
-
-        if (!order) {
-            throw new Error(`Order not found: ${orderId}`);
-        }
-
-        const customerBefore = await tx.customer.findUnique({
-            where: { id: order.customerId },
-            select: {
-                id: true,
-                overdueAmount: true,
-            },
-        });
-
-        const delta = Number(adjustment.amountDelta || 0);
-        const nextPaidAmount = Math.max(0, Number(order.paidAmount) + delta);
-        const paymentStatus = nextPaidAmount >= Number(order.finalAmount) ? 'paid' : nextPaidAmount > 0 ? 'partial' : 'unpaid';
-
-        await tx.order.update({
-            where: { id: order.id },
-            data: {
-                paidAmount: nextPaidAmount,
-                paymentStatus,
-            },
-        });
-
-        const overdueAmount = await this.recalculateCustomerOverdueAmountTx(tx, order.customerId);
-
-        return {
-            before: {
-                order,
-                customer: customerBefore,
-            },
-            after: {
-                orderId: order.id,
-                customerId: order.customerId,
-                paidAmount: nextPaidAmount,
-                paymentStatus,
-                overdueAmount,
-            },
-            effects: {
-                orderId: order.id,
-                customerId: order.customerId,
-                paidAmount: nextPaidAmount,
-                paymentStatus,
-                overdueAmount,
-            },
-        };
     }
 
     private static async applyToProductionTx(tx: AdjustmentTx, adjustment: PersistedAdjustment) {
@@ -225,7 +120,7 @@ export class AdjustmentService {
         let afterSnapshot: Record<string, unknown> = {};
 
         if (adjustment.domain === 'finance') {
-            const result = await this.applyToFinanceTx(tx, adjustment);
+            const result = await applyFinanceAdjustmentTx(tx, adjustment);
             effects.finance = result?.effects || null;
             beforeSnapshot = {
                 ...beforeSnapshot,

@@ -3,7 +3,13 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
-import { AdjustmentService, AdjustmentDomain, AdjustmentTargetType, AdjustmentStatus } from '../services/adjustment.service';
+import {
+    AdjustmentService,
+    AdjustmentDomain,
+    AdjustmentTargetType,
+    AdjustmentStatus,
+} from '../services/adjustment.service';
+import { getAdjustmentConflictMessage } from '../services/adjustment/finance-adjustment.service';
 import { ProductionCostLedgerService } from '../services/production-cost-ledger.service';
 import { hasDataScope } from '../utils/recordAccess';
 
@@ -472,6 +478,10 @@ export class AdjustmentController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Failed to create adjustment', error);
+            const conflictMessage = getAdjustmentConflictMessage(error);
+            if (conflictMessage) {
+                return res.status(409).json({ success: false, message: conflictMessage } as ApiResponse);
+            }
             const message = error instanceof Error ? error.message : 'Failed to create adjustment';
             res.status(500).json({ success: false, message } as ApiResponse);
         }
@@ -519,6 +529,10 @@ export class AdjustmentController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Failed to apply adjustment', error);
+            const conflictMessage = getAdjustmentConflictMessage(error);
+            if (conflictMessage) {
+                return res.status(409).json({ success: false, message: conflictMessage } as ApiResponse);
+            }
             const message = error instanceof Error ? error.message : 'Failed to apply adjustment';
             res.status(500).json({ success: false, message } as ApiResponse);
         }
@@ -573,6 +587,10 @@ export class AdjustmentController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Failed to reverse adjustment', error);
+            const conflictMessage = getAdjustmentConflictMessage(error);
+            if (conflictMessage) {
+                return res.status(409).json({ success: false, message: conflictMessage } as ApiResponse);
+            }
             const message = error instanceof Error ? error.message : 'Failed to reverse adjustment';
             res.status(500).json({ success: false, message } as ApiResponse);
         }
