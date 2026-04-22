@@ -22,6 +22,7 @@
                     "audit:human-flow:list":  "node .\\scripts\\browser-human-flow-audit-v1.cjs --list-modules",
                     "audit:collection:human-flow":  "node .\\scripts\\collection-center-human-flow-browser-audit-v1.cjs",
                     "audit:collection:concurrency":  "node .\\scripts\\collection-concurrency-reconcile-audit-v1.cjs",
+                    "audit:payment:verification-concurrency":  "node .\\scripts\\order-payment-verification-concurrency-audit-v1.cjs",
                     "audit:barter:concurrency":  "node .\\scripts\\barter-concurrency-reconcile-audit-v1.cjs",
                     "audit:procurement:partial-concurrency":  "node .\\scripts\\procurement-partial-receipt-concurrency-audit-v1.cjs",
                     "audit:shipping:receipt-concurrency":  "node .\\scripts\\shipping-receipt-concurrency-audit-v1.cjs",

@@ -67,6 +67,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
           onRowClick={(row) => onFocusOrder(row.orderId)}
           emptyTitle="暂无收款流水"
           emptyDescription="当订单产生回款记录后，会在这里进行核销和对账。"
+          searchInputTestId="collection-ledger-search"
           rowActions={(row) =>
             row.status !== 'verified' && permissions.canVerifyPayment ? (
               <button
@@ -98,6 +99,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
           getRowTestId={(row) => `collection-milestone-row-${row.id}`}
           emptyTitle="暂无合同回款节点"
           emptyDescription="有关联合同后会自动形成回款节点视图。"
+          searchInputTestId="collection-milestone-search"
           defaultPageSize={10}
         />
       );
@@ -115,6 +117,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
         rowClassName={(row) => selectedOverdue?.orderId === row.orderId ? 'bg-blue-50/80 dark:bg-blue-950/20' : ''}
         emptyTitle="暂无逾期订单"
         emptyDescription="当前没有需要催收的逾期记录。"
+        searchInputTestId="collection-overdue-search"
         rowActions={(row) => {
           if (!permissions.canCreateReminder && !permissions.canManagePromise && !permissions.canManageDispute) return null;
           return (

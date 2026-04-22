@@ -4,7 +4,10 @@ import { logger } from '../../utils/logger';
 import { AuthRequest } from '../../middleware/auth';
 import { ApiResponse } from '../../types/api.types';
 import { CollectionService } from '../../services/collection.service';
-import { CollectionStateService } from '../../services/collection-state.service';
+import {
+  CollectionStateService,
+  getPaymentVerificationConflictMessage,
+} from '../../services/collection-state.service';
 import { canUseOrderForBusinessWrite } from '../../utils/recordAccess';
 import {
   collectionOrderScopeSelect,
@@ -53,7 +56,11 @@ export class CollectionVerificationHoldController {
       } as ApiResponse);
     } catch (error) {
       logger.error('Failed to verify payment', error);
-      res.status(500).json({ success: false, message: 'Failed to verify payment' } as ApiResponse);
+      const conflictMessage = getPaymentVerificationConflictMessage(error);
+      res.status(conflictMessage ? 409 : 500).json({
+        success: false,
+        message: conflictMessage || 'Failed to verify payment',
+      } as ApiResponse);
     }
   }
 

@@ -1,7 +1,10 @@
 import { Response } from 'express';
 import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
-import { CollectionStateService } from '../services/collection-state.service';
+import {
+    CollectionStateService,
+    getPaymentVerificationConflictMessage,
+} from '../services/collection-state.service';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { ApiResponse } from '../types/api.types';
 import { withDbRetry } from '../utils/dbRetry';
@@ -246,9 +249,10 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
         } as ApiResponse);
     } catch (error) {
         logger.error('Verify payment error:', error);
-        return res.status(500).json({
+        const conflictMessage = getPaymentVerificationConflictMessage(error);
+        return res.status(conflictMessage ? 409 : 500).json({
             success: false,
-            message: 'Internal server error.',
+            message: conflictMessage || 'Internal server error.',
         } as ApiResponse);
     }
 }

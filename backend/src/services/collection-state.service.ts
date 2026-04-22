@@ -10,6 +10,14 @@ import { withDbRetry } from '../utils/dbRetry';
 
 // 浮点精度修复：将金额转换为整数分进行比较，消除 0.1+0.2 !== 0.3 的问题
 const toCents = (n: number) => Math.round(n * 100);
+export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING = 'PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING';
+export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE = 'Verified payments would exceed order outstanding balance.';
+export const getPaymentVerificationConflictMessage = (error: unknown) => (
+    error instanceof Error && error.message === PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING
+        ? PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE
+        : null
+);
+
 const determinePaymentStatus = (paidAmount: number, finalAmount: number): string => {
     if (toCents(paidAmount) >= toCents(finalAmount)) return 'paid';
     if (paidAmount > 0) return 'partial';
@@ -267,16 +275,12 @@ export class CollectionStateService {
                 return false;
             }
 
-            const allVerifiedPayments = await tx.paymentRecord.findMany({
-                where: {
-                    orderId: payment.orderId,
-                    status: 'verified',
-                },
-                select: { amount: true },
-            });
-
-            const order = await tx.order.findUnique({
+            // Serialize same-order verification before aggregating paid totals.
+            // This prevents two different pending payments from both passing
+            // against the same old paidAmount and creating an overpaid order.
+            const order = await tx.order.update({
                 where: { id: payment.orderId },
+                data: { updatedAt: new Date() },
                 select: {
                     id: true,
                     finalAmount: true,
@@ -284,11 +288,18 @@ export class CollectionStateService {
                 },
             });
 
-            if (!order) {
-                throw new Error(`Order not found: ${payment.orderId}`);
+            const allVerifiedPayments = await tx.paymentRecord.findMany({
+                where: {
+                    orderId: payment.orderId,
+                    status: 'verified',
+                },
+                select: { amount: true },
+            });
+            const paidAmount = allVerifiedPayments.reduce((sum, record) => sum + Number(record.amount), 0);
+            if (toCents(paidAmount) > toCents(Number(order.finalAmount))) {
+                throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
             }
 
-            const paidAmount = allVerifiedPayments.reduce((sum, record) => sum + Number(record.amount), 0);
             const paymentStatus = determinePaymentStatus(paidAmount, Number(order.finalAmount));
 
             await tx.order.update({

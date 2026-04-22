@@ -66,6 +66,8 @@ async function clickTabsAndSelectOrder(runtime, page, seed, { copy, forbiddenTok
     await runtime.assertBodyClean(page, 'milestone tab', forbiddenTokens);
 
     await page.getByTestId('collection-tab-overdue').click();
+    await page.getByTestId('collection-overdue-search').fill(seed.order.orderNo);
+    await page.waitForTimeout(250);
     const overdueRow = page.getByTestId(`collection-overdue-row-${seed.order.id}`);
     await overdueRow.waitFor({ state: 'visible', timeout: stepTimeoutMs });
     await overdueRow.click();
