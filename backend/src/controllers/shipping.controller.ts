@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
+import { AppError, ErrorCode } from '../middleware/errorHandler';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
@@ -15,6 +16,7 @@ import {
     buildShipmentReceiptSummary,
     canManageShipping,
     canReadShipment,
+    claimShipmentReceiptWrite,
     getShipmentDetail,
     getShipmentReceiptTotals,
     listShipmentReceiptEvents,
@@ -202,55 +204,69 @@ export class ShippingController {
                 return res.status(409).json({ success: false, data: shipmentDetail, message: '发货单已签收，不能重复上传凭证' });
             }
 
-            const receiptTotals = await getShipmentReceiptTotals(prisma, existingShipment.id);
-            if (receiptTotals.receiptCount > 0) {
-                return res.status(409).json({ success: false, message: '该发货单已存在部分签收记录，请继续使用部分签收接口处理剩余数量' });
-            }
-
-            let signedReceiptUrl = '';
-            try {
-                signedReceiptUrl = storeReceiptFile(existingShipment.shipmentNo, fileName, mimeType, dataUrl);
-            } catch {
-                return res.status(400).json({ success: false, message: '签收文件格式不支持或文件过大' });
-            }
-
             const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => {
-                const claim = await tx.shipment.updateMany({
-                    where: {
-                        id: shipmentId,
-                        status: { not: 'delivered' },
-                        signedReceiptUrl: null,
-                    },
-                    data: {
-                        status: 'delivered',
-                        // 仅当尚未发货时填充 shippedAt（兼容直接签收的极端情况）
-                        ...(existingShipment.shippedAt ? {} : { shippedAt: new Date() }),
-                        deliveredAt: new Date(),
-                        signedReceiptUrl,
+                const claimed = await claimShipmentReceiptWrite(tx, shipmentId);
+                if (!claimed) {
+                    throw new AppError('SHIPMENT_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
+                }
+
+                const lockedShipment = await tx.shipment.findUnique({
+                    where: { id: shipmentId },
+                    select: {
+                        id: true,
+                        shipmentNo: true,
+                        status: true,
+                        shippedAt: true,
+                        orderId: true,
+                        productName: true,
+                        quantity: true,
+                        unit: true,
+                        batchNo: true,
+                        signedReceiptUrl: true,
                     },
                 });
-
-                if (claim.count !== 1) {
+                if (!lockedShipment) {
+                    throw new AppError('SHIPMENT_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
+                }
+                if (lockedShipment.status === 'delivered' || lockedShipment.signedReceiptUrl) {
                     return null;
                 }
 
-                const issueResult = await postShippingIssueIfMissing(tx, {
-                    shipmentNo: existingShipment.shipmentNo,
-                    productName: existingShipment.productName,
-                    quantity: Number(existingShipment.quantity || 0),
-                    unit: existingShipment.unit || 'kg',
-                    batchNo: existingShipment.batchNo,
-                }, req.user?.userId || null);
-
-                if (issueResult.issueStock && !existingShipment.batchNo) {
-                    await tx.shipment.update({
-                        where: { id: shipmentId },
-                        data: { batchNo: issueResult.issueStock.batchNo },
-                    });
+                const receiptTotals = await getShipmentReceiptTotals(tx, lockedShipment.id);
+                if (receiptTotals.receiptCount > 0) {
+                    throw new AppError('SHIPMENT_PARTIAL_RECEIPTS_EXIST', 409, ErrorCode.CONFLICT);
                 }
 
-                if (existingShipment.orderId) {
-                    await syncOrderShipmentState(tx, existingShipment.orderId);
+                let signedReceiptUrl = '';
+                try {
+                    signedReceiptUrl = storeReceiptFile(lockedShipment.shipmentNo, fileName, mimeType, dataUrl);
+                } catch {
+                    throw new AppError('INVALID_RECEIPT_FILE', 400, ErrorCode.VALIDATION_ERROR);
+                }
+
+                const issueResult = await postShippingIssueIfMissing(tx, {
+                    shipmentNo: lockedShipment.shipmentNo,
+                    productName: lockedShipment.productName,
+                    quantity: Number(lockedShipment.quantity || 0),
+                    unit: lockedShipment.unit || 'kg',
+                    batchNo: lockedShipment.batchNo,
+                }, req.user?.userId || null);
+
+                const updateData = {
+                    status: 'delivered',
+                    // 仅当尚未发货时填充 shippedAt（兼容直接签收的极端情况）
+                    ...(lockedShipment.shippedAt ? {} : { shippedAt: new Date() }),
+                    deliveredAt: new Date(),
+                    signedReceiptUrl,
+                    ...(issueResult.issueStock && !lockedShipment.batchNo ? { batchNo: issueResult.issueStock.batchNo } : {}),
+                };
+                await tx.shipment.update({
+                    where: { id: shipmentId },
+                    data: updateData,
+                });
+
+                if (lockedShipment.orderId) {
+                    await syncOrderShipmentState(tx, lockedShipment.orderId);
                 }
 
                 return tx.shipment.findUnique({ where: { id: shipmentId } });
@@ -279,6 +295,18 @@ export class ShippingController {
         } catch (error) {
             logger.error('上传签收凭证错误:', error);
             const message = error instanceof Error ? error.message : '服务器内部错误';
+            if (error instanceof AppError) {
+                const messages: Record<string, string> = {
+                    SHIPMENT_NOT_FOUND: '发货单不存在',
+                    SHIPMENT_PARTIAL_RECEIPTS_EXIST: '该发货单已存在部分签收记录，请继续使用部分签收接口处理剩余数量',
+                    INVALID_RECEIPT_FILE: '签收文件格式不支持或文件过大',
+                };
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: messages[message] || message,
+                    details: error.details,
+                });
+            }
             const statusCode = message.startsWith('No available stock') ? 409 : 500;
             return res.status(statusCode).json({ success: false, message: statusCode === 409 ? message : '服务器内部错误' });
         }

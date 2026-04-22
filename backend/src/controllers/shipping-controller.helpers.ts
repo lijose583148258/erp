@@ -121,6 +121,18 @@ export async function getShipmentReceiptTotals(tx: TransactionClient, shipmentId
     };
 }
 
+export async function claimShipmentReceiptWrite(tx: TransactionClient, shipmentId: number) {
+    const normalizedId = Number(shipmentId);
+    if (!Number.isInteger(normalizedId) || normalizedId <= 0) return false;
+
+    // Serialize receipt writes before remaining quantity or legacy full-receipt checks are calculated.
+    const claim = await tx.shipment.updateMany({
+        where: { id: normalizedId },
+        data: { updatedAt: new Date() },
+    });
+    return claim.count === 1;
+}
+
 export async function buildShipmentReceiptSummary(tx: TransactionClient, shipment: { id: number; quantity: number }) {
     const totals = await getShipmentReceiptTotals(tx, Number(shipment.id));
     const shipmentQuantity = Number(shipment.quantity || 0);

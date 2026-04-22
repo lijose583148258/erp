@@ -10,6 +10,7 @@ import { storeReceiptFile } from '../services/shipping-receipt-file.service';
 import {
     buildShipmentReceiptSummary,
     canManageShipping,
+    claimShipmentReceiptWrite,
     getCustomerDisplayName,
     getShipmentDetail,
     getShipmentReceiptTotals,
@@ -33,6 +34,11 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
         }
 
         const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
+            const claimed = await claimShipmentReceiptWrite(tx, shipmentId);
+            if (!claimed) {
+                throw new AppError('SHIPMENT_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
+            }
+
             const shipment = await tx.shipment.findUnique({
                 where: { id: shipmentId },
                 select: {
