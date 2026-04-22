@@ -4,6 +4,7 @@ import { useAppContext } from '../app/AppContext';
 import { financeAnalyticsService, FinanceWorkspace } from '../services/financeAnalytics.service';
 import FinanceLedgerPanel from './finance/FinanceLedgerPanel';
 import FinanceCashflowPanel from './finance/FinanceCashflowPanel';
+import ReceivableAdjustmentPanel from './finance/ReceivableAdjustmentPanel';
 import { getCustomerDisplayName } from '../utils/customerName';
 
 const FinanceAnalyticsWorkspaceV2: React.FC = () => {
@@ -256,6 +257,8 @@ const FinanceAnalyticsWorkspaceV2: React.FC = () => {
           </div>
         </aside>
       </div>
+
+      <ReceivableAdjustmentPanel onChanged={loadWorkspace} />
 
       {/* 最近收款 & 最近调账 */}
       <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">

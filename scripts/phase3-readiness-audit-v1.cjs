@@ -202,6 +202,7 @@ function getRuntimeTasks(options) {
     task('deployment-migration-readiness', 'node', ['scripts/deployment-migration-readiness-audit-v1.cjs']),
     task('supplier-permission-api-chain', 'node', ['scripts/supplier-permission-api-audit-v1.cjs']),
     task('procurement-api-chain', 'node', ['scripts/procurement-api-audit-v1.cjs']),
+    task('receivable-adjustment-api-chain', 'node', ['scripts/receivable-adjustment-api-audit-v1.cjs']),
     task('chemical-bom-production-chain', 'node', ['scripts/chemical-bom-production-chain-audit-v1.cjs']),
     task('shipping-api-chain', 'node', ['scripts/shipping-api-audit-v1.cjs']),
     task('ai-security-regression', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/ai-security-regression.ts'] : ['tsx', 'scripts/ai-security-regression.ts']),
@@ -210,6 +211,7 @@ function getRuntimeTasks(options) {
     tasks.push(
       task('cdp-core-pages-smoke', 'node', ['scripts/cdp-core-pages-smoke-audit-v1.cjs']),
       task('human-flow-procurement-warehouse', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:human-flow -- --module=procurement-warehouse'] : ['run', 'audit:human-flow', '--', '--module=procurement-warehouse']),
+      task('receivable-adjustment-browser-chain', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:receivable:browser'] : ['run', 'audit:receivable:browser']),
       task('shipping-browser-chain', 'node', ['scripts/shipping-browser-audit-v1.cjs']),
     );
   }

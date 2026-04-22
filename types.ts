@@ -274,6 +274,9 @@ export interface SalesOrder {
   baseAmount?: number;
   finalAmount?: number;
   paidAmount: number;
+  receivableAdjustmentAmount?: number;
+  effectiveReceivableAmount?: number;
+  outstandingAmount?: number;
   paymentRecords?: PaymentRecord[];
   dueDate?: string;
   status: OrderStatus;

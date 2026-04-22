@@ -19,6 +19,7 @@ type Props = {
   error?: React.ReactNode;
   disabled?: boolean;
   readOnly?: boolean;
+  list?: string;
   dataTestId?: string;
   className?: string;
   inputClassName?: string;
@@ -39,6 +40,7 @@ export const FormField: React.FC<Props> = ({
   error,
   disabled = false,
   readOnly = false,
+  list,
   dataTestId,
   className = '',
   inputClassName = '',
@@ -90,6 +92,7 @@ export const FormField: React.FC<Props> = ({
           placeholder={placeholder}
           disabled={disabled}
           readOnly={readOnly}
+          list={list}
           className={baseClass}
         />
       )}
