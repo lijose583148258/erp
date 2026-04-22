@@ -3,7 +3,10 @@ import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import type { TransactionClient } from './stock-movement.service';
-import { applyFinanceAdjustmentTx } from './adjustment/finance-adjustment.service';
+import {
+    applyFinanceAdjustmentTx,
+    assertFinanceAdjustmentCategoryCanUsePaidAmount,
+} from './adjustment/finance-adjustment.service';
 
 export type AdjustmentDomain = 'finance' | 'production' | 'inventory';
 export type AdjustmentTargetType = 'order' | 'productBatch' | 'manual';
@@ -157,6 +160,8 @@ export class AdjustmentService {
         if (!['pending', 'posted'].includes(status)) {
             throw new Error('New adjustment can only be created as pending or posted');
         }
+
+        assertFinanceAdjustmentCategoryCanUsePaidAmount(input.domain, input.reasonCategory);
 
         const adjustmentNo = this.buildAdjustmentNo();
 
@@ -330,6 +335,8 @@ export class AdjustmentService {
             if (adjustment.status === 'reversed' || adjustment.status === 'rejected') {
                 throw new Error('Adjustment cannot be applied in its current status');
             }
+
+            assertFinanceAdjustmentCategoryCanUsePaidAmount(adjustment.domain, adjustment.reasonCategory);
 
             const claim = await tx.adjustmentRecord.updateMany({
                 where: { id: adjustmentId, status: 'pending' },

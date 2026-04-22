@@ -24,7 +24,7 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
             新建调账
           </h3>
           <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-            财务补录、生产损耗、库存盘差
+            收款更正、生产损耗、库存盘差
           </p>
         </div>
         <div className="rounded-2xl bg-slate-100 p-3 text-slate-500 dark:bg-slate-800">

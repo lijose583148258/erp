@@ -320,6 +320,64 @@ async function auditPendingApplyRejected(tokens, customer) {
   });
 }
 
+async function auditReceivableOnlyCategoriesRejected(tokens, customer) {
+  const order = await createOrder(tokens.sales, customer.id, 'AR-SEMANTIC');
+  const before = await getOrder(tokens.manager.token, order.id);
+  const blockedCategories = [
+    {
+      category: 'bad_debt_writeoff',
+      status: 'posted',
+      reason: `ADJ-BAD-DEBT-${RUN_ID}`,
+      note: 'bad-debt-must-not-change-paid-amount',
+    },
+    {
+      category: 'credit_memo',
+      status: 'pending',
+      reason: `ADJ-CREDIT-MEMO-${RUN_ID}`,
+      note: 'credit-memo-must-use-receivable-module',
+    },
+  ];
+
+  const results = [];
+  for (const item of blockedCategories) {
+    const response = await createAdjustment(tokens.manager.token, {
+      domain: 'finance',
+      targetType: 'order',
+      orderId: Number(order.id),
+      amountDelta: 10,
+      reason: item.reason,
+      reasonCategory: item.category,
+      status: item.status,
+      note: item.note,
+    });
+    results.push({ category: item.category, status: response.status, body: response.json });
+  }
+
+  const after = await getOrder(tokens.manager.token, order.id);
+  assert(
+    results.every(item => item.status === 409),
+    'receivable-only finance categories must be rejected by paidAmount adjustment endpoint',
+    { results },
+  );
+  assert(
+    results.every(item => String(item.body?.message || '').includes('应收')),
+    'receivable-only rejection message must explain the receivable-adjustment boundary',
+    { results },
+  );
+  assert(amount(after.paidAmount) === amount(before.paidAmount), 'receivable-only category rejection changed paidAmount', {
+    beforePaidAmount: before.paidAmount,
+    afterPaidAmount: after.paidAmount,
+    results,
+  });
+  recordStep({
+    step: 'receivable-only-finance-categories-rejected',
+    result: 'passed',
+    orderId: order.id,
+    results,
+    paidAmount: amount(after.paidAmount),
+  });
+}
+
 async function auditConcurrentAdjustments(tokens, customer) {
   const order = await createOrder(tokens.sales, customer.id, 'CONCURRENT');
   const payload = (index) => ({
@@ -371,6 +429,7 @@ async function main() {
     await withTimeout('audit-over-amount-rejected', 30000, async () => auditOverAmountRejected(tokens, customer));
     await withTimeout('audit-negative-below-zero-rejected', 30000, async () => auditNegativeBelowZeroRejected(tokens, customer));
     await withTimeout('audit-pending-apply-rejected', 30000, async () => auditPendingApplyRejected(tokens, customer));
+    await withTimeout('audit-receivable-only-categories-rejected', 30000, async () => auditReceivableOnlyCategoriesRejected(tokens, customer));
     await withTimeout('audit-concurrent-adjustments', 30000, async () => auditConcurrentAdjustments(tokens, customer));
     report.status = report.findings.length === 0 ? 'passed' : 'failed';
   } catch (error) {

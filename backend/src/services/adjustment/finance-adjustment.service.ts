@@ -4,6 +4,34 @@ import type { TransactionClient } from '../stock-movement.service';
 export const FINANCE_ADJUSTMENT_EXCEEDS_ORDER_AMOUNT = 'FINANCE_ADJUSTMENT_EXCEEDS_ORDER_AMOUNT';
 export const FINANCE_ADJUSTMENT_BELOW_ZERO_PAID_AMOUNT = 'FINANCE_ADJUSTMENT_BELOW_ZERO_PAID_AMOUNT';
 export const FINANCE_ADJUSTMENT_ORDER_STATE_CHANGED = 'FINANCE_ADJUSTMENT_ORDER_STATE_CHANGED';
+export const FINANCE_ADJUSTMENT_REQUIRES_RECEIVABLE_MODULE = 'FINANCE_ADJUSTMENT_REQUIRES_RECEIVABLE_MODULE';
+
+export const RECEIVABLE_ONLY_FINANCE_REASON_CATEGORIES = [
+    'credit_memo',
+    'discount_allowance',
+    'bad_debt_writeoff',
+    'ar_writeoff',
+    'short_payment_writeoff',
+] as const;
+
+const RECEIVABLE_ONLY_FINANCE_REASON_CATEGORY_SET = new Set<string>(
+    RECEIVABLE_ONLY_FINANCE_REASON_CATEGORIES,
+);
+
+const normalizeReasonCategory = (value: string | null | undefined) => String(value || '').trim().toLowerCase();
+
+export const assertFinanceAdjustmentCategoryCanUsePaidAmount = (
+    domain: string,
+    reasonCategory: string | null | undefined,
+) => {
+    if (domain !== 'finance') {
+        return;
+    }
+
+    if (RECEIVABLE_ONLY_FINANCE_REASON_CATEGORY_SET.has(normalizeReasonCategory(reasonCategory))) {
+        throw new Error(FINANCE_ADJUSTMENT_REQUIRES_RECEIVABLE_MODULE);
+    }
+};
 
 export const getAdjustmentConflictMessage = (error: unknown) => {
     if (!(error instanceof Error)) {
@@ -20,6 +48,10 @@ export const getAdjustmentConflictMessage = (error: unknown) => {
 
     if (error.message === FINANCE_ADJUSTMENT_ORDER_STATE_CHANGED) {
         return '订单已收金额已变化，请刷新后重试';
+    }
+
+    if (error.message === FINANCE_ADJUSTMENT_REQUIRES_RECEIVABLE_MODULE) {
+        return '应收减免、折让、贷项、坏账核销不能通过“已收金额调账”处理，请走应收调整专用流程';
     }
 
     return null;

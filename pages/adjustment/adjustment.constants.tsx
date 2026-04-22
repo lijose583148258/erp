@@ -68,15 +68,15 @@ export const emptyAdjustmentForm: AdjustmentFormState = {
 export const adjustmentTemplates = [
   {
     id: 'finance',
-    label: '\u8d22\u52a1\u8865\u5f55',
-    helperText: '\u8865\u5f55\u7ebf\u4e0b\u5230\u8d26\u6216\u8d22\u52a1\u4fee\u6b63',
+    label: '\u6536\u6b3e\u66f4\u6b63',
+    helperText: '\u53ea\u4fee\u6b63\u5df2\u6536\u91d1\u989d\uff0c\u51cf\u514d\u002f\u574f\u8d26\u8d70\u5e94\u6536\u8c03\u6574',
     icon: BadgeDollarSign,
     patch: {
       domain: 'finance' as AdjustmentDomain,
       targetType: 'order' as AdjustmentTargetType,
       amountDelta: '1000',
-      reason: '\u7ebf\u4e0b\u56de\u6b3e\u8865\u5f55',
-      reasonCategory: 'manual_reconciliation',
+      reason: '\u7ebf\u4e0b\u5230\u8d26\u6216\u6536\u6b3e\u66f4\u6b63',
+      reasonCategory: 'cash_receipt_correction',
     },
   },
   {
