@@ -5,6 +5,7 @@ import { repairBarterSchema } from './runtime-schema-barter-repair';
 import { repairCoreSchema } from './runtime-schema-core-repair';
 import { repairProductionSchema } from './runtime-schema-production-repair';
 import { repairReceiptSchema } from './runtime-schema-receipt-repair';
+import { repairReceivableSchema } from './runtime-schema-receivable-repair';
 import { repairStockSchema } from './runtime-schema-stock-repair';
 
 export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
@@ -23,6 +24,8 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   await repairAuthSchema(report);
 
   await repairBarterSchema(report);
+
+  await repairReceivableSchema(report);
 
   return report;
 };

@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { CollectionStateService } from './collection-state.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { getOutstandingAmount } from './collection/collection.helpers';
 import type { Prisma } from '@prisma/client';
 import type { TransactionClient } from './stock-movement.service';
 import type {
@@ -239,6 +240,7 @@ export class BarterService {
           status: true,
           finalAmount: true,
           paidAmount: true,
+          receivableAdjustmentAmount: true,
         },
       });
 
@@ -254,7 +256,11 @@ export class BarterService {
         throw new Error('Linked order does not belong to the settlement customer');
       }
 
-      const outstandingAmount = roundMoney(Number(linkedOrder.finalAmount) - Number(linkedOrder.paidAmount));
+      const outstandingAmount = roundMoney(getOutstandingAmount(
+        Number(linkedOrder.finalAmount),
+        Number(linkedOrder.paidAmount),
+        Number(linkedOrder.receivableAdjustmentAmount),
+      ));
       if (outstandingAmount <= 0) {
         throw new Error('Linked order has no outstanding receivable for barter posting');
       }
@@ -344,6 +350,7 @@ export class BarterService {
             customerId: true,
             status: true,
             finalAmount: true,
+            receivableAdjustmentAmount: true,
           },
         });
 
@@ -367,7 +374,11 @@ export class BarterService {
           _sum: { amount: true },
         });
         const paidAmount = Number(verifiedPayments._sum.amount || 0);
-        const liveOutstandingAmount = roundMoney(Number(linkedOrder.finalAmount) - paidAmount);
+        const liveOutstandingAmount = roundMoney(getOutstandingAmount(
+          Number(linkedOrder.finalAmount),
+          paidAmount,
+          Number(linkedOrder.receivableAdjustmentAmount),
+        ));
         if (liveOutstandingAmount <= 0) {
           throw new Error('Linked order has no outstanding receivable for barter posting');
         }

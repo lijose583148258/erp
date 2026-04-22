@@ -30,6 +30,7 @@ export class CollectionReminderService {
         orderNo: true,
         finalAmount: true,
         paidAmount: true,
+        receivableAdjustmentAmount: true,
         paymentTerms: true,
         createdAt: true,
         customer: {
@@ -49,7 +50,11 @@ export class CollectionReminderService {
     }
 
     const dueDate = getDueDate(order.createdAt, order.paymentTerms);
-    const outstanding = getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+    const outstanding = getOutstandingAmount(
+      Number(order.finalAmount),
+      Number(order.paidAmount),
+      Number(order.receivableAdjustmentAmount),
+    );
 
     await prisma.auditLog.create({
       data: {

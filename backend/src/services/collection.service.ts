@@ -42,6 +42,7 @@ export class CollectionService {
                 orderNo: true,
                 finalAmount: true,
                 paidAmount: true,
+                receivableAdjustmentAmount: true,
                 paymentTerms: true,
                 paymentStatus: true,
                 status: true,
@@ -72,7 +73,11 @@ export class CollectionService {
 
         const summary = orders.reduce<ReceivablesBaseSnapshot>(
             (acc, order) => {
-                const outstanding = getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+                const outstanding = getOutstandingAmount(
+                    Number(order.finalAmount),
+                    Number(order.paidAmount),
+                    Number(order.receivableAdjustmentAmount),
+                );
                 const daysOverdue = getOverdueDays(order.createdAt, order.paymentTerms, now);
                 const bucket = getAgingBucket(daysOverdue);
                 acc.agingBuckets[bucket] += outstanding;
@@ -288,6 +293,7 @@ export class CollectionService {
                     orderNo: true,
                     finalAmount: true,
                     paidAmount: true,
+                    receivableAdjustmentAmount: true,
                     paymentTerms: true,
                     createdAt: true,
                     customer: {
@@ -308,7 +314,11 @@ export class CollectionService {
             }
 
             const dueDate = getDueDate(order.createdAt, order.paymentTerms);
-            const outstanding = getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+            const outstanding = getOutstandingAmount(
+                Number(order.finalAmount),
+                Number(order.paidAmount),
+                Number(order.receivableAdjustmentAmount),
+            );
 
             await prisma.auditLog.create({
                 data: {

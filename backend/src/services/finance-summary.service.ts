@@ -192,6 +192,7 @@ export class FinanceSummaryService {
           orderNo: true,
           finalAmount: true,
           paidAmount: true,
+          receivableAdjustmentAmount: true,
           baseAmount: true,
           lockedExchangeRate: true,
           paymentStatus: true,
@@ -287,10 +288,20 @@ export class FinanceSummaryService {
 
     const orderMetrics = orders.map(order => {
       const totalAmount = toNumber(order.finalAmount);
+      const effectiveReceivableAmount = Math.max(
+        0,
+        totalAmount - toNumber(order.receivableAdjustmentAmount),
+      );
       const totalBaseAmount = resolveOrderBaseAmount({
         finalAmount: order.finalAmount,
         baseAmount: order.baseAmount,
         lockedExchangeRate: order.lockedExchangeRate,
+      });
+      const effectiveReceivableBaseAmount = resolvePortionBaseAmount({
+        portionAmount: effectiveReceivableAmount,
+        totalAmount: order.finalAmount,
+        totalBaseAmount: order.baseAmount,
+        exchangeRate: order.lockedExchangeRate,
       });
       const receivedBaseAmount = resolvePortionBaseAmount({
         portionAmount: order.paidAmount,
@@ -298,12 +309,14 @@ export class FinanceSummaryService {
         totalBaseAmount: order.baseAmount,
         exchangeRate: order.lockedExchangeRate,
       });
-      const outstandingBaseAmount = getOutstandingAmount(totalBaseAmount, receivedBaseAmount);
+      const outstandingBaseAmount = getOutstandingAmount(effectiveReceivableBaseAmount, receivedBaseAmount);
 
       return {
         order,
         totalAmount,
         totalBaseAmount,
+        effectiveReceivableAmount,
+        effectiveReceivableBaseAmount,
         receivedBaseAmount,
         outstandingBaseAmount,
       };

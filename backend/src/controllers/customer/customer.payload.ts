@@ -14,6 +14,7 @@ type CustomerOrderStatSource = {
   paymentTerms: number;
   finalAmount: unknown;
   paidAmount: unknown;
+  receivableAdjustmentAmount?: unknown;
 };
 
 const isRecord = (value: unknown): value is CustomerRecord =>
@@ -220,7 +221,8 @@ export function buildOrderStats(orders: CustomerOrderStatSource[]): CustomerOrde
   const sortedOrders = [...orders].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
   const totalAmount = sortedOrders.reduce((sum, order) => sum + Number(order.finalAmount || 0), 0);
   const usedCredit = sortedOrders.reduce((sum, order) => {
-    const outstanding = Number(order.finalAmount || 0) - Number(order.paidAmount || 0);
+    const effectiveReceivable = Math.max(0, Number(order.finalAmount || 0) - Number(order.receivableAdjustmentAmount || 0));
+    const outstanding = effectiveReceivable - Number(order.paidAmount || 0);
     return sum + Math.max(0, outstanding);
   }, 0);
   const termsDays = Number(sortedOrders[sortedOrders.length - 1].paymentTerms || 30);

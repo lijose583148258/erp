@@ -6,6 +6,7 @@ import {
 export const repairCoreSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'orders', 'locked_exchange_rate', 'REAL');
   await addColumnIfMissing(report, 'orders', 'base_amount', 'REAL');
+  await addColumnIfMissing(report, 'orders', 'receivable_adjustment_amount', 'REAL NOT NULL DEFAULT 0');
 
   await addColumnIfMissing(report, 'customers', 'contacts_json', 'TEXT');
   await addColumnIfMissing(report, 'customers', 'addresses_json', 'TEXT');

@@ -52,6 +52,7 @@ model Customer {
   collectionDisputes CollectionDispute[]
   barterAgreements BarterAgreement[]
   barterSettlements BarterSettlement[]
+  receivableAdjustments ReceivableAdjustment[]
 
   @@index([salespersonId])
   @@index([riskLevel])
@@ -102,9 +103,11 @@ model Order {
   collectionDisputes CollectionDispute[]
   barterAgreements BarterAgreement[]
   barterSettlements BarterSettlement[]
+  receivableAdjustments ReceivableAdjustment[]
   
   // 财务统计增强
   paidAmount      Float     @default(0) @map("paid_amount")
+  receivableAdjustmentAmount Float @default(0) @map("receivable_adjustment_amount")
   paymentStatus   String    @default("unpaid") @map("payment_status") // unpaid, partial, paid
   shipmentHold    Boolean   @default(false) @map("shipment_hold")
   shipmentHoldReason String? @map("shipment_hold_reason")

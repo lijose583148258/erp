@@ -32,6 +32,9 @@ model User {
   barterAgreementsCreated BarterAgreement[]
   customerPoolUpdates Customer[] @relation("CustomerPoolUpdater")
   barterSettlementsCreated BarterSettlement[]
+  receivableAdjustmentsCreated ReceivableAdjustment[] @relation("ReceivableAdjustmentCreator")
+  receivableAdjustmentsPosted ReceivableAdjustment[] @relation("ReceivableAdjustmentPoster")
+  receivableAdjustmentsReversed ReceivableAdjustment[] @relation("ReceivableAdjustmentReverser")
 
   @@map("users")
 }

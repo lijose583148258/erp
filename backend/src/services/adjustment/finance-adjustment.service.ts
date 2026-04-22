@@ -1,5 +1,9 @@
 import type { AdjustmentRecord } from '@prisma/client';
 import type { TransactionClient } from '../stock-movement.service';
+import {
+    determineReceivablePaymentStatus,
+    getOutstandingAmount,
+} from '../collection/collection.helpers';
 
 export const FINANCE_ADJUSTMENT_EXCEEDS_ORDER_AMOUNT = 'FINANCE_ADJUSTMENT_EXCEEDS_ORDER_AMOUNT';
 export const FINANCE_ADJUSTMENT_BELOW_ZERO_PAID_AMOUNT = 'FINANCE_ADJUSTMENT_BELOW_ZERO_PAID_AMOUNT';
@@ -74,6 +78,7 @@ const recalculateCustomerOverdueAmountTx = async (tx: AdjustmentTx, customerId: 
         select: {
             finalAmount: true,
             paidAmount: true,
+            receivableAdjustmentAmount: true,
             paymentTerms: true,
             createdAt: true,
         },
@@ -84,7 +89,11 @@ const recalculateCustomerOverdueAmountTx = async (tx: AdjustmentTx, customerId: 
 
     const overdueAmount = orders.reduce((sum, order) => {
         const dueDate = new Date(order.createdAt.getTime() + Number(order.paymentTerms || 0) * DAY_MS);
-        const outstanding = Math.max(0, Number(order.finalAmount) - Number(order.paidAmount));
+        const outstanding = getOutstandingAmount(
+            Number(order.finalAmount),
+            Number(order.paidAmount),
+            Number(order.receivableAdjustmentAmount),
+        );
 
         if (outstanding <= 0) {
             return sum;
@@ -118,6 +127,7 @@ export const applyFinanceAdjustmentTx = async (tx: AdjustmentTx, adjustment: Per
             customerId: true,
             finalAmount: true,
             paidAmount: true,
+            receivableAdjustmentAmount: true,
             paymentStatus: true,
         },
     });
@@ -135,7 +145,8 @@ export const applyFinanceAdjustmentTx = async (tx: AdjustmentTx, adjustment: Per
     });
 
     const deltaCents = toCents(Number(adjustment.amountDelta || 0));
-    const finalAmountCents = toCents(Number(order.finalAmount));
+    const effectiveReceivableAmount = Math.max(0, Number(order.finalAmount) - Number(order.receivableAdjustmentAmount || 0));
+    const finalAmountCents = toCents(effectiveReceivableAmount);
     const currentPaidAmountCents = toCents(Number(order.paidAmount));
     const nextPaidAmountCents = currentPaidAmountCents + deltaCents;
 
@@ -148,7 +159,11 @@ export const applyFinanceAdjustmentTx = async (tx: AdjustmentTx, adjustment: Per
     }
 
     const nextPaidAmount = fromCents(nextPaidAmountCents);
-    const paymentStatus = nextPaidAmountCents >= finalAmountCents ? 'paid' : nextPaidAmountCents > 0 ? 'partial' : 'unpaid';
+    const paymentStatus = determineReceivablePaymentStatus(
+        nextPaidAmount,
+        Number(order.finalAmount),
+        Number(order.receivableAdjustmentAmount),
+    );
     const updatedOrder = await tx.order.updateMany({
         where: {
             id: order.id,

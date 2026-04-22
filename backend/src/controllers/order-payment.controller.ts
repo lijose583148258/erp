@@ -5,6 +5,7 @@ import {
     CollectionStateService,
     getPaymentVerificationConflictMessage,
 } from '../services/collection-state.service';
+import { getOutstandingAmount } from '../services/collection/collection.helpers';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { ApiResponse } from '../types/api.types';
 import { withDbRetry } from '../utils/dbRetry';
@@ -34,6 +35,7 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
                 paymentStatus: true,
                 paidAmount: true,
                 finalAmount: true,
+                receivableAdjustmentAmount: true,
                 createdBy: true,
                 customer: { select: { salespersonId: true, poolState: true, segment: true } },
             },
@@ -59,15 +61,19 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
             } as ApiResponse);
         }
 
-        if (Number(orderMeta.paidAmount) >= Number(orderMeta.finalAmount) || orderMeta.paymentStatus === 'paid') {
+        const orderOutstanding = getOutstandingAmount(
+            Number(orderMeta.finalAmount),
+            Number(orderMeta.paidAmount),
+            Number(orderMeta.receivableAdjustmentAmount),
+        );
+        if (orderOutstanding <= 0.01 || orderMeta.paymentStatus === 'paid') {
             return res.status(400).json({
                 success: false,
                 message: 'Order is already fully paid.',
             } as ApiResponse);
         }
 
-        const outstanding = Math.max(0, Number(orderMeta.finalAmount) - Number(orderMeta.paidAmount));
-        if (paymentAmount - outstanding > 0.01) {
+        if (paymentAmount - orderOutstanding > 0.01) {
             return res.status(400).json({
                 success: false,
                 message: 'Payment amount exceeds outstanding balance.',
@@ -87,10 +93,16 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
                     paymentStatus: true,
                     paidAmount: true,
                     finalAmount: true,
+                    receivableAdjustmentAmount: true,
                 },
             });
 
-            if (Number(liveOrder.paidAmount) >= Number(liveOrder.finalAmount) || liveOrder.paymentStatus === 'paid') {
+            const liveOrderOutstanding = getOutstandingAmount(
+                Number(liveOrder.finalAmount),
+                Number(liveOrder.paidAmount),
+                Number(liveOrder.receivableAdjustmentAmount),
+            );
+            if (liveOrderOutstanding <= 0.01 || liveOrder.paymentStatus === 'paid') {
                 return { duplicatePaymentId: null, alreadyPaid: true };
             }
 
@@ -120,7 +132,7 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
                 _sum: { amount: true },
             });
             const pendingAmount = Number(pendingPayments._sum.amount || 0);
-            const liveOutstanding = Math.max(0, Number(liveOrder.finalAmount) - Number(liveOrder.paidAmount) - pendingAmount);
+            const liveOutstanding = Math.max(0, liveOrderOutstanding - pendingAmount);
             if (paymentAmount - liveOutstanding > 0.01) {
                 return { duplicatePaymentId: null, pendingExceedsOutstanding: true };
             }

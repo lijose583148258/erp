@@ -35,6 +35,7 @@ export interface CollectionLedgerRecord {
   riskLevel: string;
   finalAmount: number;
   paidAmount: number;
+  receivableAdjustmentAmount: number;
   paymentStatus: string;
   milestoneId: number | null;
   milestoneTitle: string | null;
@@ -54,6 +55,7 @@ export interface CollectionOverdueRecord {
   outstanding: number;
   finalAmount: number;
   paidAmount: number;
+  receivableAdjustmentAmount: number;
   paymentStatus: string;
   customerId: number;
   customerName: string;
@@ -146,6 +148,7 @@ export class CollectionQueryService {
               orderNo: true,
               finalAmount: true,
               paidAmount: true,
+              receivableAdjustmentAmount: true,
               paymentStatus: true,
               customer: {
                 select: {
@@ -201,6 +204,7 @@ export class CollectionQueryService {
         riskLevel: record.order.customer.riskLevel,
         finalAmount: Number(record.order.finalAmount),
         paidAmount: Number(record.order.paidAmount),
+        receivableAdjustmentAmount: Number(record.order.receivableAdjustmentAmount),
         paymentStatus: record.order.paymentStatus,
         milestoneId: record.milestone?.id || null,
         milestoneTitle: record.milestone?.title || null,
@@ -231,6 +235,7 @@ export class CollectionQueryService {
         orderNo: true,
         finalAmount: true,
         paidAmount: true,
+        receivableAdjustmentAmount: true,
         paymentTerms: true,
         paymentStatus: true,
         createdAt: true,
@@ -270,7 +275,11 @@ export class CollectionQueryService {
     const overdueOrders = orders
       .map(order => {
         const dueDate = getDueDate(order.createdAt, order.paymentTerms);
-        const outstanding = getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+        const outstanding = getOutstandingAmount(
+          Number(order.finalAmount),
+          Number(order.paidAmount),
+          Number(order.receivableAdjustmentAmount),
+        );
         const daysOverdue = Math.max(0, Math.ceil((now.getTime() - dueDate.getTime()) / COLLECTION_DAY_MS));
         const actionPlan = getCollectionActionPlan(daysOverdue);
 
@@ -281,6 +290,7 @@ export class CollectionQueryService {
           dueDate,
           finalAmount: Number(order.finalAmount),
           paidAmount: Number(order.paidAmount),
+          receivableAdjustmentAmount: Number(order.receivableAdjustmentAmount),
           paymentStatus: order.paymentStatus,
           outstanding,
           daysOverdue,
@@ -348,6 +358,7 @@ export class CollectionQueryService {
         outstanding: order.outstanding,
         finalAmount: order.finalAmount,
         paidAmount: order.paidAmount,
+        receivableAdjustmentAmount: order.receivableAdjustmentAmount,
         paymentStatus: order.paymentStatus,
         customerId: order.customerId,
         customerName: order.customerName,

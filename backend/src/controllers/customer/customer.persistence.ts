@@ -90,6 +90,7 @@ export async function loadOrderStats(customerIds: number[]) {
       paymentTerms: true,
       finalAmount: true,
       paidAmount: true,
+      receivableAdjustmentAmount: true,
     },
     orderBy: { createdAt: 'asc' },
   });

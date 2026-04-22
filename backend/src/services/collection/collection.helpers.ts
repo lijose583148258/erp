@@ -21,8 +21,22 @@ export interface CollectionActionPlan {
     holdRecommended: boolean;
 }
 
-export const getOutstandingAmount = (finalAmount: number, paidAmount: number) =>
-    Math.max(0, Number(finalAmount) - Number(paidAmount));
+export const getEffectiveReceivableAmount = (finalAmount: number, receivableAdjustmentAmount = 0) =>
+    Math.max(0, Number(finalAmount) - Number(receivableAdjustmentAmount || 0));
+
+export const getOutstandingAmount = (finalAmount: number, paidAmount: number, receivableAdjustmentAmount = 0) =>
+    Math.max(0, getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount) - Number(paidAmount));
+
+export const determineReceivablePaymentStatus = (
+    paidAmount: number,
+    finalAmount: number,
+    receivableAdjustmentAmount = 0,
+) => {
+    const effectiveReceivable = getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount);
+    if (Math.round(Number(paidAmount || 0) * 100) >= Math.round(effectiveReceivable * 100)) return 'paid';
+    if (Number(paidAmount || 0) > 0) return 'partial';
+    return 'unpaid';
+};
 
 export const getDueDate = (createdAt: Date, paymentTerms: number) =>
     new Date(createdAt.getTime() + Number(paymentTerms || 0) * COLLECTION_DAY_MS);
@@ -32,9 +46,10 @@ export const isOverdue = (
     paymentTerms: number,
     finalAmount: number,
     paidAmount: number,
+    receivableAdjustmentAmount = 0,
     now = new Date(),
 ) => {
-    const outstanding = getOutstandingAmount(finalAmount, paidAmount);
+    const outstanding = getOutstandingAmount(finalAmount, paidAmount, receivableAdjustmentAmount);
     if (outstanding <= 0) {
         return false;
     }

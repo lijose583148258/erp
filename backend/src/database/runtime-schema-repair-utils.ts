@@ -58,6 +58,7 @@ const KNOWN_TABLES = new Set([
   'inventory_cost_ledgers',
   'warehouses', 'locations', 'stock_balances', 'stock_entries', 'stock_movements',
   'auth_roles', 'auth_permissions', 'auth_role_permissions',
+  'receivable_adjustments',
 ]);
 
 export const columnExists = async (tableName: string, columnName: string) => {

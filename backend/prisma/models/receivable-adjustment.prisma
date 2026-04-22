@@ -1,0 +1,37 @@
+model ReceivableAdjustment {
+  id             Int       @id @default(autoincrement())
+  adjustmentNo   String    @unique @map("adjustment_no")
+  adjustmentType String    @map("adjustment_type")
+  customerId     Int       @map("customer_id")
+  orderId        Int       @map("order_id")
+  amount         Float
+  currency       String    @default("CNY")
+  exchangeRate   Float     @default(1.0) @map("exchange_rate")
+  baseAmount     Float     @default(0) @map("base_amount")
+  reason         String
+  evidenceJson   String?   @map("evidence_json")
+  beforeSnapshot String?   @map("before_snapshot")
+  afterSnapshot  String?   @map("after_snapshot")
+  note           String?
+  status         String    @default("pending")
+  createdBy      Int       @map("created_by")
+  postedBy       Int?      @map("posted_by")
+  reversedBy     Int?      @map("reversed_by")
+  postedAt       DateTime? @map("posted_at")
+  reversedAt     DateTime? @map("reversed_at")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  customer       Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  creator        User      @relation("ReceivableAdjustmentCreator", fields: [createdBy], references: [id])
+  poster         User?     @relation("ReceivableAdjustmentPoster", fields: [postedBy], references: [id], onDelete: SetNull)
+  reverser       User?     @relation("ReceivableAdjustmentReverser", fields: [reversedBy], references: [id], onDelete: SetNull)
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([adjustmentType])
+  @@index([createdAt])
+  @@map("receivable_adjustments")
+}

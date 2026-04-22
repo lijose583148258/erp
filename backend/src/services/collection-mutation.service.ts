@@ -2,6 +2,7 @@
 import { CollectionStateService } from './collection-state.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { getOutstandingAmount } from './collection/collection.helpers';
 
 const ACTIVE_DISPUTE_STATUSES = ['open', 'reviewing'] as const;
 export const PROMISE_AMOUNT_EXCEEDS_OUTSTANDING = 'PROMISE_AMOUNT_EXCEEDS_OUTSTANDING';
@@ -18,8 +19,12 @@ export const getCollectionMutationConflictMessage = (error: unknown) => {
 };
 
 const toCents = (value: number) => Math.round(Number(value || 0) * 100);
-const getOutstandingAfterReservedAmount = (finalAmount: number, paidAmount: number, reservedAmount: number) =>
-    Math.max(0, Number(finalAmount) - Number(paidAmount) - Number(reservedAmount || 0));
+const getOutstandingAfterReservedAmount = (
+    finalAmount: number,
+    paidAmount: number,
+    reservedAmount: number,
+    receivableAdjustmentAmount = 0,
+) => Math.max(0, getOutstandingAmount(finalAmount, paidAmount, receivableAdjustmentAmount) - Number(reservedAmount || 0));
 
 function assertPromiseTransition(currentStatus: string, nextStatus: 'kept' | 'missed' | 'cancelled') {
     if (currentStatus === nextStatus) {
@@ -118,6 +123,7 @@ export class CollectionMutationService {
                     customerId: true,
                     finalAmount: true,
                     paidAmount: true,
+                    receivableAdjustmentAmount: true,
                     status: true,
                     paymentStatus: true,
                 },
@@ -142,6 +148,7 @@ export class CollectionMutationService {
                 Number(order.finalAmount),
                 Number(order.paidAmount),
                 reservedAmount,
+                Number(order.receivableAdjustmentAmount),
             );
 
             if (toCents(input.promisedAmount) > toCents(availableAmount)) {
@@ -251,6 +258,7 @@ export class CollectionMutationService {
                     customerId: true,
                     finalAmount: true,
                     paidAmount: true,
+                    receivableAdjustmentAmount: true,
                     status: true,
                     paymentStatus: true,
                 },
@@ -277,6 +285,7 @@ export class CollectionMutationService {
                     Number(order.finalAmount),
                     Number(order.paidAmount),
                     reservedAmount,
+                    Number(order.receivableAdjustmentAmount),
                 );
 
                 if (toCents(disputedAmount) > toCents(availableAmount)) {

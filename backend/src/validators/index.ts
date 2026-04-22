@@ -13,3 +13,4 @@ export * from './orders';
 export * from './inventory';
 export * from './procurement';
 export * from './barter';
+export * from './receivable-adjustment';

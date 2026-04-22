@@ -89,6 +89,20 @@ const ORDER_DETAIL_INCLUDE = {
             createdAt: true,
         },
     },
+    receivableAdjustments: {
+        orderBy: { createdAt: 'desc' as const },
+        select: {
+            id: true,
+            adjustmentNo: true,
+            adjustmentType: true,
+            amount: true,
+            status: true,
+            reason: true,
+            postedAt: true,
+            reversedAt: true,
+            createdAt: true,
+        },
+    },
     contract: {
         select: {
             id: true,
@@ -127,6 +141,9 @@ const formatOrderDetail = (order: OrderDetail) => {
         discountAmount: Number(order.discountAmount),
         finalAmount: Number(order.finalAmount),
         paidAmount: Number(order.paidAmount),
+        receivableAdjustmentAmount: Number(order.receivableAdjustmentAmount),
+        effectiveReceivableAmount: Math.max(0, Number(order.finalAmount) - Number(order.receivableAdjustmentAmount || 0)),
+        outstandingAmount: Math.max(0, Number(order.finalAmount) - Number(order.receivableAdjustmentAmount || 0) - Number(order.paidAmount)),
         commissionRate: order.commissionRate ? Number(order.commissionRate) : null,
         commissionAmount: order.commissionAmount ? Number(order.commissionAmount) : null,
         items: (order.items || []).map((item) => ({
@@ -142,6 +159,10 @@ const formatOrderDetail = (order: OrderDetail) => {
         collectionPromises: (order.collectionPromises || []).map((record) => ({
             ...record,
             promisedAmount: Number(record.promisedAmount),
+        })),
+        receivableAdjustments: (order.receivableAdjustments || []).map((record) => ({
+            ...record,
+            amount: Number(record.amount),
         })),
     };
 
@@ -212,6 +233,7 @@ export const OrderWorkspaceService = {
                     currency: true,
                     paymentTerms: true,
                     paidAmount: true,
+                    receivableAdjustmentAmount: true,
                     paymentStatus: true,
                     status: true,
                     commissionRate: true,
@@ -246,6 +268,9 @@ export const OrderWorkspaceService = {
         const formattedOrders = orders.map((o) => decorateCommercialOrderState({
             ...o,
             paidAmount: Number(o.paidAmount),
+            receivableAdjustmentAmount: Number(o.receivableAdjustmentAmount),
+            effectiveReceivableAmount: Math.max(0, Number(o.finalAmount) - Number(o.receivableAdjustmentAmount || 0)),
+            outstandingAmount: Math.max(0, Number(o.finalAmount) - Number(o.receivableAdjustmentAmount || 0) - Number(o.paidAmount)),
             paymentStatus: o.paymentStatus,
             contractNo: o.contract?.contractNo || null,
             commissionRate: o.commissionRate ? Number(o.commissionRate) : null,

@@ -1,6 +1,7 @@
 import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import {
+    determineReceivablePaymentStatus,
     getDunningLevel,
     getOutstandingAmount,
     getOverdueDays,
@@ -18,12 +19,6 @@ export const getPaymentVerificationConflictMessage = (error: unknown) => (
         : null
 );
 
-const determinePaymentStatus = (paidAmount: number, finalAmount: number): string => {
-    if (toCents(paidAmount) >= toCents(finalAmount)) return 'paid';
-    if (paidAmount > 0) return 'partial';
-    return 'unpaid';
-};
-
 export class CollectionStateService {
     static async syncCustomerOverdueAmount(customerId: number): Promise<number> {
         const orders = await prisma.order.findMany({
@@ -35,6 +30,7 @@ export class CollectionStateService {
             select: {
                 finalAmount: true,
                 paidAmount: true,
+                receivableAdjustmentAmount: true,
                 paymentTerms: true,
                 createdAt: true,
             },
@@ -42,11 +38,22 @@ export class CollectionStateService {
 
         const now = new Date();
         const overdueAmount = orders.reduce((sum, order) => {
-            if (!isOverdue(order.createdAt, order.paymentTerms, Number(order.finalAmount), Number(order.paidAmount), now)) {
+            if (!isOverdue(
+                order.createdAt,
+                order.paymentTerms,
+                Number(order.finalAmount),
+                Number(order.paidAmount),
+                Number(order.receivableAdjustmentAmount),
+                now,
+            )) {
                 return sum;
             }
 
-            return sum + getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+            return sum + getOutstandingAmount(
+                Number(order.finalAmount),
+                Number(order.paidAmount),
+                Number(order.receivableAdjustmentAmount),
+            );
         }, 0);
 
         await prisma.customer.update({
@@ -85,6 +92,7 @@ export class CollectionStateService {
                     customerId: true,
                     finalAmount: true,
                     paidAmount: true,
+                    receivableAdjustmentAmount: true,
                     paymentTerms: true,
                     createdAt: true,
                 },
@@ -107,9 +115,20 @@ export class CollectionStateService {
         const orderStateByCustomer = new Map<number, { overdueAmount: number; dunningLevel: number }>();
         for (const order of orders) {
             const current = orderStateByCustomer.get(order.customerId) || { overdueAmount: 0, dunningLevel: 0 };
-            if (isOverdue(order.createdAt, order.paymentTerms, Number(order.finalAmount), Number(order.paidAmount), now)) {
+            if (isOverdue(
+                order.createdAt,
+                order.paymentTerms,
+                Number(order.finalAmount),
+                Number(order.paidAmount),
+                Number(order.receivableAdjustmentAmount),
+                now,
+            )) {
                 const daysOverdue = getOverdueDays(order.createdAt, order.paymentTerms, now);
-                current.overdueAmount += getOutstandingAmount(Number(order.finalAmount), Number(order.paidAmount));
+                current.overdueAmount += getOutstandingAmount(
+                    Number(order.finalAmount),
+                    Number(order.paidAmount),
+                    Number(order.receivableAdjustmentAmount),
+                );
                 current.dunningLevel = Math.max(current.dunningLevel, getDunningLevel(daysOverdue));
             }
             orderStateByCustomer.set(order.customerId, current);
@@ -212,6 +231,7 @@ export class CollectionStateService {
                 id: true,
                 customerId: true,
                 finalAmount: true,
+                receivableAdjustmentAmount: true,
             },
         });
 
@@ -220,7 +240,11 @@ export class CollectionStateService {
         }
 
         const paidAmount = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-        const paymentStatus = determinePaymentStatus(paidAmount, Number(order.finalAmount));
+        const paymentStatus = determineReceivablePaymentStatus(
+            paidAmount,
+            Number(order.finalAmount),
+            Number(order.receivableAdjustmentAmount),
+        );
 
         await prisma.order.update({
             where: { id: orderId },
@@ -284,6 +308,7 @@ export class CollectionStateService {
                 select: {
                     id: true,
                     finalAmount: true,
+                    receivableAdjustmentAmount: true,
                     customerId: true,
                 },
             });
@@ -296,11 +321,19 @@ export class CollectionStateService {
                 select: { amount: true },
             });
             const paidAmount = allVerifiedPayments.reduce((sum, record) => sum + Number(record.amount), 0);
-            if (toCents(paidAmount) > toCents(Number(order.finalAmount))) {
+            const effectiveReceivableAmount = Math.max(
+                0,
+                Number(order.finalAmount) - Number(order.receivableAdjustmentAmount || 0),
+            );
+            if (toCents(paidAmount) > toCents(effectiveReceivableAmount)) {
                 throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
             }
 
-            const paymentStatus = determinePaymentStatus(paidAmount, Number(order.finalAmount));
+            const paymentStatus = determineReceivablePaymentStatus(
+                paidAmount,
+                Number(order.finalAmount),
+                Number(order.receivableAdjustmentAmount),
+            );
 
             await tx.order.update({
                 where: { id: order.id },
@@ -392,6 +425,7 @@ export class CollectionStateService {
                     paymentTerms: true,
                     finalAmount: true,
                     paidAmount: true,
+                    receivableAdjustmentAmount: true,
                 },
             }),
             prisma.collectionPromise.findMany({
@@ -421,7 +455,14 @@ export class CollectionStateService {
 
         const now = new Date();
         const dunningLevel = overdueOrders.reduce<number>((max, order) => {
-            if (!isOverdue(order.createdAt, order.paymentTerms, Number(order.finalAmount), Number(order.paidAmount), now)) {
+            if (!isOverdue(
+                order.createdAt,
+                order.paymentTerms,
+                Number(order.finalAmount),
+                Number(order.paidAmount),
+                Number(order.receivableAdjustmentAmount),
+                now,
+            )) {
                 return max;
             }
 
