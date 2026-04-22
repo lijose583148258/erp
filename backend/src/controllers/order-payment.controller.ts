@@ -94,9 +94,35 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
                 return { duplicatePaymentId: null, alreadyPaid: true };
             }
 
-            const liveOutstanding = Math.max(0, Number(liveOrder.finalAmount) - Number(liveOrder.paidAmount));
+            const duplicatePendingPayment = await tx.paymentRecord.findFirst({
+                where: {
+                    orderId: Number(id),
+                    amount: paymentAmount,
+                    method,
+                    payerName: normalizedPayerName,
+                    note: normalizedNote,
+                    isProxy: Boolean(isProxy),
+                    status: 'pending',
+                    createdAt: { gte: duplicateWindowStart },
+                },
+                select: { id: true },
+            });
+
+            if (duplicatePendingPayment) {
+                return { duplicatePaymentId: duplicatePendingPayment.id };
+            }
+
+            const pendingPayments = await tx.paymentRecord.aggregate({
+                where: {
+                    orderId: Number(id),
+                    status: 'pending',
+                },
+                _sum: { amount: true },
+            });
+            const pendingAmount = Number(pendingPayments._sum.amount || 0);
+            const liveOutstanding = Math.max(0, Number(liveOrder.finalAmount) - Number(liveOrder.paidAmount) - pendingAmount);
             if (paymentAmount - liveOutstanding > 0.01) {
-                return { duplicatePaymentId: null, exceedsOutstanding: true };
+                return { duplicatePaymentId: null, pendingExceedsOutstanding: true };
             }
 
             const orderWithContract = await tx.order.findUnique({
@@ -117,23 +143,6 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
             });
 
             const milestoneId = orderWithContract?.contract?.milestones?.[0]?.id ?? null;
-            const duplicatePendingPayment = await tx.paymentRecord.findFirst({
-                where: {
-                    orderId: Number(id),
-                    amount: paymentAmount,
-                    method,
-                    payerName: normalizedPayerName,
-                    note: normalizedNote,
-                    isProxy: Boolean(isProxy),
-                    status: 'pending',
-                    createdAt: { gte: duplicateWindowStart },
-                },
-                select: { id: true },
-            });
-
-            if (duplicatePendingPayment) {
-                return { duplicatePaymentId: duplicatePendingPayment.id };
-            }
 
             await tx.paymentRecord.create({
                 data: {
@@ -170,10 +179,10 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
             } as ApiResponse);
         }
 
-        if (transactionResult.exceedsOutstanding) {
-            return res.status(400).json({
+        if (transactionResult.pendingExceedsOutstanding) {
+            return res.status(409).json({
                 success: false,
-                message: 'Payment amount exceeds outstanding balance.',
+                message: 'Pending payment records already cover the remaining outstanding balance. Verify or reject pending records before adding another payment.',
             } as ApiResponse);
         }
 

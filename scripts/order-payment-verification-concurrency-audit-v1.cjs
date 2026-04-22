@@ -173,6 +173,27 @@ async function recordPayment({ prisma, token, orderId, amount, note }) {
   return { ...payment, id: Number(payment.id) };
 }
 
+async function forceCreatePendingPayment({ prisma, orderId, amount, note }) {
+  const payment = await prisma.paymentRecord.create({
+    data: {
+      orderId: Number(orderId),
+      amount,
+      method: 'bank_transfer',
+      payerName: `Forced Pending Payer ${RUN_ID}`,
+      note,
+      status: 'pending',
+    },
+    select: {
+      id: true,
+      amount: true,
+      status: true,
+      note: true,
+    },
+  });
+  runtime.expect(payment.status === 'pending', `forced pending payment ${note} should be pending`, payment);
+  return { ...payment, id: Number(payment.id) };
+}
+
 async function verifyPayment(token, orderId, paymentId) {
   return runtime.apiFetch(`/orders/${orderId}/payment/${paymentId}/verify`, {
     method: 'POST',
@@ -288,6 +309,53 @@ async function auditSamePaymentDuplicateVerification({ prisma, token, alternateC
   });
 }
 
+async function auditPendingReservationBlocksOverEntry({ prisma, token, alternateCreator }) {
+  await runtime.withTimeout('pending-reservation-blocks-over-entry', STEP_TIMEOUT_MS, async () => {
+    const fixture = await createOrderFixture({ prisma, token, alternateCreator, label: 'reservation', finalAmount: 1000 });
+    const first = await recordPayment({
+      prisma,
+      token,
+      orderId: fixture.orderId,
+      amount: 700,
+      note: `PAY-RES-A-${RUN_ID}`,
+    });
+
+    const second = await runtime.apiFetch(`/orders/${fixture.orderId}/payment`, {
+      method: 'POST',
+      data: {
+        amount: 700,
+        method: 'bank_transfer',
+        payerName: `Payment Payer ${RUN_ID}`,
+        note: `PAY-RES-B-${RUN_ID}`,
+      },
+    }, token);
+    runtime.expect(second.status === 409, 'pending reservation should block a second over-entry payment', {
+      status: second.status,
+      json: second.json,
+    });
+
+    const order = await readOrder(prisma, fixture.orderId);
+    const matching = order.paymentRecords.filter((record) => String(record.note || '').includes('PAY-RES-'));
+    const pending = matching.filter((record) => record.status === 'pending');
+    runtime.expect(matching.length === 1, 'pending reservation guard created an extra payment record', matching);
+    runtime.expect(pending.length === 1 && Number(pending[0].id) === Number(first.id), 'first pending payment was not preserved cleanly', matching);
+    runtime.expect(roundMoney(order.paidAmount) === 0, 'pending reservation should not change paidAmount', order);
+    runtime.expect(order.paymentStatus === 'unpaid', 'pending reservation should not change paymentStatus before verification', order);
+
+    report.steps.push({
+      at: new Date().toISOString(),
+      step: 'pending-reservation-blocks-over-entry-evidence',
+      result: 'passed',
+      orderId: fixture.orderId,
+      firstPaymentId: first.id,
+      secondStatus: second.status,
+      pendingAmount: pending.reduce((sum, record) => sum + Number(record.amount), 0),
+      paidAmount: order.paidAmount,
+      paymentStatus: order.paymentStatus,
+    });
+  });
+}
+
 async function auditOverOutstandingConcurrentVerification({ prisma, token, alternateCreator }) {
   await runtime.withTimeout('over-outstanding-concurrent-verify-blocks-second', STEP_TIMEOUT_MS, async () => {
     const fixture = await createOrderFixture({ prisma, token, alternateCreator, label: 'overpay', finalAmount: 1000 });
@@ -298,9 +366,8 @@ async function auditOverOutstandingConcurrentVerification({ prisma, token, alter
       amount: 700,
       note: `PAY-OVER-A-${RUN_ID}`,
     });
-    const second = await recordPayment({
+    const second = await forceCreatePendingPayment({
       prisma,
-      token,
       orderId: fixture.orderId,
       amount: 700,
       note: `PAY-OVER-B-${RUN_ID}`,
@@ -354,6 +421,7 @@ async function main() {
 
     await auditBalancedConcurrentVerification({ prisma, token: admin.token, alternateCreator });
     await auditSamePaymentDuplicateVerification({ prisma, token: admin.token, alternateCreator });
+    await auditPendingReservationBlocksOverEntry({ prisma, token: admin.token, alternateCreator });
     await auditOverOutstandingConcurrentVerification({ prisma, token: admin.token, alternateCreator });
 
     report.status = 'passed';
