@@ -131,6 +131,58 @@ async function auditConcurrentVerify(token, seed) {
   });
 }
 
+async function auditCollectionAmountGuards(token, seed) {
+  await runtime.withTimeout('collection-promise-dispute-amount-guards', STEP_TIMEOUT_MS, async () => {
+    const excessivePromiseNote = `${testData.promiseNote}-OVER`;
+    const excessiveDisputeNote = `${testData.disputeNote}-OVER`;
+    const promiseResponse = await runtime.apiFetch('/collections/promises', {
+      method: 'POST',
+      data: {
+        customerId: seed.customer.id,
+        orderId: seed.order.id,
+        promisedAmount: 999999,
+        promisedAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+        channel: 'phone',
+        note: excessivePromiseNote,
+      },
+    }, token);
+    runtime.expectStatus(promiseResponse, [409], 'promise amount guard');
+
+    const disputeResponse = await runtime.apiFetch('/collections/disputes', {
+      method: 'POST',
+      data: {
+        customerId: seed.customer.id,
+        orderId: seed.order.id,
+        disputedAmount: 999999,
+        reasonCategory: 'billing',
+        reason: `over-dispute-${RUN_ID}`,
+        note: excessiveDisputeNote,
+      },
+    }, token);
+    runtime.expectStatus(disputeResponse, [409], 'dispute amount guard');
+
+    const [promises, disputes] = await Promise.all([
+      runtime.apiFetch('/collections/promises', {}, token),
+      runtime.apiFetch('/collections/disputes', {}, token),
+    ]);
+    runtime.expectStatus(promises, [200], 'promise readback after amount guard');
+    runtime.expectStatus(disputes, [200], 'dispute readback after amount guard');
+    const createdPromise = runtime.listOf(promises).find((row) => String(row.note || '').includes(excessivePromiseNote));
+    const createdDispute = runtime.listOf(disputes).find((row) => String(row.note || '').includes(excessiveDisputeNote));
+    runtime.expect(!createdPromise, 'excessive promise should not be created', createdPromise);
+    runtime.expect(!createdDispute, 'excessive dispute should not be created', createdDispute);
+
+    report.steps.push({
+      at: new Date().toISOString(),
+      step: 'collection-promise-dispute-amount-guards-evidence',
+      result: 'passed',
+      promiseStatus: promiseResponse.status,
+      disputeStatus: disputeResponse.status,
+      orderId: seed.order.id,
+    });
+  });
+}
+
 async function auditPromiseTerminalRace(token, seed) {
   await runtime.withTimeout('collection-promise-terminal-race', STEP_TIMEOUT_MS, async () => {
     const promise = await postPromise(token, seed);
@@ -190,6 +242,7 @@ async function main() {
     report.seeded = { ...report.seeded, orderId: seed.order.id, paymentId: seed.paymentId };
     await auditConcurrentSync(admin.token);
     await auditConcurrentVerify(admin.token, seed);
+    await auditCollectionAmountGuards(admin.token, seed);
     await auditPromiseTerminalRace(admin.token, seed);
     await auditDisputeTerminalRace(admin.token, seed);
     report.status = 'passed';

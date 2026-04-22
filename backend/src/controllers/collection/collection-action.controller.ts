@@ -5,6 +5,7 @@ import { AuthRequest } from '../../middleware/auth';
 import { ApiResponse } from '../../types/api.types';
 import { CollectionReminderService } from '../../services/collection-reminder.service';
 import { CollectionService } from '../../services/collection.service';
+import { getCollectionMutationConflictMessage } from '../../services/collection-mutation.service';
 import { CollectionStateService } from '../../services/collection-state.service';
 import { canUseOrderForBusinessWrite } from '../../utils/recordAccess';
 import {
@@ -74,7 +75,11 @@ export class CollectionActionController {
       res.status(201).json({ success: true, data: record } as ApiResponse);
     } catch (error) {
       logger.error('Failed to create promise-to-pay', error);
-      res.status(500).json({ success: false, message: 'Failed to create promise-to-pay' } as ApiResponse);
+      const conflictMessage = getCollectionMutationConflictMessage(error);
+      res.status(conflictMessage ? 409 : 500).json({
+        success: false,
+        message: conflictMessage || 'Failed to create promise-to-pay',
+      } as ApiResponse);
     }
   }
 
@@ -147,7 +152,11 @@ export class CollectionActionController {
       res.status(201).json({ success: true, data: record } as ApiResponse);
     } catch (error) {
       logger.error('Failed to create dispute', error);
-      res.status(500).json({ success: false, message: 'Failed to create dispute' } as ApiResponse);
+      const conflictMessage = getCollectionMutationConflictMessage(error);
+      res.status(conflictMessage ? 409 : 500).json({
+        success: false,
+        message: conflictMessage || 'Failed to create dispute',
+      } as ApiResponse);
     }
   }
 

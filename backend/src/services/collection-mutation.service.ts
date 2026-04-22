@@ -4,6 +4,22 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 
 const ACTIVE_DISPUTE_STATUSES = ['open', 'reviewing'] as const;
+export const PROMISE_AMOUNT_EXCEEDS_OUTSTANDING = 'PROMISE_AMOUNT_EXCEEDS_OUTSTANDING';
+export const DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING = 'DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING';
+export const getCollectionMutationConflictMessage = (error: unknown) => {
+    if (!(error instanceof Error)) return null;
+    if (error.message === PROMISE_AMOUNT_EXCEEDS_OUTSTANDING) {
+        return 'Open promise amounts would exceed the order outstanding balance.';
+    }
+    if (error.message === DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING) {
+        return 'Active dispute amounts would exceed the order outstanding balance.';
+    }
+    return null;
+};
+
+const toCents = (value: number) => Math.round(Number(value || 0) * 100);
+const getOutstandingAfterReservedAmount = (finalAmount: number, paidAmount: number, reservedAmount: number) =>
+    Math.max(0, Number(finalAmount) - Number(paidAmount) - Number(reservedAmount || 0));
 
 function assertPromiseTransition(currentStatus: string, nextStatus: 'kept' | 'missed' | 'cancelled') {
     if (currentStatus === nextStatus) {
@@ -93,21 +109,61 @@ export class CollectionMutationService {
         note?: string | null;
         createdBy: number;
     }) {
-        const promise = await prisma.collectionPromise.create({
-            data: {
-                promiseNo: buildBusinessNo('PRM'),
-                customerId: input.customerId,
-                orderId: input.orderId,
-                promisedAmount: input.promisedAmount,
-                promisedAt: input.promisedAt,
-                channel: input.channel,
-                contactName: input.contactName || null,
-                contactPhone: input.contactPhone || null,
-                note: input.note || null,
-                createdBy: input.createdBy,
-                status: 'open',
-            },
-        });
+        const promise = await withDbRetry(() => prisma.$transaction(async (tx) => {
+            const order = await tx.order.update({
+                where: { id: input.orderId },
+                data: { updatedAt: new Date() },
+                select: {
+                    id: true,
+                    customerId: true,
+                    finalAmount: true,
+                    paidAmount: true,
+                    status: true,
+                    paymentStatus: true,
+                },
+            });
+
+            if (order.customerId !== input.customerId) {
+                throw new Error('Promise customer must match the order customer.');
+            }
+            if (order.status === 'cancelled' || order.paymentStatus === 'paid') {
+                throw new Error(PROMISE_AMOUNT_EXCEEDS_OUTSTANDING);
+            }
+
+            const openPromises = await tx.collectionPromise.aggregate({
+                where: {
+                    orderId: input.orderId,
+                    status: 'open',
+                },
+                _sum: { promisedAmount: true },
+            });
+            const reservedAmount = Number(openPromises._sum.promisedAmount || 0);
+            const availableAmount = getOutstandingAfterReservedAmount(
+                Number(order.finalAmount),
+                Number(order.paidAmount),
+                reservedAmount,
+            );
+
+            if (toCents(input.promisedAmount) > toCents(availableAmount)) {
+                throw new Error(PROMISE_AMOUNT_EXCEEDS_OUTSTANDING);
+            }
+
+            return tx.collectionPromise.create({
+                data: {
+                    promiseNo: buildBusinessNo('PRM'),
+                    customerId: input.customerId,
+                    orderId: input.orderId,
+                    promisedAmount: input.promisedAmount,
+                    promisedAt: input.promisedAt,
+                    channel: input.channel,
+                    contactName: input.contactName || null,
+                    contactPhone: input.contactPhone || null,
+                    note: input.note || null,
+                    createdBy: input.createdBy,
+                    status: 'open',
+                },
+            });
+        }), { label: 'createPromiseToPay' });
 
         await CollectionStateService.refreshCustomerCollectionState(input.customerId);
         return promise;
@@ -186,20 +242,63 @@ export class CollectionMutationService {
         note?: string | null;
         createdBy: number;
     }) {
-        const dispute = await prisma.collectionDispute.create({
-            data: {
-                disputeNo: buildBusinessNo('DSP'),
-                customerId: input.customerId,
-                orderId: input.orderId,
-                disputedAmount: input.disputedAmount ?? null,
-                reasonCategory: input.reasonCategory,
-                reason: input.reason,
-                evidenceJson: input.evidenceJson || null,
-                note: input.note || null,
-                createdBy: input.createdBy,
-                status: 'open',
-            },
-        });
+        const dispute = await withDbRetry(() => prisma.$transaction(async (tx) => {
+            const order = await tx.order.update({
+                where: { id: input.orderId },
+                data: { updatedAt: new Date() },
+                select: {
+                    id: true,
+                    customerId: true,
+                    finalAmount: true,
+                    paidAmount: true,
+                    status: true,
+                    paymentStatus: true,
+                },
+            });
+
+            if (order.customerId !== input.customerId) {
+                throw new Error('Dispute customer must match the order customer.');
+            }
+            if (order.status === 'cancelled' || order.paymentStatus === 'paid') {
+                throw new Error(DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING);
+            }
+
+            const disputedAmount = input.disputedAmount ?? null;
+            if (disputedAmount !== null && toCents(disputedAmount) > 0) {
+                const activeDisputes = await tx.collectionDispute.aggregate({
+                    where: {
+                        orderId: input.orderId,
+                        status: { in: [...ACTIVE_DISPUTE_STATUSES] },
+                    },
+                    _sum: { disputedAmount: true },
+                });
+                const reservedAmount = Number(activeDisputes._sum.disputedAmount || 0);
+                const availableAmount = getOutstandingAfterReservedAmount(
+                    Number(order.finalAmount),
+                    Number(order.paidAmount),
+                    reservedAmount,
+                );
+
+                if (toCents(disputedAmount) > toCents(availableAmount)) {
+                    throw new Error(DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING);
+                }
+            }
+
+            return tx.collectionDispute.create({
+                data: {
+                    disputeNo: buildBusinessNo('DSP'),
+                    customerId: input.customerId,
+                    orderId: input.orderId,
+                    disputedAmount,
+                    reasonCategory: input.reasonCategory,
+                    reason: input.reason,
+                    evidenceJson: input.evidenceJson || null,
+                    note: input.note || null,
+                    createdBy: input.createdBy,
+                    status: 'open',
+                },
+            });
+        }), { label: 'createDispute' });
 
         await syncOrderDisputeShipmentHold(input.orderId);
 
