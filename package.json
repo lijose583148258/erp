@@ -41,6 +41,7 @@
                     "audit:migration:offline":  "node .\\scripts\\db-migration-probe.cjs",
                     "audit:deployment:readiness":  "node .\\scripts\\deployment-migration-readiness-audit-v1.cjs",
                     "audit:db:integrity":  "npx tsx .\\scripts\\runtime-db-integrity-audit-v1.ts",
+                    "audit:db:shadow":  "node .\\scripts\\runtime-db-shadow-inventory-audit-v1.cjs",
                     "audit:log-classification":  "npx tsx .\\scripts\\business-rejection-log-classification-audit-v1.ts",
                     "audit:shipping:ocr":  "npx tsx .\\scripts\\shipping-ocr-regression-v1.ts",
                     "verify:release:core":  "node .\\scripts\\run-release-verification-v1.cjs --profile=core",

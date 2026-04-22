@@ -193,6 +193,7 @@ function getTasks(profile) {
     npxTask('business-rejection-log-classification', ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     npxTask('runtime-db-integrity', ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),
+    task('runtime-db-shadow-inventory', 'node', ['scripts/runtime-db-shadow-inventory-audit-v1.cjs']),
     task('dual-port-stable-audit', 'node', ['scripts/dual-port-audit-v2.cjs']),
     task('cdp-core-pages-smoke', 'node', ['scripts/cdp-core-pages-smoke-audit-v1.cjs']),
     npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),
