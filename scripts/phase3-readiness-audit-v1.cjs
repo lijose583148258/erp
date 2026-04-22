@@ -246,6 +246,7 @@ function npxTask(name, args, timeoutMs = DEFAULT_TIMEOUT_MS) {
 function getRuntimeTasks(options) {
   const tasks = [
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
+    task('runtime-db-integrity', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/runtime-db-integrity-audit-v1.ts'] : ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
     task('business-rejection-log-classification', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/business-rejection-log-classification-audit-v1.ts'] : ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     npxTask('frontend-typescript-gate', ['tsc', '--noEmit']),

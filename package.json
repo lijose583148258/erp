@@ -40,6 +40,7 @@
                     "audit:backup-restore":  "node .\\scripts\\backup-restore-api-audit-v1.cjs",
                     "audit:migration:offline":  "node .\\scripts\\db-migration-probe.cjs",
                     "audit:deployment:readiness":  "node .\\scripts\\deployment-migration-readiness-audit-v1.cjs",
+                    "audit:db:integrity":  "npx tsx .\\scripts\\runtime-db-integrity-audit-v1.ts",
                     "audit:log-classification":  "npx tsx .\\scripts\\business-rejection-log-classification-audit-v1.ts",
                     "audit:shipping:ocr":  "npx tsx .\\scripts\\shipping-ocr-regression-v1.ts",
                     "verify:release:core":  "node .\\scripts\\run-release-verification-v1.cjs --profile=core",
@@ -58,6 +59,7 @@
                     "db:backup":  "npm run db:manage -- backup",
                     "db:seed":  "npm run db:manage -- seed",
                     "db:restore":  "npm run db:manage -- restore",
+                    "repair:db:reindex":  "npx tsx .\\scripts\\runtime-db-reindex-repair-v1.ts",
                     "db:pg":  "npm run build:backend \u0026\u0026 node backend/dist/database/postgres-migration.js"
                 },
     "dependencies":  {

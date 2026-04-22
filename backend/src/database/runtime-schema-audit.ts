@@ -29,6 +29,7 @@ export interface RuntimeSchemaAuditIssue {
 
 export interface RuntimeSchemaAuditReport {
   sqlitePath: string | null;
+  schemaFileCount: number;
   tableCount: number;
   issueCount: number;
   issues: RuntimeSchemaAuditIssue[];
@@ -46,7 +47,7 @@ const scalarTypes = new Set<ScalarType>([
   'BigInt',
 ]);
 
-const resolveSchemaPath = () => {
+const resolveSchemaRoot = () => {
   const candidates = [
     path.resolve(process.cwd(), 'backend', 'prisma', 'schema.prisma'),
     path.resolve(process.cwd(), 'prisma', 'schema.prisma'),
@@ -59,7 +60,24 @@ const resolveSchemaPath = () => {
     throw new Error(`Prisma schema not found. Checked: ${candidates.join(', ')}`);
   }
 
-  return schemaPath;
+  return path.dirname(schemaPath);
+};
+
+const resolveSchemaFiles = () => {
+  const schemaRoot = resolveSchemaRoot();
+  const files = [path.join(schemaRoot, 'schema.prisma')];
+  const modelsDir = path.join(schemaRoot, 'models');
+
+  if (fs.existsSync(modelsDir)) {
+    const modelFiles = fs
+      .readdirSync(modelsDir)
+      .filter(fileName => fileName.endsWith('.prisma'))
+      .sort((a, b) => a.localeCompare(b))
+      .map(fileName => path.join(modelsDir, fileName));
+    files.push(...modelFiles);
+  }
+
+  return files;
 };
 
 const parseMappedName = (line: string, token: '@map' | '@@map') => {
@@ -68,8 +86,9 @@ const parseMappedName = (line: string, token: '@map' | '@@map') => {
 };
 
 const parsePrismaSchema = (): PrismaTableDef[] => {
-  const schemaPath = resolveSchemaPath();
-  const source = fs.readFileSync(schemaPath, 'utf8');
+  const source = resolveSchemaFiles()
+    .map(schemaPath => fs.readFileSync(schemaPath, 'utf8'))
+    .join('\n');
   const lines = source.split(/\r?\n/);
   const tables: PrismaTableDef[] = [];
 
@@ -131,6 +150,7 @@ const normalizeTableInfo = (rows: Array<Record<string, unknown>>) =>
   );
 
 export const auditRuntimeSchema = async (): Promise<RuntimeSchemaAuditReport> => {
+  const schemaFiles = resolveSchemaFiles();
   const tables = parsePrismaSchema();
   const sqliteMaster = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
     "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name",
@@ -167,6 +187,7 @@ export const auditRuntimeSchema = async (): Promise<RuntimeSchemaAuditReport> =>
 
   return {
     sqlitePath: getSqliteDbPath(),
+    schemaFileCount: schemaFiles.length,
     tableCount: sqliteMaster.length,
     issueCount: issues.length,
     issues,
