@@ -137,6 +137,7 @@ function getTasks(profile) {
   const core = [
     task('active-source-inventory', 'node', ['scripts/active-source-inventory-v1.cjs']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
+    npxTask('business-rejection-log-classification', ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     task('dual-port-stable-audit', 'node', ['scripts/dual-port-audit-v2.cjs']),
     task('cdp-core-pages-smoke', 'node', ['scripts/cdp-core-pages-smoke-audit-v1.cjs']),

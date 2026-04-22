@@ -40,6 +40,7 @@
                     "audit:backup-restore":  "node .\\scripts\\backup-restore-api-audit-v1.cjs",
                     "audit:migration:offline":  "node .\\scripts\\db-migration-probe.cjs",
                     "audit:deployment:readiness":  "node .\\scripts\\deployment-migration-readiness-audit-v1.cjs",
+                    "audit:log-classification":  "npx tsx .\\scripts\\business-rejection-log-classification-audit-v1.ts",
                     "audit:shipping:ocr":  "npx tsx .\\scripts\\shipping-ocr-regression-v1.ts",
                     "verify:release:core":  "node .\\scripts\\run-release-verification-v1.cjs --profile=core",
                     "verify:release":  "node .\\scripts\\run-release-verification-v1.cjs --profile=full",
