@@ -6,8 +6,18 @@ const configuredJwtSecret = process.env.JWT_SECRET?.trim();
 const JWT_SECRET = configuredJwtSecret || crypto.randomBytes(48).toString('base64url');
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-if (isProduction && !configuredJwtSecret) {
-  throw new Error('JWT_SECRET must be set in production');
+const isWeakProductionSecret = (secret: string | undefined) => {
+  if (!secret) return true;
+  const normalized = secret.toLowerCase();
+  return secret.length < 32
+    || normalized.includes('replace_with')
+    || normalized.includes('your-secret')
+    || normalized.includes('changeme')
+    || normalized.includes('default');
+};
+
+if (isProduction && isWeakProductionSecret(configuredJwtSecret)) {
+  throw new Error('JWT_SECRET must be a non-placeholder value of at least 32 characters in production');
 }
 
 export interface JwtPayload {

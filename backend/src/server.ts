@@ -36,6 +36,7 @@ import roleRoutes from './routes/role.routes';
 import commercialPlatformRoutes from './routes/commercial-platform.routes';
 import { BackupService } from './services/backup.service';
 import { metricsMiddleware, renderPrometheusMetrics } from './middleware/metricsMiddleware';
+import { authenticate, authorize } from './middleware/auth';
 
 loadRuntimeEnv();
 
@@ -99,6 +100,26 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+app.get('/api/system/health-details', authenticate, authorize('admin'), async (_req: Request, res: Response) => {
+  const minimumFreeDiskBytes = Number(process.env.MIN_FREE_DISK_BYTES || 512 * 1024 * 1024);
+  const backupDir = getBackupDir();
+  let freeDiskBytes: number | null = null;
+
+  try {
+    const diskStats = await fs.promises.statfs(backupDir);
+    freeDiskBytes = Number(diskStats.bavail) * Number(diskStats.bsize);
+  } catch (error) {
+    logger.error('Health detail disk probe failed', error);
+  }
+
+  res.json({
+    status: freeDiskBytes === null || freeDiskBytes < minimumFreeDiskBytes ? 'degraded' : 'ok',
+    freeDiskBytes,
+    minimumFreeDiskBytes,
+    timestamp: new Date().toISOString(),
+  });
+});
+
 // Audit middleware must stay before API routes so write operations are recorded.
 app.use('/api', auditMiddleware);
 
@@ -148,9 +169,11 @@ app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
     status: healthy ? 'ok' : 'degraded',
     mode: runtime.nodeEnv,
     database: checks.database === 'ok' ? 'ok' : 'unavailable',
-    checks,
-    freeDiskBytes,
-    minimumFreeDiskBytes,
+    checks: {
+      database: checks.database,
+      backupDir: checks.backupDir,
+      disk: checks.disk,
+    },
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
   });
@@ -159,6 +182,10 @@ app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
 app.get('/metrics', (_req: Request, res: Response) => {
   res.type('text/plain; version=0.0.4');
   res.send(renderPrometheusMetrics());
+});
+
+app.get('/sw.js', (_req: Request, res: Response) => {
+  res.status(404).type('text/plain').send('service worker is disabled');
 });
 
 app.use('/api/auth', authRoutes);

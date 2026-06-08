@@ -36,13 +36,43 @@ function Check-Url {
   }
 }
 
+function Check-DisabledUrl {
+  param(
+    [string]$Name,
+    [string]$Url
+  )
+
+  try {
+    $resp = Invoke-WebRequest $Url -UseBasicParsing -TimeoutSec 5
+    [PSCustomObject]@{
+      Name = $Name
+      Url = $Url
+      Status = $resp.StatusCode
+      Bytes = ($resp.Content | Out-String).Length
+      Ok = $false
+    }
+  } catch {
+    $statusCode = $null
+    if ($_.Exception.Response -and $_.Exception.Response.StatusCode) {
+      $statusCode = [int]$_.Exception.Response.StatusCode
+    }
+    [PSCustomObject]@{
+      Name = $Name
+      Url = $Url
+      Status = if ($statusCode) { $statusCode } else { $_.Exception.Message }
+      Bytes = 0
+      Ok = ($statusCode -eq 404)
+    }
+  }
+}
+
 $results = New-Object System.Collections.Generic.List[object]
 $results.Add((Check-Url -Name 'health' -Url "$BaseUrl/health"))
 $homeCheck = Check-Url -Name 'home' -Url "$BaseUrl/"
 $results.Add($homeCheck)
 $results.Add((Check-Url -Name 'manifest' -Url "$BaseUrl/manifest.json"))
 $results.Add((Check-Url -Name 'icon' -Url "$BaseUrl/icon.svg"))
-$results.Add((Check-Url -Name 'service-worker' -Url "$BaseUrl/sw.js"))
+$results.Add((Check-DisabledUrl -Name 'service-worker-disabled' -Url "$BaseUrl/sw.js"))
 
 try {
   $homeResp = Invoke-WebRequest "$BaseUrl/" -UseBasicParsing -TimeoutSec 5
