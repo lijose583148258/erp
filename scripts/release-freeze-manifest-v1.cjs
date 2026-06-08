@@ -5,12 +5,24 @@ const { execFileSync } = require('child_process');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
-const DEFAULT_ZIP = 'E:\\爱劳达纯净系统_20260608_105140.zip';
 const DEFAULT_RUNTIME = 'E:\\爱劳达纯净系统';
-const ZIP_PATH = process.env.AILAODA_RELEASE_ZIP || DEFAULT_ZIP;
 const RUNTIME_DIR = process.env.AILAODA_RELEASE_RUNTIME || DEFAULT_RUNTIME;
 const JSON_REPORT = path.join(OUTPUT_DIR, 'release-freeze-manifest-v1.json');
 const MD_REPORT = path.join(OUTPUT_DIR, 'release-freeze-manifest-v1.md');
+
+function findLatestReleaseZip() {
+  if (process.env.AILAODA_RELEASE_ZIP) return process.env.AILAODA_RELEASE_ZIP;
+  const root = path.parse(DEFAULT_RUNTIME).root;
+  const prefix = `${path.basename(DEFAULT_RUNTIME)}_`;
+  if (!fs.existsSync(root)) return path.join(root, `${prefix}missing.zip`);
+  const candidates = fs.readdirSync(root, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith('.zip'))
+    .map((entry) => path.join(root, entry.name))
+    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+  return candidates[0] || path.join(root, `${prefix}missing.zip`);
+}
+
+const ZIP_PATH = findLatestReleaseZip();
 
 function posix(relativePath) {
   return relativePath.split(path.sep).join('/');
