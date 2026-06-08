@@ -1,6 +1,7 @@
 // 免费规则引擎AI服务 - 替代Gemini
 // 无需API密钥，完全本地运行
 import { toApiRecord, toNumberValue, toStringValue, toUnknownArray } from '../utils/apiMapping';
+import { isHiddenDataRequest, unauthorizedDataRefusal } from './aiSecurity';
 
 type TranslationMap = Record<string, string | undefined>;
 type ContextRecord = Record<string, unknown>;
@@ -9,10 +10,17 @@ interface ContextData {
   orders?: ContextRecord[];
   customers?: ContextRecord[];
   samples?: ContextRecord[];
+  visibleCounts?: Record<string, number>;
   currentPage?: string;
   t?: TranslationMap;
   [key: string]: unknown;
 }
+
+const getVisibleCount = (contextData: ContextData, key: string, fallbackValue?: unknown): number => {
+  const safeCount = contextData.visibleCounts?.[key];
+  if (Number.isFinite(safeCount)) return Number(safeCount);
+  return Array.isArray(fallbackValue) ? fallbackValue.length : 0;
+};
 
 /**
  * 智能规则引擎 - 处理用户命令
@@ -21,13 +29,17 @@ export const processAICmd = async (message: string, contextData: ContextData): P
   const msg = message.toLowerCase().trim();
   const t = contextData.t || {};
 
+  if (isHiddenDataRequest(message)) {
+    return unauthorizedDataRefusal;
+  }
+
   // 样品相关
   if (msg.includes('样品') || msg.includes('sample')) {
     if (msg.includes('申请') || msg.includes('寄') || msg.includes('送')) {
       return `✅ ${t.newSampleRequest || '已为您打开样品申请表单'}。\n\n${t.aiImportHint || '请填写必填项'}`;
     }
-    const samples = contextData.samples || [];
-    return `📦 ${t.sampleInsightsPrefix || '当前有'} ${samples.length} ${t.sampleInsightsSuffix || '个样品申请'}`;
+    const sampleCount = getVisibleCount(contextData, 'samples', contextData.samples);
+    return `📦 ${t.sampleInsightsPrefix || '当前可见'} ${sampleCount} ${t.sampleInsightsSuffix || '个样品申请'}。如需查看明细，请到样品模块按当前角色权限打开。`;
   }
 
   // 订单相关
@@ -35,21 +47,19 @@ export const processAICmd = async (message: string, contextData: ContextData): P
     if (msg.includes('新建') || msg.includes('创建') || msg.includes('录入')) {
       return `✅ ${t.actNewOrder || '已为您打开订单创建页面'}`;
     }
-    const orders = contextData.orders || [];
-    const total = orders.reduce((sum, o) => sum + toNumberValue(o.totalAmount), 0);
-    return `${t.aiOrderStats || '📊 订单统计'}：\n• ${t.records || '总订单数'}: ${orders.length}\n• ${t.totalAmount || '总金额'}: ¥${total.toLocaleString()}`;
+    const orderCount = getVisibleCount(contextData, 'orders', contextData.orders);
+    return `${t.aiOrderStats || '📊 订单统计'}：\n• 当前可见订单数: ${orderCount}\n• 金额和客户明细请到订单模块按权限查看，AI 不直接展开敏感明细。`;
   }
 
   // 销售分析
   if (msg.includes('分析') || msg.includes('销售') || msg.includes('业绩')) {
-    const orders = contextData.orders || [];
-    const total = orders.reduce((sum, o) => sum + toNumberValue(o.totalAmount), 0);
-    const avgOrder = orders.length > 0 ? total / orders.length : 0;
+    const orderCount = getVisibleCount(contextData, 'orders', contextData.orders);
+    const customerCount = getVisibleCount(contextData, 'customers', contextData.customers);
 
     return `${t.aiAnalysisReport || '📈 销售分析报告'}：\n\n` +
-      `• ${t.records || '总数'}: ${orders.length}\n` +
-      `• ${t.totalAmount || '总额'}: ¥${total.toLocaleString()}\n` +
-      `• ${t.subtotal || '平均'}: ¥${avgOrder.toLocaleString()}`;
+      `• 当前可见订单数: ${orderCount}\n` +
+      `• 当前可见客户数: ${customerCount}\n` +
+      `• 金额、客户名称、联系人和订单明细不在聊天里展开，请到对应模块按权限查看。`;
   }
 
   // 风险和逾期
@@ -59,11 +69,11 @@ export const processAICmd = async (message: string, contextData: ContextData): P
 
   // 客户相关
   if (msg.includes('客户') || msg.includes('crm')) {
-    const customers = contextData.customers || [];
     if (msg.includes('新增') || msg.includes('添加')) {
       return `✅ ${t.addCustomer || '添加客户'}`;
     }
-    return `${t.aiCustomerMgmt || '👥 客户管理'}：\n• ${t.records || '总客户数'}: ${customers.length}`;
+    const customerCount = getVisibleCount(contextData, 'customers', contextData.customers);
+    return `${t.aiCustomerMgmt || '👥 客户管理'}：\n• 当前可见客户数: ${customerCount}\n• 客户名称、联系人、地址和池归属明细请到 CRM 模块按权限查看。`;
   }
 
   // 帮助信息

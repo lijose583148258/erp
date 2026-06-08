@@ -7,6 +7,10 @@ import {
     applyFinanceAdjustmentTx,
     assertFinanceAdjustmentCategoryCanUsePaidAmount,
 } from './adjustment/finance-adjustment.service';
+import {
+    InventoryCostLedgerSourceType,
+    ProductionCostLedgerService,
+} from './production-cost-ledger.service';
 
 export type AdjustmentDomain = 'finance' | 'production' | 'inventory';
 export type AdjustmentTargetType = 'order' | 'productBatch' | 'manual';
@@ -34,6 +38,23 @@ type AdjustmentTx = TransactionClient;
 type PersistedAdjustment = AdjustmentRecord;
 
 const now = () => new Date();
+const toFiniteNumber = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const getLedgerSourceType = (domain: AdjustmentDomain, reversed = false): InventoryCostLedgerSourceType | null => {
+    if (domain === 'inventory') {
+        return reversed ? 'inventory_reversal' : 'inventory_adjustment';
+    }
+
+    if (domain === 'production') {
+        return reversed ? 'production_reversal' : 'production_adjustment';
+    }
+
+    return null;
+};
+
 const serializeSnapshot = (value: unknown) => {
     if (value === undefined || value === null) {
         return null;
@@ -155,6 +176,43 @@ export class AdjustmentService {
         };
     }
 
+    private static async recordCostLedgerTx(
+        tx: AdjustmentTx,
+        adjustment: PersistedAdjustment,
+        applied: {
+            beforeSnapshot: Record<string, unknown>;
+            afterSnapshot: Record<string, unknown>;
+        },
+        createdBy: number,
+        reversed = false,
+    ) {
+        const sourceType = getLedgerSourceType(adjustment.domain as AdjustmentDomain, reversed);
+        if (!sourceType || !adjustment.batchId) {
+            return null;
+        }
+
+        const beforeProduction = applied.beforeSnapshot.production as { stockQuantity?: unknown } | null | undefined;
+        const afterProduction = applied.afterSnapshot.production as { stockQuantity?: unknown } | null | undefined;
+        const quantityBefore = toFiniteNumber(beforeProduction?.stockQuantity);
+        const quantityAfter = toFiniteNumber(afterProduction?.stockQuantity);
+        const quantityDelta = toFiniteNumber(adjustment.quantityDelta);
+
+        return ProductionCostLedgerService.recordAdjustmentLedgerTx(tx, {
+            batchId: Number(adjustment.batchId),
+            adjustmentId: Number(adjustment.id),
+            adjustmentNo: String(adjustment.adjustmentNo),
+            sourceType,
+            quantityBefore,
+            quantityDelta,
+            quantityAfter,
+            amountDelta: adjustment.amountDelta !== null && adjustment.amountDelta !== undefined
+                ? Number(adjustment.amountDelta)
+                : null,
+            note: adjustment.note ? String(adjustment.note) : null,
+            createdBy,
+        });
+    }
+
     static async createAdjustment(input: AdjustmentInput, createdBy: number) {
         const status = this.normalizeStatus(input.status);
         if (!['pending', 'posted'].includes(status)) {
@@ -204,16 +262,19 @@ export class AdjustmentService {
                         afterSnapshot: serializeSnapshot(applied.afterSnapshot),
                     },
                 });
+                const ledger = await this.recordCostLedgerTx(tx, updated, applied, createdBy);
 
                 return {
                     adjustment: updated,
                     effects,
+                    ledger,
                 };
             }
 
             return {
                 adjustment,
                 effects,
+                ledger: null,
             };
         }), { label: 'createAdjustment' });
     }
@@ -329,6 +390,7 @@ export class AdjustmentService {
                 return {
                     adjustment,
                     effects: null,
+                    ledger: null,
                 };
             }
 
@@ -352,6 +414,7 @@ export class AdjustmentService {
                 return {
                     adjustment: current ?? adjustment,
                     effects: null,
+                    ledger: null,
                 };
             }
 
@@ -368,10 +431,12 @@ export class AdjustmentService {
                     note: adjustment.note,
                 },
             });
+            const ledger = await this.recordCostLedgerTx(tx, updated, effects, approverId);
 
             return {
                 adjustment: updated,
                 effects: effects.effects,
+                ledger,
             };
         }), { label: 'applyAdjustment' });
     }
@@ -406,6 +471,7 @@ export class AdjustmentService {
                     original: updated ?? original,
                     reverse: null,
                     effects: null,
+                    ledger: null,
                 };
             }
 
@@ -422,6 +488,7 @@ export class AdjustmentService {
                     original: current ?? original,
                     reverse: null,
                     effects: null,
+                    ledger: null,
                 };
             }
 
@@ -452,13 +519,14 @@ export class AdjustmentService {
             });
 
             const applied = await this.applyAdjustmentTx(tx, reverse);
-            await tx.adjustmentRecord.update({
+            const updatedReverse = await tx.adjustmentRecord.update({
                 where: { id: reverse.id },
                 data: {
                     beforeSnapshot: serializeSnapshot(applied.beforeSnapshot),
                     afterSnapshot: serializeSnapshot(applied.afterSnapshot),
                 },
             });
+            const ledger = await this.recordCostLedgerTx(tx, updatedReverse, applied, operatorId, true);
 
             const updatedOriginal = await tx.adjustmentRecord.update({
                 where: { id: original.id },
@@ -470,7 +538,8 @@ export class AdjustmentService {
 
             return {
                 original: updatedOriginal,
-                reverse,
+                reverse: updatedReverse,
+                ledger,
             };
         }), { label: 'reverseAdjustment' });
     }

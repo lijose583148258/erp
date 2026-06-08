@@ -61,11 +61,11 @@ export function CRMCustomerPoolTimeline({ history, latest, currentPool, loading 
           </div>
           <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
             <div className="rounded-2xl bg-white/70 dark:bg-slate-900/60 p-3">
-              <div className="opacity-60">Updated At</div>
+              <div className="opacity-60">更新时间</div>
               <div className="mt-2 text-[11px] text-slate-800 dark:text-slate-200">{formatTime(currentPool?.poolUpdatedAt)}</div>
             </div>
             <div className="rounded-2xl bg-white/70 dark:bg-slate-900/60 p-3">
-              <div className="opacity-60">Updated By</div>
+              <div className="opacity-60">更新人</div>
               <div className="mt-2 text-[11px] text-slate-800 dark:text-slate-200">{currentPool?.poolUpdatedBy || '--'}</div>
             </div>
           </div>

@@ -31,6 +31,7 @@ type BomValidationItem = {
   materialName?: string | null;
   ingredientRole?: string | null;
   dosageMode?: string | null;
+  percentage?: number | null;
   quantityPerUnit?: number | null;
   unit?: string | null;
   lossRate?: number | null;
@@ -79,6 +80,16 @@ const materialTokenMatches = (left: string, right: string) => {
 };
 
 const getMaterialLabel = (item: BomValidationItem) => String(item.materialCode || item.materialName || `BOM item ${item.id}`);
+
+const resolveEffectiveQuantityPerUnit = (item: BomValidationItem) => {
+  const dosageMode = String(item.dosageMode || '').trim();
+  const percentage = Number(item.percentage || 0);
+  if (dosageMode === 'percentage' && Number.isFinite(percentage) && percentage > 0) {
+    return percentage / 100;
+  }
+
+  return toPositiveNumber(item.quantityPerUnit);
+};
 
 const getToleranceRateForBomItem = (item: BomValidationItem) => {
   if (item.allowedVarianceRate === null || item.allowedVarianceRate === undefined || item.allowedVarianceRate === '') {
@@ -134,12 +145,7 @@ export const assertBomConsumptionCoverage = (
   const substituteGroups = new Map<string, BomValidationItem[]>();
 
   const assertQuantityReasonable = (item: BomValidationItem, matchedRecords: Array<{ stock: StockValidationSnapshot | null; quantity: number }>, label: string) => {
-    const dosageMode = String(item.dosageMode || '').trim();
-    if (dosageMode === 'percentage') {
-      return;
-    }
-
-    const expectedBase = toPositiveNumber(item.quantityPerUnit) * outputQuantity;
+    const expectedBase = resolveEffectiveQuantityPerUnit(item) * outputQuantity;
     if (expectedBase <= 0) {
       return;
     }

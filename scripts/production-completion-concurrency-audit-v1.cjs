@@ -121,7 +121,7 @@ async function completeWithoutThrow(token, workOrderId, payload) {
       status: 'completed',
       consumptionRecords: seededBalances.map(balance => ({
         stockBalanceId: balance.id,
-        quantity: 1,
+        quantity: 10,
       })),
     };
 
@@ -161,7 +161,7 @@ async function completeWithoutThrow(token, workOrderId, payload) {
       if (!balance) {
         fail('Raw stock balance missing after concurrent completion', { code, balances });
       }
-      if (Math.abs(Number(balance.quantity || 0) - 49) > 0.0001) {
+      if (Math.abs(Number(balance.quantity || 0) - 40) > 0.0001) {
         fail('Raw stock was deducted more than once or not deducted once', { code, quantity: balance.quantity });
       }
       rawChecks.push({ code, quantity: Number(balance.quantity || 0) });

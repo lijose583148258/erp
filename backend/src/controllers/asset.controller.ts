@@ -5,6 +5,8 @@ import { logger } from '../utils/logger';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { AuthRequest } from '../middleware/auth';
+import { StockMovementService } from '../services/stock-movement.service';
+import type { TransactionClient } from '../services/stock-movement.types';
 import {
     buildCustomerDataScopeWhere,
     canUseAnyOperationalDataScope,
@@ -43,6 +45,28 @@ type ProductBatchRequestBody = {
 const toOptionalText = (value: unknown) => (
     value === undefined || value === null ? undefined : String(value)
 );
+
+const parsePositiveInt = (value: unknown, fallback: number, max?: number) => {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+    return max ? Math.min(parsed, max) : parsed;
+};
+
+const parseNonNegativeQuantity = (value: unknown) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+};
+
+const resolveAssetDefaultLocationId = async (tx: TransactionClient) => {
+    const location = await tx.location.findFirst({
+        where: { code: 'LOC-FG', status: 'active' },
+        select: { id: true },
+    });
+    if (!location) {
+        throw new Error('成品区 LOC-FG 未配置，不能建立批次初始库存');
+    }
+    return location.id;
+};
 
 const buildAssetCustomerWhere = (req: AuthRequest, customerId: number | null) => {
     const customerScope = buildCustomerDataScopeWhere(req, { includeFinanceAll: true, includeWarehouseAll: true });
@@ -249,10 +273,25 @@ export class AssetController {
     async getBatches(req: AuthRequest, res: Response) {
         try {
             if (!canViewAssetInventory(req)) {
-                return res.json({ success: true, data: [] });
+                return res.json({
+                    success: true,
+                    data: [],
+                    meta: {
+                        page: 1,
+                        pageSize: 50,
+                        total: 0,
+                        totalPages: 1,
+                        hasNextPage: false,
+                        hasPrevPage: false,
+                    },
+                });
             }
 
-            const { status, keyword } = req.query;
+            const { status, keyword, page: rawPage, pageSize: rawPageSize } = req.query;
+            const page = parsePositiveInt(rawPage, 1);
+            const pageSize = parsePositiveInt(rawPageSize, 50, 100);
+            const now = new Date();
+            const expiringUntil = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
             const where: Prisma.ProductBatchWhereInput = {};
             if (keyword) {
@@ -261,13 +300,24 @@ export class AssetController {
                     { productName: { contains: String(keyword) } }
                 ];
             }
+            if (status === 'expired') {
+                where.expiryDate = { lt: now };
+            } else if (status === 'expiring') {
+                where.expiryDate = { gte: now, lte: expiringUntil };
+            } else if (status === 'healthy') {
+                where.expiryDate = { gt: expiringUntil };
+            }
 
-            const batches = await prisma.productBatch.findMany({
-                where,
-                orderBy: { expiryDate: 'asc' }
-            });
+            const [batches, total] = await prisma.$transaction([
+                prisma.productBatch.findMany({
+                    where,
+                    orderBy: [{ expiryDate: 'asc' }, { id: 'desc' }],
+                    skip: (page - 1) * pageSize,
+                    take: pageSize,
+                }),
+                prisma.productBatch.count({ where }),
+            ]);
 
-            const now = new Date();
             const data = batches.map(b => {
                 const remainingDays = Math.ceil((b.expiryDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
                 const statusLabel = remainingDays < 0 ? 'expired' : remainingDays <= 30 ? 'expiring' : 'healthy';
@@ -277,12 +327,20 @@ export class AssetController {
                     remainingDays,
                     status: statusLabel
                 };
-            }).filter(b => {
-                if (!status) return true;
-                return b.status === status;
             });
 
-            res.json({ success: true, data });
+            res.json({
+                success: true,
+                data,
+                meta: {
+                    page,
+                    pageSize,
+                    total,
+                    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+                    hasNextPage: page * pageSize < total,
+                    hasPrevPage: page > 1,
+                },
+            });
         } catch (error) {
             logger.error('Get product batches error:', error);
             res.status(500).json({ success: false, message: '获取批次数据失败' });
@@ -305,26 +363,53 @@ export class AssetController {
                 return res.status(409).json({ success: false, message: '到期日期不能早于生产日期' });
             }
 
+            const initialQuantity = parseNonNegativeQuantity(stockQuantity);
+            if (initialQuantity === null) {
+                return res.status(400).json({ success: false, message: '库存数量必须是大于等于 0 的有效数字' });
+            }
+
             const resolvedBatchNo = toOptionalText(batchNo) || buildBusinessNo('BATCH');
 
-            const created = await withDbRetry(() => prisma.productBatch.create({
-                data: {
-                    batchNo: resolvedBatchNo,
-                    productName: String(productName),
-                    productionDate: new Date(String(productionDate)),
-                    expiryDate: new Date(String(expiryDate)),
-                    storageTemp: toOptionalText(storageTemp),
-                    isColdChain: Boolean(isColdChain),
-                    stockQuantity: Number(stockQuantity),
-                    unit: String(unit),
-                    notes: toOptionalText(notes)
+            const created = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                const batch = await tx.productBatch.create({
+                    data: {
+                        batchNo: resolvedBatchNo,
+                        productName: String(productName),
+                        productionDate: new Date(String(productionDate)),
+                        expiryDate: new Date(String(expiryDate)),
+                        storageTemp: toOptionalText(storageTemp),
+                        isColdChain: Boolean(isColdChain),
+                        stockQuantity: 0,
+                        unit: String(unit),
+                        notes: toOptionalText(notes)
+                    }
+                });
+
+                if (initialQuantity > 0) {
+                    const locationId = await resolveAssetDefaultLocationId(tx);
+                    await StockMovementService.postStockEntry({
+                        sourceType: 'warehouse_initial',
+                        sourceRef: `asset_batch:${batch.batchNo}`,
+                        reason: 'asset_batch_initial_stock',
+                        note: `Initial stock for product batch ${batch.batchNo}`,
+                        createdBy: req.user?.userId || null,
+                        lines: [{
+                            locationId,
+                            productName: batch.productName,
+                            batchNo: batch.batchNo,
+                            quantityDelta: initialQuantity,
+                            unit: batch.unit,
+                        }],
+                    }, tx);
                 }
+
+                return tx.productBatch.findUniqueOrThrow({ where: { id: batch.id } });
             }), { label: 'createBatch' });
 
             await this.writeAuditLog(req, 'CREATE', 'product_batch', created.id, JSON.stringify({
                 batchNo: created.batchNo,
                 productName,
-                stockQuantity: Number(stockQuantity),
+                stockQuantity: initialQuantity,
             }));
 
             res.status(201).json({ success: true, data: created });
@@ -344,6 +429,13 @@ export class AssetController {
             const { id } = req.params;
             const { productName, productionDate, expiryDate, storageTemp, isColdChain, stockQuantity, unit, notes } = req.body as ProductBatchRequestBody;
 
+            if (stockQuantity !== undefined) {
+                return res.status(409).json({
+                    success: false,
+                    message: '批次库存数量不能在资产页直接修改，请使用仓储调整生成库存凭证',
+                });
+            }
+
             const existing = await prisma.productBatch.findUnique({
                 where: { id: Number(id) }
             });
@@ -360,7 +452,6 @@ export class AssetController {
             if (expiryDate !== undefined) updateData.expiryDate = nextExpiryDate;
             if (storageTemp !== undefined) updateData.storageTemp = toOptionalText(storageTemp);
             if (isColdChain !== undefined) updateData.isColdChain = Boolean(isColdChain);
-            if (stockQuantity !== undefined) updateData.stockQuantity = Number(stockQuantity);
             if (unit !== undefined) updateData.unit = String(unit);
             if (notes !== undefined) updateData.notes = toOptionalText(notes);
 

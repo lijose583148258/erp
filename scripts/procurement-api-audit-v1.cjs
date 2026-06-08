@@ -4,18 +4,27 @@
  */
 const fs = require('fs');
 const path = require('path');
-const { PrismaClient } = require('../backend/node_modules/@prisma/client');
 const {
   createProcurementApiAuditSupport,
   createProcurementAuditData,
 } = require('./lib/procurement-api-audit-support.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
+const runtimeDbPath = process.env.AILAODA_RUNTIME_DB_PATH || 'D:/AilaoDaRuntime/stable.db';
+const runtimeDatabaseUrl = `file:${runtimeDbPath.replace(/\\/g, '/')}`;
+process.env.DATABASE_URL = runtimeDatabaseUrl;
+
+const { PrismaClient } = require('../backend/node_modules/@prisma/client');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'procurement-api-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: runtimeDatabaseUrl,
+    },
+  },
+});
 
 const DATA = createProcurementAuditData(RUN_ID);
 

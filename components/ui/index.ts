@@ -9,5 +9,6 @@ export { LoadingSkeleton } from './LoadingSkeleton';
 export { ModuleHero } from './ModuleHero';
 export type { ModuleHeroStat } from './ModuleHero';
 export { PageShell } from './PageShell';
+export { ReasonDialog } from './ReasonDialog';
 export { StatusBadge } from './StatusBadge';
 export { StickyActionBar } from './StickyActionBar';

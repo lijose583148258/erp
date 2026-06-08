@@ -17,7 +17,6 @@ import type {
   ReceiptToleranceSourceType,
 } from './receipt-discrepancy.types';
 import {
-  DEFAULT_TOLERANCE_DECISION,
   VALID_COUNTERPARTIES,
   VALID_MODULES,
   VALID_SOURCE_TYPES,
@@ -25,7 +24,6 @@ import {
   VALID_TOLERANCE_COUNTERPARTIES,
   VALID_TOLERANCE_DISCREPANCY_TYPES,
   VALID_TOLERANCE_SOURCE_TYPES,
-  defaultRequiresQualityCheck,
   normalizeDiscrepancyActionStatus,
   normalizeDiscrepancyActionType,
   normalizeDiscrepancyType,
@@ -43,75 +41,9 @@ import {
   normalizeCaseRow,
   normalizeRuleRow,
 } from './receipt-discrepancy.rows';
+import { resolveToleranceDecision } from './receipt-discrepancy.tolerance';
 
 export type { ReceiptDiscrepancyStatus } from './receipt-discrepancy.types';
-
-async function resolveToleranceDecision(tx: TransactionClient, input: {
-  sourceType: ReceiptDiscrepancySourceType;
-  discrepancyType: ReceiptDiscrepancyType;
-  counterpartyType: ReceiptDiscrepancyCounterpartyType;
-  counterpartyId?: number | null;
-  productName: string;
-  quantity: number;
-  referenceQuantity?: number | null;
-}) {
-  const rows = await tx.$queryRawUnsafe<RawRow[]>(
-    `${RULE_SELECT_SQL}
-     WHERE status = 'active'
-       AND (source_type = 'all' OR source_type = ?)
-       AND (discrepancy_type = 'all' OR discrepancy_type = ?)
-       AND (counterparty_type = 'all' OR counterparty_type = ?)
-       AND (counterparty_id IS NULL OR counterparty_id = ?)
-       AND (product_name IS NULL OR product_name = ?)
-     ORDER BY
-       (CASE WHEN source_type = ? THEN 32 ELSE 0 END
-       + CASE WHEN discrepancy_type = ? THEN 16 ELSE 0 END
-       + CASE WHEN counterparty_id = ? THEN 8 ELSE 0 END
-       + CASE WHEN counterparty_type = ? THEN 4 ELSE 0 END
-       + CASE WHEN product_name = ? THEN 2 ELSE 0 END) DESC,
-       priority ASC,
-       id DESC
-     LIMIT 1`,
-    input.sourceType,
-    input.discrepancyType,
-    input.counterpartyType,
-    input.counterpartyId ?? null,
-    input.productName,
-    input.sourceType,
-    input.discrepancyType,
-    input.counterpartyId ?? null,
-    input.counterpartyType,
-    input.productName,
-  );
-
-  const rule = rows.length > 0 ? normalizeRuleRow(rows[0]) : null;
-  if (!rule) {
-    return {
-      ...DEFAULT_TOLERANCE_DECISION,
-      requiresQualityCheck: defaultRequiresQualityCheck(input.discrepancyType),
-    };
-  }
-
-  const quantity = Math.max(0, Number(input.quantity || 0));
-  const referenceQuantity = Math.max(0, Number(input.referenceQuantity || 0));
-  const percentLimit = referenceQuantity > 0 ? referenceQuantity * (rule.quantityTolerancePercent / 100) : 0;
-  const absLimit = Math.max(0, Number(rule.quantityToleranceAbs || 0));
-  const toleranceQuantity = Math.max(percentLimit, absLimit);
-  const withinTolerance = toleranceQuantity > 0 && quantity <= toleranceQuantity + 0.000001;
-  const action = withinTolerance ? rule.actionWithinTolerance : rule.actionOutsideTolerance;
-  const varianceRate = referenceQuantity > 0 ? Number(((quantity / referenceQuantity) * 100).toFixed(6)) : null;
-
-  return {
-    ruleId: rule.id,
-    action,
-    tolerancePercent: rule.quantityTolerancePercent,
-    toleranceQuantity,
-    varianceRate,
-    withinTolerance,
-    requiresQualityCheck: rule.requiresQualityCheck || defaultRequiresQualityCheck(input.discrepancyType),
-    severity: withinTolerance ? rule.severityWithinTolerance : rule.severityOutsideTolerance,
-  };
-}
 
 export class ReceiptDiscrepancyService {
   static normalizeDiscrepancyType(value: unknown, fallback: ReceiptDiscrepancyType) {
@@ -341,12 +273,12 @@ export class ReceiptDiscrepancyService {
     }
 
     if (discrepancyCase.status === 'resolved' || discrepancyCase.status === 'cancelled') {
-      throw new Error('Closed discrepancy case cannot create new actions');
+      throw new Error('已关闭的差异单不能再新增处置动作。');
     }
 
     if (actionType === 'customer_rma') {
       if (discrepancyCase.counterpartyType !== 'customer' || !discrepancyCase.counterpartyId) {
-        throw new Error('Customer RMA action requires a customer discrepancy case');
+        throw new Error('只有客户签收差异单才能转售后处理。');
       }
 
       const customerRows = await tx.$queryRawUnsafe(
@@ -354,10 +286,10 @@ export class ReceiptDiscrepancyService {
         discrepancyCase.counterpartyId,
       ) as Array<{ id: number; status: string }>;
       if (customerRows.length === 0) {
-        throw new Error('Customer for RMA action was not found');
+        throw new Error('未找到差异单对应客户，无法创建售后单。');
       }
       if (String(customerRows[0].status || 'active') !== 'active') {
-        throw new Error('Customer RMA action requires an active customer');
+        throw new Error('客户不是启用状态，无法创建售后单。');
       }
 
       const rmaNo = buildBusinessNo('RMA');
@@ -370,7 +302,7 @@ export class ReceiptDiscrepancyService {
         discrepancyCase.productName,
         Number(input.quantity ?? discrepancyCase.quantity),
         input.unit || discrepancyCase.unit || 'kg',
-        input.note || discrepancyCase.reason || 'Receipt discrepancy customer RMA',
+        input.note || discrepancyCase.reason || '签收差异转售后处理',
         input.createdBy ?? discrepancyCase.createdBy ?? 1,
       );
 
@@ -381,8 +313,7 @@ export class ReceiptDiscrepancyService {
       targetModule = 'rma';
       targetId = Number(rmaRows[0]?.id || 0) || null;
       targetRef = rmaNo;
-      status = 'posted';
-      postedAtSql = 'CURRENT_TIMESTAMP';
+      status = 'approved';
     }
 
     if (actionType === 'close_no_action') {

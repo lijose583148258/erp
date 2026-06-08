@@ -13,6 +13,8 @@ import {
     orderHoldSchema,
     updateDisputeStatusSchema,
     updatePromiseStatusSchema,
+    collectionLedgerQuerySchema,
+    collectionOverdueQuerySchema,
 } from '../validators';
 
 const router = Router();
@@ -22,8 +24,8 @@ router.use(authenticate);
 
 router.get('/summary', authorizePermission('collections.read'), authRoute((req, res) => controller.getSummary(req, res)));
 router.get('/workbench', authorizePermission('collections.read'), authRoute((req, res) => controller.getWorkbench(req, res)));
-router.get('/ledger', authorizePermission('collections.read'), authRoute((req, res) => controller.getLedger(req, res)));
-router.get('/overdue', authorizePermission('collections.read'), authRoute((req, res) => controller.getOverdueOrders(req, res)));
+router.get('/ledger', authorizePermission('collections.read'), validateZod(collectionLedgerQuerySchema, 'query'), authRoute((req, res) => controller.getLedger(req, res)));
+router.get('/overdue', authorizePermission('collections.read'), validateZod(collectionOverdueQuerySchema, 'query'), authRoute((req, res) => controller.getOverdueOrders(req, res)));
 router.get('/milestones', authorizePermission('collections.read'), authRoute((req, res) => controller.getMilestones(req, res)));
 router.get('/promises', authorizePermission('collections.read'), authRoute((req, res) => controller.getPromises(req, res)));
 router.get('/disputes', authorizePermission('collections.read'), authRoute((req, res) => controller.getDisputes(req, res)));

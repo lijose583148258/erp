@@ -53,6 +53,8 @@ const expectedBusinessErrorPatterns = [
   /Duplicate .* detected/i,
   /already (?:been|exists|fully)/i,
   /Please refresh/i,
+  /\b[A-Z][A-Z0-9_]*(?:BELOW_ZERO|TRANSITION|STATE)[A-Z0-9_]*\b/,
+  /\b(?:Promise|Dispute|Order|Payment|Adjustment|Barter|Shipment|Purchase|Production) status cannot transition\b/i,
 ];
 
 function stringifyLogArg(value: unknown): string {

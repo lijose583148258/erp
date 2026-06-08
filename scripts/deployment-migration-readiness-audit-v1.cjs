@@ -42,6 +42,9 @@ function checkProductionEnv(findings) {
     'SERVE_FRONTEND',
     'TRUST_PROXY',
     'BACKUP_RETENTION_DAYS',
+    'BACKUP_RETENTION_MODE',
+    'BACKUP_MAX_FILES',
+    'BACKUP_MAX_TOTAL_MB',
     'AILAODA_HTTP_PORT',
   ];
 
@@ -111,6 +114,9 @@ function checkDockerCompose(findings) {
     '${AILAODA_HTTP_PORT:-5001}:5001',
     'DATABASE_URL: ${DATABASE_URL:-file:/data/stable.db}',
     'BACKUP_DIR: ${BACKUP_DIR:-/data/backups}',
+    'BACKUP_RETENTION_MODE: ${BACKUP_RETENTION_MODE:-report-only}',
+    'BACKUP_MAX_FILES: ${BACKUP_MAX_FILES:-800}',
+    'BACKUP_MAX_TOTAL_MB: ${BACKUP_MAX_TOTAL_MB:-8192}',
     'UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}',
     'ailao-data:/data',
     'JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set before server deploy}',
@@ -144,7 +150,7 @@ function checkPackaging(findings) {
 function checkBackupAndMigrationEvidence(findings) {
   const backupService = requireFile(findings, 'backend/src/services/backup.service.ts', 'backup-integrity');
   if (backupService) {
-    for (const token of ['.manifest.json', 'sha256', 'verifyBackupIntegrity', 'manifestExists']) {
+    for (const token of ['.manifest.json', 'sha256', 'verifyBackupIntegrity', 'manifestExists', 'BACKUP_RETENTION_MODE', 'BACKUP_MAX_FILES', 'BACKUP_MAX_TOTAL_MB']) {
       if (!backupService.includes(token)) {
         addFinding(findings, 'P0', 'backup-integrity', 'backend/src/services/backup.service.ts', `missing backup integrity token: ${token}`);
       }
@@ -166,6 +172,16 @@ function checkBackupAndMigrationEvidence(findings) {
       if (!migrationProbe.includes(token)) {
         addFinding(findings, 'P1', 'migration-probe', 'scripts/db-migration-probe.cjs', `migration probe should document/assert: ${token}`);
       }
+    }
+  }
+}
+
+function checkRuntimeDbGuard(findings) {
+  const runtimeConfig = requireFile(findings, 'backend/src/config/runtime.ts', 'runtime-db-guard');
+  if (!runtimeConfig) return;
+  for (const token of ['isForbiddenSqliteRuntimeDbPath', "backendRoot, 'prisma'", 'AILAODA_ALLOW_LEGACY_PRISMA_DB']) {
+    if (!runtimeConfig.includes(token)) {
+      addFinding(findings, 'P0', 'runtime-db-guard', 'backend/src/config/runtime.ts', `missing runtime DB quarantine token: ${token}`);
     }
   }
 }
@@ -198,6 +214,7 @@ function main() {
   checkDockerCompose(findings);
   checkPackaging(findings);
   checkBackupAndMigrationEvidence(findings);
+  checkRuntimeDbGuard(findings);
 
   const hasP0 = findings.some(finding => finding.level === 'P0');
   const report = {

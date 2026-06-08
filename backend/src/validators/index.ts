@@ -10,6 +10,7 @@ export {
 export * from './core';
 export * from './logistics';
 export * from './orders';
+export * from './collection';
 export * from './inventory';
 export * from './procurement';
 export * from './barter';

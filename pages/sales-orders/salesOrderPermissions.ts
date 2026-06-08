@@ -1,20 +1,19 @@
-import { OrderStatus, type SalesOrder } from '../../types';
+import { can } from '../../app/permissions';
+import { OrderStatus, type CurrentUser, type SalesOrder } from '../../types';
 
-interface SalesOrderUser {
-    id: string | number;
-    role: string;
-}
+type SalesOrderUser = Pick<CurrentUser, 'id' | 'role' | 'permissions'>;
 
-export const canAuditCommissionRole = (role: string) => ['admin', 'manager'].includes(role);
+export const canAuditCommissionForUser = (user: SalesOrderUser) => can(user as CurrentUser, 'orders.complete');
 
-export const canRecordPaymentRole = (role: string) => ['admin', 'finance', 'manager', 'sales'].includes(role);
+export const canRecordPaymentForUser = (user: SalesOrderUser) => can(user as CurrentUser, 'orders.payment.record');
 
-export const canVerifyPaymentRole = (role: string) => ['admin', 'finance'].includes(role);
+export const canVerifyPaymentForUser = (user: SalesOrderUser) => can(user as CurrentUser, 'orders.payment.verify');
 
-export const canCreateOrderRole = (role: string) => ['admin', 'manager', 'sales'].includes(role);
+export const canCreateOrderForUser = (user: SalesOrderUser) => can(user as CurrentUser, 'orders.create');
 
 export const canEditSalesOrderForUser = (user: SalesOrderUser, order: SalesOrder) => {
-    if (['admin', 'manager'].includes(user.role)) return true;
-    if (user.role === 'sales' && order.salespersonId === user.id && order.status === OrderStatus.PENDING) return true;
+    if (!can(user as CurrentUser, 'orders.update')) return false;
+    if (user.role !== 'sales') return true;
+    if (String(order.salespersonId) === String(user.id) && order.status === OrderStatus.PENDING) return true;
     return false;
 };

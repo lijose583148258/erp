@@ -9,6 +9,7 @@ export type StockSourceType =
   | 'warehouse_initial'
   | 'warehouse_manual_inbound'
   | 'warehouse_adjustment'
+  | 'warehouse_transfer'
   | 'production_consumption'
   | 'production_output'
   | 'procurement_receipt'
@@ -46,4 +47,8 @@ export interface StockEntryResult {
 export interface StockEntryListFilters {
   sourceType?: string;
   sourceRef?: string;
+  productName?: string;
+  batchNo?: string;
+  locationId?: number;
+  warehouseId?: number;
 }

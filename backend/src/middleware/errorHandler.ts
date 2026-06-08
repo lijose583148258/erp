@@ -75,7 +75,7 @@ export const errorHandler = (
 
     // P2002: 唯一约束冲突
     if (prismaError.code === 'P2002') {
-      message = '数据已存在，请检查唯一字段';
+      message = '该编码、单号或名称已存在，请修改后再保存。';
       errorCode = ErrorCode.CONFLICT;
       statusCode = 409;
     }
@@ -101,7 +101,7 @@ export const errorHandler = (
     errorCode = ErrorCode.VALIDATION_ERROR;
     const zodError = err as any;
     const issues = zodError.issues?.map((i: any) => `${i.path.join('.')}: ${i.message}`).join('; ');
-    message = `参数校验失败: ${issues || err.message}`;
+    message = `填写内容不完整或格式不对，请按页面提示修改后再提交。${issues ? `（${issues}）` : ''}`;
   }
 
   // JWT错误处理

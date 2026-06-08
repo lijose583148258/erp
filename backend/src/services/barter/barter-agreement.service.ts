@@ -26,7 +26,7 @@ export async function syncBarterAgreementProgress(agreementId: number, client: T
   });
 
   if (!agreement) {
-    throw new Error('Barter agreement not found');
+    throw new Error('未找到货抵协议，请刷新后重新选择。');
   }
 
   const settlements = await client.barterSettlement.findMany({
@@ -155,7 +155,7 @@ export async function getBarterAgreement(id: number) {
   });
 
   if (!agreement) {
-    throw new Error('Barter agreement not found');
+    throw new Error('未找到货抵协议，请刷新后重新选择。');
   }
 
   return {
@@ -225,7 +225,7 @@ export async function createBarterBatchForAgreement(agreementId: number, input: 
   });
 
   if (!agreement) {
-    throw new Error('Barter agreement not found');
+    throw new Error('未找到货抵协议，请刷新后重新选择。');
   }
 
   await validateCounterpartyAndOrderLinks({
@@ -257,7 +257,7 @@ export async function createBarterBatchForAgreement(agreementId: number, input: 
     });
 
     if (!liveAgreement) {
-      throw new Error('Barter agreement not found');
+      throw new Error('未找到货抵协议，请刷新后重新选择。');
     }
 
     if (liveAgreement.status === 'closed' || liveAgreement.status === 'terminated') {
@@ -288,7 +288,7 @@ export async function createBarterBatchForAgreement(agreementId: number, input: 
     });
 
     if (duplicateBatch) {
-      const error = new Error('Duplicate barter batch submission detected. Please refresh settlement batches before submitting again.');
+      const error = new Error('检测到重复提交货抵批次，请刷新执行批次后再提交。');
       throw error;
     }
 

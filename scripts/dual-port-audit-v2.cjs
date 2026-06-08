@@ -3,8 +3,9 @@ const fs = require('fs');
 const path = require('path');
 
 const BACKEND = 'http://127.0.0.1:5001';
-const FRONTEND = 'http://localhost:3000';
+const LEGACY_FRONTEND = process.env.LEGACY_FRONTEND_URL || 'http://localhost:3000';
 const REQUIRE_FRONTEND_PORT = process.env.REQUIRE_FRONTEND_PORT === 'true';
+const COMPARE_LEGACY_FRONTEND = process.env.COMPARE_LEGACY_FRONTEND === 'true' || REQUIRE_FRONTEND_PORT;
 
 const API_ENDPOINTS = [
   { method: 'POST', path: '/api/auth/login', body: JSON.stringify({ username: 'admin', password: 'admin123' }) },
@@ -151,10 +152,16 @@ async function fetchToken() {
           res.on('end', () => resolve(JSON.parse(payload)));
         },
       );
+      req.on('error', () => resolve(null));
+      req.on('timeout', () => {
+        req.destroy();
+        resolve(null);
+      });
+      req.setTimeout(8000);
       req.write(JSON.stringify({ username: 'admin', password: 'admin123' }));
       req.end();
     });
-    return body.data?.token || '';
+    return body?.data?.token || '';
   } catch {
     return '';
   }
@@ -162,7 +169,7 @@ async function fetchToken() {
 
 async function run() {
   console.log('='.repeat(72));
-  console.log('Stable runtime API audit: 127.0.0.1:5001, optional localhost:3000 comparison');
+  console.log('Stable runtime API audit: 127.0.0.1:5001; legacy frontend comparison is opt-in');
   console.log('='.repeat(72));
 
   const token = await fetchToken();
@@ -172,11 +179,13 @@ async function run() {
   }
 
   console.log(`PASS: JWT token fetched (${token.substring(0, 20)}...)`);
-  const frontendHtml = await request(FRONTEND, { method: 'GET', path: '/' });
-  const compareFrontend = frontendHtml.status !== 0 || REQUIRE_FRONTEND_PORT;
+  const frontendHtml = COMPARE_LEGACY_FRONTEND
+    ? await request(LEGACY_FRONTEND, { method: 'GET', path: '/' })
+    : { status: 'skipped', bodyLen: 0, encodingClean: true };
+  const compareFrontend = COMPARE_LEGACY_FRONTEND && (frontendHtml.status !== 0 || REQUIRE_FRONTEND_PORT);
   const stableMode = !compareFrontend;
   if (!compareFrontend) {
-    console.log('INFO: localhost:3000 is not running. Stable-mode audit will verify 127.0.0.1:5001 only.');
+    console.log('INFO: legacy frontend comparison is disabled or unavailable. Stable-mode audit verifies 127.0.0.1:5001 only.');
   }
 
   console.log('\n' + 'Endpoint'.padEnd(38) + 'Backend'.padEnd(14) + 'Frontend'.padEnd(14) + 'Encoding'.padEnd(18) + 'Match');
@@ -190,7 +199,7 @@ async function run() {
   for (const endpoint of API_ENDPOINTS.filter((item) => item.method === 'GET')) {
     const backendRes = await request(BACKEND, endpoint, token);
     const frontendRes = compareFrontend
-      ? await request(FRONTEND, endpoint, token)
+      ? await request(LEGACY_FRONTEND, endpoint, token)
       : { status: 'skipped', encodingClean: true };
 
     const match = compareFrontend ? backendRes.status === frontendRes.status : true;
@@ -243,12 +252,12 @@ async function run() {
     frontend3000Compared: compareFrontend,
     frontend3000Required: REQUIRE_FRONTEND_PORT,
     note: stableMode
-      ? 'localhost:3000 was not running; this report only validates the stable 5001 runtime and must not be read as a dual-port comparison pass.'
-      : 'localhost:3000 was reachable and compared against the stable 5001 runtime.',
+      ? 'Legacy frontend comparison is disabled or unavailable; this report validates only the governed stable 5001 runtime.'
+      : 'Legacy frontend URL was reachable and compared against the stable 5001 runtime.',
     portA: { base: BACKEND, description: 'Direct backend API' },
     portB: {
-      base: FRONTEND,
-      description: 'Frontend Vite proxy to backend',
+      base: LEGACY_FRONTEND,
+      description: 'Legacy frontend comparison target; opt-in only',
       required: REQUIRE_FRONTEND_PORT,
       compared: compareFrontend,
     },

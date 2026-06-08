@@ -20,7 +20,7 @@ if (process.env.BARTER_V2_LEGACY_DIRECT_UI !== '1') {
     compatibilityWrapper: {
       script: 'barter-browser-audit-v2.cjs',
       delegatedTo: 'barter-agreement-browser-audit-v1.cjs',
-      reason: '当前货抵 UI 已升级为“货抵协议 / 分批执行”，旧“单张货抵结算单”直接录入 UI 不再作为默认验收入口。',
+      reason: '当前货抵 UI 已升级为“货抵支付 / 换货贸易”的协议分批执行工作台，旧“单张货抵结算单”直接录入 UI 不再作为默认验收入口。',
       legacyDirectUiEnv: 'BARTER_V2_LEGACY_DIRECT_UI=1',
     },
   }, null, 2), 'utf8');
@@ -32,7 +32,7 @@ const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 
-const APP_URL = 'http://127.0.0.1:5001/';
+const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'barter-audit-v2');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'barter-audit-report-v2.json');

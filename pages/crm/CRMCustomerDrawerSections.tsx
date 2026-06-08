@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { ChangeEvent, RefObject } from 'react';
 import { BrainCircuit, Loader2, MapPin, UploadCloud, UserPlus } from 'lucide-react';
 import type { Contact, Customer, CustomerAddress, CustomerPoolHistoryEntry, TeamMember } from '../../types';
@@ -211,6 +212,12 @@ export function CRMCustomerOwnershipSection({
   poolHistorySummary: PoolHistorySummary;
   salesAssignees: TeamMember[];
 }) {
+  const [pendingPoolAction, setPendingPoolAction] = useState<CustomerPoolState | null>(null);
+  const [lastConfirmedAction, setLastConfirmedAction] = useState<{
+    action: CustomerPoolState;
+    reason: string;
+    confirmedAt: string;
+  } | null>(null);
   const salespersonLookup = Object.fromEntries(salesAssignees.map((member) => [String(member.id), member]));
   const currentAssignee = poolSalespersonId ? salespersonLookup[String(poolSalespersonId)] : undefined;
   const keyword = poolSalespersonId.trim().toLowerCase();
@@ -218,6 +225,48 @@ export function CRMCustomerOwnershipSection({
     ? salesAssignees.filter((member) => [member.id, member.name, member.role, member.type, member.region].join(' ').toLowerCase().includes(keyword))
     : salesAssignees
   ).slice(0, 8);
+  const poolLabels: Record<CustomerPoolState, string> = {
+    public: t.crmPoolPublic || '公海',
+    internal: t.crmPoolInternal || '内池',
+    private: t.crmPoolPrivate || '私海',
+  };
+  const poolActionCopy: Record<CustomerPoolState, { title: string; summary: string; tone: string; buttonClassName: string }> = {
+    internal: {
+      title: t.crmPutToInternalPool || '放入内池',
+      summary: t.crmPoolInternalImpact || '客户将从当前池进入内部池，销售负责人会被清空，后续由管理角色重新分配。',
+      tone: 'border-slate-200 bg-slate-900 text-white dark:border-slate-700 dark:bg-white dark:text-slate-900',
+      buttonClassName: 'bg-slate-900 text-white dark:bg-white dark:text-slate-900',
+    },
+    public: {
+      title: t.crmReleaseToPublic || '释放到公海',
+      summary: t.crmPoolPublicImpact || '客户将进入公海，原私海负责人不再独占，团队成员可能重新认领或分配。',
+      tone: 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/30 dark:text-rose-200',
+      buttonClassName: 'bg-rose-500 text-white',
+    },
+    private: {
+      title: t.crmAssignPrivateButton || '分配到私海',
+      summary: currentAssignee
+        ? `${t.crmPoolPrivateImpact || '客户将进入私海并绑定负责人'}：${currentAssignee.name} / ${currentAssignee.type}`
+        : (t.crmPoolPrivateImpactNoOwner || '客户将进入私海；请确认负责人 ID 是否正确，未匹配到销售档案时仍会按现有输入提交。'),
+      tone: 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200',
+      buttonClassName: 'bg-emerald-500 text-white',
+    },
+  };
+  const pendingCopy = pendingPoolAction ? poolActionCopy[pendingPoolAction] : null;
+  const trimmedReason = poolReason.trim();
+  const openPoolConfirmation = (poolState: CustomerPoolState) => {
+    setPendingPoolAction(poolState);
+  };
+  const confirmPoolAction = () => {
+    if (!pendingPoolAction) return;
+    setLastConfirmedAction({
+      action: pendingPoolAction,
+      reason: trimmedReason || (t.crmPoolNoReasonWarning || '未填写原因'),
+      confirmedAt: new Date().toLocaleString('zh-CN', { hour12: false }),
+    });
+    onPoolAction(pendingPoolAction);
+    setPendingPoolAction(null);
+  };
 
   return (
     <section className="rounded-[30px] border border-slate-100 bg-slate-50/80 p-6 dark:border-slate-800 dark:bg-slate-900/40">
@@ -225,8 +274,26 @@ export function CRMCustomerOwnershipSection({
       {canManagePool ? (
         <div className="space-y-4">
           <div className="grid gap-2">
-            <button onClick={() => onPoolAction('internal')} disabled={isPoolUpdating} className="rounded-2xl bg-slate-900 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:opacity-50 dark:bg-white dark:text-slate-900">{t.crmPutToInternalPool || '放入内部池'}</button>
-            <button onClick={() => onPoolAction('public')} disabled={isPoolUpdating} className="rounded-2xl bg-rose-500 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:opacity-50">{t.crmReleaseToPublic || '释放到公海'}</button>
+            <div className="rounded-[24px] border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
+              <div className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-500">{t.crmPoolActionConfirmMode || '动作确认模式'}</div>
+              <div className="mt-2 text-xs font-bold leading-relaxed text-blue-900 dark:text-blue-100">
+                {t.crmPoolActionConfirmModeHint || '先选择动作，再核对原因、影响预览和确认记录，避免公海、私海、内池误操作。'}
+              </div>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              {(['internal', 'public', 'private'] as CustomerPoolState[]).map((poolState) => (
+                <button
+                  key={poolState}
+                  type="button"
+                  onClick={() => openPoolConfirmation(poolState)}
+                  disabled={isPoolUpdating}
+                  className={`rounded-2xl border px-3 py-3 text-left text-[11px] font-black uppercase tracking-[0.16em] transition disabled:opacity-50 ${poolActionCopy[poolState].tone}`}
+                >
+                  <span className="block">{poolActionCopy[poolState].title}</span>
+                  <span className="mt-1 block text-[10px] opacity-75">{poolLabels[currentPoolState]} → {poolLabels[poolState]}</span>
+                </button>
+              ))}
+            </div>
             <div className="rounded-[22px] border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
               <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmAssignPrivate || '分配到私海'}</div>
               <input list="crm-sales-assignees" value={poolSalespersonId} onChange={(event) => setPoolSalespersonId(event.target.value)} className="mt-3 w-full rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900" placeholder={t.crmSalespersonSearchPlaceholder || '手填或搜索：销售 ID / 姓名 / 业务线'} />
@@ -245,9 +312,45 @@ export function CRMCustomerOwnershipSection({
               <div className="mt-3 text-xs font-medium text-slate-500">
                 {currentAssignee ? `${t.crmCurrentCandidate || '当前候选'}：${currentAssignee.name} / ${currentAssignee.type} / ID ${currentAssignee.id}` : (t.crmSalespersonSearchHint || '支持手填，也支持根据姓名、ID、业务线联想搜索。')}
               </div>
-              <button onClick={() => onPoolAction('private')} disabled={isPoolUpdating} className="mt-4 w-full rounded-2xl bg-emerald-500 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:opacity-50">{t.crmAssignPrivateButton || '分配到私海'}</button>
+              <button onClick={() => openPoolConfirmation('private')} disabled={isPoolUpdating} className="mt-4 w-full rounded-2xl bg-emerald-500 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:opacity-50">{t.crmAssignPrivateButton || '分配到私海'}</button>
             </div>
             <textarea value={poolReason} onChange={(event) => setPoolReason(event.target.value)} rows={3} className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900" placeholder={t.crmPoolReasonPlaceholder || '填写分配、回收、释放到公海的原因'} />
+            {pendingCopy && pendingPoolAction && (
+              <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-950">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">{t.crmPoolActionPreview || '动作预览'}</div>
+                    <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{pendingCopy.title}</div>
+                  </div>
+                  <span className="rounded-2xl bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                    {poolLabels[currentPoolState]} → {poolLabels[pendingPoolAction]}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-2 md:grid-cols-2">
+                  <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
+                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmPoolActionReason || '原因'}</div>
+                    <div className="mt-2 text-xs font-bold text-slate-700 dark:text-slate-200">{trimmedReason || (t.crmPoolNoReasonWarning || '未填写原因，建议补充后再确认')}</div>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
+                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmPoolActionImpact || '影响预览'}</div>
+                    <div className="mt-2 text-xs font-bold leading-relaxed text-slate-700 dark:text-slate-200">{pendingCopy.summary}</div>
+                  </div>
+                </div>
+                <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                  <button type="button" onClick={() => setPendingPoolAction(null)} disabled={isPoolUpdating} className="rounded-2xl border border-slate-200 px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] text-slate-500 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300">
+                    {t.cancel || '取消'}
+                  </button>
+                  <button type="button" onClick={confirmPoolAction} disabled={isPoolUpdating} className={`rounded-2xl px-4 py-3 text-[11px] font-black uppercase tracking-[0.18em] disabled:opacity-50 ${pendingCopy.buttonClassName}`}>
+                    {isPoolUpdating ? (t.crmPoolUpdating || '提交中') : (t.crmPoolConfirmAction || '确认并记录')}
+                  </button>
+                </div>
+              </div>
+            )}
+            {lastConfirmedAction && (
+              <div className="rounded-[22px] border border-emerald-100 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-100">
+                {t.crmPoolActionConfirmedRecord || '确认记录'}：{poolActionCopy[lastConfirmedAction.action].title} / {lastConfirmedAction.reason} / {lastConfirmedAction.confirmedAt}
+              </div>
+            )}
           </div>
         </div>
       ) : (

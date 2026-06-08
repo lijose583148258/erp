@@ -13,15 +13,15 @@ const AdjustmentHeroClean = ({ stat }: AdjustmentHeroProps) => {
       <div className="relative p-8 lg:p-10">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/10 px-4 py-2 text-[10px] font-black uppercase tracking-[0.3em] text-blue-200">
           <ShieldCheck size={12} />
-          调账中心
+          异常调账治理台账
         </div>
         <div className="mt-5 flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
           <div className="max-w-2xl">
             <h1 className="text-4xl font-black italic leading-none tracking-tighter uppercase lg:text-5xl">
-              财务、生产、库存统一调账
+              跨域异常调账与审计回放
             </h1>
             <p className="mt-4 max-w-xl text-sm leading-7 text-slate-300 lg:text-base">
-              财务补录、生产损耗、库存盘差都走同一张单据，自动保留前后快照和审计痕迹，后续可以直接对接线上部署。
+              这里只处理已经确认的跨域异常、历史补偿和冲销回放。日常应收核销、生产完工、仓库入库仍回到各自主入口，避免同一笔业务被多个页面重复录入。
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3 lg:min-w-[360px]">

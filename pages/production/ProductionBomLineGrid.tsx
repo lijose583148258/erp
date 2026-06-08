@@ -1,5 +1,5 @@
 ﻿import React, { useState } from 'react';
-import { ChevronRight, ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
+import { Calculator, ChevronRight, ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { ActionToolbar } from '../../components/ui';
 
 export type BomItemDraft = {
@@ -120,7 +120,7 @@ const normalizeDosageValue = (value?: string): DosageModeValue => {
 const createEmptyItem = (): BomItemDraft => ({
   materialName: '',
   materialCode: '',
-  ingredientRole: 'main_resin',
+  ingredientRole: 'other',
   dosageMode: 'fixed',
   percentage: '',
   quantityPerUnit: '',
@@ -152,13 +152,78 @@ const getPasteLines = (text: string) =>
     .map((line) => line.replace(/\r$/, ''))
     .filter((line) => line.trim().length > 0);
 
+const toFiniteNumber = (value: string | number | null | undefined) => {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const formatDecimal = (value: number, precision = 6) => {
+  if (!Number.isFinite(value)) return '';
+  return Number(value.toFixed(precision)).toString();
+};
+
+const hasItemIdentity = (item: BomItemDraft) => Boolean(item.materialName.trim() || item.materialCode.trim());
+
+export const getEffectiveBomQuantityPerUnit = (item: BomItemDraft) => {
+  const dosageMode = normalizeDosageValue(item.dosageMode);
+  const percentageValue = toFiniteNumber(item.percentage);
+  const rawQuantityPerUnit = toFiniteNumber(item.quantityPerUnit);
+  if (dosageMode === 'percentage' && percentageValue > 0) {
+    return getPerUnitFromPercentage(percentageValue);
+  }
+  return rawQuantityPerUnit;
+};
+
+export const isEffectiveBomItemDraft = (item: BomItemDraft) =>
+  hasItemIdentity(item) && getEffectiveBomQuantityPerUnit(item) > 0;
+
+const cloneItem = (item: BomItemDraft): BomItemDraft => ({ ...item });
+
+const getPerUnitFromPercentage = (percentage: string | number | null | undefined) => {
+  const percentageValue = toFiniteNumber(percentage);
+  return percentageValue > 0 ? percentageValue / 100 : 0;
+};
+
+const normalizePastedQuantityPerUnit = ({
+  dosageMode,
+  percentage,
+  quantityPerUnit,
+  standardBatchSize,
+}: {
+  dosageMode: DosageModeValue;
+  percentage: string;
+  quantityPerUnit: string;
+  standardBatchSize: number;
+}) => {
+  const rawQuantity = toFiniteNumber(quantityPerUnit);
+  const percentageValue = toFiniteNumber(percentage);
+  if (dosageMode !== 'percentage' || percentageValue <= 0) {
+    return quantityPerUnit;
+  }
+
+  if (rawQuantity <= 0) {
+    return formatDecimal(getPerUnitFromPercentage(percentage));
+  }
+
+  const expectedBatchQuantity = standardBatchSize > 0 ? (standardBatchSize * percentageValue) / 100 : 0;
+  const looksLikeBatchQuantity =
+    expectedBatchQuantity > 0
+    && rawQuantity > 1
+    && Math.abs(rawQuantity - expectedBatchQuantity) <= Math.max(0.01, expectedBatchQuantity * 0.005);
+
+  return looksLikeBatchQuantity ? formatDecimal(rawQuantity / standardBatchSize) : quantityPerUnit;
+};
+
 export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize }) => {
   const [pasteText, setPasteText] = useState('');
   const [showPastePanel, setShowPastePanel] = useState(false);
-  const filledLineCount = items.filter((item) => item.materialName.trim() || item.materialCode.trim()).length;
-  const percentageTotal = items.reduce((sum, item) => sum + Number(item.percentage || 0), 0);
-  const hasPercentageRows = items.some((item) => normalizeDosageValue(item.dosageMode) === 'percentage');
-  const lineCountWarning = filledLineCount > 0 && filledLineCount < 10;
+  const filledLineCount = items.filter(hasItemIdentity).length;
+  const effectiveLineCount = items.filter(isEffectiveBomItemDraft).length;
+  const invalidDraftLineCount = Math.max(0, filledLineCount - effectiveLineCount);
+  const effectiveItems = items.filter(isEffectiveBomItemDraft);
+  const percentageTotal = effectiveItems.reduce((sum, item) => sum + Number(item.percentage || 0), 0);
+  const hasPercentageRows = effectiveItems.some((item) => normalizeDosageValue(item.dosageMode) === 'percentage');
+  const lineCountWarning = effectiveLineCount < 10;
   const percentageWarning = hasPercentageRows && Math.abs(percentageTotal - 100) > 0.01;
 
   const updateItem = (index: number, patch: Partial<BomItemDraft>) => {
@@ -186,8 +251,17 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
 
   const applyGlueSkeleton = () => {
     setItems((prev) => {
-      const hasRealRows = prev.some((item) => item.materialName.trim() || item.materialCode.trim());
-      return hasRealRows ? [...prev, ...GLUE_FORMULA_SKELETON] : GLUE_FORMULA_SKELETON.map((item) => ({ ...item }));
+      const filledRows = prev.filter(hasItemIdentity);
+      if (filledRows.length >= 10) return filledRows;
+
+      const usedRoles = new Set(filledRows.map((item) => normalizeRoleValue(item.ingredientRole)));
+      const missingSkeletonRows = GLUE_FORMULA_SKELETON
+        .filter((item) => !usedRoles.has(normalizeRoleValue(item.ingredientRole)))
+        .slice(0, 10 - filledRows.length)
+        .map(cloneItem);
+
+      const mergedRows = [...filledRows, ...missingSkeletonRows];
+      return mergedRows.length > 0 ? mergedRows : GLUE_FORMULA_SKELETON.map(cloneItem);
     });
   };
 
@@ -202,13 +276,20 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
     const lines = getPasteLines(pasteText);
     const importedItems: BomItemDraft[] = lines.map((line) => {
       const parts = line.split('\t').map((part) => part.trim());
+      const dosageMode = normalizeDosageValue(parts[3]);
+      const percentage = parts[4] || '';
       return {
         materialName: parts[0] || '',
         materialCode: parts[1] || '',
         ingredientRole: normalizeRoleValue(parts[2]),
-        dosageMode: normalizeDosageValue(parts[3]),
-        percentage: parts[4] || '',
-        quantityPerUnit: parts[5] || '',
+        dosageMode,
+        percentage,
+        quantityPerUnit: normalizePastedQuantityPerUnit({
+          dosageMode,
+          percentage,
+          quantityPerUnit: parts[5] || '',
+          standardBatchSize,
+        }),
         unit: parts[6] || 'kg',
         lossRate: parts[7] || '',
         allowedVarianceRate: parts[8] || '',
@@ -234,19 +315,24 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
 
   return (
     <div className="app-card p-6">
-      <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="mb-6 flex flex-col gap-4">
         <div>
-          <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">BOM 原料明细（双行网格）</h3>
+          <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">配方原料明细</h3>
           <p className="mt-2 text-sm text-slate-400">
-            胶水/树脂/涂料建议按“至少 10 类原料 + 工艺阶段 + 损耗率”录入；保密原料可只填代号，不必暴露真实名称。
+            胶水/树脂/涂料建议按“原料代号 + 配方占比 + 单位单耗 + 工艺阶段”录入。计划配方在这里维护，实际投料在工单完工时确认，避免把计划量误当实耗。
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             <span className="rounded-full bg-slate-100 px-3 py-1 text-[11px] font-black text-slate-500 dark:bg-slate-800 dark:text-slate-300">
-              已填 {filledLineCount} 种原料
+              有效明细 {effectiveLineCount} 行
             </span>
             <span className={`rounded-full px-3 py-1 text-[11px] font-black ${lineCountWarning ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}`}>
-              胶水建议 {'>='} 10 种
+              胶水建议 {'>='} 10 行有效明细
             </span>
+            {invalidDraftLineCount > 0 ? (
+              <span className="rounded-full bg-rose-100 px-3 py-1 text-[11px] font-black text-rose-700 dark:bg-rose-900/30 dark:text-rose-200">
+                {invalidDraftLineCount} 行会被保存过滤：需补单耗或百分比
+              </span>
+            ) : null}
             <span className={`rounded-full px-3 py-1 text-[11px] font-black ${percentageWarning ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200'}`}>
               百分比合计 {percentageTotal.toFixed(2)}%
             </span>
@@ -258,12 +344,12 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
           </div>
         </div>
         <ActionToolbar
-          className="xl:flex-none"
+          className="w-full"
           actions={[
-            { label: '胶水10原料骨架', onClick: applyGlueSkeleton, tone: 'success', testId: 'production-bom-apply-glue-skeleton' },
-            { label: '补齐10行', onClick: ensureTenRows, tone: 'neutral', testId: 'production-bom-ensure-ten-rows' },
-            { label: '新增明细', onClick: addItem, tone: 'primary', icon: <Plus size={14} />, testId: 'production-bom-add-line' },
-            { label: '粘贴 Excel', onClick: () => setShowPastePanel((prev) => !prev), tone: 'neutral', icon: <ClipboardPaste size={14} />, testId: 'production-bom-open-paste-panel' },
+            { label: '填充明细模板', onClick: applyGlueSkeleton, tone: 'success', testId: 'production-bom-apply-glue-skeleton' },
+            { label: '补齐空行到10', onClick: ensureTenRows, tone: 'neutral', testId: 'production-bom-ensure-ten-rows' },
+            { label: '新增明细行', onClick: addItem, tone: 'primary', icon: <Plus size={14} />, testId: 'production-bom-add-line' },
+            { label: '粘贴明细行', onClick: () => setShowPastePanel((prev) => !prev), tone: 'neutral', icon: <ClipboardPaste size={14} />, testId: 'production-bom-open-paste-panel' },
           ]}
         />
       </div>
@@ -272,10 +358,10 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
         <div className="mb-5 rounded-[24px] border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-900/10">
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
             <Rows4 size={14} />
-            Excel 粘贴区
+            当前 BOM 草稿明细粘贴区
           </div>
           <p className="mt-2 text-xs text-slate-500 dark:text-slate-400">
-            建议按以下顺序粘贴：物料名、保密代号/编码、角色、剂量模式、百分比、单耗、单位、损耗率、允许偏差%、工艺阶段、替代组、收率、备注。若物料名留空，系统会用代号保存该行。
+            建议按以下顺序粘贴：物料名、保密代号/编码、角色、剂量模式、百分比、单位单耗、单位、损耗率、允许偏差%、工艺阶段、替代组、收率、备注。百分比配方若粘贴的是标准批量用量，系统会按标准批量自动换算成单位单耗。
           </p>
           <textarea
             data-testid="production-bom-paste-textarea"
@@ -298,19 +384,19 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
               data-testid="production-bom-apply-paste"
               className="rounded-[16px] bg-blue-600 px-4 py-2 text-xs font-black tracking-[0.16em] text-white"
             >
-              智能导入
+              导入明细行到当前 BOM 草稿
             </button>
           </div>
         </div>
       )}
 
       <div className="overflow-x-auto rounded-[24px] border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
-        <table data-testid="production-bom-line-grid" className="min-w-[1180px] w-full border-collapse">
+        <table data-testid="production-bom-line-grid" className="min-w-[1320px] w-full border-collapse">
           <thead>
             <tr>
               <th className="w-10 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">#</th>
-              <th className="whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">复合明细（双行布局）</th>
-              <th className="w-44 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">百分比 / 单耗 / 单位</th>
+              <th className="whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">原料身份 / 工艺信息</th>
+              <th className="w-60 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">配方占比 / 单位单耗 / 单位</th>
               <th className="w-32 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">损耗 / 偏差 %</th>
               <th className="w-24 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-center text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">操作</th>
             </tr>
@@ -319,17 +405,24 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
             {items.map((item, index) => {
               const roleValue = normalizeRoleValue(item.ingredientRole);
               const dosageValue = normalizeDosageValue(item.dosageMode);
-              const percentageValue = Number(item.percentage || 0);
-              const derivedQuantity =
+              const percentageValue = toFiniteNumber(item.percentage);
+              const hasIdentity = hasItemIdentity(item);
+              const effectiveQuantity = getEffectiveBomQuantityPerUnit(item);
+              const isInvalidDraftLine = hasIdentity && effectiveQuantity <= 0;
+              const perUnitQuantity =
+                dosageValue === 'percentage' && percentageValue > 0
+                  ? formatDecimal(getPerUnitFromPercentage(percentageValue))
+                  : '';
+              const batchQuantity =
                 standardBatchSize > 0 && dosageValue === 'percentage' && percentageValue > 0
-                  ? ((standardBatchSize * percentageValue) / 100).toFixed(4)
+                  ? formatDecimal((standardBatchSize * percentageValue) / 100, 4)
                   : '';
 
               return (
                 <tr
                   key={index}
                   data-testid={`production-bom-line-row-${index}`}
-                  className="group border-b border-slate-200 transition-colors hover:bg-white dark:border-slate-700 dark:hover:bg-slate-800"
+                  className={`group border-b border-slate-200 transition-colors hover:bg-white dark:border-slate-700 dark:hover:bg-slate-800 ${isInvalidDraftLine ? 'bg-rose-50/60 dark:bg-rose-950/10' : ''}`}
                 >
                   <td className="px-2 py-3 align-top text-xs font-black text-slate-400">{index + 1}</td>
                   <td className="px-2 py-2">
@@ -413,13 +506,13 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                         <input
                           value={item.percentage}
                           onChange={(e) => updateItem(index, { percentage: e.target.value })}
-                          placeholder={dosageValue === 'percentage' ? '百分比' : '比例/备用'}
+                          placeholder={dosageValue === 'percentage' ? '占比%' : '占比'}
                           className={`${baseInputClass} w-16 border-r border-slate-100 text-center dark:border-slate-800`}
                         />
                         <input
                           value={item.quantityPerUnit}
                           onChange={(e) => updateItem(index, { quantityPerUnit: e.target.value })}
-                          placeholder="单耗"
+                          placeholder="单位单耗"
                           className={`${baseInputClass} flex-1 border-r border-slate-100 text-center dark:border-slate-800`}
                         />
                         <input
@@ -429,15 +522,21 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                           className={`${baseInputClass} w-12 text-center`}
                         />
                       </div>
-                      {dosageValue === 'percentage' && standardBatchSize > 0 && percentageValue > 0 && (
+                      {dosageValue === 'percentage' && percentageValue > 0 && (
                         <button
                           type="button"
-                          onClick={() => updateItem(index, { quantityPerUnit: derivedQuantity })}
+                          onClick={() => updateItem(index, { quantityPerUnit: perUnitQuantity })}
                           className="rounded bg-blue-50 px-2 py-1 text-left text-[10px] text-blue-500 hover:text-blue-700 dark:bg-blue-900/30"
                         >
-                          按批量换算单耗 {derivedQuantity}
+                          <Calculator size={11} className="mr-1 inline" />
+                          单位单耗 {perUnitQuantity}{batchQuantity ? ` / 标准批量用量 ${batchQuantity}` : ''}
                         </button>
                       )}
+                      {isInvalidDraftLine ? (
+                        <div className="rounded-lg bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600 dark:bg-rose-950/30 dark:text-rose-200">
+                          这行不会保存：请填写单位单耗，或在百分比模式下填写占比%
+                        </div>
+                      ) : null}
                     </div>
                   </td>
 

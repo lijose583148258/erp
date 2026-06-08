@@ -17,17 +17,19 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
     compact = false,
     className = '',
 }) => {
-    const { t } = useAppContext();
+    const { t, notify } = useAppContext();
 
     const [isOpen, setIsOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [extractedData, setExtractedData] = useState<ExtractedFormData | null>(null);
     const [manualInput, setManualInput] = useState('');
     const [showManualInput, setShowManualInput] = useState(false);
+    const [parseError, setParseError] = useState('');
 
     const handleVoiceResult = useCallback(async (text: string) => {
         setIsProcessing(true);
         setManualInput(text);
+        setParseError('');
         try {
             const result = await smartFormFill(text, true);
             if (result.success && result.data) {
@@ -43,12 +45,15 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
             } else {
                 throw new Error(result.message || '解析失败');
             }
-        } catch (error: any) {
-            console.error(error);
+        } catch (error: unknown) {
+            const message = error instanceof Error ? error.message : String(error || '解析失败');
+            const nextError = `智能解析失败：${message}`;
+            setParseError(nextError);
+            notify('error', nextError);
         } finally {
             setIsProcessing(false);
         }
-    }, [customers]);
+    }, [customers, notify]);
 
     const handleManualSubmit = useCallback(() => {
         if (manualInput.trim()) {
@@ -63,6 +68,7 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
             setExtractedData(null);
             setManualInput('');
             setShowManualInput(false);
+            setParseError('');
             setIsOpen(false);
         }
     }, [extractedData, onFill]);
@@ -72,6 +78,7 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
         setExtractedData(null);
         setManualInput('');
         setShowManualInput(false);
+        setParseError('');
         setIsProcessing(false);
     }, []);
 
@@ -97,6 +104,7 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
                         setManualInput={setManualInput}
                         showManualInput={showManualInput}
                         setShowManualInput={setShowManualInput}
+                        parseError={parseError}
                         t={t}
                     />
                 )}
@@ -158,6 +166,13 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
                 />
             )}
 
+            {parseError && (
+                <div className="mt-4 flex items-start rounded-2xl border border-rose-100 bg-rose-50 p-3 text-sm font-bold text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+                    <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
+                    <span>{parseError}</span>
+                </div>
+            )}
+
             {extractedData && !showManualInput && (
                 <ExtractedDataPreview
                     data={extractedData}
@@ -181,6 +196,7 @@ const SmartFormFillModal: React.FC<{
     setManualInput: (v: string) => void;
     showManualInput: boolean;
     setShowManualInput: (v: boolean) => void;
+    parseError: string;
     t: any;
 }> = ({
     onClose,
@@ -193,6 +209,7 @@ const SmartFormFillModal: React.FC<{
     setManualInput,
     showManualInput,
     setShowManualInput,
+    parseError,
     t,
 }) => (
     <div className="fixed inset-0 z-[150] flex items-end sm:items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
@@ -250,6 +267,13 @@ const SmartFormFillModal: React.FC<{
                                 智能解析
                             </button>
                         </div>
+                    </div>
+                )}
+
+                {parseError && (
+                    <div className="mt-4 flex items-start rounded-2xl border border-rose-100 bg-rose-50 p-3 text-sm font-bold text-rose-700 dark:border-rose-900/40 dark:bg-rose-950/30 dark:text-rose-200">
+                        <AlertCircle size={16} className="mr-2 mt-0.5 shrink-0" />
+                        <span>{parseError}</span>
                     </div>
                 )}
 

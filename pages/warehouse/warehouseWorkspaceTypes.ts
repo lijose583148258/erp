@@ -1,6 +1,6 @@
 import type { WarehouseLocation } from '../../services/warehouse.service';
 
-export type TabKey = 'overview' | 'inventory' | 'inbound';
+export type TabKey = 'overview' | 'inventory' | 'ledger' | 'inbound';
 
 export type StockBalanceQueryOverrides = {
   keyword?: string;
@@ -27,6 +27,15 @@ export type InboundFormState = {
   batchNo: string;
   quantity: number;
   unit: string;
+  sourceRef: string;
+  reason: string;
+  note: string;
+};
+
+export type TransferFormState = {
+  toLocationId: number;
+  quantity: number;
+  note: string;
 };
 
 export type WarehouseDraft = {

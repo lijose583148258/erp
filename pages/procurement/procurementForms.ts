@@ -51,6 +51,8 @@ export type PurchaseCostPreview = {
   landedUnitCost: number;
 };
 
+export type ProcurementFormErrors = Record<string, string>;
+
 export const createEmptySupplierForm = (): NewSupplierForm => ({
   name: '',
   nameZh: '',
@@ -149,6 +151,75 @@ export const calculatePurchaseCostPreview = (newOrder: NewPurchaseOrderForm): Pu
     landedCostAmount,
     landedUnitCost: quantity > 0 ? roundMoney(landedCostAmount / quantity) : 0,
   };
+};
+
+export const validateSupplierForm = (form: NewSupplierForm): ProcurementFormErrors => {
+  const errors: ProcurementFormErrors = {};
+  if (!form.name.trim()) errors.name = '供应商名称不能为空';
+  if (!form.category.trim()) errors.category = '供应品类不能为空';
+  if (form.contactEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contactEmail.trim())) {
+    errors.contactEmail = '邮箱格式不正确';
+  }
+  const rating = Number(form.rating);
+  if (!Number.isFinite(rating) || rating < 1 || rating > 5) errors.rating = '评级必须在 1 到 5 之间';
+  const leadTimeDays = Number(form.leadTimeDays);
+  if (!Number.isFinite(leadTimeDays) || leadTimeDays < 0) errors.leadTimeDays = '交期不能为负数';
+  return errors;
+};
+
+const isNonNegativeNumber = (value: string) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0;
+};
+
+export const validatePurchaseOrderForm = (form: NewPurchaseOrderForm, isB2B: boolean): ProcurementFormErrors => {
+  const errors: ProcurementFormErrors = {};
+  const quantity = Number(form.quantity);
+  const price = Number(form.price);
+  const exchangeRate = Number(form.exchangeRate);
+
+  if (!form.supplierId) errors.supplierId = '请选择供应商';
+  if (!form.item.trim()) errors.item = '请填写采购物料';
+  if (!Number.isFinite(quantity) || quantity <= 0) errors.quantity = '数量必须大于 0';
+  if (!form.unit.trim()) errors.unit = '单位不能为空';
+  if (!Number.isFinite(price) || price < 0) errors.price = '单价不能为负数';
+  if (!form.currency.trim()) errors.currency = '请选择币种';
+  if (!Number.isFinite(exchangeRate) || exchangeRate <= 0) errors.exchangeRate = '汇率必须大于 0';
+  if (!isNonNegativeNumber(form.taxRate)) errors.taxRate = '税率不能为负数';
+  if (form.taxAmount.trim() && !isNonNegativeNumber(form.taxAmount)) errors.taxAmount = '税额不能为负数';
+  if (!isNonNegativeNumber(form.freightCost)) errors.freightCost = '运费不能为负数';
+  if (!isNonNegativeNumber(form.dutyCost)) errors.dutyCost = '关税不能为负数';
+  if (!isNonNegativeNumber(form.insuranceCost)) errors.insuranceCost = '保险费不能为负数';
+  if (!isNonNegativeNumber(form.otherCost)) errors.otherCost = '其他费用不能为负数';
+  if (form.eta && Number.isNaN(Date.parse(form.eta))) errors.eta = '预计到货日期无效';
+  if (isB2B && !form.salesOrderRef) errors.salesOrderRef = '背靠背采购必须选择关联销售订单';
+
+  return errors;
+};
+
+export const validatePurchaseReceiptForm = (
+  form: PurchaseReceiptForm,
+  order: PurchaseOrder,
+  bundle?: PurchaseReceiptBundle | null,
+): ProcurementFormErrors => {
+  const errors: ProcurementFormErrors = {};
+  const quantity = Number(form.quantity);
+  const acceptedQuantity = Number(form.acceptedQuantity || 0);
+  const rejectedQuantity = Number(form.rejectedQuantity || 0);
+  const remainingQuantity = Number(bundle?.receiptSummary.remainingQuantity ?? order.quantity ?? 0);
+
+  if (!Number.isFinite(quantity) || quantity <= 0) errors.quantity = '本次数量必须大于 0';
+  if (!Number.isFinite(acceptedQuantity) || acceptedQuantity < 0) errors.acceptedQuantity = '合格数量不能为负数';
+  if (!Number.isFinite(rejectedQuantity) || rejectedQuantity < 0) errors.rejectedQuantity = '差异数量不能为负数';
+  if (Number.isFinite(quantity) && Number.isFinite(acceptedQuantity) && Number.isFinite(rejectedQuantity)
+    && Math.abs(quantity - acceptedQuantity - rejectedQuantity) > 0.000001) {
+    errors.quantity = '本次数量必须等于合格数量与差异数量之和';
+  }
+  if (Number.isFinite(quantity) && quantity - remainingQuantity > 0.000001) {
+    errors.quantity = `本次数量不能超过剩余 ${remainingQuantity}`;
+  }
+
+  return errors;
 };
 
 export const createReceiptFormForOrder = (

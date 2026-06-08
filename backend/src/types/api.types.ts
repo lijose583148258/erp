@@ -38,6 +38,7 @@ export interface LoginResponse {
         segment?: string | null;
         avatar: string | null;
         permissions?: string[];
+        dataScopes?: string[];
     };
     expiresIn: number;
 }

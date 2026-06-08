@@ -4,19 +4,86 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { roleExistsAndActive } from '../services/authorization-policy.service';
+import { canAssignPrivilegedRoles, isRoleAssignmentChange, resolveUserSegment, ROLE_ASSIGNMENT_PERMISSION } from '../services/role-assignment-policy.service';
+import { getNormalizedUserSegment, hasDataScope, mergeWhereAnd } from '../utils/recordAccess';
+import type { Prisma } from '@prisma/client';
 
-type UserSegment = 'direct' | 'channel' | 'mixed';
+const denyUserWhere = (): Prisma.UserWhereInput => ({ id: -1 });
 
-function resolveUserSegment(role: string, segment?: string | null): UserSegment {
-    if (segment === 'direct' || segment === 'channel' || segment === 'mixed') {
-        return segment;
+function buildTeamSegmentScopeWhere(req: AuthRequest): Prisma.UserWhereInput {
+    const segment = getNormalizedUserSegment(req);
+    return segment && segment !== 'mixed'
+        ? { segment: { in: [segment, 'mixed'] } }
+        : {};
+}
+
+function buildTeamCustomerSegmentScopeWhere(req: AuthRequest): Prisma.CustomerWhereInput | undefined {
+    const segment = getNormalizedUserSegment(req);
+    return segment && segment !== 'mixed'
+        ? { segment: { in: [segment, 'mixed'] } }
+        : undefined;
+}
+
+function buildTeamUserScopeWhere(req: AuthRequest): Prisma.UserWhereInput {
+    if (!req.user) return denyUserWhere();
+    if (req.user.role === 'admin' || hasDataScope(req, 'all')) return {};
+
+    if (req.user.role === 'manager' || hasDataScope(req, 'team_customers')) {
+        return buildTeamSegmentScopeWhere(req);
     }
 
-    if (role === 'sales') {
-        return 'direct';
+    if (req.user.role === 'sales' || hasDataScope(req, 'own_customers')) {
+        return { id: req.user.userId };
     }
 
-    return 'mixed';
+    return denyUserWhere();
+}
+
+function buildTeamCustomerScopeWhere(req: AuthRequest): Prisma.CustomerWhereInput | undefined {
+    if (!req.user) return { id: -1 };
+    if (req.user.role === 'admin' || hasDataScope(req, 'all')) return undefined;
+
+    if (req.user.role === 'manager' || hasDataScope(req, 'team_customers')) {
+        return buildTeamCustomerSegmentScopeWhere(req);
+    }
+
+    if (req.user.role === 'sales' || hasDataScope(req, 'own_customers')) {
+        return {
+            poolState: 'private',
+            salespersonId: req.user.userId,
+        };
+    }
+
+    return { id: -1 };
+}
+
+function buildTeamOrderScopeWhere(req: AuthRequest): Prisma.OrderWhereInput | undefined {
+    if (!req.user) return { id: -1 };
+    if (req.user.role === 'admin' || hasDataScope(req, 'all')) return undefined;
+
+    if (req.user.role === 'manager' || hasDataScope(req, 'team_customers')) {
+        const customerSegmentWhere = buildTeamCustomerSegmentScopeWhere(req);
+        return customerSegmentWhere ? { customer: customerSegmentWhere } : undefined;
+    }
+
+    if (req.user.role === 'sales' || hasDataScope(req, 'own_customers')) {
+        return { createdBy: req.user.userId };
+    }
+
+    return { id: -1 };
+}
+
+async function assertRoleAssignmentAllowed(req: AuthRequest, res: Response, nextRole: string, previousRole?: string | null) {
+    if (!isRoleAssignmentChange(nextRole, previousRole)) return true;
+
+    if (await canAssignPrivilegedRoles(req)) return true;
+
+    res.status(403).json({
+        success: false,
+        message: '分配或变更角色需要超级管理员授权',
+        requiredPermissions: [ROLE_ASSIGNMENT_PERMISSION],
+    });
+    return false;
 }
 
 export class TeamController {
@@ -25,6 +92,9 @@ export class TeamController {
             const { username, password, email, role = 'sales', segment } = req.body;
             if (!(await roleExistsAndActive(role))) {
                 return res.status(400).json({ success: false, message: '角色不存在或已禁用' });
+            }
+            if (!(await assertRoleAssignmentAllowed(req, res, role))) {
+                return;
             }
 
             const existingUser = await prisma.user.findUnique({
@@ -90,8 +160,10 @@ export class TeamController {
      */
     async getTeamMembers(req: AuthRequest, res: Response) {
         try {
+            const userScopeWhere = buildTeamUserScopeWhere(req);
+
             const users = await prisma.user.findMany({
-                where: { isActive: true },
+                where: userScopeWhere,
                 select: {
                     id: true,
                     username: true,
@@ -99,6 +171,7 @@ export class TeamController {
                     role: true,
                     segment: true,
                     avatar: true,
+                    isActive: true,
                     lastLoginAt: true,
                     createdAt: true,
                     _count: {
@@ -131,23 +204,29 @@ export class TeamController {
     async getPerformance(req: AuthRequest, res: Response) {
         try {
             const { startDate, endDate } = req.query;
+            const userScopeWhere = buildTeamUserScopeWhere(req);
+            const customerScopeWhere = buildTeamCustomerScopeWhere(req);
+            const orderScopeWhere = buildTeamOrderScopeWhere(req);
 
             const dateFilter: { gte?: Date; lte?: Date } = {};
             if (startDate) dateFilter.gte = new Date(startDate as string);
             if (endDate) dateFilter.lte = new Date(endDate as string);
 
             const performance = await prisma.user.findMany({
-                where: {
+                where: mergeWhereAnd({
                     isActive: true,
                     role: { in: ['sales', 'manager'] },
-                },
+                }, userScopeWhere),
                 select: {
                     id: true,
                     username: true,
                     role: true,
                     segment: true,
                     orders: {
-                        where: dateFilter.gte || dateFilter.lte ? { createdAt: dateFilter } : undefined,
+                        where: mergeWhereAnd(
+                            dateFilter.gte || dateFilter.lte ? { createdAt: dateFilter } : undefined,
+                            orderScopeWhere,
+                        ),
                         select: {
                             id: true,
                             finalAmount: true,
@@ -155,6 +234,7 @@ export class TeamController {
                         },
                     },
                     customers: {
+                        where: customerScopeWhere,
                         select: { id: true },
                     },
                 },
@@ -195,8 +275,22 @@ export class TeamController {
         try {
             const { id } = req.params;
             const { role, segment, isActive, email, avatar } = req.body;
+            const targetUser = await prisma.user.findFirst({
+                where: mergeWhereAnd({ id: Number(id) }, buildTeamUserScopeWhere(req)),
+                select: { id: true, role: true },
+            });
+
+            if (!targetUser) {
+                return res.status(404).json({ success: false, message: '用户不存在或不在当前账号的数据范围内' });
+            }
+
             if (role !== undefined && !(await roleExistsAndActive(role))) {
                 return res.status(400).json({ success: false, message: '角色不存在或已禁用' });
+            }
+            if (role !== undefined) {
+                if (!(await assertRoleAssignmentAllowed(req, res, role, targetUser.role))) {
+                    return;
+                }
             }
             const segmentPatch = role !== undefined || segment !== undefined
                 ? { segment: resolveUserSegment(role, segment) }

@@ -33,6 +33,18 @@ const roundQuantity = (value: number, precision = 6) => {
   return Math.round(value * factor) / factor;
 };
 
+const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number]) => {
+  const dosageMode = String(item.dosageMode || '').trim();
+  const percentage = Number(item.percentage || 0);
+  const rawQuantity = toPositiveNumber(item.quantityPerUnit);
+
+  if (dosageMode === 'percentage' && Number.isFinite(percentage) && percentage > 0) {
+    return roundQuantity(percentage / 100);
+  }
+
+  return rawQuantity;
+};
+
 const resolveFinishedGoodsLocationId = async (tx: TransactionClient) => {
   const finishedGoodsLocation = await tx.location.findFirst({
     where: { code: 'LOC-FG', status: 'active' },
@@ -77,6 +89,7 @@ export class ProductionMutationService {
         ...item,
         materialName: String(item.materialName || item.materialCode || '').trim(),
         materialCode: item.materialCode ? String(item.materialCode).trim() : null,
+        quantityPerUnit: normalizeBomQuantityPerUnit(item),
       }))
       .filter(item => item.materialName && Number(item.quantityPerUnit || 0) > 0);
 
@@ -274,7 +287,7 @@ export class ProductionMutationService {
         }
 
         if (requiredMaterialCount > 0 && aggregatedRecords.size === 0) {
-          throw new Error('Completing a BOM work order requires confirmed material consumption records');
+          throw new Error('完工前必须先确认本工单的耗料记录。');
         }
 
         for (const [stockBalanceId, quantity] of aggregatedRecords.entries()) {
@@ -288,7 +301,7 @@ export class ProductionMutationService {
           }
 
           if (roundQuantity(Number(currentStock.quantity || 0)) + 0.000001 < quantity) {
-            throw new Error(`Insufficient stock for ${currentStock.productName} / ${currentStock.batchNo}`);
+            throw new Error(`库存不足：${currentStock.productName} / ${currentStock.batchNo}，请先核对库存余额。`);
           }
 
           validatedConsumptionRecords.push({ stockBalanceId, quantity, stock: currentStock });

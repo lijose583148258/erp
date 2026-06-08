@@ -13,6 +13,7 @@ export interface LoginResponse {
             segment?: string | null;
             avatar?: string;
             permissions?: string[];
+            dataScopes?: string[];
         };
     };
 }
@@ -49,6 +50,7 @@ export const authService = {
             segment: resolveSegment(user.role as UserRole, user.segment, user.username),
             avatar: user.avatar || '',
             permissions: user.permissions || [],
+            dataScopes: user.dataScopes || [],
         };
 
         localStorage.setItem('user', JSON.stringify(currentUser));
@@ -63,6 +65,12 @@ export const authService = {
      * 退出登录
      */
     logout() {
+        const token = localStorage.getItem('token');
+        if (token) {
+            void api.post('/auth/logout', {}, {
+                headers: { Authorization: `Bearer ${token}` },
+            }).catch(() => undefined);
+        }
         localStorage.removeItem('token');
         localStorage.removeItem('user');
     },

@@ -26,15 +26,20 @@ const STARTED_AT = new Date();
 const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'check-timeboxed-health.ps1',
   'scripts/clean-dist-v1.ps1',
+  'scripts/daily-local-governance-audit-v1.cjs',
+  'scripts/lib/win32-audit-process-guard.cjs',
   'scripts/start-cdp-browser.ps1',
   'scripts/start-stable-v2.ps1',
   'scripts/stop-runtime.ps1',
+  'scripts/verify-phase3-package-browser.ps1',
   '启动系统.bat',
 ]);
 
 const GOVERNED_NAMED_ACTIVE_FILES = new Set([
   'scripts/clean-dist-v1.cjs',
   'scripts/clean-dist-v1.ps1',
+  'scripts/clean-runtime-package-audit-v1.cjs',
+  'scripts/deploy-clean-runtime-package-v1.ps1',
   'scripts/legacy-interface-disconnect-audit-v1.cjs',
 ]);
 

@@ -8,6 +8,8 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'stock-ledger-reconcile-audit-report-v
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
 const IDEMPOTENT_SOURCE_TYPES = [
+  'warehouse_manual_inbound',
+  'warehouse_transfer',
   'production_consumption',
   'production_output',
   'procurement_receipt',
@@ -17,6 +19,7 @@ const IDEMPOTENT_SOURCE_TYPES = [
   'barter_receipt_reversal',
   'barter_issue_reversal',
 ];
+const GENERAL_STOCK_SOURCE_UNIQUE_TYPES = IDEMPOTENT_SOURCE_TYPES.filter((sourceType) => sourceType !== 'warehouse_transfer');
 
 const REQUIRED_LOCATIONS = ['WH-MAIN', 'LOC-RAW', 'LOC-FG', 'LOC-WIP', 'LOC-SCRAP'];
 const EPSILON = 0.000001;
@@ -310,6 +313,21 @@ async function getUniqueIndexState() {
   );
 }
 
+async function getWarehouseTransferUniqueIndexState() {
+  return queryRows(
+    `SELECT name, sql
+     FROM sqlite_master
+     WHERE type = 'index'
+       AND name = 'stock_entries_warehouse_transfer_ref_status_key'
+     LIMIT 1`,
+  );
+}
+
+function uniqueIndexIncludesAllIdempotentTypes(uniqueIndexRows) {
+  const sql = String(uniqueIndexRows[0]?.sql || '');
+  return GENERAL_STOCK_SOURCE_UNIQUE_TYPES.every((sourceType) => sql.includes(`'${sourceType}'`));
+}
+
 function pushRecommendation(condition, text) {
   if (condition) report.recommendations.push(text);
 }
@@ -330,7 +348,9 @@ function deriveRiskLevel(findings) {
     || balancesWithoutMovement.length > 0
     || findings.entriesWithoutMovements.length > 0
     || findings.movementsWithoutBalances.length > 0
-    || findings.uniqueIndex.length === 0;
+    || findings.uniqueIndex.length === 0
+    || !findings.uniqueIndexCoversAllTypes
+    || findings.warehouseTransferUniqueIndex.length === 0;
   if (p1) return 'P1';
 
   const p2 = findings.requiredLocations.missing.length > 0;
@@ -353,10 +373,14 @@ async function run() {
     const movementsWithoutBalances = await findMovementsWithoutBalances();
     const sourceSummary = await getSourceSummary();
     const uniqueIndex = await getUniqueIndexState();
+    const warehouseTransferUniqueIndex = await getWarehouseTransferUniqueIndexState();
+    const uniqueIndexCoversAllTypes = uniqueIndexIncludesAllIdempotentTypes(uniqueIndex);
 
     report.findings = {
       requiredLocations,
       uniqueIndex,
+      warehouseTransferUniqueIndex,
+      uniqueIndexCoversAllTypes,
       duplicateEntryGroups,
       duplicateDetails,
       missingSourceRefs,
@@ -372,6 +396,8 @@ async function run() {
     report.summary = {
       requiredLocationMissingCount: requiredLocations.missing.length,
       uniqueIndexPresent: uniqueIndex.length > 0,
+      warehouseTransferUniqueIndexPresent: warehouseTransferUniqueIndex.length > 0,
+      uniqueIndexCoversAllTypes,
       duplicateEntryGroupCount: duplicateEntryGroups.length,
       missingSourceRefCount: missingSourceRefs.length,
       negativeBalanceCount: negativeBalances.length,
@@ -395,6 +421,8 @@ async function run() {
     pushRecommendation(movementChainBreaks.length > 0, 'Review movement chain breaks as possible historical manual edits or concurrent write drift.');
     pushRecommendation(entriesWithoutMovements.length > 0, 'Quarantine stock entries that have no movement rows; do not delete automatically.');
     pushRecommendation(uniqueIndex.length === 0, 'Runtime unique index for idempotent business stock entries is absent or skipped; inspect duplicate groups first.');
+    pushRecommendation(warehouseTransferUniqueIndex.length === 0, 'Runtime unique index for warehouse transfers is absent or skipped; inspect duplicate transfer groups first.');
+    pushRecommendation(!uniqueIndexCoversAllTypes, 'Runtime unique index exists but is stale; rebuild it so every non-transfer idempotent stock source type is covered.');
     pushRecommendation(requiredLocations.missing.length > 0, 'Seed missing default warehouse/location records before browser-level warehouse tests.');
     if (report.recommendations.length === 0) {
       report.recommendations.push('No blocking stock-ledger history drift found in this read-only audit.');

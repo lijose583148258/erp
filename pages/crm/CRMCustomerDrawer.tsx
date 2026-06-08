@@ -43,6 +43,8 @@ type Props = {
   salesAssignees: TeamMember[];
 };
 
+type CustomerDetailSection = 'master' | 'addresses' | 'contacts' | 'ownership' | 'audit';
+
 export function CRMCustomerDrawer({
   t,
   formatPrice,
@@ -81,6 +83,19 @@ export function CRMCustomerDrawer({
   const primaryContact = contacts.find((contact) => contact.isPrimary) || contacts[0] || null;
   const readOnlyProfile = !canEditProfile;
   const aliasEditorValue = (selectedCustomer.nameAliases || []).join('\n');
+  const [activeSection, setActiveSection] = React.useState<CustomerDetailSection>('master');
+
+  React.useEffect(() => {
+    setActiveSection('master');
+  }, [selectedCustomer.id]);
+
+  const detailSections: { id: CustomerDetailSection; label: string; hint: string }[] = [
+    { id: 'master', label: t.crmMasterProfileTitle || '主数据', hint: t.crmMasterProfile || 'Master' },
+    { id: 'addresses', label: t.crmAddressesTitle || '地址', hint: `${addresses.length}` },
+    { id: 'contacts', label: t.crmContactsTitle || '联系人', hint: `${contacts.length}` },
+    { id: 'ownership', label: t.crmOwnershipTitle || '归属池', hint: t.crmCustomerPool || 'Pool' },
+    { id: 'audit', label: t.crmAuditTitle || '审计', hint: t.crmPoolAuditTitle || 'Audit' },
+  ];
 
   return (
     <div data-testid="crm-customer-drawer" className="fixed inset-0 z-[80] flex justify-end bg-slate-900/30 backdrop-blur-sm lg:static lg:z-auto lg:w-[540px] lg:bg-transparent lg:backdrop-blur-none">
@@ -106,62 +121,93 @@ export function CRMCustomerDrawer({
               <X size={18} />
             </button>
           </div>
+          <div data-testid="crm-customer-detail-nav" className="mt-5 grid grid-cols-2 gap-2 md:grid-cols-5">
+            {detailSections.map((section) => {
+              const active = activeSection === section.id;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  data-testid={`crm-customer-detail-nav-${section.id}`}
+                  onClick={() => setActiveSection(section.id)}
+                  className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+                    active
+                      ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/20'
+                      : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-blue-200 hover:bg-white hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
+                  }`}
+                >
+                  <div className="text-xs font-black tracking-tight">{section.label}</div>
+                  <div className={`mt-1 text-[10px] font-black uppercase tracking-[0.16em] ${active ? 'text-blue-100' : 'text-slate-400'}`}>{section.hint}</div>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="flex-1 space-y-8 overflow-y-auto px-8 py-8 pb-28 lg:pb-8">
-          <CRMCustomerMasterProfileSection
-            t={t}
-            formatPrice={formatPrice}
-            selectedCustomer={selectedCustomer}
-            currentPoolState={currentPoolState}
-            customerNames={customerNames}
-            primaryAddress={primaryAddress}
-            primaryContact={primaryContact}
-            readOnlyProfile={readOnlyProfile}
-            canEditProfile={canEditProfile}
-            aliasEditorValue={aliasEditorValue}
-            onUpdateProfileMeta={onUpdateProfileMeta}
-            onUploadLicense={onUploadLicense}
-            licenseInputRef={licenseInputRef}
-          />
-          <CRMCustomerOwnershipSection
-            t={t}
-            currentPoolState={currentPoolState}
-            canManagePool={canManagePool}
-            poolReason={poolReason}
-            setPoolReason={setPoolReason}
-            poolSalespersonId={poolSalespersonId}
-            setPoolSalespersonId={setPoolSalespersonId}
-            isPoolUpdating={isPoolUpdating}
-            onPoolAction={onPoolAction}
-            poolHistorySummary={poolHistorySummary}
-            salesAssignees={salesAssignees}
-          />
-          <CRMCustomerAddressesSection
-            t={t}
-            addresses={addresses}
-            readOnlyProfile={readOnlyProfile}
-            onAddAddress={onAddAddress}
-            onUpdateAddress={onUpdateAddress}
-          />
-          <CRMCustomerContactsSection
-            t={t}
-            contacts={contacts}
-            readOnlyProfile={readOnlyProfile}
-            onAddContact={onAddContact}
-            onUpdateContact={onUpdateContact}
-          />
-          <CRMCustomerAuditSection
-            t={t}
-            selectedCustomer={selectedCustomer}
-            aiInsight={aiInsight}
-            loadingAi={loadingAi}
-            onFetchAiInsight={onFetchAiInsight}
-            poolHistory={poolHistory}
-            poolHistoryLatest={poolHistoryLatest}
-            poolHistorySummary={poolHistorySummary}
-            loadingPoolHistory={loadingPoolHistory}
-          />
+          {activeSection === 'master' && (
+            <CRMCustomerMasterProfileSection
+              t={t}
+              formatPrice={formatPrice}
+              selectedCustomer={selectedCustomer}
+              currentPoolState={currentPoolState}
+              customerNames={customerNames}
+              primaryAddress={primaryAddress}
+              primaryContact={primaryContact}
+              readOnlyProfile={readOnlyProfile}
+              canEditProfile={canEditProfile}
+              aliasEditorValue={aliasEditorValue}
+              onUpdateProfileMeta={onUpdateProfileMeta}
+              onUploadLicense={onUploadLicense}
+              licenseInputRef={licenseInputRef}
+            />
+          )}
+          {activeSection === 'addresses' && (
+            <CRMCustomerAddressesSection
+              t={t}
+              addresses={addresses}
+              readOnlyProfile={readOnlyProfile}
+              onAddAddress={onAddAddress}
+              onUpdateAddress={onUpdateAddress}
+            />
+          )}
+          {activeSection === 'contacts' && (
+            <CRMCustomerContactsSection
+              t={t}
+              contacts={contacts}
+              readOnlyProfile={readOnlyProfile}
+              onAddContact={onAddContact}
+              onUpdateContact={onUpdateContact}
+            />
+          )}
+          {activeSection === 'ownership' && (
+            <CRMCustomerOwnershipSection
+              t={t}
+              currentPoolState={currentPoolState}
+              canManagePool={canManagePool}
+              poolReason={poolReason}
+              setPoolReason={setPoolReason}
+              poolSalespersonId={poolSalespersonId}
+              setPoolSalespersonId={setPoolSalespersonId}
+              isPoolUpdating={isPoolUpdating}
+              onPoolAction={onPoolAction}
+              poolHistorySummary={poolHistorySummary}
+              salesAssignees={salesAssignees}
+            />
+          )}
+          {activeSection === 'audit' && (
+            <CRMCustomerAuditSection
+              t={t}
+              selectedCustomer={selectedCustomer}
+              aiInsight={aiInsight}
+              loadingAi={loadingAi}
+              onFetchAiInsight={onFetchAiInsight}
+              poolHistory={poolHistory}
+              poolHistoryLatest={poolHistoryLatest}
+              poolHistorySummary={poolHistorySummary}
+              loadingPoolHistory={loadingPoolHistory}
+            />
+          )}
         </div>
       </div>
     </div>

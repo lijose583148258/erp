@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
 
-const APP_URL = 'http://127.0.0.1:5001/';
+const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'barter-agreement-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'barter-agreement-audit-report-v1.json');
@@ -136,6 +136,8 @@ async function seedOurStockForSettlement(page, token, settlement, itemName) {
     batchNo,
     quantity,
     unit: ourItem.unit || 'kg',
+    sourceRef: `BARTER-AUDIT-STOCK-${settlement.id}-${ourItem.id}`,
+    reason: '货抵浏览器审计前置库存补录，验证我方货物过账扣减闭环',
     note: `Seed barter browser audit stock for ${settlement.settlementNo}`,
   });
   return { locationId, productName: ourItem.itemName, batchNo, quantity };
@@ -152,11 +154,28 @@ async function fillItemCard(page, title, itemName, quantity, unit, unitPrice) {
 }
 
 async function waitForBatchPanelSelection(page, counterpartyName) {
+  await page.getByText('登记执行批次', { exact: true }).waitFor({ state: 'visible', timeout: 12000 });
   await page.waitForFunction((targetName) => {
-    const title = Array.from(document.querySelectorAll('div')).find((node) => node.textContent?.trim() === '登记执行批次');
-    const panel = title?.closest('div[class*="rounded-[40px]"]');
-    return Boolean(panel?.textContent?.includes(targetName));
+    const visibleSections = Array.from(document.querySelectorAll('section')).filter((node) => {
+      const style = window.getComputedStyle(node);
+      const rect = node.getBoundingClientRect();
+      return style.display !== 'none' && style.visibility !== 'hidden' && rect.width > 0 && rect.height > 0;
+    });
+    return visibleSections.some((node) => node.textContent?.includes('登记执行批次') && node.textContent.includes(targetName));
   }, counterpartyName);
+}
+
+async function openDeskTab(page, label, expectedVisibleText) {
+  const tabButton = page.locator('button').filter({ hasText: label }).first();
+  await tabButton.waitFor({ state: 'visible', timeout: 12000 });
+  await tabButton.click();
+  await page.getByText(expectedVisibleText, { exact: true }).first().waitFor({ state: 'visible', timeout: 12000 });
+}
+
+async function clickVisibleAction(page, label) {
+  const button = page.getByRole('button', { name: label, exact: true }).first();
+  await button.waitFor({ state: 'visible', timeout: 12000 });
+  await button.click();
 }
 
 async function main() {
@@ -172,7 +191,14 @@ async function main() {
 
     await withTimebox(page, 'open-barter', 20000, async () => {
       await page.goto(`${APP_URL}#barter`, { waitUntil: 'domcontentloaded' });
-      await page.waitForFunction(() => document.body.innerText.includes('货抵协议 / 分批执行'));
+      await page.waitForFunction(() => {
+        const text = document.body.innerText || '';
+        return [
+          '货抵支付 / 换货贸易',
+          '货抵协议 / 分批执行',
+          '新建货抵协议',
+        ].some((label) => text.includes(label));
+      });
       const bodyText = await page.locator('body').innerText();
       if (bodyText.includes('undefined') || bodyText.includes('\uFFFD')) throw new Error('visible undefined or mojibake found');
     });
@@ -205,6 +231,7 @@ async function main() {
       await agreementButton.waitFor({ state: 'visible', timeout: 12000 });
       await agreementButton.scrollIntoViewIfNeeded();
       await agreementButton.click();
+      await openDeskTab(page, '执行批次', '登记执行批次');
       await waitForBatchPanelSelection(page, TEST.counterpartyName);
     });
 
@@ -223,22 +250,20 @@ async function main() {
     let batch1 = detail?.data?.settlements?.find((item) => item.batchIndex === 1);
     if (!batch1) throw new Error('batch1 not created');
     report.batch1StockSeed = await seedOurStockForSettlement(page, auth.token, batch1, TEST.batch1OurItem);
+    await openDeskTab(page, '审批过账', '批次流水');
 
     await withTimebox(page, 'approve-post-batch-1', 25000, async () => {
       const approveResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/barter/settlements/${batch1.id}/approve`) && response.request().method() === 'PATCH');
-      await page.locator('div').filter({ hasText: batch1.settlementNo }).first().locator('button').filter({ hasText: '审核' }).click();
+      await clickVisibleAction(page, '审核');
       const approveResponse = await approveResponsePromise;
       if (!approveResponse.ok()) {
         throw new Error(`approve batch1 failed: ${approveResponse.status()} ${await approveResponse.text()}`);
       }
 
-      await page.waitForFunction((settlementNo) => {
-        const card = Array.from(document.querySelectorAll('div')).find((node) => node.textContent?.includes(settlementNo));
-        return Boolean(card?.textContent?.includes('过账'));
-      }, batch1.settlementNo);
+      await page.getByRole('button', { name: '过账', exact: true }).waitFor({ state: 'visible', timeout: 12000 });
 
       const postResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/barter/settlements/${batch1.id}/post`) && response.request().method() === 'POST');
-      await page.locator('div').filter({ hasText: batch1.settlementNo }).first().locator('button').filter({ hasText: '过账' }).click();
+      await clickVisibleAction(page, '过账');
       const postResponse = await postResponsePromise;
       if (!postResponse.ok()) {
         throw new Error(`post batch1 failed: ${postResponse.status()} ${await postResponse.text()}`);
@@ -249,6 +274,8 @@ async function main() {
     if (Number(detail?.data?.executedOffsetAmount || 0) !== 400 || Number(detail?.data?.remainingOffsetAmount || 0) !== 600) {
       throw new Error('agreement totals after batch1 are incorrect');
     }
+    await openDeskTab(page, '执行批次', '登记执行批次');
+    await waitForBatchPanelSelection(page, TEST.counterpartyName);
 
     await withTimebox(page, 'create-batch-2', 25000, async () => {
       await fillItemCard(page, '本次对方交付', TEST.batch2CounterpartyItem, 6, 'm3', 100);
@@ -265,22 +292,20 @@ async function main() {
     const batch2 = detail?.data?.settlements?.find((item) => item.batchIndex === 2);
     if (!batch2) throw new Error('batch2 not created');
     report.batch2StockSeed = await seedOurStockForSettlement(page, auth.token, batch2, TEST.batch2OurItem);
+    await openDeskTab(page, '审批过账', '批次流水');
 
     await withTimebox(page, 'approve-post-batch-2', 25000, async () => {
       const approveResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/barter/settlements/${batch2.id}/approve`) && response.request().method() === 'PATCH');
-      await page.locator('div').filter({ hasText: batch2.settlementNo }).first().locator('button').filter({ hasText: '审核' }).click();
+      await clickVisibleAction(page, '审核');
       const approveResponse = await approveResponsePromise;
       if (!approveResponse.ok()) {
         throw new Error(`approve batch2 failed: ${approveResponse.status()} ${await approveResponse.text()}`);
       }
 
-      await page.waitForFunction((settlementNo) => {
-        const card = Array.from(document.querySelectorAll('div')).find((node) => node.textContent?.includes(settlementNo));
-        return Boolean(card?.textContent?.includes('过账'));
-      }, batch2.settlementNo);
+      await page.getByRole('button', { name: '过账', exact: true }).waitFor({ state: 'visible', timeout: 12000 });
 
       const postResponsePromise = page.waitForResponse((response) => response.url().includes(`/api/barter/settlements/${batch2.id}/post`) && response.request().method() === 'POST');
-      await page.locator('div').filter({ hasText: batch2.settlementNo }).first().locator('button').filter({ hasText: '过账' }).click();
+      await clickVisibleAction(page, '过账');
       const postResponse = await postResponsePromise;
       if (!postResponse.ok()) {
         throw new Error(`post batch2 failed: ${postResponse.status()} ${await postResponse.text()}`);

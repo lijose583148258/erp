@@ -69,12 +69,12 @@ export function CRMCreatePreviewPanel({
               </div>
               <div className="mt-4 space-y-2 text-xs font-bold">
                 {[
-                  [t.crmMainName || '主名称', checklist[0]],
-                  [t.crmMainAddress || '主地址', checklist[1]],
-                  [t.crmMainContact || '主联系人', checklist[2]],
-                  [t.crmContactInfo || '联系方式', checklist[3]],
-                ].map(([label, ready]) => (
-                  <div key={label} className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+                  { key: 'main-name', label: t.crmMainName || '主名称', ready: checklist[0] },
+                  { key: 'main-address', label: t.crmMainAddress || '主地址', ready: checklist[1] },
+                  { key: 'main-contact', label: t.crmMainContact || '主联系人', ready: checklist[2] },
+                  { key: 'contact-info', label: t.crmContactInfo || '联系方式', ready: checklist[3] },
+                ].map(({ key, label, ready }) => (
+                  <div key={key} className="flex items-center justify-between rounded-2xl bg-white px-3 py-2 text-slate-600 dark:bg-slate-950 dark:text-slate-300">
                     <span>{label}</span>
                     {ready ? <BadgeCheck size={14} className="text-emerald-500" /> : <FileStack size={14} className="text-slate-300" />}
                   </div>

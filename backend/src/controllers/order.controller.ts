@@ -15,22 +15,34 @@ import {
     canUseOrderForBusinessWrite,
     mergeWhereAnd,
 } from '../utils/recordAccess';
+import {
+    ORDER_STATUS_TRANSITIONS,
+    buildCreateOrderAuditDetails,
+    buildOrderItemsAndTotals,
+} from './order/order-controller.helpers';
 
-const ORDER_STATUS_TRANSITIONS: Record<string, string[]> = {
-    pending: ['confirmed', 'cancelled'],
-    confirmed: ['shipped', 'cancelled'],
-    shipped: ['delivered', 'completed'],   // H2修复：delivered=物流签收(自动)，completed=手动结案
-    delivered: ['completed'],              // H2修复：签收后可手动结案
-    completed: [],                         // 终态
-    cancelled: [],
-};
-
-const getCustomerDisplayName = (customer: {
-    name?: string | null;
-    nameZh?: string | null;
-    nameEn?: string | null;
-    nameVi?: string | null;
-}) => customer.nameZh || customer.nameEn || customer.nameVi || customer.name || 'Unknown customer';
+async function writeOrderAuditLog(req: AuthRequest, input: {
+    action: string;
+    resourceId?: number | null;
+    details: string;
+}) {
+    if (!req.user?.userId) return;
+    try {
+        await prisma.auditLog.create({
+            data: {
+                userId: req.user.userId,
+                action: input.action,
+                resource: 'order',
+                resourceId: input.resourceId ?? null,
+                details: input.details,
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent'),
+            },
+        });
+    } catch (error) {
+        logger.warn('订单审计日志写入失败，业务操作已保留', error);
+    }
+}
 
 export class OrderController {
     async getOrders(req: AuthRequest, res: Response) {
@@ -49,7 +61,7 @@ export class OrderController {
             logger.error('Get orders error:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -62,7 +74,7 @@ export class OrderController {
             logger.error('Get order stats error:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -75,7 +87,7 @@ export class OrderController {
             if (!order) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Order not found.',
+                    message: '订单不存在，请刷新后重试。',
                 } as ApiResponse);
             }
 
@@ -87,7 +99,7 @@ export class OrderController {
             logger.error('Get order detail error:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -113,47 +125,30 @@ export class OrderController {
             if (!customer) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Customer not found.',
+                    message: '客户不存在，请刷新后重试。',
                 } as ApiResponse);
             }
             if (customer.status !== 'active') {
                 return res.status(400).json({
                     success: false,
-                    message: 'Only active customers can be used to create orders.',
+                    message: '只能为启用状态的客户创建订单。',
                 } as ApiResponse);
             }
             if (!canUseCustomerForBusinessWrite(req, customer)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You do not have permission to create orders for this customer.',
+                    message: '无权为该客户创建订单。',
                 } as ApiResponse);
             }
 
             const orderNo = buildBusinessNo('ORD');
-            let totalAmount = 0;
-            const orderItems = items.map((item: any) => {
-                const quantity = Number(item.quantity);
-                const unitPrice = Number(item.unitPrice);
-                const totalPrice = quantity * unitPrice;
-                totalAmount += totalPrice;
-
-                return {
-                    productName: item.productName,
-                    specification: item.specification || null,
-                    quantity,
-                    unit: item.unit || 'unit',
-                    unitPrice,
-                    totalPrice,
-                    itemType: item.itemType || 'normal',
-                    notes: item.notes || null,
-                };
-            });
+            const { orderItems, totalAmount } = buildOrderItemsAndTotals(items);
 
             const finalAmount = totalAmount - Number(discountAmount);
             if (finalAmount < 0) {
                 return res.status(400).json({
                     success: false,
-                    message: 'Discount cannot exceed total amount.',
+                    message: '折扣金额不能超过订单总额。',
                 } as ApiResponse);
             }
 
@@ -187,20 +182,18 @@ export class OrderController {
                     },
                 });
 
-                await tx.auditLog.create({
-                    data: {
-                        userId: req.user!.userId,
-                        action: 'CREATE',
-                        resource: 'order',
-                        resourceId: newOrder.id,
-                        details: `Create order: ${orderNo}, customer: ${getCustomerDisplayName(newOrder.customer)}, amount: ${finalAmount}`,
-                        ipAddress: req.ip,
-                        userAgent: req.get('user-agent'),
-                    },
-                });
-
                 return newOrder;
             }), { label: 'createOrder' });
+
+            await writeOrderAuditLog(req, {
+                action: 'CREATE',
+                resourceId: createdOrder.id,
+                details: buildCreateOrderAuditDetails({
+                    orderNo,
+                    customer: createdOrder.customer,
+                    finalAmount,
+                }),
+            });
 
             const order = await OrderWorkspaceService.getOrderById(createdOrder.id, req);
 
@@ -208,14 +201,14 @@ export class OrderController {
             return res.status(201).json({
                 success: true,
                 data: order || createdOrder,
-                message: 'Order created successfully.',
+                message: '订单创建成功。',
             } as ApiResponse);
         } catch (error) {
             const err = error instanceof Error ? { message: error.message, stack: error.stack } : error;
             logger.error('Create order error:', err);
             return res.status(500).json({
                 success: false,
-                message: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : 'Internal server error.',
+                message: process.env.NODE_ENV === 'development' && error instanceof Error ? error.message : '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -238,20 +231,20 @@ export class OrderController {
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Order not found.',
+                    message: '订单不存在，请刷新后重试。',
                 } as ApiResponse);
             }
             if (!canUseOrderForBusinessWrite(req, existing)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You do not have permission to edit this order.',
+                    message: '无权编辑该订单。',
                 } as ApiResponse);
             }
 
             if (existing.status !== 'pending') {
                 return res.status(400).json({
                     success: false,
-                    message: 'Only pending orders can be edited.',
+                    message: '只有待处理订单可以编辑。',
                 } as ApiResponse);
             }
 
@@ -264,16 +257,10 @@ export class OrderController {
                 },
             });
 
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'UPDATE',
-                    resource: 'order',
-                    resourceId: updatedOrder.id,
-                    details: `Update order: ${updatedOrder.orderNo}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
+            await writeOrderAuditLog(req, {
+                action: 'UPDATE',
+                resourceId: updatedOrder.id,
+                details: `更新订单: ${updatedOrder.orderNo}`,
             });
 
             const order = await OrderWorkspaceService.getOrderById(updatedOrder.id, req);
@@ -281,13 +268,13 @@ export class OrderController {
             return res.json({
                 success: true,
                 data: order || updatedOrder,
-                message: 'Order updated successfully.',
+                message: '订单更新成功。',
             } as ApiResponse);
         } catch (error) {
             logger.error('Update order error:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -312,22 +299,23 @@ export class OrderController {
             if (!existing) {
                 return res.status(404).json({
                     success: false,
-                    message: 'Order not found.',
+                    message: '订单不存在，请刷新后重试。',
                 } as ApiResponse);
             }
 
             if (existing.status === targetStatus) {
+                const order = await OrderWorkspaceService.getOrderById(existing.id, req);
                 return res.json({
                     success: true,
-                    data: existing,
-                    message: 'Order status did not change.',
+                    data: order || existing,
+                    message: '订单状态未变化。',
                 } as ApiResponse);
             }
 
             if (!canUseOrderForBusinessWrite(req, existing)) {
                 return res.status(403).json({
                     success: false,
-                    message: 'You do not have permission to change this order.',
+                    message: '无权变更该订单状态。',
                 } as ApiResponse);
             }
 
@@ -335,7 +323,7 @@ export class OrderController {
             if (!allowedTransitions.includes(targetStatus)) {
                 return res.status(400).json({
                     success: false,
-                    message: `Invalid order status transition: ${existing.status} -> ${targetStatus}`,
+                    message: `订单状态不能从 ${existing.status} 变更为 ${targetStatus}。`,
                 } as ApiResponse);
             }
 
@@ -362,16 +350,10 @@ export class OrderController {
                 data: { status: targetStatus },
             });
 
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'STATUS_CHANGE',
-                    resource: 'order',
-                    resourceId: updatedOrder.id,
-                    details: `Order status changed: ${updatedOrder.orderNo} -> ${targetStatus}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
+            await writeOrderAuditLog(req, {
+                action: 'STATUS_CHANGE',
+                resourceId: updatedOrder.id,
+                details: `订单状态变更: ${updatedOrder.orderNo} -> ${targetStatus}`,
             });
 
             const order = await OrderWorkspaceService.getOrderById(updatedOrder.id, req);
@@ -379,13 +361,13 @@ export class OrderController {
             return res.json({
                 success: true,
                 data: order || updatedOrder,
-                message: 'Order status updated successfully.',
+                message: '订单状态更新成功。',
             } as ApiResponse);
         } catch (error) {
             logger.error('Update order status error:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -413,13 +395,13 @@ export class OrderController {
             return res.json({
                 success: true,
                 data: result.result,
-                message: `Import completed: success ${result.result.success}, failed ${result.result.failed}`,
+                message: `导入完成：成功 ${result.result.success} 条，失败 ${result.result.failed} 条`,
             } as ApiResponse);
         } catch (error) {
             logger.error('Failed to import orders:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }
@@ -451,7 +433,7 @@ export class OrderController {
             } as ApiResponse);
         } catch (error) {
             logger.error('获取待发货订单错误:', error);
-            return res.status(500).json({ success: false, message: 'Internal server error.' });
+            return res.status(500).json({ success: false, message: '服务器内部错误' });
         }
     }
 
@@ -473,17 +455,17 @@ export class OrderController {
             });
 
             if (!order) {
-                return res.status(404).json({ success: false, message: 'Order not found.' });
+                return res.status(404).json({ success: false, message: '订单不存在，请刷新后重试。' });
             }
             if (!canUseOrderForBusinessWrite(req, order)) {
-                return res.status(403).json({ success: false, message: 'You do not have permission to complete this order.' });
+                return res.status(403).json({ success: false, message: '无权结案该订单。' });
             }
 
             // H2修复：业务校验 — 必须全款且物流已发或已签收
             if (!['shipped', 'delivered'].includes(order.status) || order.paymentStatus !== 'paid') {
                 return res.status(400).json({
                     success: false,
-                    message: 'Only shipped/delivered and fully paid orders can be completed.',
+                    message: '只有已发货或已签收且已全额回款的订单才能结案。',
                 });
             }
 
@@ -492,26 +474,22 @@ export class OrderController {
                 data: { status: 'completed' }, // H2修复：手动结案使用独立的 completed 状态
             });
 
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'COMPLETE',
-                    resource: 'order',
-                    resourceId: Number(id),
-                    details: '订单手动结案成功',
-                }
+            await writeOrderAuditLog(req, {
+                action: 'COMPLETE',
+                resourceId: Number(id),
+                details: '订单手动结案成功',
             });
 
             const orderDetail = await OrderWorkspaceService.getOrderById(updatedOrder.id, req);
 
             return res.json({
                 success: true,
-                message: 'Order completed successfully.',
+                message: '订单结案成功。',
                 data: orderDetail || updatedOrder,
             });
         } catch (error) {
             logger.error('订单结案失败:', error);
-            return res.status(500).json({ success: false, message: 'Internal server error.' });
+            return res.status(500).json({ success: false, message: '服务器内部错误' });
         }
     }
 
@@ -530,15 +508,9 @@ export class OrderController {
             res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
             res.setHeader('Content-Disposition', `attachment; filename=orders_${new Date().toISOString().split('T')[0]}.xlsx`);
 
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'EXPORT',
-                    resource: 'order',
-                    details: `Exported orders: ${orders.length}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
+            await writeOrderAuditLog(req, {
+                action: 'EXPORT',
+                details: `导出订单: ${orders.length} 条`,
             });
 
             await workbook.xlsx.write(res);
@@ -547,7 +519,7 @@ export class OrderController {
             logger.error('Failed to export orders:', error);
             return res.status(500).json({
                 success: false,
-                message: 'Internal server error.',
+                message: '服务器内部错误',
             } as ApiResponse);
         }
     }

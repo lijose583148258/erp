@@ -5,6 +5,8 @@
  * - admin can create a user
  * - admin can reassign one of the fixed roles
  * - route access changes after re-login
+ * - sales can read procurement B2B status tied to sales orders
+ * - sales cannot read the supplier master-data directory unless explicitly granted
  * - inactive users cannot log in
  *
  * It intentionally does not claim dynamic RBAC exists.
@@ -90,6 +92,11 @@ async function expectStatus(label, endpoint, token, expectedStatuses) {
   return response;
 }
 
+function firstRow(response) {
+  const rows = Array.isArray(response.json?.data) ? response.json.data : [];
+  return rows[0] || null;
+}
+
 async function updateUser(adminToken, userId, payload) {
   const response = await apiFetch(`/team/${userId}`, {
     method: 'PUT',
@@ -104,8 +111,18 @@ async function updateUser(adminToken, userId, payload) {
 async function auditRoleAccess(role, token) {
   if (role === 'sales') {
     await expectStatus('sales-dashboard-allowed', '/dashboard', token, [200]);
-    await expectStatus('sales-orders-allowed', '/orders?pageSize=1', token, [200]);
-    await expectStatus('sales-procurement-suppliers-denied', '/procurement/suppliers?pageSize=1', token, [403]);
+    const ordersResponse = await expectStatus('sales-orders-allowed', '/orders?pageSize=1', token, [200]);
+    await expectStatus('sales-procurement-suppliers-master-data-denied', '/procurement/suppliers?pageSize=5', token, [403]);
+    const order = firstRow(ordersResponse);
+    if (order?.id) {
+      await expectStatus('sales-procurement-b2b-status-allowed', `/procurement/b2b-status/${order.id}`, token, [200]);
+    } else {
+      recordStep({
+        step: 'sales-procurement-b2b-status-skipped-no-order',
+        result: 'skipped',
+        reason: 'No order row was available for a B2B status read-back probe.',
+      });
+    }
     await expectStatus('sales-warehouse-denied', '/warehouses', token, [403]);
   }
 
@@ -176,7 +193,7 @@ async function run() {
       method: 'POST',
       data: { username: DATA.username, password: DATA.password },
     });
-    if (disabledLogin.status !== 401) {
+    if (![401, 403].includes(disabledLogin.status)) {
       throw new Error(`disabled user should not login, got ${disabledLogin.status}`);
     }
     recordStep({ step: 'disabled-user-login-denied', result: 'passed', status: disabledLogin.status });

@@ -12,33 +12,31 @@ interface FinanceLedgerPanelProps {
 const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
   const { notify, formatPrice, language, t } = useAppContext();
   const isLoading = data === undefined;
-
   const rows = data?.rows || [];
 
-  // 使用 t() 国际化状态标签，不再硬编码中文
   const sourceTypeLabel = (type: string) => {
     const map: Record<string, string> = {
-      payment: t.historyTab || 'Payment',
-      adjustment: t.adjustment || 'Adjustment',
+      payment: t.historyTab || '回款',
+      adjustment: t.adjustment || '调整',
     };
     return map[type] || type;
   };
 
   const sourceStatusLabel = (status: string) => {
     const map: Record<string, string> = {
-      verified: t.paymentVerified || 'Verified',
-      pending: t.paymentPending || 'Pending',
-      posted: t.contractActive || 'Posted',
-      reversed: t.ledgerReversed || 'Reversed',
+      verified: t.paymentVerified || '已核销',
+      pending: t.paymentPending || '待确认',
+      posted: t.ledgerPosted || '已过账',
+      reversed: t.ledgerReversed || '已冲回',
     };
     return map[status] || status;
   };
 
   const summaryCards = useMemo(() => ([
-    { label: t.ledgerCount || 'Entries', value: isLoading ? '…' : (data?.totalCount ?? 0), icon: <FileText size={18} /> },
-    { label: t.ledgerPosted || 'Posted', value: isLoading ? '…' : (data?.postedCount ?? 0), icon: <ShieldCheck size={18} /> },
-    { label: t.paymentPending || 'Pending', value: isLoading ? '…' : (data?.pendingCount ?? 0), icon: <Clock3 size={18} /> },
-    { label: t.ledgerNet || 'Net', value: isLoading ? '…' : formatPrice(data?.netAmount || 0), icon: <WalletCards size={18} /> },
+    { label: t.ledgerCount || '流水数', value: isLoading ? '--' : (data?.totalCount ?? 0), icon: <FileText size={18} /> },
+    { label: t.ledgerPosted || '已过账', value: isLoading ? '--' : (data?.postedCount ?? 0), icon: <ShieldCheck size={18} /> },
+    { label: t.paymentPending || '待确认', value: isLoading ? '--' : (data?.pendingCount ?? 0), icon: <Clock3 size={18} /> },
+    { label: t.ledgerNet || '净额', value: isLoading ? '--' : formatPrice(data?.netAmount || 0), icon: <WalletCards size={18} /> },
   ]), [data?.netAmount, data?.pendingCount, data?.postedCount, data?.totalCount, formatPrice, isLoading, t]);
 
   const customerLabel = (row: FinanceLedgerSummary['rows'][number]) => getCustomerDisplayName({
@@ -66,37 +64,37 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
     })), 'finance-ledger.csv');
 
     if (!success) {
-      notify('warning', t.ledgerNoExport || 'No ledger data to export');
+      notify('warning', t.ledgerNoExport || '暂无可导出的财务流水');
     }
   };
 
   return (
-    <section className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-6">
+    <section className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[24px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-6 space-y-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-2xl font-black tracking-tighter italic flex items-center">
-            <div className="w-2 h-8 bg-blue-600 rounded-full mr-4" />{t.ledgerTitle || 'Finance Ledger'}
+          <h3 className="text-xl font-black tracking-tight flex items-center">
+            <div className="w-2 h-8 bg-blue-600 rounded-full mr-4" />{t.ledgerTitle || '财务流水'}
           </h3>
-          <p className="text-xs font-bold text-slate-400 tracking-wide mt-2">
-            {t.ledgerSub || 'Payments, adjustments and reversals'}
+          <p className="text-xs font-bold text-slate-600 tracking-wide mt-2">
+            {t.ledgerSub || '回款、调整与冲回记录'}
           </p>
         </div>
         <button
           onClick={exportRows}
-          className="flex items-center px-5 py-3 rounded-[18px] text-xs font-bold bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30 active-shrink"
+          className="flex items-center px-4 py-2.5 rounded-[12px] text-xs font-bold bg-blue-600 text-white shadow-sm active-shrink"
         >
-          <Download size={16} className="mr-2.5" />{t.export || 'Export CSV'}
+          <Download size={16} className="mr-2.5" />{t.export || '导出 CSV'}
         </button>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {summaryCards.map(card => (
-          <div key={card.label} className="rounded-[24px] border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 p-4">
+          <div key={card.label} className="rounded-[12px] border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 p-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-400">{card.label}</div>
+              <div className="text-xs font-bold text-slate-600">{card.label}</div>
               <div className="text-blue-600 dark:text-blue-400">{card.icon}</div>
             </div>
-            <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{card.value}</div>
+            <div className="mt-2 text-xl font-black tracking-tight text-slate-900 dark:text-white">{card.value}</div>
           </div>
         ))}
       </div>
@@ -105,20 +103,20 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-slate-100/50 dark:border-slate-800">
-              <Th>{t.ledgerEntryNo || 'Entry No.'}</Th>
-              <Th>{t.ledgerType || 'Type'}</Th>
-              <Th>{t.customer || 'Entity'}</Th>
-              <Th>{t.amount || 'Amount'}</Th>
-              <Th>{t.ledgerImpact || 'Impact'}</Th>
-              <Th>{t.ledgerBalance || 'Balance'}</Th>
-              <Th>{t.status || 'Status'}</Th>
-              <Th>{t.assetDate || 'Date'}</Th>
+              <Th>{t.ledgerEntryNo || '流水号'}</Th>
+              <Th>{t.ledgerType || '类型'}</Th>
+              <Th>{t.customer || '往来方'}</Th>
+              <Th>{t.amount || '金额'}</Th>
+              <Th>{t.ledgerImpact || '影响'}</Th>
+              <Th>{t.ledgerBalance || '余额'}</Th>
+              <Th>{t.status || '状态'}</Th>
+              <Th>{t.assetDate || '日期'}</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
             {isLoading ? (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-xs font-bold text-slate-400">{t.loading || 'Loading…'}</td>
+                <td colSpan={8} className="py-8 text-center text-xs font-bold text-slate-600">{t.loading || '正在加载...'}</td>
               </tr>
             ) : rows.length ? (
               rows.map(row => (
@@ -126,11 +124,11 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
                   <Td mono>{row.entryNo}</Td>
                   <Td>
                     <div className="font-black text-slate-900 dark:text-white text-sm">{row.voucherType}</div>
-                    <div className="text-xs text-slate-400 mt-1">{sourceTypeLabel(row.sourceType)}</div>
+                    <div className="text-xs text-slate-600 mt-1">{sourceTypeLabel(row.sourceType)}</div>
                   </Td>
                   <Td>
-                    <div className="font-bold text-slate-900 dark:text-white text-sm">{customerLabel(row) || '—'}</div>
-                    <div className="text-xs text-slate-400 mt-1">{row.orderNo || row.batchNo || row.sourceRef || '—'}</div>
+                    <div className="font-bold text-slate-900 dark:text-white text-sm">{customerLabel(row) || '--'}</div>
+                    <div className="text-xs text-slate-600 mt-1">{row.orderNo || row.batchNo || row.sourceRef || '--'}</div>
                   </Td>
                   <Td>{formatPrice(row.amount)}</Td>
                   <Td className={row.impactAmount >= 0 ? 'text-emerald-600 font-black' : 'text-rose-500 font-black'}>
@@ -154,7 +152,7 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
               ))
             ) : (
               <tr>
-                <td colSpan={8} className="py-8 text-center text-xs font-bold text-slate-400">{t.emptyState || 'No records'}</td>
+                <td colSpan={8} className="py-8 text-center text-xs font-bold text-slate-600">{t.emptyState || '暂无记录'}</td>
               </tr>
             )}
           </tbody>
@@ -165,11 +163,11 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
 };
 
 const Th = ({ children }: { children: React.ReactNode }) => (
-  <th className="py-4 px-3 text-xs font-bold text-slate-400 whitespace-nowrap">{children}</th>
+  <th className="py-3 px-3 text-xs font-bold text-slate-600 whitespace-nowrap">{children}</th>
 );
 
 const Td = ({ children, mono = false, className = '' }: { children: React.ReactNode; mono?: boolean; className?: string }) => (
-  <td className={`py-4 px-3 text-sm text-slate-700 dark:text-slate-200 ${mono ? 'font-mono text-xs' : 'font-bold'} ${className}`}>{children}</td>
+  <td className={`py-3 px-3 text-sm text-slate-700 dark:text-slate-200 ${mono ? 'font-mono text-xs' : 'font-bold'} ${className}`}>{children}</td>
 );
 
 export default FinanceLedgerPanel;

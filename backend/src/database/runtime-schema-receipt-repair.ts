@@ -59,6 +59,33 @@ const seedReceiptToleranceRuleIfMissing = async (
   report.entries.push({ kind: 'seed', target: params.ruleNo, action: 'created' });
 };
 
+const createReceiptDiscrepancyActionUniqueIndexIfSafe = async (report: SchemaRepairReport) => {
+  const duplicates = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
+    `SELECT COUNT(*) AS count
+     FROM (
+       SELECT case_id, action_type, COUNT(*) AS duplicate_count
+       FROM receipt_discrepancy_actions
+       WHERE status <> 'cancelled'
+       GROUP BY case_id, action_type
+       HAVING COUNT(*) > 1
+       LIMIT 1
+     ) duplicate_actions`,
+  );
+
+  if (Number(duplicates[0]?.count || 0) > 0) {
+    report.entries.push({ kind: 'index', target: 'receipt_discrepancy_actions_case_type_active_key', action: 'skipped' });
+    return;
+  }
+
+  await createIndexIfMissing(
+    report,
+    'receipt_discrepancy_actions_case_type_active_key',
+    `CREATE UNIQUE INDEX "receipt_discrepancy_actions_case_type_active_key"
+     ON "receipt_discrepancy_actions"("case_id", "action_type")
+     WHERE "status" <> 'cancelled'`,
+  );
+};
+
 export const repairReceiptSchema = async (report: SchemaRepairReport) => {
   await createTableIfMissing(report, 'purchase_receipts', `
     CREATE TABLE "purchase_receipts" (
@@ -195,6 +222,7 @@ export const repairReceiptSchema = async (report: SchemaRepairReport) => {
   await createIndexIfMissing(report, 'receipt_discrepancy_actions_type_idx', 'CREATE INDEX "receipt_discrepancy_actions_type_idx" ON "receipt_discrepancy_actions"("action_type")');
   await createIndexIfMissing(report, 'receipt_discrepancy_actions_status_idx', 'CREATE INDEX "receipt_discrepancy_actions_status_idx" ON "receipt_discrepancy_actions"("status")');
   await createIndexIfMissing(report, 'receipt_discrepancy_actions_target_idx', 'CREATE INDEX "receipt_discrepancy_actions_target_idx" ON "receipt_discrepancy_actions"("target_module", "target_id")');
+  await createReceiptDiscrepancyActionUniqueIndexIfSafe(report);
 
   await createTableIfMissing(report, 'receipt_tolerance_rules', `
     CREATE TABLE "receipt_tolerance_rules" (

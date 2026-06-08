@@ -32,10 +32,77 @@ function Test-AilaoDaProcessOwner {
   $normalizedCommand = $commandLine.Replace('/', '\')
   $normalizedRoot = ([System.IO.Path]::GetFullPath($WorkspaceRoot)).TrimEnd('\')
 
-  return $normalizedCommand.Contains($normalizedRoot) `
-    -or ($normalizedCommand -match 'backend\\dist\\server\.js') `
+  if (-not $normalizedCommand.Contains($normalizedRoot)) {
+    return $false
+  }
+
+  return ($normalizedCommand -match 'backend\\dist\\server\.js') `
     -or ($normalizedCommand -match 'backend\\src\\server\.ts') `
     -or ($normalizedCommand -match 'scripts\\start-stable-v2\.ps1')
+}
+
+function Test-AilaoDaHttpOwner {
+  param([int]$Port)
+
+  try {
+    $client = New-Object System.Net.WebClient
+    $client.Encoding = [System.Text.Encoding]::UTF8
+    $manifest = $client.DownloadString("http://127.0.0.1:$Port/manifest.json")
+    return $manifest.Contains('/icon.svg') `
+      -and $manifest.Contains('business') `
+      -and $manifest.Contains('productivity') `
+      -and $manifest.Contains('zh-CN')
+  } catch {
+    return $false
+  }
+}
+
+function Get-ShutdownSignalPaths {
+  param([string]$WorkspaceRoot)
+
+  $paths = @(
+    (Join-Path 'D:\AilaoDaRuntime' 'shutdown.signal')
+  )
+  if ($env:AILAODA_RUNTIME_DB_PATH) {
+    $paths += (Join-Path (Split-Path -Parent $env:AILAODA_RUNTIME_DB_PATH) 'shutdown.signal')
+  }
+  if ($env:LOCALAPPDATA) {
+    $paths += (Join-Path $env:LOCALAPPDATA 'AilaoDaRuntime\shutdown.signal')
+  }
+  if ($env:TEMP) {
+    $paths += (Join-Path $env:TEMP 'AilaoDaRuntime\shutdown.signal')
+  }
+  $paths += (Join-Path $WorkspaceRoot 'runtime-data\shutdown.signal')
+
+  return $paths | Where-Object { $_ -and $_.Trim() } | Select-Object -Unique
+}
+
+function Request-AilaoDaGracefulShutdown {
+  param([string]$WorkspaceRoot)
+
+  foreach ($signalPath in (Get-ShutdownSignalPaths -WorkspaceRoot $WorkspaceRoot)) {
+    try {
+      $signalDir = Split-Path -Parent $signalPath
+      New-Item -ItemType Directory -Path $signalDir -Force | Out-Null
+      Set-Content -LiteralPath $signalPath -Value ((Get-Date).ToUniversalTime().ToString('o')) -Encoding UTF8
+    } catch {}
+  }
+}
+
+function Wait-ProcessExitById {
+  param(
+    [int]$ProcessId,
+    [int]$TimeoutSeconds
+  )
+
+  for ($i = 0; $i -lt $TimeoutSeconds; $i++) {
+    Start-Sleep -Seconds 1
+    $existing = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    if (-not $existing) {
+      return $true
+    }
+  }
+  return $false
 }
 
 function Stop-PortProcess {
@@ -56,8 +123,14 @@ function Stop-PortProcess {
     if ($processedPids.ContainsKey($pidNumber)) { continue }
     $processedPids[$pidNumber] = $true
 
-    if (Test-AilaoDaProcessOwner -ProcessId $pidNumber -WorkspaceRoot $WorkspaceRoot) {
-      Write-Host "Stop AilaoDa listener on port $Port (PID $pidNumber)."
+    if ((Test-AilaoDaProcessOwner -ProcessId $pidNumber -WorkspaceRoot $WorkspaceRoot) -or (Test-AilaoDaHttpOwner -Port $Port)) {
+      Write-Host "Request graceful shutdown for AilaoDa listener on port $Port (PID $pidNumber)."
+      Request-AilaoDaGracefulShutdown -WorkspaceRoot $WorkspaceRoot
+      if (Wait-ProcessExitById -ProcessId $pidNumber -TimeoutSeconds 12) {
+        Write-Host "AilaoDa listener on port $Port exited gracefully."
+        continue
+      }
+      Write-Warning "Graceful shutdown timed out for PID $pidNumber; forcing stop."
       try { Stop-Process -Id $pidNumber -Force -ErrorAction SilentlyContinue } catch {}
       continue
     }

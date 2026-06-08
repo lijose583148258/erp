@@ -1,16 +1,19 @@
 import React, { type Dispatch, type SetStateAction } from 'react';
 import { FormField, StatusBadge } from '../../components/ui';
 import type { PurchaseOrder, PurchaseReceiptBundle } from '../../services/procurement.service';
-import type { PurchaseReceiptForm } from './procurementForms';
+import type { ProcurementFormErrors, PurchaseReceiptForm } from './procurementForms';
 
 type PurchaseReceiptDrawerProps = {
   receiptDrawerOrder: PurchaseOrder;
   receiptBundle: PurchaseReceiptBundle | null;
   receiptForm: PurchaseReceiptForm;
   setReceiptForm: Dispatch<SetStateAction<PurchaseReceiptForm>>;
+  receiptErrors: ProcurementFormErrors;
+  clearReceiptError: (field: string) => void;
   isReceiptLoading: boolean;
   submitReceipt: () => void;
   onClose: () => void;
+  canWrite: boolean;
 };
 
 export const PurchaseReceiptDrawer = ({
@@ -18,10 +21,20 @@ export const PurchaseReceiptDrawer = ({
   receiptBundle,
   receiptForm,
   setReceiptForm,
+  receiptErrors,
+  clearReceiptError,
   isReceiptLoading,
   submitReceipt,
   onClose,
-}: PurchaseReceiptDrawerProps) => (
+  canWrite,
+}: PurchaseReceiptDrawerProps) => {
+  const updateReceiptField = (field: keyof PurchaseReceiptForm, value: string) => {
+    clearReceiptError(field);
+    setReceiptForm(prev => ({ ...prev, [field]: value }));
+  };
+  const receiptErrorCount = Object.keys(receiptErrors).length;
+
+  return (
   <div className="fixed inset-0 z-50 flex justify-end bg-slate-950/30 backdrop-blur-sm" data-testid="purchase-receipt-drawer">
     <button
       type="button"
@@ -32,7 +45,7 @@ export const PurchaseReceiptDrawer = ({
     <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-500">Receipt Ledger</p>
+          <p className="text-[10px] font-black text-emerald-600">收货台账</p>
           <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">收货批次</h3>
           <p className="mt-1 text-sm font-bold text-slate-500">{receiptDrawerOrder.item} · #{receiptDrawerOrder.id}</p>
         </div>
@@ -40,12 +53,10 @@ export const PurchaseReceiptDrawer = ({
           type="button"
           onClick={onClose}
           className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
-        >
-          关闭
-        </button>
+        >关闭</button>
       </div>
 
-      <div className="mt-6 grid grid-cols-4 gap-3">
+      <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {[
           ['订单量', receiptBundle?.receiptSummary.orderedQuantity ?? receiptDrawerOrder.quantity],
           ['已处理', receiptBundle?.receiptSummary.processedQuantity ?? 0],
@@ -66,21 +77,34 @@ export const PurchaseReceiptDrawer = ({
             {receiptDrawerOrder.status === 'received' ? '已收满' : '可继续收货'}
           </span>
         </div>
-        <div className="grid grid-cols-3 gap-3">
-          <FormField dataTestId="purchase-receipt-quantity-input" label="本次数量" value={receiptForm.quantity} onChange={(value) => setReceiptForm(prev => ({ ...prev, quantity: value, acceptedQuantity: prev.acceptedQuantity || value }))} disabled={receiptDrawerOrder.status === 'received'} />
-          <FormField dataTestId="purchase-receipt-accepted-input" label="合格数量" value={receiptForm.acceptedQuantity} onChange={(value) => setReceiptForm(prev => ({ ...prev, acceptedQuantity: value }))} disabled={receiptDrawerOrder.status === 'received'} />
-          <FormField dataTestId="purchase-receipt-rejected-input" label="差异数量" value={receiptForm.rejectedQuantity} onChange={(value) => setReceiptForm(prev => ({ ...prev, rejectedQuantity: value }))} disabled={receiptDrawerOrder.status === 'received'} />
+        {!canWrite && (
+          <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+            当前角色只能查看收货批次，保存收货需要采购写入权限。
+          </div>
+        )}
+        {receiptErrorCount > 0 && (
+          <div data-testid="purchase-receipt-error-summary" className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
+            还有 {receiptErrorCount} 项收货信息需要修正：{Object.values(receiptErrors)[0]}
+          </div>
+        )}
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <FormField dataTestId="purchase-receipt-quantity-input" label="本次数量" value={receiptForm.quantity} onChange={(value) => {
+            clearReceiptError('quantity');
+            setReceiptForm(prev => ({ ...prev, quantity: value, acceptedQuantity: prev.acceptedQuantity || value }));
+          }} error={receiptErrors.quantity} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
+          <FormField dataTestId="purchase-receipt-accepted-input" label="合格数量" value={receiptForm.acceptedQuantity} onChange={(value) => updateReceiptField('acceptedQuantity', value)} error={receiptErrors.acceptedQuantity} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
+          <FormField dataTestId="purchase-receipt-rejected-input" label="差异数量" value={receiptForm.rejectedQuantity} onChange={(value) => updateReceiptField('rejectedQuantity', value)} error={receiptErrors.rejectedQuantity} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
         </div>
-        <div className="mt-3 grid grid-cols-2 gap-3">
-          <FormField dataTestId="purchase-receipt-batch-input" label="入库批次" value={receiptForm.batchNo} onChange={(value) => setReceiptForm(prev => ({ ...prev, batchNo: value }))} disabled={receiptDrawerOrder.status === 'received'} />
-          <FormField label="差异原因" value={receiptForm.discrepancyReason} onChange={(value) => setReceiptForm(prev => ({ ...prev, discrepancyReason: value }))} disabled={receiptDrawerOrder.status === 'received'} />
+        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <FormField dataTestId="purchase-receipt-batch-input" label="入库批次" value={receiptForm.batchNo} onChange={(value) => updateReceiptField('batchNo', value)} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
+          <FormField label="差异原因" value={receiptForm.discrepancyReason} onChange={(value) => updateReceiptField('discrepancyReason', value)} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
         </div>
-        <FormField className="mt-3" as="textarea" rows={3} label="备注" value={receiptForm.note} onChange={(value) => setReceiptForm(prev => ({ ...prev, note: value }))} disabled={receiptDrawerOrder.status === 'received'} />
+        <FormField className="mt-3" as="textarea" rows={3} label="备注" value={receiptForm.note} onChange={(value) => updateReceiptField('note', value)} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
         <button
           type="button"
           data-testid="purchase-receipt-save-button"
           onClick={submitReceipt}
-          disabled={isReceiptLoading || receiptDrawerOrder.status === 'received'}
+          disabled={isReceiptLoading || !canWrite || receiptDrawerOrder.status === 'received'}
           className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isReceiptLoading ? '保存中...' : '保存收货批次'}
@@ -103,7 +127,7 @@ export const PurchaseReceiptDrawer = ({
                 </div>
                 <StatusBadge status={receipt.rejectedQuantity > 0 ? 'exception' : 'received'} label={receipt.rejectedQuantity > 0 ? '有差异' : '正常'} />
               </div>
-              <div className="mt-3 grid grid-cols-3 gap-2 text-xs font-bold text-slate-500">
+              <div className="mt-3 grid grid-cols-1 gap-2 text-xs font-bold text-slate-500 sm:grid-cols-3">
                 <span>本次 {receipt.quantity}{receipt.unit}</span>
                 <span>合格 {receipt.acceptedQuantity}{receipt.unit}</span>
                 <span>差异 {receipt.rejectedQuantity}{receipt.unit}</span>
@@ -117,4 +141,5 @@ export const PurchaseReceiptDrawer = ({
       </div>
     </aside>
   </div>
-);
+  );
+};

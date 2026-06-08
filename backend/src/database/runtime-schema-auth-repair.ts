@@ -71,4 +71,17 @@ export const repairAuthSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'auth_role_permissions', 'created_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
   await createIndexIfMissing(report, 'auth_role_permissions_role_permission_key', 'CREATE UNIQUE INDEX "auth_role_permissions_role_permission_key" ON "auth_role_permissions"("role_code", "permission_code")');
   await createIndexIfMissing(report, 'auth_role_permissions_permission_code_idx', 'CREATE INDEX "auth_role_permissions_permission_code_idx" ON "auth_role_permissions"("permission_code")');
+
+  await createTableIfMissing(report, 'auth_policy_migrations', `
+    CREATE TABLE "auth_policy_migrations" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "code" TEXT NOT NULL,
+      "description" TEXT,
+      "applied_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await addColumnIfMissing(report, 'auth_policy_migrations', 'code', 'TEXT');
+  await addColumnIfMissing(report, 'auth_policy_migrations', 'description', 'TEXT');
+  await addColumnIfMissing(report, 'auth_policy_migrations', 'applied_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
+  await createIndexIfMissing(report, 'auth_policy_migrations_code_key', 'CREATE UNIQUE INDEX "auth_policy_migrations_code_key" ON "auth_policy_migrations"("code")');
 };

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Shipment, AssetSummary, Customer } from '../../types';
 import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 import { shipmentService } from '../../services/shipping.service';
 import { assetService } from '../../services/asset.service';
 import { customerService } from '../../services/customer.service';
@@ -11,7 +12,8 @@ import { useShippingOcr } from './useShippingOcr';
 import { useShippingAssets } from './useShippingAssets';
 
 export const useShipping = () => {
-    const { t, notify, language } = useAppContext();
+    const { t, notify, language, currentUser } = useAppContext();
+    const canWriteShipping = can(currentUser, 'shipping.write');
     const [activeTab, setActiveTab] = useState<'logistics' | 'assets'>('logistics');
     const [shipments, setShipments] = useState<Shipment[]>([]);
     const [assetSummaries, setAssetSummaries] = useState<AssetSummary[]>([]);
@@ -20,7 +22,7 @@ export const useShipping = () => {
     const [isAiPanelOpen, setIsAiPanelOpen] = useState(false);
     const [aiInsights, setAiInsights] = useState<{ title: string; desc: string; level: 'low' | 'medium' | 'high' }[]>([]);
 
-    const receipts = useShippingReceipts({ t, notify, setShipments });
+    const receipts = useShippingReceipts({ t, notify, setShipments, canWrite: canWriteShipping });
 
     const loadData = async (signal?: AbortSignal) => {
         try {
@@ -52,6 +54,10 @@ export const useShipping = () => {
     }, []);
 
     const handleShipmentStatusUpdate = async (id: string, status: 'in_transit' | 'exception') => {
+        if (!canWriteShipping) {
+            notify('warning', '当前角色只能查看发货数据，不能变更发货状态');
+            return;
+        }
         try {
             const updatedShipment = await shipmentService.updateStatus(id, status);
             setShipments(prev => prev.map(item => item.id === id ? updatedShipment : item));
@@ -118,17 +124,19 @@ export const useShipping = () => {
         }).length;
 
         const items: { title: string; desc: string; level: 'low' | 'medium' | 'high' }[] = [];
-        if (exceptions > 0) items.push({ title: 'Logistics exceptions', desc: `There are ${exceptions} exception records that need review.`, level: exceptions > 2 ? 'high' : 'medium' });
-        if (pending > 10) items.push({ title: 'Dispatch backlog', desc: `There are ${pending} pending shipments.`, level: 'medium' });
-        if (tempAlerts > 0) items.push({ title: 'Cold-chain risk', desc: `${tempAlerts} temperature alerts detected.`, level: tempAlerts > 2 ? 'high' : 'medium' });
-        if (missingPod > 0) items.push({ title: 'Missing POD', desc: `${missingPod} delivered shipments still lack receipt proof.`, level: 'low' });
-        if (items.length === 0) items.push({ title: t.healthStatus || 'Healthy', desc: t.systemHealthyDesc || 'No material logistics risk detected.', level: 'low' });
+        if (exceptions > 0) items.push({ title: t.logisticsException || '物流异常', desc: `当前有 ${exceptions} 条异常记录需要复核。`, level: exceptions > 2 ? 'high' : 'medium' });
+        if (pending > 10) items.push({ title: t.dispatchBacklog || '发运积压', desc: `当前有 ${pending} 单待发运。`, level: 'medium' });
+        if (tempAlerts > 0) items.push({ title: t.coldChainRisk || '冷链风险', desc: `检测到 ${tempAlerts} 条温控预警。`, level: tempAlerts > 2 ? 'high' : 'medium' });
+        if (missingPod > 0) items.push({ title: t.missingPod || '缺少签收凭证', desc: `${missingPod} 单已送达发运缺少签收凭证。`, level: 'low' });
+        if (items.length === 0) items.push({ title: t.healthStatus || '运行正常', desc: t.systemHealthyDesc || '暂无重大物流风险。', level: 'low' });
         setAiInsights(items);
         setIsAiPanelOpen(true);
     };
 
     return {
         t,
+        language,
+        canWriteShipping,
         activeTab,
         setActiveTab,
         shipments,

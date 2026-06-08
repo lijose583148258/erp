@@ -13,6 +13,7 @@ interface ApiTeamMember {
     id: number | string;
     username?: string;
     name?: string;
+    isActive?: boolean;
     role?: TeamMember['role'];
     segment?: 'direct' | 'channel' | 'mixed' | null;
     region?: string | null;
@@ -30,6 +31,7 @@ const toNumber = (value: number | string | null | undefined) => Number(value || 
 const mapTeamMember = (item: ApiTeamMember): TeamMember => ({
     id: String(item.id),
     name: item.username || item.name || 'Unknown',
+    isActive: item.isActive !== false,
     role: item.role || 'sales',
     type: item.segment === 'channel' ? 'channel' : item.segment === 'mixed' ? 'mixed' : 'direct',
     region: item.region || 'Global',
@@ -56,6 +58,12 @@ export const teamService = {
         const response = await api.post<any, { success: boolean; data: ApiTeamMember }>('/team', member);
         return mapTeamMember(response.data);
     },
+
+    async setActive(id: string, isActive: boolean): Promise<TeamMember> {
+        const response = await api.put<any, { success: boolean; data: ApiTeamMember }>(`/team/${id}`, { isActive });
+        return mapTeamMember(response.data);
+    },
+
 };
 
 export default teamService;

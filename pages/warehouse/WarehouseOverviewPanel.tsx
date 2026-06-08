@@ -7,6 +7,7 @@ interface WarehouseOverviewPanelProps {
   selectedWarehouse: Warehouse | null;
   setSelectedWarehouse: (warehouse: Warehouse) => void;
   openCreateLocation: () => void;
+  canWrite: boolean;
 }
 
 export function WarehouseOverviewPanel({
@@ -15,11 +16,15 @@ export function WarehouseOverviewPanel({
   selectedWarehouse,
   setSelectedWarehouse,
   openCreateLocation,
+  canWrite,
 }: WarehouseOverviewPanelProps) {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="lg:col-span-1 space-y-4">
-        <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider px-1">仓库列表</h3>
+        <div className="px-1">
+          <h3 className="text-sm font-black text-slate-400 uppercase tracking-wider">仓库列表</h3>
+          <p className="mt-2 text-xs font-bold leading-5 text-slate-400">先维护仓库主档，再进入右侧库位主档；库存动作不会在这里直接发生。</p>
+        </div>
         {warehouses.length === 0 && !loading && (
           <div className="text-center py-12 text-slate-400">
             <WarehouseIcon size={40} className="mx-auto mb-3 opacity-30" />
@@ -61,10 +66,18 @@ export function WarehouseOverviewPanel({
                 <h3 className="text-xl font-black text-slate-900 dark:text-white">{selectedWarehouse.name}</h3>
                 <p className="text-sm text-slate-400 font-bold">{selectedWarehouse.code} · {selectedWarehouse.type === 'virtual' ? '虚拟仓' : '实体仓'}</p>
               </div>
-              <button onClick={openCreateLocation}
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95 transition-all">
+              <button data-testid="warehouse-location-create-open" onClick={openCreateLocation}
+                disabled={!canWrite}
+                className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-40">
                 <Plus size={14} /> 新增库位
               </button>
+            </div>
+
+            <div className="rounded-[22px] border border-blue-100 bg-blue-50/60 px-5 py-4 dark:border-blue-900/40 dark:bg-blue-900/20">
+              <p className="text-xs font-black tracking-[0.16em] text-blue-600 dark:text-blue-300">库位主档输入规则</p>
+              <p className="mt-2 text-sm font-bold leading-6 text-slate-600 dark:text-slate-200">
+                库位只描述存放位置和用途；库存数量来自库存台账、入库和调拨流水，不能在库位卡片上直接改数。
+              </p>
             </div>
 
             {selectedWarehouse.locations.length === 0 && (

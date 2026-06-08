@@ -371,8 +371,7 @@ export function useCRM() {
       setData(created.map((row) => ({ ...row, displayName: getCustomerDisplayName(row, language) })));
       notify('success', `${t.custImportSuccess}: ${created.length}`);
     } catch (error) {
-      console.error(error);
-      notify('error', t.custImportFail);
+      notify('error', error instanceof Error ? error.message : t.custImportFail);
     }
   };
 
@@ -455,8 +454,7 @@ export function useCRM() {
       setSelectedCustomer(updated);
       notify('success', '客户池已更新');
     } catch (error) {
-      console.error(error);
-      notify('error', '客户池更新失败');
+      notify('error', error instanceof Error ? error.message : '客户池更新失败');
     } finally {
       setIsPoolUpdating(false);
     }

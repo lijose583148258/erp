@@ -223,6 +223,8 @@ async function seedBusinessData(page) {
         batchNo: DATA.shipmentBatchNo,
         quantity: 10,
         unit: 'kg',
+        sourceRef: `PARTIAL-RECEIPT-BROWSER-STOCK-SEED-${RUN_ID}`,
+        reason: 'partial_receipt_browser_seed',
         note: `partial receipt browser audit ${RUN_ID}`,
       },
     });
@@ -269,7 +271,7 @@ async function openRoute(page, route, expectedText) {
 async function verifyProcurementDrawer(page, purchaseOrderId) {
   await openRoute(page, 'procurement', '采购');
   await withTimebox(page, 'open-procurement-receipt-drawer', 25000, async () => {
-    await page.getByTestId('procurement-tab-orders').click();
+    await page.getByTestId('procurement-desk-orders').click();
     const button = page.getByTestId(`purchase-order-receipts-${purchaseOrderId}`);
     await button.waitFor({ timeout: 20000 });
     await button.click();

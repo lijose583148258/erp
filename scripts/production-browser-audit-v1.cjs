@@ -18,6 +18,16 @@ const {
   STUCK_MS,
   createProductionAuditData,
 } = require('./lib/production-browser-audit-fixtures.cjs');
+const {
+  buildBomPasteText,
+  fillBomHeaderFields: fillBomHeaderFieldsWithData,
+  loginViaUi: runLoginViaUi,
+  parsePayload,
+  setControlByLabel,
+  setControlByPlaceholder,
+  switchProductionDesk: runSwitchProductionDesk,
+  waitForAnyBodyText,
+} = require('./lib/production-browser-audit-helpers.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
@@ -40,42 +50,12 @@ const report = {
 let authToken = '';
 let browser = null;
 
-function buildBomPasteText(items) {
-  return items.map((item) => [
-    item.materialName,
-    item.materialCode,
-    item.ingredientRole,
-    item.dosageMode,
-    item.percentage,
-    item.quantityPerUnit,
-    item.unit,
-    item.lossRate,
-    item.allowedVarianceRate,
-    item.processStage,
-    item.substituteGroup,
-    item.yieldContribution,
-    item.notes,
-  ].join('\t')).join('\n');
-}
-
-function parsePayload(payload) {
-  const data = payload?.json?.data;
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  return data || null;
-}
-
-async function waitForAnyBodyText(page, expectedTexts, timeout) {
-  const started = Date.now();
-  const items = Array.isArray(expectedTexts) ? expectedTexts : [expectedTexts];
-  while (Date.now() - started < timeout) {
-    const bodyText = await page.locator('body').innerText();
-    const matched = items.find((item) => bodyText.includes(item));
-    if (matched) return { bodyText, matched };
-    await page.waitForTimeout(300);
-  }
-  throw new Error(`expected any text not visible within ${timeout}ms: ${items.join(' | ')}`);
-}
+const loginViaUi = (page, recordStep) => runLoginViaUi(page, {
+  appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR,
+});
+const switchProductionDesk = (page, options) =>
+  runSwitchProductionDesk(page, options, waitForBodyText, STEP_TIMEOUT_MS.readBack);
+const fillBomHeaderFields = (page) => fillBomHeaderFieldsWithData(page, TEST_DATA);
 
 function recordFinal() {
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), 'utf8');
@@ -100,25 +80,6 @@ async function seedAuthToken(page) {
   if (!authToken) throw new Error('login api returned empty token');
 }
 
-async function loginViaUi(page, recordStep) {
-  await withTimebox(page, recordStep, 'open-login', STEP_TIMEOUT_MS.login, async () => {
-    await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
-  }, SHOT_DIR);
-  const username = page.locator('input[name="username"]');
-  const password = page.locator('input[name="password"]');
-  const submit = page.locator('button[type="submit"]');
-  if (!(await username.count()) || !(await password.count()) || !(await submit.count())) {
-    recordStep({ step: 'login-form-detection', result: 'skipped', reason: 'login form not found, using existing session' });
-    return;
-  }
-  await withTimebox(page, recordStep, 'submit-login', STEP_TIMEOUT_MS.login, async () => {
-    await username.fill('admin');
-    await password.fill('admin123');
-    await Promise.all([page.waitForTimeout(1200), submit.click()]);
-  }, SHOT_DIR);
-}
-
 async function openProductionRoute(page, recordStep) {
   await withTimebox(page, recordStep, 'open-production-route', STEP_TIMEOUT_MS.route, async () => {
     await page.goto(`${APP_URL}#production`, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT_MS.route });
@@ -127,18 +88,12 @@ async function openProductionRoute(page, recordStep) {
       window.location.hash = '#production';
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
-    await waitForBodyText(page, [S.bomManagement, S.workOrderDesk, S.batchList], STEP_TIMEOUT_MS.route);
+    await waitForAnyBodyText(page, [S.bomManagement, S.workOrderDesk, S.batchList], STEP_TIMEOUT_MS.route);
     assertNoMojibake(await page.locator('body').innerText(), 'production route', FORBIDDEN_MOJIBAKE);
   }, SHOT_DIR);
   recordStep({ step: 'production-route-evidence', result: 'passed', evidence: await safeScreenshot(page, SHOT_DIR, 'production-route') });
 }
 
-async function fillByLabel(page, label, value, index = 0) {
-  await page.getByLabel(label, { exact: true }).nth(index).fill(value);
-}
-async function selectByLabel(page, label, value, index = 0) {
-  await page.getByLabel(label).nth(index).selectOption(value);
-}
 async function importBomLinesViaExcelPaste(page, recordStep) {
   await withTimebox(page, recordStep, 'import-bom-lines-via-excel-paste', STEP_TIMEOUT_MS.fill, async () => {
     const openPasteByTestId = page.getByTestId('production-bom-open-paste-panel');
@@ -201,20 +156,7 @@ async function importBomLinesViaExcelPaste(page, recordStep) {
 
 async function createChemicalBom(page, recordStep) {
   await withTimebox(page, recordStep, 'fill-create-chemical-bom', STEP_TIMEOUT_MS.fill, async () => {
-    await page.getByLabel(S.productName, { exact: true }).first().fill(TEST_DATA.bomName);
-    await fillByLabel(page, S.version, TEST_DATA.bomVersion);
-    await selectByLabel(page, S.bomType, TEST_DATA.bomType);
-    await selectByLabel(page, S.formulaStatus, TEST_DATA.bomStatus);
-    await selectByLabel(page, S.formulaMode, TEST_DATA.formulationMode);
-    await fillByLabel(page, S.outputUnit, TEST_DATA.outputUnit);
-    await fillByLabel(page, S.standardBatch, TEST_DATA.standardBatchSize);
-    await fillByLabel(page, S.batchUnit, TEST_DATA.batchSizeUnit);
-    await fillByLabel(page, S.density, TEST_DATA.density);
-    await fillByLabel(page, S.solidContent, TEST_DATA.solidContent);
-    await fillByLabel(page, S.processSummary, TEST_DATA.processSummary);
-    await fillByLabel(page, S.effectiveFrom, TEST_DATA.effectiveFrom);
-    await fillByLabel(page, S.effectiveTo, TEST_DATA.effectiveTo);
-    await page.getByLabel(S.qualitySpec, { exact: true }).fill(TEST_DATA.qualitySummary);
+    await fillBomHeaderFields(page);
     await importBomLinesViaExcelPaste(page, recordStep);
     await page.getByRole('button', { name: new RegExp(S.createBom.replace(' ', '\\s*')) }).click();
   }, SHOT_DIR);
@@ -247,17 +189,28 @@ async function createWorkOrder(page, recordStep, bom) {
   await withTimebox(page, recordStep, 'select-latest-bom-for-work-order', STEP_TIMEOUT_MS.readBack, async () => {
     const row = await waitForRowByText(page, bom.productName, STEP_TIMEOUT_MS.readBack);
     await row.getByRole('button', { name: S.selected }).click();
+    await switchProductionDesk(page, {
+      testId: 'production-desk-work-orders',
+      fallbackName: /工单\s*\/\s*质检/,
+      expectedText: S.workOrderDesk,
+    });
     await page.waitForTimeout(400);
   }, SHOT_DIR);
   await withTimebox(page, recordStep, 'fill-create-work-order', STEP_TIMEOUT_MS.fill, async () => {
-    await page.getByPlaceholder(S.fromBom).fill(TEST_DATA.workOrder.productName);
-    await fillByLabel(page, S.targetQuantity, TEST_DATA.workOrder.targetQuantity);
-    await fillByLabel(page, S.producedQuantity, TEST_DATA.workOrder.producedQuantity);
-    await fillByLabel(page, S.lossQuantity, TEST_DATA.workOrder.lossQuantity);
-    await fillByLabel(page, S.plannedStart, TEST_DATA.workOrder.plannedStartAt);
-    await fillByLabel(page, S.plannedEnd, TEST_DATA.workOrder.plannedEndAt);
-    await page.getByLabel(S.workOrderNote, { exact: true }).fill(TEST_DATA.workOrder.note);
-    await page.getByRole('button', { name: S.createWorkOrder }).click();
+    await setControlByPlaceholder(page, S.fromBom, TEST_DATA.workOrder.productName);
+    await setControlByLabel(page, S.targetQuantity, TEST_DATA.workOrder.targetQuantity);
+    await setControlByLabel(page, S.producedQuantity, TEST_DATA.workOrder.producedQuantity);
+    await setControlByLabel(page, S.lossQuantity, TEST_DATA.workOrder.lossQuantity);
+    await setControlByLabel(page, S.plannedStart, TEST_DATA.workOrder.plannedStartAt);
+    await setControlByLabel(page, S.plannedEnd, TEST_DATA.workOrder.plannedEndAt);
+    await setControlByLabel(page, S.workOrderNote, TEST_DATA.workOrder.note);
+    const createButtons = page.locator('button').filter({ hasText: S.createWorkOrder });
+    if (!(await createButtons.count())) {
+      throw new Error('create work order button not found');
+    }
+    const createButton = createButtons.first();
+    await createButton.scrollIntoViewIfNeeded({ timeout: 5000 });
+    await createButton.click({ force: true, timeout: 5000 });
   }, SHOT_DIR);
   const created = await withTimebox(page, recordStep, 'verify-work-order-api-readback', STEP_TIMEOUT_MS.readBack, async () => {
     for (let attempt = 0; attempt < 20; attempt += 1) {
@@ -304,6 +257,8 @@ async function seedMaterialStock(page, recordStep) {
         batchNo: `QA-STOCK-${RUN_ID}-${String(index + 1).padStart(2, '0')}`,
         quantity: Math.ceil(requiredQty + 50),
         unit: item.unit || 'kg',
+        sourceRef: `PROD-STOCK-SEED-${RUN_ID}-${String(index + 1).padStart(2, '0')}`,
+        reason: 'production_material_seed',
         note: `production browser audit stock ${RUN_ID}`,
       };
       const res = await apiFetch(page, '/warehouses/stock-balances', {
@@ -342,6 +297,107 @@ async function waitForQualityCheck(page, workOrderNo, expectedNote) {
     await page.waitForTimeout(400);
   }
   throw new Error('quality check not found in API readback');
+}
+
+async function waitForAdjustmentByNote(page, { batchId, note, status, timeout = STEP_TIMEOUT_MS.readBack }) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const res = await apiFetch(page, `/adjustments?pageSize=100&domain=production&batchId=${encodeURIComponent(String(batchId))}`);
+    if (!res.ok) throw new Error(`adjustment api failed: ${res.status}`);
+    const adjustments = parsePayload(res) || [];
+    const record = adjustments.find((item) => String(item.note || '').includes(note) && (!status || item.status === status));
+    if (record) return record;
+    await page.waitForTimeout(400);
+  }
+  throw new Error(`adjustment not found in API readback: ${note}`);
+}
+
+async function waitForAdjustmentStatus(page, { id, status, timeout = STEP_TIMEOUT_MS.readBack }) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const res = await apiFetch(page, `/adjustments/${encodeURIComponent(String(id))}`);
+    if (!res.ok) throw new Error(`adjustment detail api failed: ${res.status}`);
+    const record = res.json?.data;
+    if (record?.status === status) return record;
+    await page.waitForTimeout(400);
+  }
+  throw new Error(`adjustment ${id} did not reach status ${status}`);
+}
+
+async function createAndReverseProductionAdjustment(page, recordStep, completedBatch) {
+  if (!completedBatch?.id) throw new Error('completed batch missing id for production adjustment reversal audit');
+  const adjustmentNote = `browser-adjustment-${RUN_ID}`;
+  const reversalNote = `browser-reversal-${RUN_ID}`;
+  let createdAdjustment = null;
+  let reversedOriginal = null;
+  let reverseAdjustment = null;
+
+  await withTimebox(page, recordStep, 'create-production-adjustment-via-ui', STEP_TIMEOUT_MS.save, async () => {
+    await switchProductionDesk(page, {
+      testId: 'production-desk-batches',
+      fallbackName: /批次\s*\/\s*调整/,
+      expectedText: S.batchList,
+    });
+    await page.getByTestId('production-batch-status-filter').selectOption('all');
+    await page.getByTestId('production-batch-search-input').fill(completedBatch.batchNo);
+    const row = await waitForRowByText(page, completedBatch.batchNo, STEP_TIMEOUT_MS.readBack);
+    await row.click();
+    await page.getByTestId('production-adjustment-quantity-input').fill('1');
+    await page.getByTestId('production-adjustment-note-input').fill(adjustmentNote);
+    await page.getByTestId('production-adjustment-submit').click();
+    createdAdjustment = await waitForAdjustmentByNote(page, {
+      batchId: completedBatch.id,
+      note: adjustmentNote,
+      status: 'posted',
+      timeout: STEP_TIMEOUT_MS.readBack,
+    });
+    if (Number(createdAdjustment.quantityDelta || 0) !== 1) {
+      throw new Error(`created production adjustment quantity mismatch: ${createdAdjustment.quantityDelta}`);
+    }
+    await waitForBodyText(page, [createdAdjustment.adjustmentNo], STEP_TIMEOUT_MS.readBack);
+    assertNoMojibake(await page.locator('body').innerText(), 'production adjustment create ui', FORBIDDEN_MOJIBAKE);
+  }, SHOT_DIR);
+
+  await withTimebox(page, recordStep, 'reverse-production-adjustment-via-ui', STEP_TIMEOUT_MS.save, async () => {
+    const adjustmentRow = page.getByTestId(`production-adjustment-row-${createdAdjustment.id}`);
+    await adjustmentRow.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.readBack });
+    await adjustmentRow.getByTestId('production-adjustment-reverse-button').click();
+    await page.getByTestId('production-adjustment-reverse-dialog').waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.readBack });
+    await page.getByTestId('production-adjustment-reverse-dialog-input').fill(reversalNote);
+    await page.getByTestId('production-adjustment-reverse-dialog-confirm').click();
+    await page.getByTestId('production-adjustment-reverse-dialog').waitFor({ state: 'detached', timeout: STEP_TIMEOUT_MS.readBack });
+    reversedOriginal = await waitForAdjustmentStatus(page, {
+      id: createdAdjustment.id,
+      status: 'reversed',
+      timeout: STEP_TIMEOUT_MS.readBack,
+    });
+    reverseAdjustment = await waitForAdjustmentByNote(page, {
+      batchId: completedBatch.id,
+      note: reversalNote,
+      status: 'posted',
+      timeout: STEP_TIMEOUT_MS.readBack,
+    });
+    if (Number(reverseAdjustment.quantityDelta || 0) !== -1) {
+      throw new Error(`reverse production adjustment quantity mismatch: ${reverseAdjustment.quantityDelta}`);
+    }
+    assertNoMojibake(await page.locator('body').innerText(), 'production adjustment reverse ui', FORBIDDEN_MOJIBAKE);
+  }, SHOT_DIR);
+
+  report.productionAdjustmentReversal = {
+    originalId: createdAdjustment.id,
+    originalNo: createdAdjustment.adjustmentNo,
+    originalStatus: reversedOriginal.status,
+    reverseId: reverseAdjustment.id,
+    reverseNo: reverseAdjustment.adjustmentNo,
+    reverseQuantityDelta: Number(reverseAdjustment.quantityDelta || 0),
+  };
+  recordStep({
+    step: 'production-adjustment-reversal-evidence',
+    result: 'passed',
+    evidence: await safeScreenshot(page, SHOT_DIR, 'production-adjustment-reversal'),
+    originalNo: createdAdjustment.adjustmentNo,
+    reverseNo: reverseAdjustment.adjustmentNo,
+  });
 }
 async function clickWorkOrderButton(page, workOrderNo, buttonText) {
   const row = await waitForRowByText(page, workOrderNo, STEP_TIMEOUT_MS.readBack);
@@ -450,7 +506,15 @@ async function completeWorkOrderAndVerifyBatch(page, recordStep, workOrderNo) {
     return order;
   }, SHOT_DIR);
   const batchNo = workOrder.productBatch.batchNo;
+  let completedBatch = null;
   await withTimebox(page, recordStep, 'verify-batch-ui-readback', STEP_TIMEOUT_MS.readBack, async () => {
+    await switchProductionDesk(page, {
+      testId: 'production-desk-batches',
+      fallbackName: /批次\s*\/\s*调整/,
+      expectedText: S.batchList,
+    });
+    await page.getByTestId('production-batch-status-filter').selectOption('all');
+    await page.getByTestId('production-batch-search-input').fill(batchNo);
     const row = await waitForRowByText(page, batchNo, STEP_TIMEOUT_MS.readBack);
     await row.click();
     await waitForBodyText(page, [batchNo, workOrder.productBatch.productName, S.batchTrace], STEP_TIMEOUT_MS.readBack);
@@ -463,9 +527,11 @@ async function completeWorkOrderAndVerifyBatch(page, recordStep, workOrderNo) {
     const batch = batches.find((item) => item.batchNo === batchNo);
     if (!batch) throw new Error('completed batch not found in API readback');
     if (String(batch.productName || '') !== String(workOrder.productBatch.productName || '')) throw new Error(`batch productName mismatch: ${batch.productName}`);
+    completedBatch = batch;
     report.completedBatch = { id: batch.id, batchNo: batch.batchNo, stockQuantity: Number(batch.stockQuantity || 0), status: batch.status };
   }, SHOT_DIR);
   recordStep({ step: 'batch-readback-evidence', result: 'passed', evidence: await safeScreenshot(page, SHOT_DIR, 'batch-readback'), batchNo, workOrderNo });
+  return { workOrder, batchNo, batch: completedBatch };
 }
 
 async function main() {
@@ -495,8 +561,10 @@ async function main() {
     stallGuard.assertAlive('after-work-order-advance');
     await createQualityCheck(page, recordStep, workOrder.workOrderNo);
     stallGuard.assertAlive('after-qc');
-    await completeWorkOrderAndVerifyBatch(page, recordStep, workOrder.workOrderNo);
+    const completed = await completeWorkOrderAndVerifyBatch(page, recordStep, workOrder.workOrderNo);
     stallGuard.assertAlive('after-batch');
+    await createAndReverseProductionAdjustment(page, recordStep, completed.batch);
+    stallGuard.assertAlive('after-production-adjustment-reversal');
     report.status = 'passed';
   } catch (error) {
     if (error?.auditKind === 'stuck_timeout') {

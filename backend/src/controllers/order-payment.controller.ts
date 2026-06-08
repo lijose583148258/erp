@@ -11,6 +11,7 @@ import { ApiResponse } from '../types/api.types';
 import { withDbRetry } from '../utils/dbRetry';
 import { logger } from '../utils/logger';
 import { canUseOrderForBusinessWrite } from '../utils/recordAccess';
+import { requireFinanceCollectionScope } from './collection/collection-controller.helpers';
 
 export async function recordOrderPayment(req: AuthRequest, res: Response) {
     try {
@@ -23,7 +24,7 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
         if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
             return res.status(400).json({
                 success: false,
-                message: 'Payment amount must be greater than zero.',
+                message: '回款金额必须大于 0。',
             } as ApiResponse);
         }
 
@@ -44,20 +45,20 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
         if (!orderMeta) {
             return res.status(404).json({
                 success: false,
-                message: 'Order not found.',
+                message: '订单不存在，请刷新后重试。',
             } as ApiResponse);
         }
 
         if (orderMeta.status === 'cancelled') {
             return res.status(400).json({
                 success: false,
-                message: 'Cancelled orders cannot accept payments.',
+                message: '已取消订单不能登记回款。',
             } as ApiResponse);
         }
         if (!canUseOrderForBusinessWrite(req, orderMeta)) {
             return res.status(403).json({
                 success: false,
-                message: 'You do not have permission to record payments for this order.',
+                message: '无权为该订单登记回款。',
             } as ApiResponse);
         }
 
@@ -69,14 +70,14 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
         if (orderOutstanding <= 0.01 || orderMeta.paymentStatus === 'paid') {
             return res.status(400).json({
                 success: false,
-                message: 'Order is already fully paid.',
+                message: '该订单已全部回款，无需重复登记。',
             } as ApiResponse);
         }
 
         if (paymentAmount - orderOutstanding > 0.01) {
             return res.status(400).json({
                 success: false,
-                message: 'Payment amount exceeds outstanding balance.',
+                message: '回款金额不能超过订单未回款余额。',
             } as ApiResponse);
         }
 
@@ -187,14 +188,14 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
         if (transactionResult.alreadyPaid) {
             return res.status(400).json({
                 success: false,
-                message: 'Order is already fully paid.',
+                message: '该订单已全部回款，无需重复登记。',
             } as ApiResponse);
         }
 
         if (transactionResult.pendingExceedsOutstanding) {
             return res.status(409).json({
                 success: false,
-                message: 'Pending payment records already cover the remaining outstanding balance. Verify or reject pending records before adding another payment.',
+                message: '待核销回款已覆盖剩余未回款金额，请先核销或驳回待处理记录。',
             } as ApiResponse);
         }
 
@@ -202,7 +203,7 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
             const order = await OrderWorkspaceService.getOrderById(Number(id), req);
             return res.status(409).json({
                 success: false,
-                message: 'Duplicate payment submission detected. Please refresh payment records before submitting again.',
+                message: '检测到重复提交，请刷新回款记录后再操作。',
                 data: order,
             } as ApiResponse);
         }
@@ -212,14 +213,14 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
 
         return res.json({
             success: true,
-            message: 'Payment recorded successfully.',
+            message: '回款已登记，等待财务核销。',
             data: order,
         } as ApiResponse);
     } catch (error) {
         logger.error('Record payment error:', error);
         return res.status(500).json({
             success: false,
-            message: 'Internal server error.',
+            message: '服务器内部错误',
         } as ApiResponse);
     }
 }
@@ -227,6 +228,7 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
 export async function verifyOrderPayment(req: AuthRequest, res: Response) {
     try {
         const { id, paymentId } = req.params;
+        if (!(await requireFinanceCollectionScope(req, res))) return;
         const payment = await prisma.paymentRecord.findUnique({
             where: { id: Number(paymentId) },
             select: { id: true, orderId: true },
@@ -235,7 +237,7 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
         if (!payment || payment.orderId !== Number(id)) {
             return res.status(404).json({
                 success: false,
-                message: 'Payment record not found.',
+                message: '回款记录不存在，请刷新后重试。',
             } as ApiResponse);
         }
 
@@ -250,7 +252,7 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
         if (orderForSoD && !canUseOrderForBusinessWrite(req, orderForSoD)) {
             return res.status(403).json({
                 success: false,
-                message: 'You do not have permission to verify payments for this order.',
+                message: '无权核销该订单的回款。',
             } as ApiResponse);
         }
         if (orderForSoD && orderForSoD.createdBy === req.user!.userId) {
@@ -273,7 +275,7 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
         const conflictMessage = getPaymentVerificationConflictMessage(error);
         return res.status(conflictMessage ? 409 : 500).json({
             success: false,
-            message: conflictMessage || 'Internal server error.',
+            message: conflictMessage || '服务器内部错误',
         } as ApiResponse);
     }
 }

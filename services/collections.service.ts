@@ -195,10 +195,38 @@ export interface BatchReminderResult {
   skippedCount: number;
 }
 
+export type CollectionListOptions = ApiRequestOptions & {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+};
+
+export interface CollectionListMeta {
+  page: number;
+  pageSize: number;
+  total: number;
+  totalPages: number;
+}
+
+export interface CollectionListResult<T> {
+  data: T[];
+  meta: CollectionListMeta;
+}
+
+const normalizeListMeta = (meta: Partial<CollectionListMeta> | undefined, fallbackPageSize: number, rowCount: number): CollectionListMeta => {
+  const page = Number(meta?.page || 1);
+  const pageSize = Number(meta?.pageSize || fallbackPageSize);
+  const total = Number(meta?.total ?? rowCount);
+  const totalPages = Number(meta?.totalPages || Math.max(1, Math.ceil(total / Math.max(1, pageSize))));
+  return { page, pageSize, total, totalPages };
+};
+
 export interface CollectionWorkbenchBundle {
   summary: CollectionSummary | null;
   ledger: CollectionLedgerRecord[];
+  ledgerMeta?: CollectionListMeta;
   overdue: CollectionOverdueRecord[];
+  overdueMeta?: CollectionListMeta;
   milestones: CollectionMilestoneRecord[];
   promises: CollectionPromiseRecord[];
   disputes: CollectionDisputeRecord[];
@@ -212,7 +240,9 @@ export const collectionsService = {
     return {
       summary: response.data?.summary ?? null,
       ledger: Array.isArray(response.data?.ledger) ? response.data.ledger : [],
+      ledgerMeta: response.data?.ledgerMeta,
       overdue: Array.isArray(response.data?.overdue) ? response.data.overdue : [],
+      overdueMeta: response.data?.overdueMeta,
       milestones: Array.isArray(response.data?.milestones) ? response.data.milestones : [],
       promises: Array.isArray(response.data?.promises) ? response.data.promises : [],
       disputes: Array.isArray(response.data?.disputes) ? response.data.disputes : [],
@@ -231,9 +261,23 @@ export const collectionsService = {
     return Array.isArray(response.data) ? response.data : [];
   },
 
-  async getOverdueOrders(options: ApiRequestOptions = {}): Promise<CollectionOverdueRecord[]> {
-    const response = await api.get<any, { success: boolean; data: CollectionOverdueRecord[] }>('/collections/overdue?pageSize=100', { signal: options.signal });
-    return Array.isArray(response.data) ? response.data : [];
+  async getOverdueOrdersPage(options: CollectionListOptions = {}): Promise<CollectionListResult<CollectionOverdueRecord>> {
+    const params = new URLSearchParams();
+    const pageSize = options.pageSize ?? 100;
+    params.set('pageSize', String(pageSize));
+    if (options.page) params.set('page', String(options.page));
+    if (options.search?.trim()) params.set('search', options.search.trim());
+    const response = await api.get<any, { success: boolean; data: CollectionOverdueRecord[]; meta?: CollectionListMeta }>(`/collections/overdue?${params.toString()}`, { signal: options.signal });
+    const rows = Array.isArray(response.data) ? response.data : [];
+    return {
+      data: rows,
+      meta: normalizeListMeta(response.meta, pageSize, rows.length),
+    };
+  },
+
+  async getOverdueOrders(options: CollectionListOptions = {}): Promise<CollectionOverdueRecord[]> {
+    const result = await this.getOverdueOrdersPage(options);
+    return result.data;
   },
 
   async getMilestones(): Promise<CollectionMilestoneRecord[]> {

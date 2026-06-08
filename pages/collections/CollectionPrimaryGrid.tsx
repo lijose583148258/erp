@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import type { Column } from '../../components/DataTable';
 import { adaptDataTableColumns, EnterpriseDataGrid } from '../../components/ui';
-import type { CollectionLedgerRecord, CollectionMilestoneRecord, CollectionOverdueRecord } from '../../services/collections.service';
+import type { CollectionLedgerRecord, CollectionListMeta, CollectionMilestoneRecord, CollectionOverdueRecord } from '../../services/collections.service';
 import type { CollectionActionPermissions, WorkTab } from './useCollectionCenter';
 import { getCollectionCustomerLabel } from './collectionCenter.helpers';
 
@@ -16,6 +16,12 @@ type Props = {
   sortedLedger: CollectionLedgerRecord[];
   sortedMilestones: CollectionMilestoneRecord[];
   selectedOverdue: CollectionOverdueRecord | null;
+  overdueSearch: string;
+  onOverdueSearchChange: (value: string) => void;
+  overdueSearchLoading: boolean;
+  overdueSearchMeta: CollectionListMeta;
+  onOverdueSearchPageChange: (page: number) => void;
+  onOverdueSearchPageSizeChange: (pageSize: number) => void;
   onSelectOverdue: (row: CollectionOverdueRecord) => void;
   onFocusOrder: (orderId: number) => void;
   onVerifyPayment: (paymentId: number) => Promise<void>;
@@ -42,6 +48,12 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
   sortedLedger,
   sortedMilestones,
   selectedOverdue,
+  overdueSearch,
+  onOverdueSearchChange,
+  overdueSearchLoading,
+  overdueSearchMeta,
+  onOverdueSearchPageChange,
+  onOverdueSearchPageSizeChange,
   onSelectOverdue,
   onFocusOrder,
   onVerifyPayment,
@@ -116,8 +128,20 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
         onRowClick={onSelectOverdue}
         rowClassName={(row) => selectedOverdue?.orderId === row.orderId ? 'bg-blue-50/80 dark:bg-blue-950/20' : ''}
         emptyTitle="暂无逾期订单"
-        emptyDescription="当前没有需要催收的逾期记录。"
+        emptyDescription={overdueSearch ? '没有匹配的逾期订单，可换订单号、客户名、联系人或合同号继续全库搜索。' : '当前没有需要催收的逾期记录。'}
+        searchValue={overdueSearch}
+        onSearchChange={onOverdueSearchChange}
+        manualSearch
+        loading={overdueSearchLoading}
+        searchPlaceholder="搜索订单号、客户、联系人或合同号，全库匹配..."
         searchInputTestId="collection-overdue-search"
+        manualPagination={Boolean(overdueSearch)}
+        pagination={overdueSearch ? overdueSearchMeta : undefined}
+        resultCountLabel={overdueSearch ? `总 ${overdueSearchMeta.total}` : undefined}
+        onPageChange={onOverdueSearchPageChange}
+        onPageSizeChange={onOverdueSearchPageSizeChange}
+        paginationTestIdPrefix="collection-overdue"
+        pageSizeOptions={[10, 20, 50, 100]}
         rowActions={(row) => {
           if (!permissions.canCreateReminder && !permissions.canManagePromise && !permissions.canManageDispute) return null;
           return (

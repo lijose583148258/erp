@@ -116,8 +116,10 @@ const CollectionActionWorkspace: React.FC<Props> = ({
           {permissions.canSyncOverdue ? (
             <button
               type="button"
+              data-testid="collection-workspace-sync-overdue"
               onClick={onSyncOverdue}
-              className="rounded-[22px] bg-slate-900 px-4 py-4 text-left text-white transition hover:bg-slate-800"
+              disabled={syncing}
+              className="rounded-[22px] bg-slate-900 px-4 py-4 text-left text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <div className="text-[10px] font-black uppercase tracking-[0.18em] opacity-70">系统动作</div>
               <div className="mt-2 text-sm font-black">{syncing ? '同步中...' : '同步逾期'}</div>
@@ -126,8 +128,10 @@ const CollectionActionWorkspace: React.FC<Props> = ({
           {permissions.canCreateReminder ? (
             <button
               type="button"
+              data-testid="collection-workspace-batch-reminder"
               onClick={onBatchReminder}
-              className="rounded-[22px] bg-amber-500 px-4 py-4 text-left text-white transition hover:bg-amber-400"
+              disabled={batching}
+              className="rounded-[22px] bg-amber-500 px-4 py-4 text-left text-white transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
               <div className="text-[10px] font-black uppercase tracking-[0.18em] opacity-70">系统动作</div>
               <div className="mt-2 text-sm font-black">{batching ? '批量催收中...' : '批量催收'}</div>
@@ -197,6 +201,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                     {permissions.canCreateReminder ? (
                       <button
                         type="button"
+                        data-testid={`collection-workspace-reminder-${selectedOverdue.orderId}`}
                         onClick={() => onReminder(selectedOverdue.orderId)}
                         className="rounded-[20px] bg-blue-600 px-4 py-4 text-sm font-black text-white shadow-sm transition hover:bg-blue-700"
                       >
@@ -207,6 +212,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                     {permissions.canManagePromise ? (
                       <button
                         type="button"
+                        data-testid={`collection-workspace-promise-${selectedOverdue.orderId}`}
                         onClick={() => onOpenPromise(selectedOverdue)}
                         className="rounded-[20px] bg-amber-500 px-4 py-4 text-sm font-black text-white shadow-sm transition hover:bg-amber-400"
                       >
@@ -217,6 +223,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                     {permissions.canManageDispute ? (
                       <button
                         type="button"
+                        data-testid={`collection-workspace-dispute-${selectedOverdue.orderId}`}
                         onClick={() => onOpenDispute(selectedOverdue)}
                         className="rounded-[20px] bg-rose-500 px-4 py-4 text-sm font-black text-white shadow-sm transition hover:bg-rose-400"
                       >
@@ -261,6 +268,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                       {record.status !== 'verified' && permissions.canVerifyPayment ? (
                         <button
                           type="button"
+                          data-testid={`collection-workspace-verify-${record.id}`}
                           onClick={() => void onVerifyPayment(record.id)}
                           className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black tracking-[0.12em] text-emerald-700"
                         >

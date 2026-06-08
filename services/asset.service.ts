@@ -45,6 +45,36 @@ export interface ProductBatch {
     status?: 'expired' | 'expiring' | 'healthy';
 }
 
+export interface ProductBatchPaginationMeta {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    hasNextPage: boolean;
+    hasPrevPage: boolean;
+}
+
+export type ProductBatchQuery = {
+    status?: 'expired' | 'expiring' | 'healthy';
+    keyword?: string;
+    page?: number;
+    pageSize?: number;
+};
+
+export interface ProductBatchPage {
+    data: ProductBatch[];
+    meta: ProductBatchPaginationMeta;
+}
+
+const defaultProductBatchMeta: ProductBatchPaginationMeta = {
+    page: 1,
+    pageSize: 50,
+    total: 0,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPrevPage: false,
+};
+
 export const assetService = {
     /**
      * 获取所有客户的资产余额
@@ -84,9 +114,20 @@ export const assetService = {
         return response.data;
     },
 
-    async getBatches(params?: { status?: 'expired' | 'expiring' | 'healthy'; keyword?: string }, options: ApiRequestOptions = {}): Promise<ProductBatch[]> {
-        const response = await api.get<any, { success: boolean; data: ProductBatch[] }>('/assets/batches', { params, signal: options.signal });
-        return response.data || [];
+    async getBatchesPage(params?: ProductBatchQuery, options: ApiRequestOptions = {}): Promise<ProductBatchPage> {
+        const response = await api.get<any, { success: boolean; data: ProductBatch[]; meta?: ProductBatchPaginationMeta }>('/assets/batches', { params, signal: options.signal });
+        return {
+            data: response.data || [],
+            meta: response.meta || {
+                ...defaultProductBatchMeta,
+                total: Array.isArray(response.data) ? response.data.length : 0,
+            },
+        };
+    },
+
+    async getBatches(params?: ProductBatchQuery, options: ApiRequestOptions = {}): Promise<ProductBatch[]> {
+        const response = await this.getBatchesPage(params, options);
+        return response.data;
     },
 
     async createBatch(data: {

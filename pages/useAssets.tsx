@@ -11,6 +11,16 @@ export const useAssets = () => {
   const [activeTab, setActiveTab] = useState<'balance' | 'history' | 'batch'>('balance');
   const [batchKeyword, setBatchKeyword] = useState('');
   const [batchStatus, setBatchStatus] = useState<'all' | 'healthy' | 'expiring' | 'expired'>('all');
+  const [batchPage, setBatchPage] = useState(1);
+  const batchPageSize = 50;
+  const [batchMeta, setBatchMeta] = useState({
+    page: 1,
+    pageSize: batchPageSize,
+    total: 0,
+    totalPages: 1,
+    hasNextPage: false,
+    hasPrevPage: false,
+  });
   const [batchForm, setBatchForm] = useState({
     batchNo: '',
     productName: '',
@@ -18,11 +28,10 @@ export const useAssets = () => {
     expiryDate: '',
     storageTemp: '',
     isColdChain: false,
-    stockQuantity: '',
+    stockQuantity: '0',
     unit: 'kg',
     notes: '',
   });
-  const [stockUpdates, setStockUpdates] = useState<Record<number, string>>({});
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
   const [scanOpen, setScanOpen] = useState(false);
   const [scanInput, setScanInput] = useState('');
@@ -56,16 +65,26 @@ export const useAssets = () => {
   }, [notify, t.loadDataFail]);
 
   useEffect(() => {
+    setBatchPage(1);
+    setSelectedBatchId(null);
+  }, [batchKeyword, batchStatus]);
+
+  useEffect(() => {
     const controller = new AbortController();
     let active = true;
     const params = {
       status: batchStatus === 'all' ? undefined : batchStatus,
       keyword: batchKeyword || undefined,
+      page: batchPage,
+      pageSize: batchPageSize,
     };
     assetService
-      .getBatches(params, { signal: controller.signal })
-      .then((rows) => {
-        if (active) setBatches(rows);
+      .getBatchesPage(params, { signal: controller.signal })
+      .then((result) => {
+        if (!active) return;
+        setBatches(result.data);
+        setBatchMeta(result.meta);
+        setSelectedBatchId(current => result.data.some(row => row.id === current) ? current : null);
       })
       .catch((error) => {
         if (isCanceledApiError(error) || !active) return;
@@ -76,7 +95,7 @@ export const useAssets = () => {
       active = false;
       controller.abort();
     };
-  }, [batchKeyword, batchStatus, notify, t.loadDataFail]);
+  }, [batchKeyword, batchPage, batchStatus, notify, t.loadDataFail]);
 
   const stats = useMemo(() => {
     const totalItems = balances.reduce((acc, b) => acc + b.balance, 0);
@@ -87,12 +106,12 @@ export const useAssets = () => {
   }, [balances, history]);
 
   const batchStats = useMemo(() => {
-    const total = batches.length;
+    const total = batchMeta.total;
     const expiring = batches.filter(b => b.status === 'expiring').length;
     const expired = batches.filter(b => b.status === 'expired').length;
     const coldChain = batches.filter(b => b.isColdChain).length;
     return { total, expiring, expired, coldChain };
-  }, [batches]);
+  }, [batchMeta.total, batches]);
 
   const selectedBatch = useMemo(() => {
     if (selectedBatchId === null) return null;
@@ -174,24 +193,25 @@ export const useAssets = () => {
 
   const handleCreateBatch = async () => {
     try {
-      if (!batchForm.productName || !batchForm.productionDate || !batchForm.expiryDate || !batchForm.stockQuantity || !batchForm.unit) {
+      if (!batchForm.productName || !batchForm.productionDate || !batchForm.expiryDate || !batchForm.unit) {
         notify('warning', t.batchMissingFields);
         return;
       }
 
-      await assetService.createBatch({
+      const createdBatch = await assetService.createBatch({
         batchNo: batchForm.batchNo || undefined,
         productName: batchForm.productName,
         productionDate: batchForm.productionDate,
         expiryDate: batchForm.expiryDate,
         storageTemp: batchForm.storageTemp || undefined,
         isColdChain: batchForm.isColdChain,
-        stockQuantity: Number(batchForm.stockQuantity),
+        stockQuantity: 0,
         unit: batchForm.unit,
         notes: batchForm.notes || undefined,
       });
 
       notify('success', t.batchCreated);
+      const nextKeyword = createdBatch.batchNo || batchForm.batchNo || '';
       setBatchForm({
         batchNo: '',
         productName: '',
@@ -199,46 +219,43 @@ export const useAssets = () => {
         expiryDate: '',
         storageTemp: '',
         isColdChain: false,
-        stockQuantity: '',
+        stockQuantity: '0',
         unit: 'kg',
         notes: '',
       });
+      setBatchKeyword(nextKeyword);
       const params = {
         status: batchStatus === 'all' ? undefined : batchStatus,
-        keyword: batchKeyword || undefined,
+        keyword: nextKeyword || undefined,
+        page: 1,
+        pageSize: batchPageSize,
       };
-      const refreshed = await assetService.getBatches(params);
-      setBatches(refreshed);
+      setBatchPage(1);
+      const refreshed = await assetService.getBatchesPage(params);
+      setBatches(refreshed.data);
+      setBatchMeta(refreshed.meta);
+      setSelectedBatchId(refreshed.data.find(row => row.batchNo === nextKeyword)?.id ?? null);
     } catch {
       notify('error', t.batchCreateFailed);
-    }
-  };
-
-  const handleUpdateStock = async (id: number) => {
-    const value = stockUpdates[id];
-    if (value === undefined || value === '') {
-      notify('warning', t.batchStockRequired);
-      return;
-    }
-    const batch = batches.find(item => item.id === id);
-    if (!batch) {
-      notify('error', t.batchUpdateFailed);
-      return;
-    }
-    try {
-      const updated = await assetService.updateBatch(id, { stockQuantity: Number(value) });
-      setBatches(prev => prev.map(b => b.id === id ? { ...b, ...updated } : b));
-      setStockUpdates(prev => ({ ...prev, [id]: '' }));
-      notify('success', `${t.batchStockUpdated}：${batch.batchNo}`);
-    } catch {
-      notify('error', t.batchUpdateFailed);
     }
   };
 
   const handleDeleteBatch = async (id: number) => {
     try {
       await assetService.deleteBatch(id);
-      setBatches(prev => prev.filter(b => b.id !== id));
+      const params = {
+        status: batchStatus === 'all' ? undefined : batchStatus,
+        keyword: batchKeyword || undefined,
+        page: batchPage,
+        pageSize: batchPageSize,
+      };
+      const refreshed = await assetService.getBatchesPage(params);
+      if (refreshed.data.length === 0 && batchPage > 1) {
+        setBatchPage(batchPage - 1);
+      } else {
+        setBatches(refreshed.data);
+        setBatchMeta(refreshed.meta);
+      }
       notify('success', t.batchDeleted);
     } catch {
       notify('error', t.batchDeleteFailed);
@@ -257,10 +274,12 @@ export const useAssets = () => {
     setBatchKeyword,
     batchStatus,
     setBatchStatus,
+    batchPage,
+    setBatchPage,
+    batchMeta,
+    batchPageSize,
     batchForm,
     setBatchForm,
-    stockUpdates,
-    setStockUpdates,
     selectedBatchId,
     setSelectedBatchId,
     scanOpen,
@@ -275,7 +294,6 @@ export const useAssets = () => {
     handleScanApply,
     handleScanFile,
     handleCreateBatch,
-    handleUpdateStock,
     handleDeleteBatch,
   };
 };

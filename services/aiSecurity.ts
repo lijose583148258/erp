@@ -21,7 +21,8 @@ export const AI_EXTERNAL_ENABLED_KEY = 'ailao.ai.externalEnabled';
 
 const normalizeForSafety = (value: string): string => {
   return value
-    .normalize('NFKC')
+    .normalize('NFKD')
+    .replace(/\p{M}/gu, '')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}@._%+\-\u4e00-\u9fff]/gu, '');
 };
@@ -94,6 +95,38 @@ const SENSITIVE_TERMS = [
   'finance',
   'receivable',
   'payable',
+  'khách hàng',
+  'khach hang',
+  'liên hệ',
+  'lien he',
+  'số điện thoại',
+  'so dien thoai',
+  'điện thoại',
+  'dien thoai',
+  'địa chỉ',
+  'dia chi',
+  'nhà cung cấp',
+  'nha cung cap',
+  'đơn hàng',
+  'don hang',
+  'hợp đồng',
+  'hop dong',
+  'thanh toán',
+  'thanh toan',
+  'tài chính',
+  'tai chinh',
+  'công nợ',
+  'cong no',
+  'ngân hàng',
+  'ngan hang',
+  'tài khoản',
+  'tai khoan',
+  'công thức',
+  'cong thuc',
+  'chi phí',
+  'chi phi',
+  'lợi nhuận',
+  'loi nhuan',
 ];
 
 const HIDDEN_DATA_REQUEST_TERMS = [
@@ -158,6 +191,28 @@ const HIDDEN_DATA_REQUEST_TERMS = [
   'orderdetail',
   'paymentdetail',
   'financedetail',
+  'tatca',
+  'toanbo',
+  'daydu',
+  'lietke',
+  'danhsach',
+  'xuat',
+  'khachhang',
+  'danhsachkhachhang',
+  'thongtinkhachhang',
+  'chitietkhachhang',
+  'sodienthoai',
+  'diachi',
+  'nhacungcap',
+  'danhsachnhacungcap',
+  'chitietnhacungcap',
+  'lienhe',
+  'taikhoan',
+  'nganhang',
+  'donhang',
+  'thanhtoan',
+  'taichinh',
+  'congno',
 ];
 
 const SENSITIVE_PATTERNS = [

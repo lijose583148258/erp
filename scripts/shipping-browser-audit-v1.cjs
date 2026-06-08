@@ -168,7 +168,8 @@ async function createShipmentViaOcr(page) {
 
     const ocrText = createOcrText(customerName, DATA);
 
-    await page.getByTestId('shipping-tab-logistics').click();
+    await page.getByTestId('shipping-desk-ocr').click();
+    await page.getByTestId('shipping-ocr-textarea').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
     await page.getByTestId('shipping-ocr-textarea').fill(ocrText);
     await page.getByTestId('shipping-ocr-parse-button').click();
     await page.waitForTimeout(1400);
@@ -295,6 +296,50 @@ async function uploadReceiptViaUi(page) {
   });
 }
 
+async function verifyLegacyReceiptUploadBridgesToReceiptEvents(page) {
+  return withTimebox(page, 'verify-legacy-receipt-event-bridge', TIMEOUTS.readBack, async () => {
+    const shipmentId = report.linkedShipment?.id;
+    if (!shipmentId) throw new Error('linked shipment id missing before receipt event bridge verification');
+
+    const payload = await apiFetch(page, `/shipping/${shipmentId}/receipts`);
+    if (!payload.ok) throw new Error(`receipt events readback failed: ${payload.status}`);
+    const bundle = payload.json?.data;
+    const receipts = Array.isArray(bundle?.receipts) ? bundle.receipts : [];
+    if (receipts.length < 1) throw new Error('legacy receipt upload did not create receipt event record');
+    const receipt = receipts.find((item) => item.signedReceiptUrl) || receipts[0];
+    if (!receipt?.receiptNo) throw new Error('receipt event missing receiptNo after legacy upload');
+    if (!receipt?.signedReceiptUrl) throw new Error('receipt event missing signedReceiptUrl after legacy upload');
+
+    const summary = bundle?.receiptSummary || {};
+    if (Number(summary.receiptCount || 0) < 1) throw new Error(`receipt summary count mismatch: ${summary.receiptCount}`);
+    if (Number(summary.processedQuantity || 0) <= 0) throw new Error(`receipt summary processedQuantity mismatch: ${summary.processedQuantity}`);
+
+    const gridSearch = page.getByTestId('shipping-grid-search-input');
+    await gridSearch.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await gridSearch.fill(report.linkedShipment.trackingNo || report.linkedShipment.shipmentNo || String(shipmentId));
+    const shipmentRow = page.getByTestId(`shipment-row-${String(shipmentId).replace(/[^a-zA-Z0-9_-]/g, '-')}`);
+    await shipmentRow.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const openButton = shipmentRow.locator(`[data-testid="shipment-receipts-button-${shipmentId}"]`);
+    await openButton.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await openButton.click();
+    await page.getByTestId('shipping-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const drawerText = await page.getByTestId('shipping-receipt-drawer').innerText();
+    if (!drawerText.includes(receipt.receiptNo)) {
+      throw new Error(`receipt drawer did not show legacy-created receipt event: ${receipt.receiptNo}`);
+    }
+    assertNoMojibake(drawerText, 'shipping receipt drawer');
+
+    report.legacyReceiptEventBridge = {
+      shipmentId,
+      receiptNo: receipt.receiptNo,
+      receiptCount: Number(summary.receiptCount || 0),
+      processedQuantity: Number(summary.processedQuantity || 0),
+      signedReceiptUrl: receipt.signedReceiptUrl,
+      evidence: await safeScreenshot(page, 'legacy-receipt-event-bridge'),
+    };
+  });
+}
+
 async function run() {
   ensureDir(SHOT_DIR);
   let browser;
@@ -319,6 +364,7 @@ async function run() {
     await dispatchLinkedShipment(page);
     await verifyShippingIssue(page);
     await uploadReceiptViaUi(page);
+    await verifyLegacyReceiptUploadBridgesToReceiptEvents(page);
     recordStep({
       step: 'shipping-final-evidence',
       result: 'passed',

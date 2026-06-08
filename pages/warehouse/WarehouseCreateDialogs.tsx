@@ -14,6 +14,7 @@ interface WarehouseCreateDialogsProps {
   newLocation: LocationDraft;
   setNewLocation: Dispatch<SetStateAction<LocationDraft>>;
   handleCreateLocation: () => void;
+  canWrite: boolean;
 }
 
 export function WarehouseCreateDialogs({
@@ -28,23 +29,29 @@ export function WarehouseCreateDialogs({
   newLocation,
   setNewLocation,
   handleCreateLocation,
+  canWrite,
 }: WarehouseCreateDialogsProps) {
   return (
     <>
       {showCreateWarehouse && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={() => setShowCreateWarehouse(false)}>
+        <div data-testid="warehouse-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={() => setShowCreateWarehouse(false)}>
           <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">新建仓库</h3>
+            {!canWrite && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+                当前角色只能查看仓储数据，不能新建仓库。
+              </div>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">仓库编码 *</label>
-                <input type="text" placeholder="如: WH-CHEM" value={newWarehouse.code}
+                <input data-testid="warehouse-create-code-input" type="text" placeholder="如: WH-CHEM" value={newWarehouse.code}
                   onChange={e => setNewWarehouse(form => ({ ...form, code: e.target.value }))}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold" />
               </div>
               <div>
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">仓库名称 *</label>
-                <input type="text" placeholder="如: 化工原料仓" value={newWarehouse.name}
+                <input data-testid="warehouse-create-name-input" type="text" placeholder="如: 化工原料仓" value={newWarehouse.name}
                   onChange={e => setNewWarehouse(form => ({ ...form, name: e.target.value }))}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold" />
               </div>
@@ -59,27 +66,32 @@ export function WarehouseCreateDialogs({
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowCreateWarehouse(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
-              <button onClick={handleCreateWarehouse} className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all">创建</button>
+              <button data-testid="warehouse-create-confirm" onClick={handleCreateWarehouse} disabled={!canWrite} className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">创建</button>
             </div>
           </div>
         </div>
       )}
 
       {showCreateLocation && (
-        <div className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={() => setShowCreateLocation(false)}>
+        <div data-testid="warehouse-location-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={() => setShowCreateLocation(false)}>
           <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">新建库位</h3>
             <p className="text-sm text-slate-400 font-bold mb-6">在「{selectedWarehouse?.name}」下创建</p>
+            {!canWrite && (
+              <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+                当前角色只能查看仓储数据，不能新建库位。
+              </div>
+            )}
             <div className="space-y-4">
               <div>
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">库位编码 *</label>
-                <input type="text" placeholder="如: LOC-A01" value={newLocation.code}
+                <input data-testid="warehouse-location-create-code-input" type="text" placeholder="如: LOC-A01" value={newLocation.code}
                   onChange={e => setNewLocation(form => ({ ...form, code: e.target.value }))}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold" />
               </div>
               <div>
                 <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">库位名称 *</label>
-                <input type="text" placeholder="如: A区1号架" value={newLocation.name}
+                <input data-testid="warehouse-location-create-name-input" type="text" placeholder="如: A区1号架" value={newLocation.name}
                   onChange={e => setNewLocation(form => ({ ...form, name: e.target.value }))}
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold" />
               </div>
@@ -97,7 +109,7 @@ export function WarehouseCreateDialogs({
             </div>
             <div className="flex gap-3 mt-6">
               <button onClick={() => setShowCreateLocation(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
-              <button onClick={handleCreateLocation} className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all">创建</button>
+              <button data-testid="warehouse-location-create-confirm" onClick={handleCreateLocation} disabled={!canWrite} className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">创建</button>
             </div>
           </div>
         </div>

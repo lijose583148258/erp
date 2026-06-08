@@ -1,6 +1,14 @@
 import api, { ApiRequestOptions } from '../utils/api';
 import { ApiDataResponse, toApiRecord, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../utils/apiMapping';
-import { RmaRecord } from '../types';
+import { RmaRecord, RmaStatus } from '../types';
+
+export type CreateRmaInput = Partial<RmaRecord> & {
+    customerId?: string | number;
+    productName?: string;
+    quantity?: string | number;
+    unit?: string;
+    reason?: string;
+};
 
 const toDateOnly = (value: unknown, fallback = ''): string => {
     const text = toOptionalString(value);
@@ -29,8 +37,11 @@ const mapRmaRecord = (value: unknown, fallback: Partial<RmaRecord> = {}): RmaRec
         customerNameEn,
         customerNameVi,
         customerDisplayName: customerNameZh || customerNameEn || customerNameVi || customerName,
+        productName: toOptionalString(item.productName) || fallback.productName,
+        quantity: item.quantity != null ? toStringValue(item.quantity) : fallback.quantity,
+        unit: toOptionalString(item.unit) || fallback.unit,
         reason: toStringValue(item.reason, fallback.reason || ''),
-        status: toStringValue(item.status, fallback.status || 'in_review') as RmaRecord['status'],
+        status: toStringValue(item.status, fallback.status || RmaStatus.PENDING) as RmaRecord['status'],
         type: toStringValue(item.type, fallback.type || 'return'),
         createdAt: toStringValue(item.createdAt, fallback.createdAt || ''),
         orderId: toStringValue(item.orderId),
@@ -44,14 +55,14 @@ export const rmaService = {
      * 获取所有售后记录
      */
     async getAll(options: ApiRequestOptions = {}): Promise<RmaRecord[]> {
-        const response = await api.get<unknown, ApiDataResponse<unknown[]>>('/rma', { signal: options.signal });
+        const response = await api.get<unknown, ApiDataResponse<unknown[]>>('/rma?pageSize=100', { signal: options.signal });
         return toUnknownArray(response.data).map((item) => mapRmaRecord(item));
     },
 
     /**
      * 创建售后记录
      */
-    async create(rma: Partial<RmaRecord>): Promise<RmaRecord> {
+    async create(rma: CreateRmaInput): Promise<RmaRecord> {
         const response = await api.post<unknown, ApiDataResponse<unknown>>('/rma', rma);
         return mapRmaRecord(response.data, {
             ...rma,
@@ -62,8 +73,8 @@ export const rmaService = {
     /**
      * 更新售后状态
      */
-    async updateStatus(id: string, status: string, resolution?: string): Promise<RmaRecord> {
-        const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/rma/${id}/status`, { status, resolution });
-        return mapRmaRecord(response.data);
+    async updateStatus(id: string, status: string, resolution?: string, fallback: Partial<RmaRecord> = {}): Promise<RmaRecord> {
+        const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/rma/${id}/resolve`, { status, resolution });
+        return mapRmaRecord(response.data, fallback);
     }
 };

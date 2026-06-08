@@ -19,14 +19,41 @@ export const buildShipmentColumns = (
     onUploadReceipt: (id: string) => void,
     onUpdateStatus: (id: string, status: 'in_transit' | 'exception') => void,
     onOpenReceiptEvents: (shipment: Shipment) => void,
+    canWrite: boolean,
 ): Column<Shipment>[] => [
-    { header: t.shipmentId, key: 'id', accessor: (row) => <span className="font-mono font-bold">#{row.id || '-'}</span> },
+    {
+        header: t.shipmentId,
+        key: 'id',
+        searchText: (row) => [
+            row.id,
+            row.shipmentNo,
+            row.trackingNo,
+        ].filter(Boolean).join(' '),
+        accessor: (row) => (
+            <div className="flex flex-col gap-1">
+                <span className="font-mono font-bold">#{row.id || '-'}</span>
+                <span className="font-mono text-[11px] font-bold text-slate-500">{row.shipmentNo || '-'}</span>
+                {row.trackingNo ? (
+                    <span className="font-mono text-[11px] font-black text-blue-600">{row.trackingNo}</span>
+                ) : null}
+            </div>
+        )
+    },
     {
         header: t.orderRef,
         key: 'order',
+        searchText: (row) => [
+            row.orderNo,
+            row.orderId,
+            row.customerName,
+            row.customerNameZh,
+            row.customerNameEn,
+            row.customerNameVi,
+        ].filter(Boolean).join(' '),
         accessor: (row) => (
             <div className="flex flex-col">
                 <span className="text-xs font-bold">{row.orderNo || row.orderId || '-'}</span>
+                <span className="mt-1 text-xs font-bold text-slate-400">{row.customerName || '-'}</span>
                 {row.id.includes('B2B') && (
                     <span className="text-xs font-black text-indigo-500 tracking-wide flex items-center mt-0.5">
                         <ArrowRightLeft size={8} className="mr-0.5" /> {t.backToBack}
@@ -38,6 +65,11 @@ export const buildShipmentColumns = (
     {
         header: t.productName,
         key: 'product',
+        searchText: (row) => [
+            row.productName,
+            row.sku,
+            row.casNo,
+        ].filter(Boolean).join(' '),
         accessor: (row) => (
             <div className="flex flex-col">
                 <span className="text-xs font-bold">{row.productName || '-'}</span>
@@ -75,7 +107,7 @@ export const buildShipmentColumns = (
                 >
                     {row.status === 'delivered' ? t.delivered : row.status === 'in_transit' ? t.activeTransit : row.status === 'pending' ? t.dispatchPending : (t.exception || '异常')}
                 </span>
-                {row.status === 'pending' && (
+                {row.status === 'pending' && canWrite && (
                     <button
                         type="button"
                         data-testid={`shipment-dispatch-${row.id}`}
@@ -101,7 +133,7 @@ export const buildShipmentColumns = (
             </span>
         )
     },
-    { header: t.batchNo, key: 'batchNo', accessor: (row) => row.batchNo || '-' },
+    { header: t.batchNo, key: 'batchNo', searchText: (row) => row.batchNo || '', accessor: (row) => row.batchNo || '-' },
     {
         header: t.proofOfDelivery,
         key: 'receipt',
@@ -112,11 +144,15 @@ export const buildShipmentColumns = (
                         <ImageIcon size={14} className="mr-1.5" />
                         <span className="text-xs font-bold">{t.viewReceipt}</span>
                     </a>
-                ) : (
+                ) : canWrite ? (
                     <button data-testid={`shipment-receipt-button-${row.id}`} onClick={(e) => { e.stopPropagation(); onUploadReceipt(row.id); }} className="flex items-center text-blue-600 bg-blue-50 px-2 py-1 rounded-xl border border-blue-100 hover:bg-blue-100 transition-all">
                         <Camera size={14} className="mr-1.5" />
                         <span className="text-xs font-bold tracking-wide">{t.capturePod}</span>
                     </button>
+                ) : (
+                    <span className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-400">
+                        只读凭证
+                    </span>
                 )}
                 {row.status !== 'pending' && (
                     <button

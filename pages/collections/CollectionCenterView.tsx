@@ -1,6 +1,8 @@
 ﻿import React from 'react';
-import { BellRing, CheckCircle2, Sparkles } from 'lucide-react';
+import { useState } from 'react';
+import { BellRing, CheckCircle2, ClipboardCheck, ShieldAlert, Sparkles, WalletCards } from 'lucide-react';
 import { adaptDataTableColumns, EnterpriseDataGrid } from '../../components/ui';
+import { WorkspaceTaskNavigator } from '../../components/ui/WorkspaceTaskNavigator';
 import CollectionActionModal from '../../components/collections/CollectionActionModal';
 import CollectionActionWorkspace from './CollectionActionWorkspace';
 import CollectionCurrentOrderDetail from './CollectionCurrentOrderDetail';
@@ -21,6 +23,7 @@ import { useCollectionCenterTables } from './useCollectionCenterTables';
 
 const filterChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
 const sortChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
+type CollectionDeskTab = 'receivable' | 'promise' | 'risk' | 'principle';
 
 const Metric = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
   <div className="rounded-[24px] border border-slate-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
@@ -34,6 +37,42 @@ const CollectionCenterView: React.FC = () => {
   const state = useCollectionCenterState();
   const tables = useCollectionCenterTables(state);
   const metricsLoading = state.loading && !state.summary;
+  const [activeCollectionDesk, setActiveCollectionDesk] = useState<CollectionDeskTab>('receivable');
+  const riskCount = state.filteredDisputes.length + state.filteredHolds.length;
+  const collectionDeskItems = [
+    {
+      id: 'receivable' as CollectionDeskTab,
+      title: '应收任务',
+      subtitle: '逾期、核销、最近台账和当前订单',
+      purpose: '先选订单，再做回款核销或催收动作。',
+      icon: WalletCards,
+      count: state.sortedOverdue.length,
+    },
+    {
+      id: 'promise' as CollectionDeskTab,
+      title: '承诺跟进',
+      subtitle: '客户承诺付款、兑现、失约和取消',
+      purpose: '只记录沟通承诺，不替代真实回款。',
+      icon: ClipboardCheck,
+      count: state.filteredPromises.length,
+    },
+    {
+      id: 'risk' as CollectionDeskTab,
+      title: '争议 / 拦截',
+      subtitle: '争议金额、信用拦截和发货拦截',
+      purpose: '只处理异常和释放，不直接改写应收账。',
+      icon: ShieldAlert,
+      count: riskCount,
+    },
+    {
+      id: 'principle' as CollectionDeskTab,
+      title: '原则说明',
+      subtitle: '收款动作边界和追款规则',
+      purpose: '帮助用户确认哪些动作会入账，哪些只是记录。',
+      icon: BellRing,
+      count: 2,
+    },
+  ];
 
   return (
     <div className="space-y-8">
@@ -49,20 +88,6 @@ const CollectionCenterView: React.FC = () => {
               账龄、核销、承诺、争议、拦截统一在一个工作台处理，但动作区、详情区和全局台账保持分层。
             </p>
           </div>
-          {state.permissions.canSyncOverdue || state.permissions.canCreateReminder ? (
-            <div className="flex flex-wrap gap-3">
-              {state.permissions.canSyncOverdue ? (
-                <button type="button" onClick={state.handleSyncOverdue} className="rounded-full bg-slate-900 px-4 py-3 text-xs font-bold tracking-[0.12em] text-white">
-                  {state.syncing ? '同步中...' : '同步逾期'}
-                </button>
-              ) : null}
-              {state.permissions.canCreateReminder ? (
-                <button type="button" onClick={state.handleBatchReminder} className="rounded-full bg-amber-500 px-4 py-3 text-xs font-bold tracking-[0.12em] text-white">
-                  {state.batching ? '批量催收中...' : '批量催收'}
-                </button>
-              ) : null}
-            </div>
-          ) : null}
         </div>
       </div>
 
@@ -89,70 +114,115 @@ const CollectionCenterView: React.FC = () => {
         />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
-        <CollectionActionWorkspace
-          selectedOrderId={state.selectedOrderId}
-          selectedOverdue={state.selectedOverdue}
-          ledger={state.ledger}
-          formatPrice={state.formatPrice}
-          permissions={state.permissions}
-          syncing={state.syncing}
-          batching={state.batching}
-          onSyncOverdue={state.handleSyncOverdue}
-          onBatchReminder={state.handleBatchReminder}
-          onReminder={state.handleReminder}
-          onVerifyPayment={state.handleVerifyPayment}
-          onPromiseStatus={state.handlePromiseStatus}
-          onDisputeStatus={state.handleDisputeStatus}
-          onReleaseHold={state.handleReleaseHold}
-          promises={state.promises}
-          disputes={state.disputes}
-          holds={state.holds}
-          onOpenPromise={(record) => state.openActionModal('promise', record)}
-          onOpenDispute={(record) => state.openActionModal('dispute', record)}
-        />
-        <CollectionPrimaryGrid
-          activeTab={state.activeTab}
-          setActiveTab={state.setActiveTab}
-          selectedOrderId={state.selectedOrderId}
-          overdueColumns={tables.overdueColumns}
-          ledgerColumns={tables.ledgerColumns}
-          milestoneColumns={tables.milestoneColumns}
-          sortedOverdue={state.sortedOverdue}
-          sortedLedger={state.sortedLedger}
-          sortedMilestones={state.sortedMilestones}
-          selectedOverdue={state.selectedOverdue}
-          onSelectOverdue={(record) => {
-            state.setSelectedOverdue(record);
-            state.focusOrderById(record.orderId);
-          }}
-          onFocusOrder={state.focusOrderById}
-          onVerifyPayment={state.handleVerifyPayment}
-          onReminder={state.handleReminder}
-          onOpenPromise={(record) => state.openActionModal('promise', record)}
-          onOpenDispute={(record) => state.openActionModal('dispute', record)}
-          permissions={state.permissions}
-        />
-      </div>
-
-      <CollectionCurrentOrderDetail
-        selectedOrderId={state.selectedOrderId}
-        selectedOverdue={state.selectedOverdue}
-        ledger={state.ledger}
-        promises={state.promises}
-        disputes={state.disputes}
-        holds={state.holds}
-        milestones={state.milestones}
-        formatPrice={state.formatPrice}
-        onVerifyPayment={state.handleVerifyPayment}
-        onPromiseStatus={state.handlePromiseStatus}
-        onDisputeStatus={state.handleDisputeStatus}
-        onReleaseHold={state.handleReleaseHold}
-        permissions={state.permissions}
+      <WorkspaceTaskNavigator
+        eyebrow="回款职责导航"
+        title="先处理应收，再跟进承诺，最后看异常和规则"
+        description="回款中心按国内进销存常见的往来账习惯拆开：真实回款和核销走应收任务，承诺只是沟通记录，争议和拦截属于异常处理，原则说明只读。"
+        items={collectionDeskItems}
+        activeId={activeCollectionDesk}
+        onChange={(id) => {
+          if (id === 'receivable' || id === 'promise' || id === 'risk' || id === 'principle') {
+            setActiveCollectionDesk(id);
+          }
+        }}
+        variant="blue"
+        columns="four"
       />
 
-      <div className="grid gap-6 xl:grid-cols-2">
-        <div className="rounded-[36px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2">
+      <section data-testid="collection-canonical-boundary" className="rounded-[30px] border border-emerald-100 bg-emerald-50/80 p-5 shadow-sm dark:border-emerald-900/60 dark:bg-emerald-950/30">
+        <div className="flex items-start gap-4">
+          <div className="mt-0.5 rounded-2xl bg-white p-2 text-emerald-600 shadow-sm dark:bg-slate-900 dark:text-emerald-300">
+            <CheckCircle2 size={18} />
+          </div>
+          <div>
+            <h3 className="text-sm font-black tracking-tight text-slate-950 dark:text-white">回款核销主入口</h3>
+            <p className="mt-2 text-sm font-bold leading-6 text-slate-600 dark:text-slate-300">
+              实际收款、核验、承诺跟进、争议和拦截统一在这里闭环。销售订单页只保留从准确订单行进入的快捷动作，避免同一笔回款在多个页面重复登记。
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {activeCollectionDesk === 'receivable' ? (
+        <>
+          <div className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
+            <CollectionActionWorkspace
+              selectedOrderId={state.selectedOrderId}
+              selectedOverdue={state.selectedOverdue}
+              ledger={state.ledger}
+              formatPrice={state.formatPrice}
+              permissions={state.permissions}
+              syncing={state.syncing}
+              batching={state.batching}
+              onSyncOverdue={state.handleSyncOverdue}
+              onBatchReminder={state.handleBatchReminder}
+              onReminder={state.handleReminder}
+              onVerifyPayment={state.handleVerifyPayment}
+              onPromiseStatus={state.handlePromiseStatus}
+              onDisputeStatus={state.handleDisputeStatus}
+              onReleaseHold={state.handleReleaseHold}
+              promises={state.promises}
+              disputes={state.disputes}
+              holds={state.holds}
+              onOpenPromise={(record) => state.openActionModal('promise', record)}
+              onOpenDispute={(record) => state.openActionModal('dispute', record)}
+            />
+            <CollectionPrimaryGrid
+              activeTab={state.activeTab}
+              setActiveTab={state.setActiveTab}
+              selectedOrderId={state.selectedOrderId}
+              overdueColumns={tables.overdueColumns}
+              ledgerColumns={tables.ledgerColumns}
+              milestoneColumns={tables.milestoneColumns}
+              sortedOverdue={state.sortedOverdue}
+              sortedLedger={state.sortedLedger}
+              sortedMilestones={state.sortedMilestones}
+              selectedOverdue={state.selectedOverdue}
+              overdueSearch={state.overdueSearch}
+              onOverdueSearchChange={(value) => {
+                state.setOverdueSearch(value);
+                state.setOverdueSearchPage(1);
+              }}
+              overdueSearchLoading={state.overdueSearchLoading}
+              overdueSearchMeta={state.overdueSearchMeta}
+              onOverdueSearchPageChange={state.setOverdueSearchPage}
+              onOverdueSearchPageSizeChange={(pageSize) => {
+                state.setOverdueSearchPageSize(pageSize);
+                state.setOverdueSearchPage(1);
+              }}
+              onSelectOverdue={(record) => {
+                state.setSelectedOverdue(record);
+                state.focusOrderById(record.orderId);
+              }}
+              onFocusOrder={state.focusOrderById}
+              onVerifyPayment={state.handleVerifyPayment}
+              onReminder={state.handleReminder}
+              onOpenPromise={(record) => state.openActionModal('promise', record)}
+              onOpenDispute={(record) => state.openActionModal('dispute', record)}
+              permissions={state.permissions}
+            />
+          </div>
+
+          <CollectionCurrentOrderDetail
+            selectedOrderId={state.selectedOrderId}
+            selectedOverdue={state.selectedOverdue}
+            ledger={state.ledger}
+            promises={state.promises}
+            disputes={state.disputes}
+            holds={state.holds}
+            milestones={state.milestones}
+            formatPrice={state.formatPrice}
+            onVerifyPayment={state.handleVerifyPayment}
+            onPromiseStatus={state.handlePromiseStatus}
+            onDisputeStatus={state.handleDisputeStatus}
+            onReleaseHold={state.handleReleaseHold}
+            permissions={state.permissions}
+          />
+        </>
+      ) : null}
+
+      <div className={`${activeCollectionDesk === 'promise' || activeCollectionDesk === 'risk' ? 'grid' : 'hidden'} gap-6 xl:grid-cols-2`}>
+        <div className={`${activeCollectionDesk === 'promise' ? '' : 'hidden'} rounded-[36px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 xl:col-span-2`}>
           <div className="flex items-center justify-between">
             <div>
               <p className="text-xs font-bold tracking-[0.16em] text-slate-400">异常处理</p>
@@ -230,7 +300,7 @@ const CollectionCenterView: React.FC = () => {
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div className={`${activeCollectionDesk === 'risk' ? '' : 'hidden'} space-y-6`}>
           <div className="rounded-[36px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-center justify-between">
               <div>
@@ -374,7 +444,7 @@ const CollectionCenterView: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className={`${activeCollectionDesk === 'principle' ? 'grid' : 'hidden'} gap-6 xl:grid-cols-2`}>
         <div className="rounded-[36px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
           <div className="flex items-center justify-between">
             <div>

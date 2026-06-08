@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import DataTable, { Column } from '../components/DataTable';
 import { Contract, Customer } from '../types';
-import { FileText, Plus, Search, DollarSign, CheckCircle, Clock, FileUp, Zap, Link as LinkIcon } from 'lucide-react';
+import { FileText, Plus, Search, DollarSign, CheckCircle, Clock, FileUp, Zap, Link as LinkIcon, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { contractService } from '../services/contract.service';
 import { customerService } from '../services/customer.service';
@@ -61,6 +61,10 @@ const Contracts = () => {
 
     const handleOcrCreate = async () => {
         if (!ocrResult) return;
+        if (!String(ocrResult.title || '').trim()) {
+            notify('warning', '请先确认合同标题');
+            return;
+        }
         try {
             await contractService.create({
                 ...ocrResult,
@@ -139,11 +143,13 @@ const Contracts = () => {
             header: t.fulfillmentProgress || '履约进度',
             key: 'progress',
             accessor: (row) => {
-                const percent = Math.min(Math.round(((row.totalLinkedAmount || 0) / row.totalAmount) * 100), 100);
+                const totalAmount = Number(row.totalAmount || 0);
+                const linkedAmount = Number(row.totalLinkedAmount || 0);
+                const percent = totalAmount > 0 ? Math.min(Math.round((linkedAmount / totalAmount) * 100), 100) : 0;
                 return (
                     <div className="w-32">
                         <div className="flex justify-between items-center mb-1">
-                            <span className="text-[11px] font-black text-slate-400 tracking-tighter">{formatPrice(row.totalLinkedAmount || 0)}</span>
+                            <span className="text-[11px] font-black text-slate-400 tracking-tighter">{formatPrice(linkedAmount, row.currency as any)}</span>
                             <span className="text-[11px] font-black text-blue-600">{percent}%</span>
                         </div>
                         <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
@@ -165,7 +171,7 @@ const Contracts = () => {
 
     const stats = useMemo(() => {
         const active = contracts.filter(c => c.status === 'active').length;
-        const totalVal = contracts.reduce((acc, c) => acc + c.totalAmount, 0);
+        const totalVal = contracts.reduce((acc, c) => acc + Number(c.totalAmount || 0), 0);
         const nearExpiry = contracts.filter(c => {
             if (!c.expiredAt) return false;
             const diff = new Date(c.expiredAt).getTime() - new Date().getTime();
@@ -186,20 +192,38 @@ const Contracts = () => {
                         Digital Contract Lifecycle Management with AI OCR
                     </p>
                 </div>
-                <div className="flex gap-3">
+                <div className="flex flex-col items-start gap-2 sm:items-end">
                     <button
+                        data-testid="contracts-open-ocr"
                         onClick={() => setIsOcrModalOpen(true)}
                         className="flex items-center px-6 py-3 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-100 transition-all"
                     >
                         <Zap size={16} className="mr-2" />
                         AI 快速录入
                     </button>
-                    <button onClick={() => notify('info', t.underConstruction || '该模块表单组件构建中')} className="flex items-center px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all">
-                        <Plus size={18} className="mr-2" />
-                        {t.create || '新建合同'}
-                    </button>
+                    <p className="max-w-xs text-right text-[11px] font-bold leading-5 text-slate-400">
+                        手动合同草稿会并入统一合同表单；当前页面只保留可闭环的 OCR 草稿入口和订单关联回读。
+                    </p>
                 </div>
             </div>
+
+            <section data-testid="contracts-boundary-notice" className="grid gap-4 md:grid-cols-3">
+                <div className="rounded-[28px] border border-slate-200 bg-white/80 p-5 text-sm font-bold leading-6 text-slate-700 shadow-sm dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-200">
+                    <div className="mb-2 flex items-center gap-2 text-xs font-black tracking-[0.16em] text-slate-500 dark:text-slate-300">
+                        <ShieldCheck size={14} />
+                        合同主数据入口
+                    </div>
+                    本页只管理合同档案、OCR 提取、签署状态和订单关联，不直接创建销售订单、采购入库或财务收款。
+                </div>
+                <div className="rounded-[28px] border border-blue-100 bg-blue-50/80 p-5 text-sm font-bold leading-6 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+                    <div className="mb-2 text-xs font-black tracking-[0.16em] text-blue-600 dark:text-blue-200">履约边界</div>
+                    合同金额是约束口径；真实发货、回款、采购收货和库存变化必须在对应业务模块形成凭证后再回写进度。
+                </div>
+                <div className="rounded-[28px] border border-indigo-100 bg-indigo-50/80 p-5 text-sm font-bold leading-6 text-indigo-900 dark:border-indigo-900/40 dark:bg-indigo-950/20 dark:text-indigo-100">
+                    <div className="mb-2 text-xs font-black tracking-[0.16em] text-indigo-600 dark:text-indigo-200">OCR 是助手</div>
+                    AI 识别结果只做草稿预填，保存前必须人工核对标题、金额、客户和签署日期，避免把识别文本当成正式合同。
+                </div>
+            </section>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm">
@@ -341,7 +365,7 @@ const Contracts = () => {
                                                         className="w-full bg-white dark:bg-slate-900 p-4 rounded-xl border-none font-bold outline-none"
                                                     >
                                                         <option value="">请选择客户</option>
-                                                        {customers.map(c => <option key={c.id} value={c.id}>{getCustomerDisplayName(c)}</option>)}
+                                                        {customers.map(c => <option key={c.id} value={c.id}>{getCustomerDisplayName(c, language)}</option>)}
                                                     </select>
                                                 </div>
                                             </div>
@@ -367,7 +391,7 @@ const Contracts = () => {
                                                 onClick={handleOcrCreate}
                                                 className="flex-[2] py-4 bg-emerald-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 hover:bg-emerald-600 transition-all"
                                             >
-                                                保存并入库
+                                                保存为合同草稿
                                             </button>
                                         </div>
                                     )}

@@ -106,7 +106,7 @@ export class BarterService {
       });
 
       if (!agreement) {
-        throw new Error('Barter agreement not found');
+        throw new Error('未找到货抵协议，请刷新后重新选择。');
       }
 
       if (agreement.status === 'closed' || agreement.status === 'terminated') {
@@ -176,7 +176,7 @@ export class BarterService {
   static async approveSettlement(id: number, approvedBy: number, note?: string) {
     const settlement = await prisma.barterSettlement.findUnique({ where: { id } });
     if (!settlement) {
-      throw new Error('Barter settlement not found');
+      throw new Error('未找到货抵批次，请刷新后重新选择。');
     }
     assertBarterApprovalTransition(settlement.status);
 
@@ -214,7 +214,7 @@ export class BarterService {
     });
 
     if (!settlement) {
-      throw new Error('Barter settlement not found');
+      throw new Error('未找到货抵批次，请刷新后重新选择。');
     }
     assertBarterPostingTransition(settlement.status);
 
@@ -224,11 +224,11 @@ export class BarterService {
     const offsetType = payload.offsetType || 'barter_offset';
 
     if (offsetAmount <= 0) {
-      throw new Error('Posting amount must be greater than zero');
+      throw new Error('货抵过账金额必须大于 0。');
     }
 
     if (offsetAmount > maxOffsetAmount) {
-      throw new Error(`Posting amount cannot exceed settlement offset cap ${maxOffsetAmount}`);
+      throw new Error(`货抵过账金额不能超过本批次可抵金额 ${maxOffsetAmount}。`);
     }
 
     if (orderId) {
@@ -245,15 +245,15 @@ export class BarterService {
       });
 
       if (!linkedOrder) {
-        throw new Error('Linked order not found');
+        throw new Error('关联订单不存在，请刷新后重新选择。');
       }
 
       if (linkedOrder.status === 'cancelled') {
-        throw new Error('Cancelled order cannot receive barter posting');
+        throw new Error('已取消订单不能进行货抵过账。');
       }
 
       if (settlement.customerId && linkedOrder.customerId !== settlement.customerId) {
-        throw new Error('Linked order does not belong to the settlement customer');
+        throw new Error('关联订单客户与货抵客户不一致。');
       }
 
       const outstandingAmount = roundMoney(getOutstandingAmount(
@@ -262,11 +262,11 @@ export class BarterService {
         Number(linkedOrder.receivableAdjustmentAmount),
       ));
       if (outstandingAmount <= 0) {
-        throw new Error('Linked order has no outstanding receivable for barter posting');
+        throw new Error('关联订单没有可抵扣的未回款金额。');
       }
 
       if (offsetAmount > outstandingAmount) {
-        throw new Error(`Posting amount cannot exceed linked order outstanding amount ${outstandingAmount}`);
+        throw new Error(`货抵过账金额不能超过关联订单未回款金额 ${outstandingAmount}。`);
       }
     }
 
@@ -288,13 +288,13 @@ export class BarterService {
           select: { id: true, status: true },
         });
         if (!latest) {
-          throw new Error('Barter settlement not found');
+          throw new Error('未找到货抵批次，请刷新后重新选择。');
         }
         if (latest.status === 'posted') {
-          throw new Error('Barter settlement has already been posted. Please refresh before retrying.');
+          throw new Error('该货抵批次已过账，请刷新页面后再核对。');
         }
         if (latest.status === 'reversed') {
-          throw new Error('Barter settlement was reversed before posting. Please refresh before retrying.');
+          throw new Error('该货抵批次已被冲回，不能再过账，请刷新页面后核对。');
         }
         throw new Error(`Barter settlement status changed by another operation: ${settlement.status} -> ${latest.status}`);
       }
@@ -310,11 +310,11 @@ export class BarterService {
         });
 
         if (!agreement) {
-          throw new Error('Barter agreement not found');
+          throw new Error('未找到货抵协议，请刷新后重新选择。');
         }
 
         if (agreement.status === 'closed' || agreement.status === 'terminated') {
-          throw new Error(`Barter agreement status ${agreement.status} cannot receive postings`);
+        throw new Error(`当前货抵协议状态为 ${agreement.status}，不能继续过账。`);
         }
 
         const postedSettlements = await tx.barterSettlement.findMany({
@@ -338,7 +338,7 @@ export class BarterService {
         const liveRemainingAmount = roundMoney(Math.max(Number(agreement.agreedOffsetAmount || 0) - executedOffsetAmount, 0));
 
         if (offsetAmount > liveRemainingAmount) {
-          throw new Error(`Posting amount cannot exceed agreement remaining amount ${liveRemainingAmount}`);
+          throw new Error(`货抵过账金额不能超过协议剩余可抵金额 ${liveRemainingAmount}。`);
         }
       }
 
@@ -355,15 +355,15 @@ export class BarterService {
         });
 
         if (!linkedOrder) {
-          throw new Error('Linked order not found');
+          throw new Error('关联订单不存在，请刷新后重新选择。');
         }
 
         if (linkedOrder.status === 'cancelled') {
-          throw new Error('Cancelled order cannot receive barter posting');
+          throw new Error('已取消订单不能进行货抵过账。');
         }
 
         if (settlement.customerId && linkedOrder.customerId !== settlement.customerId) {
-          throw new Error('Linked order does not belong to the settlement customer');
+          throw new Error('关联订单客户与货抵客户不一致。');
         }
 
         const verifiedPayments = await tx.paymentRecord.aggregate({
@@ -380,10 +380,10 @@ export class BarterService {
           Number(linkedOrder.receivableAdjustmentAmount),
         ));
         if (liveOutstandingAmount <= 0) {
-          throw new Error('Linked order has no outstanding receivable for barter posting');
+          throw new Error('关联订单没有可抵扣的未回款金额。');
         }
         if (offsetAmount > liveOutstandingAmount) {
-          throw new Error(`Posting amount cannot exceed linked order outstanding amount ${liveOutstandingAmount}`);
+          throw new Error(`货抵过账金额不能超过关联订单未回款金额 ${liveOutstandingAmount}。`);
         }
 
         createdPaymentRecord = await tx.paymentRecord.create({
@@ -431,19 +431,15 @@ export class BarterService {
         await this.syncAgreementProgress(settlement.agreementId, tx);
       }
 
+      if (orderId) {
+        await CollectionStateService.recalculateOrderPaymentStateTx(tx, orderId);
+      }
+
       return { settlement: updated, paymentRecordId: createdPaymentRecord?.id ?? null };
     }), { label: 'postBarterSettlement' });
 
     if (!paymentRecord.settlement) {
       return this.getSettlement(id);
-    }
-
-    if (orderId) {
-      await CollectionStateService.recalculateOrderPaymentState(orderId);
-    }
-
-    if (settlement.agreementId) {
-      await this.syncAgreementProgress(settlement.agreementId);
     }
 
     return this.getSettlement(paymentRecord.settlement.id);
@@ -463,7 +459,7 @@ export class BarterService {
     });
 
     if (!settlement) {
-      throw new Error('Barter settlement not found');
+      throw new Error('未找到货抵批次，请刷新后重新选择。');
     }
     assertBarterReversalTransition(settlement.status);
 
@@ -482,7 +478,7 @@ export class BarterService {
           select: { id: true, status: true },
         });
         if (!latest) {
-          throw new Error('Barter settlement not found');
+          throw new Error('未找到货抵批次，请刷新后重新选择。');
         }
         if (latest.status === 'reversed') {
           return;
@@ -515,15 +511,11 @@ export class BarterService {
       if (settlement.agreementId) {
         await this.syncAgreementProgress(settlement.agreementId, tx);
       }
+
+      if (settlement.orderId) {
+        await CollectionStateService.recalculateOrderPaymentStateTx(tx, settlement.orderId);
+      }
     }), { label: 'reverseBarterSettlement' });
-
-    if (settlement.orderId) {
-      await CollectionStateService.recalculateOrderPaymentState(settlement.orderId);
-    }
-
-    if (settlement.agreementId) {
-      await this.syncAgreementProgress(settlement.agreementId);
-    }
 
     return this.getSettlement(settlement.id);
   }

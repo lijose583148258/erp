@@ -33,6 +33,9 @@ export type {
 export class StockMovementService {
   static async postStockEntry(input: PostStockEntryInput, txClient?: TransactionClient): Promise<StockEntryResult> {
     const runner = async (tx: TransactionClient): Promise<StockEntryResult> => {
+      const sourceRef = normalizeText(input.sourceRef) || null;
+      const reason = normalizeText(input.reason) || null;
+      const note = normalizeText(input.note) || null;
       const normalizedLines = input.lines.map(line => ({
         locationId: normalizeId(line.locationId, 'locationId'),
         productName: normalizeText(line.productName),
@@ -42,6 +45,10 @@ export class StockMovementService {
         unitCost: normalizeOptionalNumber(line.unitCost, 'unitCost'),
         costAmountDelta: normalizeOptionalNumber(line.costAmountDelta, 'costAmountDelta'),
       }));
+
+      if (input.sourceType === 'warehouse_manual_inbound' && (!sourceRef || !reason)) {
+        throw new Error('应急补录必须填写来源单号和补录原因。');
+      }
 
       if (normalizedLines.length === 0) {
         throw new Error('Stock entry requires at least one movement line');
@@ -56,7 +63,7 @@ export class StockMovementService {
         }
       }
 
-      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, input.sourceRef);
+      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, sourceRef);
       if (existingPostedEntry) {
         return existingPostedEntry;
       }
@@ -76,12 +83,12 @@ export class StockMovementService {
          VALUES (?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
         entryNo,
         input.sourceType,
-        input.sourceRef || null,
+        sourceRef,
         resolveDirection(normalizedLines),
         firstLocation.warehouseId,
         firstLocation.id,
-        input.reason || null,
-        input.note || null,
+        reason,
+        note,
         input.createdBy || null,
       );
 
@@ -106,7 +113,7 @@ export class StockMovementService {
       );
       const entry = entries[0];
       if (!entry) {
-        const existingAfterInsert = await findPostedEntryResult(tx, input.sourceType, input.sourceRef);
+        const existingAfterInsert = await findPostedEntryResult(tx, input.sourceType, sourceRef);
         if (existingAfterInsert) {
           return existingAfterInsert;
         }
@@ -139,19 +146,25 @@ export class StockMovementService {
         let balance;
         if (existing) {
           if (line.quantityDelta < 0) {
+            const requestedDecrease = Math.abs(line.quantityDelta);
+            const availableQuantity = Number(existing.quantity || 0);
+            const tolerance = 0.000001;
+            const safeDecrease = availableQuantity + tolerance < requestedDecrease
+              ? requestedDecrease
+              : Math.min(requestedDecrease, availableQuantity);
             const updated = await tx.stockBalance.updateMany({
               where: {
                 id: existing.id,
-                quantity: { gte: Math.abs(line.quantityDelta) },
+                quantity: { gte: requestedDecrease - tolerance },
               },
               data: {
-                quantity: { decrement: Math.abs(line.quantityDelta) },
+                quantity: { decrement: safeDecrease },
                 unit: line.unit,
                 lastMoveAt: new Date(),
               },
             });
             if (updated.count !== 1) {
-              throw new Error(`Insufficient stock for ${line.productName} / ${line.batchNo}`);
+              throw new Error(`库存不足：${line.productName} / ${line.batchNo}，请先核对库存余额。`);
             }
             balance = await tx.stockBalance.findUnique({ where: { id: existing.id } });
           } else {
@@ -166,7 +179,7 @@ export class StockMovementService {
           }
         } else {
           if (line.quantityDelta < 0) {
-            throw new Error(`Insufficient stock for ${line.productName} / ${line.batchNo}`);
+            throw new Error(`库存不足：${line.productName} / ${line.batchNo}，请先核对库存余额。`);
           }
           try {
             balance = await tx.stockBalance.create({
@@ -288,6 +301,43 @@ export class StockMovementService {
       where.push('e.source_ref = ?');
       params.push(String(filters.sourceRef));
     }
+    if (filters.productName) {
+      where.push(`EXISTS (
+        SELECT 1
+        FROM stock_movements fm
+        WHERE fm.entry_id = e.id
+          AND fm.product_name LIKE ?
+      )`);
+      params.push(`%${String(filters.productName)}%`);
+    }
+    if (filters.batchNo) {
+      where.push(`EXISTS (
+        SELECT 1
+        FROM stock_movements fm
+        WHERE fm.entry_id = e.id
+          AND fm.batch_no LIKE ?
+      )`);
+      params.push(`%${String(filters.batchNo)}%`);
+    }
+    if (Number.isFinite(filters.locationId)) {
+      where.push(`EXISTS (
+        SELECT 1
+        FROM stock_movements fm
+        WHERE fm.entry_id = e.id
+          AND fm.location_id = ?
+      )`);
+      params.push(Number(filters.locationId));
+    }
+    if (Number.isFinite(filters.warehouseId)) {
+      where.push(`EXISTS (
+        SELECT 1
+        FROM stock_movements fm
+        JOIN locations fl ON fl.id = fm.location_id
+        WHERE fm.entry_id = e.id
+          AND fl.warehouse_id = ?
+      )`);
+      params.push(Number(filters.warehouseId));
+    }
 
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
     const rows = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
@@ -305,10 +355,16 @@ export class StockMovementService {
          e.posted_at AS postedAt,
          e.warehouse_id AS warehouseId,
          e.location_id AS locationId,
+         ew.code AS warehouseCode,
+         ew.name AS warehouseName,
+         el.code AS locationCode,
+         el.name AS locationName,
          COUNT(m.id) AS movementCount,
          COALESCE(SUM(m.quantity_delta), 0) AS netQuantityDelta
        FROM stock_entries e
        LEFT JOIN stock_movements m ON m.entry_id = e.id
+       LEFT JOIN warehouses ew ON ew.id = e.warehouse_id
+       LEFT JOIN locations el ON el.id = e.location_id
        ${whereSql}
        GROUP BY e.id
        ORDER BY e.id DESC
@@ -321,20 +377,26 @@ export class StockMovementService {
     const movementRows = entryIds.length > 0
       ? await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>(
           `SELECT
-             id,
-             entry_id AS entryId,
-             stock_balance_id AS stockBalanceId,
-             location_id AS locationId,
-             product_name AS productName,
-             batch_no AS batchNo,
-             unit,
-             quantity_before AS quantityBefore,
-             quantity_delta AS quantityDelta,
-             quantity_after AS quantityAfter,
-             created_at AS createdAt
-           FROM stock_movements
-           WHERE entry_id IN (${entryIds.map(() => '?').join(',')})
-           ORDER BY id ASC`,
+             m.id,
+             m.entry_id AS entryId,
+             m.stock_balance_id AS stockBalanceId,
+             m.location_id AS locationId,
+             m.product_name AS productName,
+             m.batch_no AS batchNo,
+             m.unit,
+             m.quantity_before AS quantityBefore,
+             m.quantity_delta AS quantityDelta,
+             m.quantity_after AS quantityAfter,
+             m.created_at AS createdAt,
+             l.code AS locationCode,
+             l.name AS locationName,
+             w.code AS warehouseCode,
+             w.name AS warehouseName
+           FROM stock_movements m
+           LEFT JOIN locations l ON l.id = m.location_id
+           LEFT JOIN warehouses w ON w.id = l.warehouse_id
+           WHERE m.entry_id IN (${entryIds.map(() => '?').join(',')})
+           ORDER BY m.id ASC`,
           ...entryIds,
         )
       : [];
@@ -350,6 +412,10 @@ export class StockMovementService {
         quantityBefore: Number(movement.quantityBefore || 0),
         quantityDelta: Number(movement.quantityDelta || 0),
         quantityAfter: Number(movement.quantityAfter || 0),
+        locationCode: movement.locationCode || '',
+        locationName: movement.locationName || '',
+        warehouseCode: movement.warehouseCode || '',
+        warehouseName: movement.warehouseName || '',
       };
       const bucket = movementsByEntryId.get(entryId) || [];
       bucket.push(mapped);

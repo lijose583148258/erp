@@ -47,7 +47,7 @@ const QuickAction = ({ icon: Icon, label, color, onClick }: any) => (
 );
 
 const Dashboard = () => {
-  const { t, theme, formatPrice } = useAppContext();
+  const { t, theme, formatPrice, notify } = useAppContext();
   const [stats, setStats] = useState({
     monthlyRevenue: 0,
     overdueAmount: 0,
@@ -130,7 +130,6 @@ const Dashboard = () => {
         const chartData = trendsData.map(item => ({
           name: item.date.slice(5), // Show MM-DD only.
           revenue: item.amount,
-          risk: item.amount > 1000000 ? item.amount * 0.05 : 0 // 模拟风险比例
         }));
 
         setChartData(chartData);
@@ -142,12 +141,12 @@ const Dashboard = () => {
 
       } catch (error) {
         if (isCanceledApiError(error)) return;
-        console.error('Failed to load dashboard stats:', error);
+        notify('error', '经营驾驶舱加载失败，请刷新后再核对收入、库存和待办数据。');
       }
     };
     loadStats();
     return () => controller.abort();
-  }, [t]);
+  }, [t, notify]);
 
   // 使用 state 存储图表数据
   const [chartData, setChartData] = useState<any[]>([]);
@@ -211,10 +210,10 @@ const Dashboard = () => {
       </section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-8">
-        <StatCard title={t.monthlySales} value={formatPrice(stats.monthlyRevenue)} sub={t.totalYtd || 'Total YTD'} icon={DollarSign} color="bg-blue-500" trend="12.5%" />
-        <StatCard title={t.overduePayments} value={formatPrice(stats.overdueAmount || 0)} sub={`${(stats.overdueAmount || 0) > 0 ? (t.actionReq || 'Action Req') : (t.clean || 'Clean')}`} icon={AlertTriangle} color="bg-rose-500" />
-        <StatCard title={t.shipping} value={stats.activeShipments} sub={t.activeShipmentsDesc || 'Active Shipments'} icon={Package} color="bg-indigo-500" />
-        <StatCard title={t.activeCustomers} value={stats.totalCustomers} sub={t.totalClients || 'Total Clients'} icon={Users} color="bg-teal-500" trend="4.8%" />
+        <StatCard title={t.monthlySales} value={formatPrice(stats.monthlyRevenue)} sub={t.totalYtd || '年度累计'} icon={DollarSign} color="bg-blue-500" />
+        <StatCard title={t.overduePayments} value={formatPrice(stats.overdueAmount || 0)} sub={`${(stats.overdueAmount || 0) > 0 ? (t.actionReq || '需要处理') : (t.clean || '正常')}`} icon={AlertTriangle} color="bg-rose-500" />
+        <StatCard title={t.shipping} value={stats.activeShipments} sub={t.activeShipmentsDesc || '在途发运'} icon={Package} color="bg-indigo-500" />
+        <StatCard title={t.activeCustomers} value={stats.totalCustomers} sub={t.totalClients || '客户总数'} icon={Users} color="bg-teal-500" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 lg:gap-8">
@@ -236,7 +235,6 @@ const Dashboard = () => {
                     formatter={(value: number) => [formatPrice(value), '']}
                   />
                   <Bar dataKey="revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={20} />
-                  <Bar dataKey="risk" fill="#fb7185" radius={[6, 6, 0, 0]} barSize={20} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (

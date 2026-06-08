@@ -121,13 +121,17 @@ const resolveBaseAmount = (input: {
 }) => {
   const amount = toNumber(input.amount);
   const exchangeRate = toNumber(input.exchangeRate);
-  const directBaseAmount = Number(input.baseAmount);
+  const hasBaseAmount =
+    input.baseAmount !== undefined &&
+    input.baseAmount !== null &&
+    input.baseAmount !== '';
+  const directBaseAmount = hasBaseAmount ? Number(input.baseAmount) : NaN;
   const looksLikeLegacyZeroBase =
     directBaseAmount === 0 &&
     amount !== 0 &&
     exchangeRate > 0;
 
-  if (Number.isFinite(directBaseAmount) && !looksLikeLegacyZeroBase) {
+  if (hasBaseAmount && Number.isFinite(directBaseAmount) && !looksLikeLegacyZeroBase) {
     return directBaseAmount;
   }
 
@@ -156,9 +160,16 @@ const resolvePortionBaseAmount = (input: {
 }) => {
   const portionAmount = toNumber(input.portionAmount);
   const totalAmount = toNumber(input.totalAmount);
-  const totalBaseAmount = Number(input.totalBaseAmount);
+  const hasTotalBaseAmount =
+    input.totalBaseAmount !== undefined &&
+    input.totalBaseAmount !== null &&
+    input.totalBaseAmount !== '';
+  const totalBaseAmount = hasTotalBaseAmount ? Number(input.totalBaseAmount) : NaN;
+  const looksLikeLegacyZeroBase =
+    totalBaseAmount === 0 &&
+    totalAmount !== 0;
 
-  if (Number.isFinite(totalBaseAmount) && totalAmount > 0) {
+  if (hasTotalBaseAmount && Number.isFinite(totalBaseAmount) && !looksLikeLegacyZeroBase && totalAmount > 0) {
     return totalBaseAmount * (portionAmount / totalAmount);
   }
 

@@ -119,6 +119,9 @@ function checkPowerShellGuards(findings) {
     if (!/127\.0\.0\.1:5001/.test(startStable)) {
       addFinding(findings, 'P0', 'powershell-guards', 'scripts/start-stable-v2.ps1', 'stable launcher must verify 127.0.0.1:5001');
     }
+    if (!/JWT_SECRET/.test(startStable)) {
+      addFinding(findings, 'P0', 'powershell-guards', 'scripts/start-stable-v2.ps1', 'stable launcher must set or preserve JWT_SECRET so packaged production mode can start');
+    }
   }
 
   const stopRuntime = requireText(findings, 'scripts/stop-runtime.ps1', 'powershell-guards');
@@ -145,13 +148,18 @@ function checkRuntimeCheck(findings) {
 
 function checkRuntimePortPolicy(findings) {
   const startStable = requireText(findings, 'scripts/start-stable-v2.ps1', 'runtime-port-policy');
-  if (startStable && !/set\s+"NODE_ENV=production"/i.test(startStable)) {
-    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must set NODE_ENV=production with Windows-safe quoted set syntax before launching backend/dist/server.js');
+  const hasPowerShellProductionEnv = /\$env:NODE_ENV\s*=\s*['"]production['"]/i.test(startStable || '');
+  const hasCmdProductionEnv = /set\s+"NODE_ENV=production"/i.test(startStable || '');
+  const hasStableCorsLiteral = /stableCorsOrigin\s*=\s*['"]http:\/\/127\.0\.0\.1:5001,http:\/\/localhost:5001['"]/i.test(startStable || '');
+  const hasPowerShellCorsEnv = /\$env:CORS_ORIGIN\s*=\s*\$stableCorsOrigin/i.test(startStable || '');
+  const hasCmdCorsEnv = /set\s+""CORS_ORIGIN=\$stableCorsOrigin""/i.test(startStable || '');
+
+  if (startStable && !hasPowerShellProductionEnv && !hasCmdProductionEnv) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must set NODE_ENV=production before launching backend/dist/server.js');
   }
   if (startStable
-    && (!/stableCorsOrigin\s*=\s*'http:\/\/127\.0\.0\.1:5001,http:\/\/localhost:5001'/i.test(startStable)
-      || !/set\s+""CORS_ORIGIN=\$stableCorsOrigin""/i.test(startStable))) {
-    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must override old local .env CORS_ORIGIN with the stable 5001 origins using Windows-safe quoted set syntax');
+    && (!hasStableCorsLiteral || (!hasPowerShellCorsEnv && !hasCmdCorsEnv))) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must override old local .env CORS_ORIGIN with the stable 5001 origins');
   }
 
   const runtimeConfig = requireText(findings, 'backend/src/config/runtime.ts', 'runtime-port-policy');
@@ -161,6 +169,9 @@ function checkRuntimePortPolicy(findings) {
     }
     if (!/AILAODA_ALLOW_DEV_ORIGINS/.test(runtimeConfig)) {
       addFinding(findings, 'P1', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'dev CORS origins should require an explicit switch outside production defaults');
+    }
+    if (!/isForbiddenSqliteRuntimeDbPath/.test(runtimeConfig) || !/AILAODA_ALLOW_LEGACY_PRISMA_DB/.test(runtimeConfig)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'runtime must quarantine backend/prisma SQLite files unless explicitly overridden');
     }
     if (/localhost:(3001|3002|4173|5173|5180|8080)|127\.0\.0\.1:(3001|3002|4173|5173|5180|8080)/.test(runtimeConfig)) {
       addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'runtime default origins must not keep stale broad dev/foreign ports');

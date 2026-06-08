@@ -65,6 +65,11 @@ body,
   min-height: 100%;
 }
 
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   padding: 0;
   font-family: var(--font-app);
@@ -72,6 +77,30 @@ body {
   color: var(--app-text);
   -webkit-tap-highlight-color: transparent;
   overscroll-behavior-y: none;
+}
+
+input,
+textarea,
+select {
+  max-width: 100%;
+  min-width: 0;
+}
+
+textarea {
+  overflow-wrap: anywhere;
+  resize: vertical;
+}
+
+.app-long-text {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.app-clip-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 @layer components {
@@ -92,6 +121,80 @@ body {
   }
 
   .app-section-title {
-    @apply text-xs font-black uppercase tracking-[0.18em] text-slate-400;
+    @apply text-xs font-black uppercase tracking-[0.18em] text-slate-500;
   }
+}
+
+.app-compact {
+  --radius-control: 10px;
+  --radius-card: 14px;
+  --radius-panel: 18px;
+  --density-control-y: 0.48rem;
+  --density-control-x: 0.72rem;
+  --space-page-gutter: clamp(10px, 1.4vw, 20px);
+}
+
+.app-compact .app-density-surface {
+  box-shadow: 0 8px 22px rgba(15, 23, 42, 0.05);
+}
+
+.app-compact .app-density-surface.rounded-2xl,
+.app-compact .app-density-surface.rounded-3xl {
+  border-radius: 12px;
+}
+
+.app-compact .app-density-table th {
+  color: #475569;
+  font-size: 0.72rem;
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+
+.app-compact .app-density-table td {
+  font-size: 0.82rem;
+  padding-top: 0.4rem;
+  padding-bottom: 0.4rem;
+}
+
+.app-compact .text-slate-400 {
+  color: #64748b;
+}
+
+.app-compact .dark .text-slate-400,
+.dark.app-compact .text-slate-400 {
+  color: #cbd5e1;
+}
+
+.app-critical-text {
+  color: #334155;
+}
+
+.dark .app-critical-text {
+  color: #e2e8f0;
+}
+
+@media (hover: none), (pointer: coarse) {
+  [class*="group-hover:opacity-100"] {
+    opacity: 1 !important;
+  }
+
+  .touch-actions-visible {
+    opacity: 1 !important;
+  }
+
+  .touch-actions-visible button,
+  .touch-actions-visible [role="button"],
+  .app-row-actions button,
+  .app-row-actions [role="button"] {
+    min-height: 44px;
+  }
+}
+
+.app-density-table .truncate-cell {
+  display: block;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: min(32ch, 240px);
 }

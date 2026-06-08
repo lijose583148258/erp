@@ -1,4 +1,5 @@
 ﻿import * as XLSX from 'xlsx';
+import { getStatusBorderBadgeClassName } from '../../components/ui/StatusBadge';
 
 export const formatDate = (value?: string | null) => {
   if (!value) return '-';
@@ -60,22 +61,19 @@ export const exportRows = (filename: string, rows: Record<string, unknown>[]) =>
 };
 
 export const paymentBadge = (status: string) => {
-  if (status === 'verified' || status === 'paid') return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-  if (status === 'partial') return 'bg-amber-50 text-amber-600 border-amber-100';
-  return 'bg-slate-50 text-slate-500 border-slate-100';
+  if (status === 'verified' || status === 'paid') return getStatusBorderBadgeClassName('verified');
+  if (status === 'partial') return getStatusBorderBadgeClassName('partial');
+  return getStatusBorderBadgeClassName('unknown');
 };
 
 export const riskBadge = (riskLevel: string) => {
-  if (riskLevel === 'critical') return 'bg-rose-50 text-rose-600 border-rose-100';
-  if (riskLevel === 'high') return 'bg-orange-50 text-orange-600 border-orange-100';
-  if (riskLevel === 'medium') return 'bg-amber-50 text-amber-600 border-amber-100';
-  return 'bg-emerald-50 text-emerald-600 border-emerald-100';
+  if (riskLevel === 'critical') return getStatusBorderBadgeClassName('critical');
+  if (riskLevel === 'high') return getStatusBorderBadgeClassName('high');
+  if (riskLevel === 'medium') return getStatusBorderBadgeClassName('medium');
+  return getStatusBorderBadgeClassName('low');
 };
 
 export const statusBadge = (status: string) => {
-  if (['kept', 'resolved', 'paid'].includes(status)) return 'bg-emerald-50 text-emerald-600 border-emerald-100';
-  if (['missed', 'rejected', 'open'].includes(status)) return 'bg-rose-50 text-rose-600 border-rose-100';
-  if (['reviewing', 'promised'].includes(status)) return 'bg-amber-50 text-amber-600 border-amber-100';
-  if (['cancelled', 'withdrawn'].includes(status)) return 'bg-slate-50 text-slate-500 border-slate-100';
-  return 'bg-slate-50 text-slate-500 border-slate-100';
+  if (status === 'open') return getStatusBorderBadgeClassName('exception');
+  return getStatusBorderBadgeClassName(status);
 };

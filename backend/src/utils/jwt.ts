@@ -1,9 +1,12 @@
 import * as jwt from 'jsonwebtoken';
+import * as crypto from 'crypto';
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your-secret-key';
+const isProduction = process.env.NODE_ENV === 'production';
+const configuredJwtSecret = process.env.JWT_SECRET?.trim();
+const JWT_SECRET = configuredJwtSecret || crypto.randomBytes(48).toString('base64url');
 const JWT_EXPIRES_IN = process.env.JWT_EXPIRES_IN || '7d';
 
-if (process.env.NODE_ENV === 'production' && (!process.env.JWT_SECRET || JWT_SECRET === 'your-secret-key')) {
+if (isProduction && !configuredJwtSecret) {
   throw new Error('JWT_SECRET must be set in production');
 }
 
@@ -12,6 +15,9 @@ export interface JwtPayload {
   username: string;
   role: string;
   segment?: 'direct' | 'channel' | 'mixed';
+  authAt?: number;
+  iat?: number;
+  exp?: number;
 }
 
 /**

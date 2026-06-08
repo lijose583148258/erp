@@ -203,13 +203,13 @@ export class BarterController {
       const { id } = req.params;
       const meta = await loadAgreementMeta(Number(id));
       if (!meta || !canAccessBarterMeta(req, meta)) {
-        return res.status(404).json({ success: false, message: 'Barter agreement not found' } as ApiResponse);
+        return res.status(404).json({ success: false, message: '未找到货抵协议，请刷新后重新选择。' } as ApiResponse);
       }
       const data = await BarterService.getAgreement(Number(id));
       res.json({ success: true, data } as ApiResponse);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载货抵协议详情失败';
-      const statusCode = message.includes('not found') ? 404 : 500;
+      const statusCode = message.includes('未找到') || message.includes('not found') ? 404 : 500;
       logger.error('加载货抵协议详情失败', error);
       res.status(statusCode).json({ success: false, message } as ApiResponse);
     }
@@ -220,13 +220,13 @@ export class BarterController {
       const { id } = req.params;
       const meta = await loadSettlementMeta(Number(id));
       if (!meta || !canAccessBarterMeta(req, meta) || (meta.agreement && !canAccessBarterMeta(req, meta.agreement))) {
-        return res.status(404).json({ success: false, message: 'Barter settlement not found' } as ApiResponse);
+        return res.status(404).json({ success: false, message: '未找到货抵批次，请刷新后重新选择。' } as ApiResponse);
       }
       const data = await BarterService.getSettlement(Number(id));
       res.json({ success: true, data } as ApiResponse);
     } catch (error) {
       const message = error instanceof Error ? error.message : '加载货抵详情失败';
-      const statusCode = message.includes('not found') ? 404 : 500;
+      const statusCode = message.includes('未找到') || message.includes('not found') ? 404 : 500;
       logger.error('加载货抵详情失败', error);
       res.status(statusCode).json({ success: false, message } as ApiResponse);
     }
@@ -309,7 +309,7 @@ export class BarterController {
       const { id } = req.params;
       const meta = await loadAgreementMeta(Number(id));
       if (!meta || !canAccessBarterMeta(req, meta)) {
-        return res.status(404).json({ success: false, message: 'Barter agreement not found' } as ApiResponse);
+        return res.status(404).json({ success: false, message: '未找到货抵协议，请刷新后重新选择。' } as ApiResponse);
       }
       const body = req.body as Omit<CreateBarterBatchInput, 'createdBy' | 'valuationDate'> & {
         valuationDate?: unknown;
@@ -339,7 +339,7 @@ export class BarterController {
       const { note } = req.body;
       const meta = await loadSettlementMeta(Number(id));
       if (!meta || !canAccessBarterMeta(req, meta) || (meta.agreement && !canAccessBarterMeta(req, meta.agreement))) {
-        return res.status(404).json({ success: false, message: 'Barter settlement not found' } as ApiResponse);
+        return res.status(404).json({ success: false, message: '未找到货抵批次，请刷新后重新选择。' } as ApiResponse);
       }
       const data = await BarterService.approveSettlement(Number(id), req.user!.userId, note ? String(note) : undefined);
       await this.writeAuditLog(req, 'APPROVE_BARTER_SETTLEMENT', Number(id), JSON.stringify({ note: note || null }));
@@ -357,7 +357,7 @@ export class BarterController {
       const { orderId, postingAmount, offsetType, note } = req.body;
       const meta = await loadSettlementMeta(Number(id));
       if (!meta || !canAccessBarterMeta(req, meta) || (meta.agreement && !canAccessBarterMeta(req, meta.agreement))) {
-        return res.status(404).json({ success: false, message: 'Barter settlement not found' } as ApiResponse);
+        return res.status(404).json({ success: false, message: '未找到货抵批次，请刷新后重新选择。' } as ApiResponse);
       }
       const data = await BarterService.postSettlement(Number(id), req.user!.userId, {
         orderId: orderId === undefined || orderId === null || orderId === '' ? undefined : Number(orderId),
@@ -384,7 +384,7 @@ export class BarterController {
       const { reason } = req.body;
       const meta = await loadSettlementMeta(Number(id));
       if (!meta || !canAccessBarterMeta(req, meta) || (meta.agreement && !canAccessBarterMeta(req, meta.agreement))) {
-        return res.status(404).json({ success: false, message: 'Barter settlement not found' } as ApiResponse);
+        return res.status(404).json({ success: false, message: '未找到货抵批次，请刷新后重新选择。' } as ApiResponse);
       }
       const data = await BarterService.reverseSettlement(Number(id), req.user!.userId, String(reason));
       await this.writeAuditLog(req, 'REVERSE_BARTER_SETTLEMENT', Number(id), JSON.stringify({ reason }));

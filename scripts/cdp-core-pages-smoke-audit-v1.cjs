@@ -36,8 +36,8 @@ const MOJIBAKE_CODE_POINTS = [
 const mojibakeTokenPattern = new RegExp(MOJIBAKE_CODE_POINTS.map((code) => String.fromCodePoint(code)).join('|'), 'u');
 
 const ROUTES = [
-  { id: 'dashboard', hash: '#dashboard', expected: ['工作台首页', 'Dashboard', '快速'] },
-  { id: 'crm', hash: '#crm', expected: ['客户关系', '客户管理', 'CUSTOMERS'] },
+  { id: 'dashboard', hash: '#dashboard', expected: ['经营总览', '快捷中心', '系统已一键启动'] },
+  { id: 'crm', hash: '#crm', expected: ['客户关系与信用档案', '客户关系', '客户管理'] },
   { id: 'orders', hash: '#orders', expected: ['销售订单', '订单', 'Sales'] },
   { id: 'collections', hash: '#collections', expected: ['回款工作台', '收款台账', '承诺付款'] },
   { id: 'financeAnalytics', hash: '#financeAnalytics', expected: ['财务经营', 'Revenue', 'Aging'] },
@@ -49,9 +49,9 @@ const ROUTES = [
   { id: 'discrepancies', hash: '#discrepancies', expected: ['收发货差异工作台', '差异队列', '容差规则'] },
   { id: 'rma', hash: '#rma', expected: ['售后', 'RMA', '售后处理'] },
   { id: 'assets', hash: '#assets', expected: ['资产', 'Assets', '资产管理'] },
-  { id: 'production', hash: '#production', expected: ['生产管理', 'BOM 管理', '工单工作台'] },
-  { id: 'warehouse', hash: '#warehouse', expected: ['仓储管理', 'Warehouse', '库存'] },
-  { id: 'procurement', hash: '#procurement', expected: ['采购', '供应商', '采购订单'] },
+  { id: 'production', hash: '#production', expected: ['生产配方与工单', '配方主档工作台', '工单工作台'] },
+  { id: 'warehouse', hash: '#warehouse', expected: ['仓库、库位与库存', '仓储库存', '库存'] },
+  { id: 'procurement', hash: '#procurement', expected: ['采购、供应商与收货', '供应商', '采购订单'] },
   { id: 'adjustment', hash: '#adjustment', expected: ['调账', '财务、生产、库存统一调账', 'Adjustment'] },
   { id: 'audit', hash: '#audit', expected: ['系统操作列表', '审计', 'Audit'] },
 ];

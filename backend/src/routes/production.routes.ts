@@ -24,7 +24,7 @@ router.get('/work-orders', authorizePermission('production.read'), authRoute((re
 router.get('/work-orders/:id/preview-consumption', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.previewConsumption(req, res)));
 router.get(
   '/batches/:batchId/cost-ledger',
-  authorizePermission('production.read'),
+  authorizePermission('production.cost.read'),
   [param('batchId').isInt({ min: 1 })],
   validateRequest,
   authRoute((req, res) => controller.getBatchCostLedger(req, res)),

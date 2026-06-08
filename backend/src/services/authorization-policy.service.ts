@@ -125,7 +125,7 @@ async function upsertSystemRoles() {
          description = excluded.description,
          is_system = 1,
          is_active = 1,
-         data_scopes_json = excluded.data_scopes_json,
+         data_scopes_json = COALESCE(auth_roles.data_scopes_json, excluded.data_scopes_json),
          updated_at = CURRENT_TIMESTAMP`,
       role,
       role,
@@ -133,7 +133,13 @@ async function upsertSystemRoles() {
       JSON.stringify(policy.dataScopes),
     );
 
-    await replaceRolePermissions(role, [...policy.permissions]);
+    const existingPermissions = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
+      'SELECT COUNT(*) AS count FROM auth_role_permissions WHERE role_code = ?',
+      role,
+    );
+    if (Number(existingPermissions[0]?.count || 0) === 0) {
+      await replaceRolePermissions(role, [...policy.permissions]);
+    }
   }
 }
 
@@ -149,6 +155,125 @@ async function replaceRolePermissions(roleCode: string, permissions: Permission[
   }
 }
 
+async function ensurePolicyMigrationTable() {
+  await prisma.$executeRawUnsafe(
+    `CREATE TABLE IF NOT EXISTS auth_policy_migrations (
+      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL,
+      description TEXT,
+      applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )`,
+  );
+  await prisma.$executeRawUnsafe(
+    'CREATE UNIQUE INDEX IF NOT EXISTS auth_policy_migrations_code_key ON auth_policy_migrations(code)',
+  );
+}
+
+async function hasPolicyMigration(code: string): Promise<boolean> {
+  const rows = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
+    'SELECT COUNT(*) AS count FROM auth_policy_migrations WHERE code = ?',
+    code,
+  );
+  return Number(rows[0]?.count || 0) > 0;
+}
+
+async function markPolicyMigration(code: string, description: string) {
+  await prisma.$executeRawUnsafe(
+    `INSERT OR IGNORE INTO auth_policy_migrations (code, description, applied_at)
+     VALUES (?, ?, CURRENT_TIMESTAMP)`,
+    code,
+    description,
+  );
+}
+
+async function grantMissingRolePermissions(roleCode: string, permissions: Permission[]) {
+  for (const permission of permissions) {
+    await prisma.$executeRawUnsafe(
+      `INSERT OR IGNORE INTO auth_role_permissions (role_code, permission_code, created_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)`,
+      roleCode,
+      permission,
+    );
+  }
+}
+
+async function revokeRolePermissions(roleCode: string, permissions: Permission[]) {
+  for (const permission of permissions) {
+    await prisma.$executeRawUnsafe(
+      'DELETE FROM auth_role_permissions WHERE role_code = ? AND permission_code = ?',
+      roleCode,
+      permission,
+    );
+  }
+}
+
+async function applyAuthorizationPolicyMigrations() {
+  await ensurePolicyMigrationTable();
+
+  const sensitiveSplitCode = '2026-04-23-sensitive-permission-split-v1';
+  if (!(await hasPolicyMigration(sensitiveSplitCode))) {
+    await grantMissingRolePermissions('admin', [
+      'authorization.roles.manage',
+      'warehouse.ledger.read',
+      'production.cost.read',
+    ]);
+    await grantMissingRolePermissions('manager', [
+      'warehouse.ledger.read',
+      'production.cost.read',
+    ]);
+    await grantMissingRolePermissions('warehouse', [
+      'warehouse.ledger.read',
+    ]);
+    await grantMissingRolePermissions('finance', [
+      'production.cost.read',
+    ]);
+    await markPolicyMigration(
+      sensitiveSplitCode,
+      'Split role assignment, warehouse ledger, and production cost into explicit permissions without resetting user-managed role policies.',
+    );
+  }
+
+  const salesSupplierSplitCode = '2026-04-28-sales-procurement-supplier-read-split-v1';
+  if (!(await hasPolicyMigration(salesSupplierSplitCode))) {
+    await revokeRolePermissions('sales', ['procurement.suppliers.read']);
+    await grantMissingRolePermissions('sales', ['procurement.b2b.read']);
+    await markPolicyMigration(
+      salesSupplierSplitCode,
+      'Keep sales access to B2B procurement status while removing direct supplier master-data list access from the built-in sales role.',
+    );
+  }
+
+  const supplierReadBackfillCode = '2026-06-02-procurement-supplier-read-backfill-v1';
+  if (!(await hasPolicyMigration(supplierReadBackfillCode))) {
+    await grantMissingRolePermissions('admin', ['procurement.suppliers.read']);
+    await grantMissingRolePermissions('manager', ['procurement.suppliers.read']);
+    await grantMissingRolePermissions('warehouse', ['procurement.suppliers.read']);
+    await grantMissingRolePermissions('finance', ['procurement.suppliers.read']);
+    await revokeRolePermissions('sales', ['procurement.suppliers.read']);
+    await grantMissingRolePermissions('sales', ['procurement.b2b.read']);
+    await markPolicyMigration(
+      supplierReadBackfillCode,
+      'Backfill supplier master-data read permission for procurement, finance, warehouse, and manager roles while preserving sales redaction boundaries.',
+    );
+  }
+
+  const commercialPermissionCode = '2026-06-03-commercial-platform-permissions-v1';
+  if (!(await hasPolicyMigration(commercialPermissionCode))) {
+    const commercialPermissions: Permission[] = [
+      'commercial.read',
+      'commercial.workflow.manage',
+      'commercial.notification.write',
+      'commercial.alert.run',
+    ];
+    await grantMissingRolePermissions('admin', commercialPermissions);
+    await grantMissingRolePermissions('manager', commercialPermissions);
+    await markPolicyMigration(
+      commercialPermissionCode,
+      'Replace fixed commercial platform role guards with explicit platform governance permissions for admin and manager roles.',
+    );
+  }
+}
+
 export async function ensureAuthorizationPolicySeed() {
   if (authorizationSeeded) return;
 
@@ -156,6 +281,7 @@ export async function ensureAuthorizationPolicySeed() {
     authorizationSeedPromise = (async () => {
       await upsertPermissionDefinitions();
       await upsertSystemRoles();
+      await applyAuthorizationPolicyMigrations();
       resetAuthorizationEnforcer();
       authorizationSeeded = true;
     })().catch((error) => {
@@ -210,11 +336,8 @@ export async function listRoles(): Promise<AuthRoleView[]> {
 }
 
 export async function roleExistsAndActive(roleCode: string): Promise<boolean> {
-  if (isBuiltInRole(roleCode)) {
-    return true;
-  }
-
   try {
+    await ensureAuthorizationPolicySeed();
     const rows = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
       'SELECT COUNT(*) AS count FROM auth_roles WHERE code = ? AND is_active = 1',
       roleCode,
@@ -228,40 +351,34 @@ export async function roleExistsAndActive(roleCode: string): Promise<boolean> {
 export async function getPermissionsForRole(roleCode: string): Promise<Permission[]> {
   await ensureAuthorizationPolicySeed();
 
-  if (isBuiltInRole(roleCode)) {
-    return [...ROLE_POLICIES[roleCode].permissions];
-  }
-
   const rows = await prisma.$queryRawUnsafe<Array<{ permissionCode: string }>>(
     `SELECT rp.permission_code AS permissionCode
      FROM auth_role_permissions rp
      INNER JOIN auth_roles r ON r.code = rp.role_code
      WHERE r.code = ? AND r.is_active = 1
      ORDER BY rp.permission_code`,
-    roleCode,
+     roleCode,
   );
 
-  return rows
+  const permissions = rows
     .map((row) => row.permissionCode)
     .filter((permission): permission is Permission => (ALL_PERMISSION_CODES as readonly string[]).includes(permission));
+  return permissions;
 }
 
 export async function getDataScopesForRole(roleCode: string): Promise<DataScope[]> {
   await ensureAuthorizationPolicySeed();
-
-  if (isBuiltInRole(roleCode)) {
-    return [...ROLE_POLICIES[roleCode].dataScopes];
-  }
 
   const rows = await prisma.$queryRawUnsafe<Array<{ dataScopesJson: string | null }>>(
     `SELECT data_scopes_json AS dataScopesJson
      FROM auth_roles
      WHERE code = ? AND is_active = 1
      LIMIT 1`,
-    roleCode,
+     roleCode,
   );
 
-  return parseDataScopes(rows[0]?.dataScopesJson || null);
+  const scopes = parseDataScopes(rows[0]?.dataScopesJson || null);
+  return scopes;
 }
 
 export async function createRole(input: SaveRoleInput, operatorId?: number): Promise<AuthRoleView> {
@@ -304,26 +421,43 @@ export async function updateRole(roleCode: string, input: SaveRoleInput): Promis
   assertRoleCode(roleCode);
   assertPermissionCodes(input.permissions);
 
-  const existing = await prisma.$queryRawUnsafe<Array<{ isSystem: unknown }>>(
-    'SELECT is_system AS isSystem FROM auth_roles WHERE code = ? LIMIT 1',
+  const existing = await prisma.$queryRawUnsafe<Array<{
+    name: string;
+    description: string | null;
+    isSystem: unknown;
+    isActive: unknown;
+    dataScopesJson: string | null;
+  }>>(
+    `SELECT
+       name,
+       description,
+       is_system AS isSystem,
+       is_active AS isActive,
+       data_scopes_json AS dataScopesJson
+     FROM auth_roles
+     WHERE code = ?
+     LIMIT 1`,
     roleCode,
   );
   if (existing.length === 0) {
     throw new Error('Role not found.');
   }
-  if (toBool(existing[0].isSystem as number | boolean)) {
-    throw new Error('Built-in roles cannot be edited from the dynamic role API.');
-  }
+  const current = existing[0];
+  const isSystemRole = toBool(current.isSystem as number | boolean);
+  const nextName = isSystemRole ? current.name : input.name;
+  const nextDescription = isSystemRole ? current.description : input.description || null;
+  const nextIsActive = isSystemRole ? 1 : input.isActive === false ? 0 : 1;
+  const nextDataScopes = input.dataScopes ?? parseDataScopes(current.dataScopesJson || null);
 
   await prisma.$transaction(async (tx) => {
     await tx.$executeRawUnsafe(
       `UPDATE auth_roles
        SET name = ?, description = ?, is_active = ?, data_scopes_json = ?, updated_at = CURRENT_TIMESTAMP
        WHERE code = ?`,
-      input.name,
-      input.description || null,
-      input.isActive === false ? 0 : 1,
-      JSON.stringify(input.dataScopes || []),
+      nextName,
+      nextDescription,
+      nextIsActive,
+      JSON.stringify(nextDataScopes),
       roleCode,
     );
     await tx.$executeRawUnsafe('DELETE FROM auth_role_permissions WHERE role_code = ?', roleCode);

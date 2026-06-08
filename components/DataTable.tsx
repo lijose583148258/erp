@@ -1,12 +1,15 @@
-﻿import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, DollarSign, FileSpreadsheet, Search, Upload, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAppContext } from '../app/AppContext';
+import { StatusBadge as UnifiedStatusBadge } from './ui/StatusBadge';
 
 export interface Column<T> {
   header: string;
   accessor: keyof T | ((row: T) => React.ReactNode);
   key: string;
+  /** Text used by EnterpriseDataGrid search when the visual cell is JSX. */
+  searchText?: (row: T) => string;
   /** Numeric columns are right-aligned automatically. */
   isNumeric?: boolean;
   /** Status columns are rendered as semantic badges. */
@@ -23,38 +26,69 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   rowTestId?: (row: T, index: number) => string | undefined;
   actions?: (row: T) => React.ReactNode;
-  onImport?: (newData: T[]) => void;
+  onImport?: (newData: T[]) => void | Promise<void>;
   /** Optional export currency selector. */
   exportCurrencies?: string[];
 }
 
-const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
-  pending: { label: '待处理', cls: 'bg-amber-50 text-amber-600 border-amber-200' },
-  confirmed: { label: '已确认', cls: 'bg-blue-50 text-blue-600 border-blue-200' },
-  shipped: { label: '已发货', cls: 'bg-violet-50 text-violet-600 border-violet-200' },
-  delivered: { label: '已签收', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  completed: { label: '已完成', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  cancelled: { label: '已取消', cls: 'bg-slate-100 text-slate-400 border-slate-200' },
-  paid: { label: '已付款', cls: 'bg-emerald-50 text-emerald-700 border-emerald-200' },
-  partial: { label: '部分付款', cls: 'bg-orange-50 text-orange-600 border-orange-200' },
-  unpaid: { label: '未付款', cls: 'bg-rose-50 text-rose-500 border-rose-200' },
-  active: { label: '生效中', cls: 'bg-teal-50 text-teal-600 border-teal-200' },
-  draft: { label: '草稿', cls: 'bg-slate-100 text-slate-500 border-slate-200' },
-  verified: { label: '已核销', cls: 'bg-green-50 text-green-700 border-green-200' },
-  approved: { label: '已审批', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-  rejected: { label: '已驳回', cls: 'bg-rose-50 text-rose-600 border-rose-200' },
-  open: { label: '进行中', cls: 'bg-blue-50 text-blue-700 border-blue-200' },
-  closed: { label: '已关闭', cls: 'bg-slate-100 text-slate-500 border-slate-200' },
+const STATUS_LABELS: Record<string, string> = {
+  pending: '待处理',
+  confirmed: '已确认',
+  shipped: '已发货',
+  delivered: '已签收',
+  completed: '已完成',
+  cancelled: '已取消',
+  paid: '已付款',
+  partial: '部分付款',
+  unpaid: '未付款',
+  active: '生效中',
+  draft: '草稿',
+  verified: '已核销',
+  approved: '已审批',
+  rejected: '已驳回',
+  open: '进行中',
+  closed: '已关闭',
 };
 
 export const StatusBadge: React.FC<{ value: string }> = ({ value }) => {
-  const cfg = STATUS_BADGE[String(value).toLowerCase()];
-  if (!cfg) return <span className="text-sm text-slate-500">{value}</span>;
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-black uppercase tracking-wider border ${cfg.cls}`}>
-      {cfg.label}
-    </span>
-  );
+  const key = String(value || '').toLowerCase();
+  return <UnifiedStatusBadge status={key || 'unknown'} label={STATUS_LABELS[key] || value || 'unknown'} />;
+};
+
+const getImportErrorMessage = (error: unknown) => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  return '文件解析失败，请检查表头、格式或文件是否损坏';
+};
+
+const stringifySearchValue = (value: React.ReactNode): string => {
+  if (value === null || value === undefined || typeof value === 'boolean') return '';
+  if (typeof value === 'string' || typeof value === 'number') return String(value);
+  if (Array.isArray(value)) return value.map(stringifySearchValue).join(' ');
+  if (React.isValidElement(value)) {
+    try {
+      const props = value.props as Record<string, any> | undefined;
+      if (!props || !props.children) return '';
+      return stringifySearchValue(props.children);
+    } catch {
+      return '';
+    }
+  }
+  return '';
+};
+
+const renderSafeCellValue = (value: unknown): React.ReactNode => {
+  if (value === null || value === undefined || typeof value === 'boolean') return '';
+  if (typeof value === 'string' || typeof value === 'number') return value;
+  if (React.isValidElement(value)) return value;
+  if (Array.isArray(value)) return value.map(renderSafeCellValue).filter(Boolean).join(' ');
+  return String(value);
+};
+
+const getCellTitle = (value: unknown): string | undefined => {
+  if (React.isValidElement(value) || value === null || value === undefined || typeof value === 'boolean') return undefined;
+  const text = String(renderSafeCellValue(value)).trim();
+  return text.length > 18 ? text : undefined;
 };
 
 const DataTable = <T extends Record<string, any>>({
@@ -68,7 +102,7 @@ const DataTable = <T extends Record<string, any>>({
   onImport,
   exportCurrencies,
 }: DataTableProps<T>) => {
-  const { t } = useAppContext();
+  const { t, notify } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [exportCurrency, setExportCurrency] = useState<string>(exportCurrencies?.[0] ?? 'CNY');
@@ -77,16 +111,23 @@ const DataTable = <T extends Record<string, any>>({
 
   const filteredData = useMemo(() => {
     if (!searchTerm.trim()) return data;
-    const lower = searchTerm.toLowerCase();
-    return data.filter((item) =>
-      columns.some((col) =>
-        typeof col.accessor === 'string' &&
-        String(item[col.accessor as string] ?? '').toLowerCase().includes(lower)
-      )
-    );
+    const terms = searchTerm.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return data.filter((item) => {
+      const haystack = columns.map((col) => {
+        if (col.searchText) return col.searchText(item);
+        const value = typeof col.accessor === 'function'
+          ? col.accessor(item)
+          : item[col.accessor as string];
+        return stringifySearchValue(value);
+      }).join(' ').toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    });
   }, [data, searchTerm, columns]);
 
   const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+  React.useEffect(() => {
+    setCurrentPage((page) => Math.min(page, totalPages));
+  }, [totalPages]);
   const displayedData = useMemo(
     () => filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage),
     [filteredData, currentPage]
@@ -97,12 +138,16 @@ const DataTable = <T extends Record<string, any>>({
     if (!file || !onImport) return;
 
     const reader = new FileReader();
-    reader.onload = (evt) => {
+    reader.onload = async (evt) => {
       try {
         const bstr = evt.target?.result as string;
         const wb = XLSX.read(bstr, { type: 'binary' });
         const ws = wb.Sheets[wb.SheetNames[0]];
         const rawRows = XLSX.utils.sheet_to_json(ws) as Record<string, any>[];
+        if (rawRows.length === 0) {
+          notify('warning', `导入文件 ${file.name} 没有可读取的数据行`);
+          return;
+        }
         const normalize = (v: string) => v.replace(/\s+/g, '').toLowerCase();
         const mapped = rawRows.map((row) => {
           const out: Record<string, any> = { ...row };
@@ -124,12 +169,17 @@ const DataTable = <T extends Record<string, any>>({
 
           return out as T;
         });
-        onImport(mapped);
+        await onImport(mapped);
+        notify('success', `已读取 ${mapped.length} 行导入数据，请保存后刷新回读确认`);
       } catch (err) {
-        console.error(err);
+        notify('error', `导入失败：${getImportErrorMessage(err)}`);
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
+    };
+    reader.onerror = () => {
+      notify('error', `导入失败：无法读取文件 ${file.name}`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     };
     reader.readAsBinaryString(file);
   };
@@ -152,7 +202,12 @@ const DataTable = <T extends Record<string, any>>({
   const renderCell = (row: T, col: Column<T>) => {
     const raw = typeof col.accessor === 'function' ? col.accessor(row) : row[col.accessor as keyof T];
     if (col.isStatus) return <StatusBadge value={String(raw ?? '')} />;
-    return raw as React.ReactNode;
+    if (React.isValidElement(raw)) return raw;
+    return (
+      <span className="truncate-cell" title={getCellTitle(raw)}>
+        {renderSafeCellValue(raw)}
+      </span>
+    );
   };
 
   const pageNumbers = useMemo(() => {
@@ -163,16 +218,16 @@ const DataTable = <T extends Record<string, any>>({
   }, [currentPage, totalPages]);
 
   return (
-    <div className="rounded-2xl border border-slate-100 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 px-6 py-4 dark:border-slate-800 dark:bg-slate-800/20 lg:flex-row lg:items-center lg:justify-between">
+    <div className="app-density-surface rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
+      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/20 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-lg font-black tracking-tight text-slate-800 dark:text-white">{title}</h2>
+          <h2 className="text-base font-black tracking-tight text-slate-800 dark:text-white">{title}</h2>
           <div className="mt-1 flex items-center gap-2">
             <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-blue-500 dark:bg-blue-900/30 dark:text-blue-300">
               {filteredData.length} {t.records || '条记录'}
             </span>
             {searchTerm && (
-              <span className="text-xs font-bold text-slate-400">已筛选 / 共 {data.length} 条</span>
+              <span className="text-xs font-bold text-slate-600 dark:text-slate-300">已筛选 / 共 {data.length} 条</span>
             )}
           </div>
         </div>
@@ -185,7 +240,7 @@ const DataTable = <T extends Record<string, any>>({
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               placeholder={t.search || '搜索...'}
-              className="w-full rounded-2xl border border-slate-200 bg-white py-2 pl-8 pr-8 text-sm font-medium outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-8 pr-8 text-sm font-medium outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
             />
             {searchTerm && (
               <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
@@ -194,7 +249,7 @@ const DataTable = <T extends Record<string, any>>({
             )}
           </div>
 
-          <div className="flex items-center gap-1 rounded-2xl bg-slate-100 px-1 py-1 dark:bg-slate-800">
+          <div className="flex items-center gap-1 rounded-xl bg-slate-100 px-1 py-1 dark:bg-slate-800">
             {exportCurrencies && exportCurrencies.length > 1 && (
               <div className="flex items-center gap-1">
                 <DollarSign size={12} className="text-slate-400 ml-2" />
@@ -223,7 +278,7 @@ const DataTable = <T extends Record<string, any>>({
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-2xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 <Upload size={13} />导入
               </button>
@@ -233,21 +288,21 @@ const DataTable = <T extends Record<string, any>>({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full text-left">
+        <table className="app-density-table min-w-full text-left">
           <thead>
-            <tr className="border-b border-slate-100 bg-slate-50/80 dark:border-slate-800 dark:bg-slate-800/30">
+            <tr className="border-b border-slate-100 bg-slate-50/95 dark:border-slate-800 dark:bg-slate-800/95">
               {columns.map((col, i) => (
                 <th
                   key={col.key}
-                  className={`px-4 py-3 text-xs font-black uppercase  text-slate-400 whitespace-nowrap dark:text-slate-500
-                    ${i === 0 ? 'pl-6' : ''}
+                  className={`sticky top-0 z-20 bg-slate-50/95 px-3 py-2.5 text-xs font-black uppercase text-slate-600 whitespace-nowrap dark:bg-slate-800/95 dark:text-slate-300
+                    ${i === 0 ? 'pl-4' : ''}
                     ${col.isNumeric ? 'text-right' : 'text-left'}`}
                 >
                   {col.header}
                 </th>
               ))}
               {actions && (
-                <th className="px-4 py-3 pr-6 text-right text-xs font-black uppercase  text-slate-400 whitespace-nowrap dark:text-slate-500">
+                <th className="sticky right-0 top-0 z-30 w-[132px] bg-slate-50/95 px-3 py-2.5 pr-4 text-right text-xs font-black uppercase text-slate-600 whitespace-nowrap shadow-[-10px_0_16px_-14px_rgba(15,23,42,0.55)] dark:bg-slate-800/95 dark:text-slate-300">
                   操作
                 </th>
               )}
@@ -256,8 +311,8 @@ const DataTable = <T extends Record<string, any>>({
           <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
             {isLoading && (
               <tr>
-                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-6 py-10 text-center text-sm font-bold text-slate-400">
-                  Loading...
+                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-4 py-8 text-center text-sm font-bold text-slate-600 dark:text-slate-300">
+                  正在加载...
                 </td>
               </tr>
             )}
@@ -275,16 +330,16 @@ const DataTable = <T extends Record<string, any>>({
                 {columns.map((col, i) => (
                   <td
                     key={col.key}
-                    className={`px-4 py-3.5 text-sm text-slate-700 dark:text-slate-200
-                      ${i === 0 ? 'pl-6 font-semibold' : 'font-medium'}
+                    className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200
+                      ${i === 0 ? 'pl-4 font-semibold' : 'font-medium'}
                       ${col.isNumeric ? 'text-right tabular-nums font-mono' : ''}`}
                   >
                     {renderCell(row, col)}
                   </td>
                 ))}
                 {actions && (
-                  <td className="px-4 py-3.5 pr-6 text-right">
-                    <div className="flex items-center justify-end gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
+                  <td className="sticky right-0 z-10 bg-white px-3 py-2.5 pr-4 text-right shadow-[-10px_0_16px_-14px_rgba(15,23,42,0.45)] dark:bg-slate-900">
+                    <div className="app-row-actions touch-actions-visible flex min-w-[96px] items-center justify-end gap-1.5 opacity-100">
                       {actions(row)}
                     </div>
                   </td>
@@ -293,8 +348,8 @@ const DataTable = <T extends Record<string, any>>({
             ))}
             {!isLoading && displayedData.length === 0 && (
               <tr>
-                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-6 py-16 text-center">
-                  <div className="flex flex-col items-center gap-3 text-slate-400">
+                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-4 py-12 text-center">
+                  <div className="flex flex-col items-center gap-3 text-slate-600 dark:text-slate-300">
                     <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
                       <Search size={22} strokeWidth={1.5} className="opacity-40" />
                     </div>
@@ -310,8 +365,8 @@ const DataTable = <T extends Record<string, any>>({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-slate-100 px-6 py-3 dark:border-slate-800">
-          <span className="text-xs font-medium text-slate-400">
+        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5 dark:border-slate-800">
+          <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
             第 {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, filteredData.length)} 条，共 {filteredData.length} 条
           </span>
           <div className="flex items-center gap-1">

@@ -21,6 +21,12 @@ export interface CollectionActionTarget {
   contactPhone?: string | null;
 }
 
+const parseFiniteAmountInput = (value: string) => {
+  if (!value.trim()) return 0;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : 0;
+};
+
 interface CollectionActionModalProps {
   mode: CollectionActionMode | null;
   target: CollectionActionTarget | null;
@@ -70,8 +76,14 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
   const activeTemplate = templateId === 'custom' ? null : templates.find((item) => item.id === templateId) || null;
   const defaultPromiseNote = t.collectionPromiseDefaultNote.replace('{orderNo}', target.orderNo);
   const defaultDisputeNote = t.collectionDisputeDefaultNote.replace('{orderNo}', target.orderNo);
+  const outstandingAmount = Number.isFinite(target.outstanding) ? target.outstanding : 0;
 
   const handleSubmit = async () => {
+    if (mode === 'promise' && (!Number.isFinite(promisedAmount) || promisedAmount <= 0)) {
+      notify('error', '承诺金额必须大于 0。');
+      return;
+    }
+
     setSubmitting(true);
     try {
       if (mode === 'promise') {
@@ -90,7 +102,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
         await collectionsService.createDispute({
           customerId: target.customerId,
           orderId: target.orderId,
-          disputedAmount: target.outstanding,
+          disputedAmount: outstandingAmount,
           reasonCategory,
           reason,
           note: note || defaultDisputeNote,
@@ -103,8 +115,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
       }
       onClose();
     } catch (error) {
-      console.error(error);
-      notify('error', mode === 'promise' ? t.collectionPromiseFail : t.collectionDisputeFail);
+      notify('error', error instanceof Error ? error.message : (mode === 'promise' ? t.collectionPromiseFail : t.collectionDisputeFail));
     } finally {
       setSubmitting(false);
     }
@@ -132,7 +143,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
             <p className="font-bold text-slate-800 dark:text-white">{target.customerName}</p>
             <p className="text-xs text-slate-500">
               未收金额：
-              <span className="ml-1 font-bold text-rose-500">{formatPrice(target.outstanding)}</span>
+              <span className="ml-1 font-bold text-rose-500">{formatPrice(outstandingAmount)}</span>
             </p>
           </div>
 
@@ -172,8 +183,8 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
                   type="number"
                   data-testid="collection-action-promised-amount"
                   className="w-full rounded-2xl bg-slate-50 p-4 text-lg font-black outline-none focus:ring-2 focus:ring-blue-100 dark:bg-slate-800"
-                  value={promisedAmount}
-                  onChange={(event) => setPromisedAmount(Number(event.target.value))}
+                  value={Number.isFinite(promisedAmount) ? promisedAmount : ''}
+                  onChange={(event) => setPromisedAmount(parseFiniteAmountInput(event.target.value))}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">

@@ -175,7 +175,7 @@ export async function getBarterSettlement(id: number) {
   });
 
   if (!settlement) {
-    throw new Error('Barter settlement not found');
+    throw new Error('未找到货抵批次，请刷新后重新选择。');
   }
 
   return {

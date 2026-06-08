@@ -20,12 +20,12 @@ const FORBIDDEN_MOJIBAKE = [
 ].map((code) => String.fromCharCode(code));
 
 const S = {
-  bomManagement: '\u0042\u004f\u004d \u7ba1\u7406',
+  bomManagement: '\u914d\u65b9\u4e3b\u6863\u5de5\u4f5c\u53f0',
   workOrderDesk: '\u5de5\u5355\u5de5\u4f5c\u53f0',
   batchList: '\u6279\u6b21\u5217\u8868',
   productName: '\u4ea7\u54c1\u540d\u79f0',
   version: '\u7248\u672c',
-  bomType: '\u0042\u004f\u004d \u7c7b\u578b',
+  bomType: '\u914d\u65b9\u7c7b\u578b',
   formulaStatus: '\u914d\u65b9\u72b6\u6001',
   formulaMode: '\u914d\u65b9\u6a21\u5f0f',
   outputUnit: '\u8f93\u51fa\u5355\u4f4d',
@@ -61,7 +61,7 @@ const S = {
   batchTrace: '\u6279\u6b21\u8ffd\u8e2a',
   excelPaste: '\u7c98\u8d34 Excel',
   smartImport: '\u667a\u80fd\u5bfc\u5165',
-  createBom: '\u521b\u5efa BOM',
+  createBom: '\u4fdd\u5b58\u914d\u65b9\u7248\u672c',
   formulaStatusLabel: '\u914d\u65b9\u72b6\u6001',
 };
 
@@ -91,16 +91,16 @@ function createProductionAuditData(runId) {
     processSummary: '\u5e38\u6e29\u9884\u6df7 -> \u5347\u6e29\u5206\u6563 -> \u8fc7\u6ee4\u51fa\u6599',
     qualitySummary: '\u56fa\u542b 55% +/-2%, \u7c98\u5ea6 6000-9000cps, \u5916\u89c2\u5747\u5300\u65e0\u7ed3\u5757',
     items: [
-      { materialName: '\u73af\u6c27\u6811\u8102-\u4e3b\u6599', materialCode: 'RESIN-MAIN', ingredientRole: 'main_resin', dosageMode: 'percentage', percentage: '45', quantityPerUnit: '450', unit: 'kg', lossRate: '1.2', allowedVarianceRate: '3', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '98', notes: '\u4e3b\u6811\u8102' },
-      { materialName: '\u56fa\u5316\u5242-\u8f85\u6599', materialCode: 'CURING-AGENT', ingredientRole: 'curing_agent', dosageMode: 'percentage', percentage: '15', quantityPerUnit: '150', unit: 'kg', lossRate: '0.3', allowedVarianceRate: '2', processStage: '\u4e3b\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u56fa\u5316\u5242' },
-      { materialName: '\u6eb6\u5242-\u7a00\u91ca', materialCode: 'SOLVENT-THIN', ingredientRole: 'solvent', dosageMode: 'percentage', percentage: '10', quantityPerUnit: '100', unit: 'kg', lossRate: '2', allowedVarianceRate: '5', processStage: '\u8c03\u914d', substituteGroup: 'solvent-group-a', yieldContribution: '', notes: '\u7a00\u91ca\u6eb6\u5242' },
-      { materialName: '', materialCode: 'MOD-SECRET-01', ingredientRole: 'modifier_resin', dosageMode: 'percentage', percentage: '8', quantityPerUnit: '80', unit: 'kg', lossRate: '1', allowedVarianceRate: '4', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
-      { materialName: '', materialCode: 'TACK-SECRET-02', ingredientRole: 'tackifier', dosageMode: 'percentage', percentage: '6', quantityPerUnit: '60', unit: 'kg', lossRate: '1', allowedVarianceRate: '4', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
-      { materialName: '', materialCode: 'FILLER-SECRET-03', ingredientRole: 'pigment', dosageMode: 'percentage', percentage: '5', quantityPerUnit: '50', unit: 'kg', lossRate: '1', allowedVarianceRate: '5', processStage: '\u5206\u6563', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
-      { materialName: '', materialCode: 'SURF-SECRET-04', ingredientRole: 'surfactant', dosageMode: 'percentage', percentage: '4', quantityPerUnit: '40', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u5206\u6563', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
-      { materialName: '', materialCode: 'DEFOAM-SECRET-05', ingredientRole: 'defoamer', dosageMode: 'percentage', percentage: '3', quantityPerUnit: '30', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u8c03\u6f06', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
-      { materialName: '', materialCode: 'THICK-SECRET-06', ingredientRole: 'thickener', dosageMode: 'percentage', percentage: '2', quantityPerUnit: '20', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u8c03\u7c98', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
-      { materialName: '', materialCode: 'ADD-SECRET-07', ingredientRole: 'additive', dosageMode: 'percentage', percentage: '2', quantityPerUnit: '20', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u540e\u6dfb\u52a0', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '\u73af\u6c27\u6811\u8102-\u4e3b\u6599', materialCode: 'RESIN-MAIN', ingredientRole: 'main_resin', dosageMode: 'percentage', percentage: '45', quantityPerUnit: '0.45', unit: 'kg', lossRate: '1.2', allowedVarianceRate: '3', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '98', notes: '\u4e3b\u6811\u8102' },
+      { materialName: '\u56fa\u5316\u5242-\u8f85\u6599', materialCode: 'CURING-AGENT', ingredientRole: 'curing_agent', dosageMode: 'percentage', percentage: '15', quantityPerUnit: '0.15', unit: 'kg', lossRate: '0.3', allowedVarianceRate: '2', processStage: '\u4e3b\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u56fa\u5316\u5242' },
+      { materialName: '\u6eb6\u5242-\u7a00\u91ca', materialCode: 'SOLVENT-THIN', ingredientRole: 'solvent', dosageMode: 'percentage', percentage: '10', quantityPerUnit: '0.1', unit: 'kg', lossRate: '2', allowedVarianceRate: '5', processStage: '\u8c03\u914d', substituteGroup: 'solvent-group-a', yieldContribution: '', notes: '\u7a00\u91ca\u6eb6\u5242' },
+      { materialName: '', materialCode: 'MOD-SECRET-01', ingredientRole: 'modifier_resin', dosageMode: 'percentage', percentage: '8', quantityPerUnit: '0.08', unit: 'kg', lossRate: '1', allowedVarianceRate: '4', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '', materialCode: 'TACK-SECRET-02', ingredientRole: 'tackifier', dosageMode: 'percentage', percentage: '6', quantityPerUnit: '0.06', unit: 'kg', lossRate: '1', allowedVarianceRate: '4', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '', materialCode: 'FILLER-SECRET-03', ingredientRole: 'pigment', dosageMode: 'percentage', percentage: '5', quantityPerUnit: '0.05', unit: 'kg', lossRate: '1', allowedVarianceRate: '5', processStage: '\u5206\u6563', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '', materialCode: 'SURF-SECRET-04', ingredientRole: 'surfactant', dosageMode: 'percentage', percentage: '4', quantityPerUnit: '0.04', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u5206\u6563', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '', materialCode: 'DEFOAM-SECRET-05', ingredientRole: 'defoamer', dosageMode: 'percentage', percentage: '3', quantityPerUnit: '0.03', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u8c03\u6f06', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '', materialCode: 'THICK-SECRET-06', ingredientRole: 'thickener', dosageMode: 'percentage', percentage: '2', quantityPerUnit: '0.02', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u8c03\u7c98', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
+      { materialName: '', materialCode: 'ADD-SECRET-07', ingredientRole: 'additive', dosageMode: 'percentage', percentage: '2', quantityPerUnit: '0.02', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u540e\u6dfb\u52a0', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
     ],
     workOrder: {
       productName: `T9-CHEM-WO-${runId}`,

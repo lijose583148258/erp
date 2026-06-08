@@ -14,10 +14,10 @@ import {
   MiniTag,
   OrderActionButtons,
   SectionHeader,
-  StatusBadge,
   Td,
   TextareaField,
   Th,
+  WorkOrderStatusBadge,
 } from './ProductionWorkspacePrimitives';
 
 interface ProductionWorkOrderSectionProps {
@@ -179,7 +179,7 @@ export function ProductionWorkOrderSection({
                     <Td mono>{order.workOrderNo}</Td>
                     <Td><div className="font-bold text-slate-900 dark:text-white text-sm">{order.productName}</div><div className="text-[11px] text-slate-400 mt-1">{order.bom?.bomNo || '未绑定BOM'}</div></Td>
                     <Td>{Number(order.targetQuantity || 0).toLocaleString()}</Td>
-                    <Td><StatusBadge status={order.status} /></Td>
+                    <Td><WorkOrderStatusBadge status={order.status} /></Td>
                     <Td>{order.steps?.length || 0}</Td>
                     <Td><div className="flex flex-wrap gap-2" onClick={e => e.stopPropagation()}><OrderActionButtons workOrderId={order.id} status={order.status} onAction={handleWorkOrderStatus} /></div></Td>
                   </tr>
@@ -201,7 +201,7 @@ export function ProductionWorkOrderSection({
                   目标 {selectedWorkOrder.targetQuantity} · 已产 {selectedWorkOrder.producedQuantity} · 损耗 {selectedWorkOrder.lossQuantity}
                 </div>
                 <div className="flex flex-wrap gap-2">
-                  <StatusBadge status={selectedWorkOrder.status} />
+                  <WorkOrderStatusBadge status={selectedWorkOrder.status} />
                   {selectedWorkOrder.productBatch && <MiniTag label={`批次 ${selectedWorkOrder.productBatch.batchNo}`} />}
                 </div>
               </div>

@@ -18,6 +18,7 @@ type Props = {
   searchPlaceholder?: string;
   searchInputTestId?: string;
   resultCount?: number;
+  resultCountLabel?: string;
   actions?: ActionToolbarAction[];
   children?: React.ReactNode;
   className?: string;
@@ -38,6 +39,7 @@ export const ActionToolbar: React.FC<Props> = ({
   searchPlaceholder = 'Search',
   searchInputTestId,
   resultCount,
+  resultCountLabel,
   actions = [],
   children,
   className = '',
@@ -66,7 +68,7 @@ export const ActionToolbar: React.FC<Props> = ({
             />
             {typeof resultCount === 'number' ? (
               <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900">
-                {resultCount}
+                {resultCountLabel || resultCount}
               </span>
             ) : null}
           </label>

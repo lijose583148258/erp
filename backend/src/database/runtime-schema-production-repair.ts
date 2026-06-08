@@ -38,7 +38,7 @@ export const repairProductionSchema = async (report: SchemaRepairReport) => {
       "work_order_id" INTEGER,
       "adjustment_id" INTEGER,
       "quantity_before" REAL NOT NULL DEFAULT 0,
-      "quantity_delta" REAL NOT NULL,
+      "quantity_delta" REAL NOT NULL DEFAULT 0,
       "quantity_after" REAL NOT NULL DEFAULT 0,
       "cost_before" REAL NOT NULL DEFAULT 0,
       "cost_amount_delta" REAL NOT NULL DEFAULT 0,
@@ -61,7 +61,7 @@ export const repairProductionSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'inventory_cost_ledgers', 'work_order_id', 'INTEGER');
   await addColumnIfMissing(report, 'inventory_cost_ledgers', 'adjustment_id', 'INTEGER');
   await addColumnIfMissing(report, 'inventory_cost_ledgers', 'quantity_before', 'REAL NOT NULL DEFAULT 0');
-  await addColumnIfMissing(report, 'inventory_cost_ledgers', 'quantity_delta', 'REAL NOT NULL');
+  await addColumnIfMissing(report, 'inventory_cost_ledgers', 'quantity_delta', 'REAL NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'inventory_cost_ledgers', 'quantity_after', 'REAL NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'inventory_cost_ledgers', 'cost_before', 'REAL NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'inventory_cost_ledgers', 'cost_amount_delta', 'REAL NOT NULL DEFAULT 0');

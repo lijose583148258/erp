@@ -12,6 +12,9 @@ import { auditRuntimeSchema } from './runtime-schema-audit';
 const args = process.argv.slice(2);
 const command = (args[0] || 'status').toLowerCase();
 const target = args[1];
+const isProduction = () => process.env.NODE_ENV === 'production';
+const isTruthy = (value?: string) =>
+  ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
 
 const printStatus = () => {
   const dbInfo = getDatabaseInfo();
@@ -49,6 +52,10 @@ const printStatus = () => {
 };
 
 const seedDatabase = async () => {
+  if (isProduction() && !isTruthy(process.env.AILAODA_ALLOW_DEMO_SEED)) {
+    throw new Error('Refused to seed demo accounts in production. Use bootstrap-admin with AILAODA_ADMIN_USERNAME and AILAODA_ADMIN_PASSWORD.');
+  }
+
   const hashedUsers = await Promise.all(demoUsers.map(async user => ({
     username: user.username,
     role: user.role,
@@ -87,6 +94,52 @@ const seedDatabase = async () => {
   }
 
   console.log('Seed data prepared');
+};
+
+const bootstrapAdmin = async () => {
+  const username = (process.env.AILAODA_ADMIN_USERNAME || '').trim();
+  const password = process.env.AILAODA_ADMIN_PASSWORD || '';
+  const email = (process.env.AILAODA_ADMIN_EMAIL || '').trim() || null;
+
+  if (!username) {
+    throw new Error('AILAODA_ADMIN_USERNAME is required');
+  }
+  if (password.length < 12) {
+    throw new Error('AILAODA_ADMIN_PASSWORD must be at least 12 characters');
+  }
+
+  const passwordHash = await bcrypt.hash(password, 12);
+  const existing = await prisma.user.findUnique({
+    where: { username },
+    select: { id: true, role: true },
+  });
+
+  const user = await prisma.user.upsert({
+    where: { username },
+    update: {
+      passwordHash,
+      email,
+      role: 'admin',
+      segment: 'mixed',
+      isActive: true,
+    },
+    create: {
+      username,
+      passwordHash,
+      email,
+      role: 'admin',
+      segment: 'mixed',
+      isActive: true,
+    },
+    select: {
+      id: true,
+      username: true,
+      role: true,
+      isActive: true,
+    },
+  });
+
+  console.log(`${existing ? 'Updated' : 'Created'} bootstrap admin: ${user.username} (${user.role})`);
 };
 
 const restoreBackup = async (fileName: string) => {
@@ -138,6 +191,10 @@ const run = async () => {
       await seedDatabase();
       console.log('Seed completed');
       return;
+    case 'bootstrap-admin':
+    case 'admin:create':
+      await bootstrapAdmin();
+      return;
     case 'restore':
       if (!target) {
         throw new Error('Please provide the backup file name, for example: npm run db:manage -- restore backup-2026-04-08T12-00-00-000Z.db');
@@ -153,6 +210,7 @@ const run = async () => {
       console.log('npm run db:manage -- status');
       console.log('npm run db:manage -- backup');
       console.log('npm run db:manage -- seed');
+      console.log('npm run db:manage -- bootstrap-admin');
       console.log('npm run db:manage -- restore <backup-file.db>');
       console.log('');
       return;

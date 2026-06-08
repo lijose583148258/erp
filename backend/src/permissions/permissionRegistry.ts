@@ -55,22 +55,29 @@ export type Permission =
   | 'rma.resolve'
   | 'team.read'
   | 'team.write'
+  | 'authorization.roles.manage'
   | 'assets.read'
   | 'assets.write'
   | 'production.read'
   | 'production.write'
+  | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
   | 'adjustments.apply'
   | 'adjustments.reverse'
   | 'warehouse.read'
   | 'warehouse.write'
+  | 'warehouse.ledger.read'
   | 'finance.read'
   | 'finance.currency.sync'
   | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
   | 'procurement.b2b.read'
+  | 'commercial.read'
+  | 'commercial.workflow.manage'
+  | 'commercial.notification.write'
+  | 'commercial.alert.run'
   | 'system.read'
   | 'system.backup.manage'
   | 'audit.read';
@@ -111,7 +118,7 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'collections.hold.manage', resource: 'collections.hold', action: 'manage', label: '管理客户和发货冻结', group: '回款' },
   { code: 'contracts.read', resource: 'contracts', action: 'read', label: '查看合同', group: '合同' },
   { code: 'contracts.write', resource: 'contracts', action: 'write', label: '新建和编辑合同', group: '合同' },
-  { code: 'barter.read', resource: 'barter', action: 'read', label: '查看货抵换货', group: '货抵' },
+  { code: 'barter.read', resource: 'barter', action: 'read', label: '查看货抵结算', group: '货抵' },
   { code: 'barter.write', resource: 'barter', action: 'write', label: '新建和编辑货抵换货', group: '货抵' },
   { code: 'barter.approve', resource: 'barter', action: 'approve', label: '审批货抵换货', group: '货抵' },
   { code: 'barter.post', resource: 'barter', action: 'post', label: '过账和冲销货抵换货', group: '货抵' },
@@ -131,16 +138,19 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'rma.resolve', resource: 'rma', action: 'resolve', label: '处理售后申请', group: '售后' },
   { code: 'team.read', resource: 'team', action: 'read', label: '查看团队', group: '组织' },
   { code: 'team.write', resource: 'team', action: 'write', label: '管理团队与角色', group: '组织' },
+  { code: 'authorization.roles.manage', resource: 'authorization.roles', action: 'manage', label: '分配角色权限', group: '组织', description: '仅超级管理员或被明确授权的治理角色可分配权限点' },
   { code: 'assets.read', resource: 'assets', action: 'read', label: '查看资产', group: '资产' },
   { code: 'assets.write', resource: 'assets', action: 'write', label: '管理资产', group: '资产' },
   { code: 'production.read', resource: 'production', action: 'read', label: '查看生产', group: '生产' },
   { code: 'production.write', resource: 'production', action: 'write', label: '管理生产', group: '生产' },
+  { code: 'production.cost.read', resource: 'production.cost', action: 'read', label: '查看生产成本', group: '生产', description: '查看批次成本台账、生产成本归集和成本核算结果' },
   { code: 'adjustments.read', resource: 'adjustments', action: 'read', label: '查看调整单', group: '调整' },
   { code: 'adjustments.write', resource: 'adjustments', action: 'write', label: '新建调整单', group: '调整' },
   { code: 'adjustments.apply', resource: 'adjustments', action: 'apply', label: '生效调整单', group: '调整' },
   { code: 'adjustments.reverse', resource: 'adjustments', action: 'reverse', label: '冲销调整单', group: '调整' },
   { code: 'warehouse.read', resource: 'warehouse', action: 'read', label: '查看仓储', group: '仓储' },
   { code: 'warehouse.write', resource: 'warehouse', action: 'write', label: '管理仓储', group: '仓储' },
+  { code: 'warehouse.ledger.read', resource: 'warehouse.ledger', action: 'read', label: '查看库存流水', group: '仓储', description: '查看库存凭证、调拨记录、生产耗用和出入库追溯' },
   { code: 'finance.read', resource: 'finance', action: 'read', label: '查看财务', group: '财务' },
   { code: 'procurement.suppliers.read', resource: 'procurement.suppliers', action: 'read', label: '查看供应商基础资料', group: '采购' },
   { code: 'procurement.read', resource: 'procurement', action: 'read', label: '查看采购', group: '采购' },
@@ -150,6 +160,10 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'finance.currency.sync', resource: 'finance.currency', action: 'sync', label: 'Sync currency rates', group: 'finance' },
   { code: 'system.read', resource: 'system', action: 'read', label: 'Read system status', group: 'system' },
   { code: 'system.backup.manage', resource: 'system.backup', action: 'manage', label: 'Manage system backups', group: 'system' },
+  { code: 'commercial.read', resource: 'commercial', action: 'read', label: '查看商业化平台', group: '平台治理' },
+  { code: 'commercial.workflow.manage', resource: 'commercial.workflow', action: 'manage', label: '管理审批工作流', group: '平台治理' },
+  { code: 'commercial.notification.write', resource: 'commercial.notification', action: 'write', label: '发布平台通知', group: '平台治理' },
+  { code: 'commercial.alert.run', resource: 'commercial.alert', action: 'run', label: '运行平台预警', group: '平台治理' },
 ];
 
 export const ALL_PERMISSION_CODES = PERMISSION_DEFINITIONS.map((permission) => permission.code);
@@ -209,22 +223,29 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'rma.resolve',
     'team.read',
     'team.write',
+    'authorization.roles.manage',
     'assets.read',
     'assets.write',
     'production.read',
     'production.write',
+    'production.cost.read',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'warehouse.ledger.read',
     'finance.read',
     'finance.currency.sync',
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'commercial.read',
+    'commercial.workflow.manage',
+    'commercial.notification.write',
+    'commercial.alert.run',
     'system.read',
     'system.backup.manage',
     'audit.read',
@@ -281,18 +302,24 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.write',
     'production.read',
     'production.write',
+    'production.cost.read',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'warehouse.ledger.read',
     'finance.read',
     'finance.currency.sync',
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'commercial.read',
+    'commercial.workflow.manage',
+    'commercial.notification.write',
+    'commercial.alert.run',
     'system.read',
     ],
   },
@@ -325,7 +352,6 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'shipping.receipts.read',
     'rma.read',
     'rma.write',
-    'procurement.suppliers.read',
     'procurement.b2b.read',
     ],
   },
@@ -353,6 +379,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'warehouse.ledger.read',
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
@@ -384,6 +411,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'discrepancies.read',
     'assets.read',
     'production.read',
+    'production.cost.read',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',

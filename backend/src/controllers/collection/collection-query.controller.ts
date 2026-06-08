@@ -27,7 +27,7 @@ export class CollectionQueryController {
     try {
       const { page = 1, pageSize, status, method, customerId } = req.query;
       const result = await CollectionQueryService.getLedger(req, {
-        page: Number(page) || 1,
+        page: Number(page),
         pageSize: pageSize ? Number(pageSize) : undefined,
         status: status ? String(status) : undefined,
         method: method ? String(method) : undefined,
@@ -43,10 +43,11 @@ export class CollectionQueryController {
 
   async getOverdueOrders(req: AuthRequest, res: Response) {
     try {
-      const { page = 1, pageSize } = req.query;
+      const { page = 1, pageSize, search } = req.query;
       const result = await CollectionQueryService.getOverdueOrders(req, {
-        page: Number(page) || 1,
+        page: Number(page),
         pageSize: pageSize ? Number(pageSize) : undefined,
+        search: search ? String(search) : undefined,
       });
 
       res.json({ success: true, ...result } as ApiResponse);
@@ -103,7 +104,9 @@ export class CollectionQueryController {
         data: {
           summary: unwrap('summary', summaryResult, null),
           ledger: ledger.data,
+          ledgerMeta: ledger.meta,
           overdue: overdue.data,
+          overdueMeta: overdue.meta,
           milestones: unwrap('milestones', milestoneResult, []),
           promises: unwrap('promises', promiseResult, []),
           disputes: unwrap('disputes', disputeResult, []),

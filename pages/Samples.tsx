@@ -1,6 +1,7 @@
-import React, { useEffect, useState } from 'react';
-import { ArrowUpRight, Beaker, BellRing, ClipboardCheck, FlaskConical, Plus } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { ArrowUpRight, Beaker, BellRing, ClipboardCheck, FlaskConical, Plus, ShieldCheck } from 'lucide-react';
 import DataTable, { Column } from '../components/DataTable';
+import { StatusBadge } from '../components/ui/StatusBadge';
 import { useAppContext } from '../app/AppContext';
 import { customerService } from '../services/customer.service';
 import { sampleService } from '../services/sample.service';
@@ -61,19 +62,19 @@ const Samples: React.FC = () => {
         requestDate: item.requestDate || new Date().toISOString().split('T')[0],
       })));
       setSamples(prev => [...createdRecords, ...prev]);
-      notify('success', t.sampleImportSuccess.replace('{count}', String(createdRecords.length)));
+      notify('success', (t.sampleImportSuccess || '已导入 {count} 条样品记录').replace('{count}', String(createdRecords.length)));
     } catch {
-      notify('error', t.sampleImportFail);
+      notify('error', t.sampleImportFail || '样品导入失败');
     }
   };
 
   const handleCreate = async () => {
     if (!draft.customerId) {
-      notify('warning', t.selectCustomerRequired);
+      notify('warning', t.selectCustomerRequired || '请选择客户');
       return;
     }
     if (!draft.productName.trim()) {
-      notify('warning', t.productNameRequired);
+      notify('warning', t.productNameRequired || '请填写产品名称');
       return;
     }
 
@@ -98,9 +99,9 @@ const Samples: React.FC = () => {
         shippingAddress: '',
       });
       setShowCreateForm(false);
-      notify('success', t.sampleRequestCreated);
+      notify('success', t.sampleRequestCreated || '样品申请已创建');
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : t.sampleRequestCreateFail);
+      notify('error', error instanceof Error ? error.message : (t.sampleRequestCreateFail || '样品申请创建失败'));
     } finally {
       setSubmitting(false);
     }
@@ -128,12 +129,7 @@ const Samples: React.FC = () => {
     },
     {
       header: t.status, key: 'status', accessor: (row) => (
-        <span className={`px-3 py-1 rounded-xl text-xs font-black tracking-wide border ${row.status === SampleStatus.SENT ? 'bg-indigo-50 text-indigo-600 border-indigo-100' :
-          row.status === SampleStatus.FEEDBACK ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
-            'bg-slate-50 text-slate-600 border-slate-200'
-          }`}>
-          {t[`sample${row.status.charAt(0).toUpperCase() + row.status.slice(1)}`] || row.status}
-        </span>
+        <StatusBadge status={row.status} label={t[`sample${row.status.charAt(0).toUpperCase() + row.status.slice(1)}`] || row.status} className="rounded-xl" />
       ),
     },
     {
@@ -155,6 +151,14 @@ const Samples: React.FC = () => {
     },
   ];
 
+  const sampleStats = useMemo(() => {
+    const total = samples.length;
+    const waitingFollowUp = samples.filter(item => item.status === SampleStatus.SENT && item.needsFollowUp).length;
+    const feedbackDone = samples.filter(item => item.status === SampleStatus.FEEDBACK).length;
+    const feedbackRate = total ? Math.round((feedbackDone / total) * 100) : null;
+    return { total, waitingFollowUp, feedbackDone, feedbackRate };
+  }, [samples]);
+
   return (
     <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
@@ -162,11 +166,29 @@ const Samples: React.FC = () => {
           <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.samples}</h1>
           <p className="text-emerald-600 dark:text-emerald-400 font-black text-xs tracking-wide mt-3 opacity-70 px-1">{t.sampleTitle}</p>
         </div>
-        <button onClick={() => setShowCreateForm(current => !current)} className="flex items-center px-8 py-4 bg-blue-600 text-white rounded-[26px] font-black text-xs tracking-wide shadow-2xl shadow-blue-500/30 hover:scale-105 transition-all active-shrink">
+        <button data-testid="samples-open-create" onClick={() => setShowCreateForm(current => !current)} className="flex items-center px-8 py-4 bg-blue-600 text-white rounded-[26px] font-black text-xs tracking-wide shadow-2xl shadow-blue-500/30 hover:scale-105 transition-all active-shrink">
           <Plus size={18} className="mr-3" />
           {t.newSampleRequest}
         </button>
       </div>
+
+      <section data-testid="samples-boundary-notice" className="grid gap-4 md:grid-cols-3">
+        <div className="rounded-[28px] border border-teal-100 bg-teal-50/80 p-5 text-sm font-bold leading-6 text-teal-900 dark:border-teal-900/40 dark:bg-teal-950/20 dark:text-teal-100">
+          <div className="mb-2 flex items-center gap-2 text-xs font-black tracking-[0.16em] text-teal-600 dark:text-teal-200">
+            <ShieldCheck size={14} />
+            样品主入口
+          </div>
+          本页只登记样品申请、寄样、客户测试反馈和跟进提醒，不在这里直接生成销售订单、扣库存或做回款。
+        </div>
+        <div className="rounded-[28px] border border-blue-100 bg-blue-50/80 p-5 text-sm font-bold leading-6 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-blue-600 dark:text-blue-200">正确闭环</div>
+          样品通过后再转销售订单；寄样出库走发货/仓储记录；客户反馈有异常时再进入售后或差异处理。
+        </div>
+        <div className="rounded-[28px] border border-slate-100 bg-white/80 p-5 text-sm font-bold leading-6 text-slate-600 shadow-sm dark:border-slate-800 dark:bg-slate-900/70 dark:text-slate-300">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-slate-400">真实口径</div>
+          样品看板只展示当前记录回读出来的待跟进、已反馈和总申请数，不再用固定百分比装饰。
+        </div>
+      </section>
 
       {showCreateForm && (
         <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[36px] border border-white/50 dark:border-slate-800 shadow-[0_15px_50px_rgba(0,0,0,0.03)] space-y-5">
@@ -179,31 +201,31 @@ const Samples: React.FC = () => {
           <div className="grid gap-4 md:grid-cols-2">
             <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
               <span>{t.customer}</span>
-              <select value={draft.customerId} onChange={(e) => setDraft(prev => ({ ...prev, customerId: e.target.value }))} className={inputClass}>
+              <select data-testid="samples-create-customer" value={draft.customerId} onChange={(e) => setDraft(prev => ({ ...prev, customerId: e.target.value }))} className={inputClass}>
                 <option value="">{t.phSelectCustomer}</option>
                 {customers.map(customer => <option key={customer.id} value={customer.id}>{customer.label}</option>)}
               </select>
             </label>
             <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
               <span>{t.sampleProduct}</span>
-              <input value={draft.productName} onChange={(e) => setDraft(prev => ({ ...prev, productName: e.target.value }))} className={inputClass} placeholder="e.g. Glue A-01" />
+              <input data-testid="samples-create-product" value={draft.productName} onChange={(e) => setDraft(prev => ({ ...prev, productName: e.target.value }))} className={inputClass} placeholder="e.g. Glue A-01" />
             </label>
             <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
               <span>{t.packagingSpec}</span>
-              <input value={draft.specifications} onChange={(e) => setDraft(prev => ({ ...prev, specifications: e.target.value }))} className={inputClass} placeholder="e.g. 25kg/drum" />
+              <input data-testid="samples-create-specifications" value={draft.specifications} onChange={(e) => setDraft(prev => ({ ...prev, specifications: e.target.value }))} className={inputClass} placeholder="e.g. 25kg/drum" />
             </label>
             <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
               <span>{t.quantity}</span>
-              <input type="number" min="1" value={draft.quantity} onChange={(e) => setDraft(prev => ({ ...prev, quantity: e.target.value }))} className={inputClass} />
+              <input data-testid="samples-create-quantity" type="number" min="1" value={draft.quantity} onChange={(e) => setDraft(prev => ({ ...prev, quantity: e.target.value }))} className={inputClass} />
             </label>
             <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200 md:col-span-2">
               <span>{t.shippingAddress}</span>
-              <input value={draft.shippingAddress} onChange={(e) => setDraft(prev => ({ ...prev, shippingAddress: e.target.value }))} className={inputClass} placeholder={t.phNote} />
+              <input data-testid="samples-create-address" value={draft.shippingAddress} onChange={(e) => setDraft(prev => ({ ...prev, shippingAddress: e.target.value }))} className={inputClass} placeholder={t.phNote} />
             </label>
           </div>
           <div className="flex justify-end gap-3">
             <button onClick={() => setShowCreateForm(false)} className="rounded-[18px] border border-slate-200 px-5 py-3 text-sm font-black text-slate-500">{t.cancel}</button>
-            <button onClick={() => void handleCreate()} disabled={submitting} className="rounded-[18px] bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-xl shadow-blue-500/25 disabled:opacity-60">
+            <button data-testid="samples-create-submit" onClick={() => void handleCreate()} disabled={submitting} className="rounded-[18px] bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-xl shadow-blue-500/25 disabled:opacity-60">
               {submitting ? t.submitting : t.ctrlConfirm}
             </button>
           </div>
@@ -221,7 +243,7 @@ const Samples: React.FC = () => {
               <div>
                 <h3 className="text-2xl font-black tracking-tighter italic">{t.sampleHub}</h3>
                 <p className="text-indigo-200 text-xs mt-3 max-w-lg leading-relaxed font-bold tracking-wide opacity-80">
-                  {t.sampleInsightsPrefix} <span className="text-white text-xl underline decoration-amber-400 underline-offset-8 font-black">{samples.filter(s => s.status === SampleStatus.SENT && s.needsFollowUp).length}</span> {t.sampleInsightsSuffix}
+                  当前共有 <span className="text-white text-xl underline decoration-amber-400 underline-offset-8 font-black">{sampleStats.total}</span> 条样品申请，其中 <span className="text-white text-xl underline decoration-amber-400 underline-offset-8 font-black">{sampleStats.waitingFollowUp}</span> 条需要跟进。
                 </p>
               </div>
             </div>
@@ -240,11 +262,13 @@ const Samples: React.FC = () => {
           <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-emerald-50 dark:bg-emerald-900/10 rounded-full group-hover:scale-150 transition-all duration-1000"></div>
           <div className="relative z-10">
             <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-[22px] w-fit mb-8 shadow-sm group-hover:scale-110 transition-transform"><ArrowUpRight size={28} /></div>
-            <p className="text-xs font-black text-slate-400 tracking-wide mb-2">{t.samplePerformanceLabel}</p>
-            <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic">94.2<span className="text-xl opacity-30 ml-1">%</span></p>
+            <p className="text-xs font-black text-slate-400 tracking-wide mb-2">反馈完成率</p>
+            <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic">
+              {sampleStats.feedbackRate === null ? '暂无' : `${sampleStats.feedbackRate}%`}
+            </p>
             <p className="text-xs text-emerald-500 font-black mt-6 flex items-center bg-emerald-50 dark:bg-emerald-950/30 px-3 py-1.5 rounded-full w-fit border border-emerald-100 dark:border-emerald-800">
               <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full mr-2"></span>
-              {t.sampleGrowthVsLastMonth}
+              已反馈 {sampleStats.feedbackDone} / 总申请 {sampleStats.total}
             </p>
           </div>
         </div>

@@ -18,6 +18,7 @@ type UseShippingReceiptsOptions = {
     t: Record<string, string>;
     notify: Notify;
     setShipments: Dispatch<SetStateAction<Shipment[]>>;
+    canWrite: boolean;
 };
 
 const createEmptyReceiptForm = (): ShippingReceiptForm => ({
@@ -29,7 +30,7 @@ const createEmptyReceiptForm = (): ShippingReceiptForm => ({
     file: null,
 });
 
-export const useShippingReceipts = ({ t, notify, setShipments }: UseShippingReceiptsOptions) => {
+export const useShippingReceipts = ({ t, notify, setShipments, canWrite }: UseShippingReceiptsOptions) => {
     const [uploadingId, setUploadingId] = useState<string | null>(null);
     const [receiptDrawerShipment, setReceiptDrawerShipment] = useState<Shipment | null>(null);
     const [receiptBundle, setReceiptBundle] = useState<ShipmentReceiptBundle | null>(null);
@@ -49,6 +50,10 @@ export const useShippingReceipts = ({ t, notify, setShipments }: UseShippingRece
     };
 
     const handleFileUpload = (id: string) => {
+        if (!canWrite) {
+            notify('warning', '当前角色只能查看发货与签收凭证，不能上传签收凭证');
+            return;
+        }
         setUploadingId(id);
         fileInputRef.current?.click();
     };
@@ -74,6 +79,10 @@ export const useShippingReceipts = ({ t, notify, setShipments }: UseShippingRece
 
     const handleSubmitReceiptEvent = async () => {
         if (!receiptDrawerShipment) return;
+        if (!canWrite) {
+            notify('warning', '当前角色只能查看签收批次，不能保存签收');
+            return;
+        }
         const quantity = Number(receiptForm.quantity);
         const acceptedQuantity = Number(receiptForm.acceptedQuantity || 0);
         const rejectedQuantity = Number(receiptForm.rejectedQuantity || 0);
@@ -107,6 +116,11 @@ export const useShippingReceipts = ({ t, notify, setShipments }: UseShippingRece
 
     const onFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
         if (e.target.files?.[0] && uploadingId) {
+            if (!canWrite) {
+                notify('warning', '当前角色只能查看发货与签收凭证，不能上传签收凭证');
+                e.target.value = '';
+                return;
+            }
             const file = e.target.files[0];
             try {
                 const updatedShipment = await shipmentService.uploadReceipt(uploadingId, file);

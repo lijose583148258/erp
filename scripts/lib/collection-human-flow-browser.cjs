@@ -49,10 +49,17 @@ async function openCollectionsRoute(runtime, page, { appUrl, copy, forbiddenToke
     await page.getByText(copy.workbench).first().waitFor({ state: 'visible', timeout: stepTimeoutMs });
     const bodyText = await runtime.assertBodyClean(page, 'collections route', forbiddenTokens);
     runtime.expect(bodyText.includes(copy.overdue), 'collections route missing overdue tab copy');
-    runtime.expect(bodyText.includes(copy.promiseTable), 'collections route missing promise table copy');
+    runtime.expect(bodyText.includes(copy.promiseNav), 'collections route missing promise navigation copy');
     const screenshot = await runtime.saveScreenshot(page, '01-collections-route');
     runtime.recordStep({ step: 'browser-route-evidence', result: 'passed', screenshot, url: page.url() });
   });
+}
+
+async function openCollectionDesk(page, label, expectedText, stepTimeoutMs) {
+  const button = page.locator('button').filter({ hasText: label }).first();
+  await button.waitFor({ state: 'visible', timeout: stepTimeoutMs });
+  await button.click();
+  await page.getByText(expectedText).first().waitFor({ state: 'visible', timeout: stepTimeoutMs });
 }
 
 async function clickTabsAndSelectOrder(runtime, page, seed, { copy, forbiddenTokens, stepTimeoutMs }) {
@@ -94,16 +101,23 @@ async function submitPromiseByUi(runtime, page, seed, token, { testData, copy, f
     const promise = runtime.listOf(response).find((row) => Number(row.orderId) === Number(seed.order.id) && String(row.note || '').includes(testData.promiseNote));
     runtime.expect(Boolean(promise?.id), 'UI-created promise missing from API readback', response.json);
 
+    await openCollectionDesk(page, copy.promiseNav, copy.promiseTable, stepTimeoutMs);
     const bodyText = await runtime.assertBodyClean(page, 'promise submitted', forbiddenTokens);
-    runtime.expect(bodyText.includes(testData.promiseNote) || bodyText.includes(copy.promiseTable), 'promise table did not remain visible after submit');
+    runtime.expect(bodyText.includes(testData.promiseNote) || bodyText.includes(copy.promiseTable), 'promise table did not show submitted promise context');
     const screenshot = await runtime.saveScreenshot(page, '03-promise-submitted');
     runtime.recordStep({ step: 'browser-promise-readback-evidence', result: 'passed', screenshot, promiseId: promise.id });
     return promise;
   });
 }
 
-async function submitDisputeByUi(runtime, page, seed, token, { testData, forbiddenTokens, stepTimeoutMs }) {
+async function submitDisputeByUi(runtime, page, seed, token, { testData, copy, forbiddenTokens, stepTimeoutMs }) {
   return runtime.withTimeout('browser-submit-dispute-and-api-readback', stepTimeoutMs * 2, async () => {
+    await openCollectionDesk(page, copy.receivableNav, copy.overdue, stepTimeoutMs);
+    await page.getByTestId('collection-tab-overdue').click();
+    await page.getByTestId('collection-overdue-search').fill(seed.order.orderNo);
+    const overdueRow = page.getByTestId(`collection-overdue-row-${seed.order.id}`);
+    await overdueRow.waitFor({ state: 'visible', timeout: stepTimeoutMs });
+    await overdueRow.click();
     await page.getByTestId(`collection-overdue-dispute-${seed.order.id}`).click();
     await page.getByTestId('collection-action-modal').waitFor({ state: 'visible', timeout: stepTimeoutMs });
     await page.getByTestId('collection-action-dispute-reason').fill(testData.disputeReason);
@@ -116,6 +130,7 @@ async function submitDisputeByUi(runtime, page, seed, token, { testData, forbidd
     const dispute = runtime.listOf(response).find((row) => Number(row.orderId) === Number(seed.order.id) && String(row.note || '').includes(testData.disputeNote));
     runtime.expect(Boolean(dispute?.id), 'UI-created dispute missing from API readback', response.json);
 
+    await openCollectionDesk(page, copy.riskNav, copy.disputeTable, stepTimeoutMs);
     await runtime.assertBodyClean(page, 'dispute submitted', forbiddenTokens);
     const screenshot = await runtime.saveScreenshot(page, '04-dispute-submitted');
     runtime.recordStep({ step: 'browser-dispute-readback-evidence', result: 'passed', screenshot, disputeId: dispute.id });
@@ -123,13 +138,24 @@ async function submitDisputeByUi(runtime, page, seed, token, { testData, forbidd
   });
 }
 
-async function exerciseFilters(runtime, page, { forbiddenTokens, stepTimeoutMs }) {
+async function exerciseFilters(runtime, page, { copy, forbiddenTokens, stepTimeoutMs }) {
   return runtime.withTimeout('browser-filter-and-sort-controls', stepTimeoutMs, async () => {
+    await openCollectionDesk(page, copy.promiseNav, copy.promiseTable, stepTimeoutMs);
     for (const testId of [
       'collection-promise-filter-all',
       'collection-promise-filter-open',
       'collection-promise-sort-amount_desc',
       'collection-promise-sort-promised_at_desc',
+    ]) {
+      const locator = page.getByTestId(testId);
+      await locator.scrollIntoViewIfNeeded();
+      await locator.click();
+      await page.waitForTimeout(150);
+      await runtime.assertBodyClean(page, `filter ${testId}`, forbiddenTokens);
+    }
+
+    await openCollectionDesk(page, copy.riskNav, copy.disputeTable, stepTimeoutMs);
+    for (const testId of [
       'collection-dispute-filter-all',
       'collection-dispute-filter-active',
       'collection-hold-filter-active',
@@ -168,13 +194,16 @@ async function downloadExport(runtime, page, { outputDir, report, testId, label,
 }
 
 async function exerciseExports(runtime, page, options) {
+  await openCollectionDesk(page, options.copy.promiseNav, options.copy.promiseTable, options.stepTimeoutMs);
   await downloadExport(runtime, page, { ...options, testId: 'collection-export-promises', label: 'promises' });
+  await openCollectionDesk(page, options.copy.riskNav, options.copy.disputeTable, options.stepTimeoutMs);
   await downloadExport(runtime, page, { ...options, testId: 'collection-export-disputes', label: 'disputes' });
   await downloadExport(runtime, page, { ...options, testId: 'collection-export-holds', label: 'holds' });
 }
 
-async function verifyLedgerPaymentByUi(runtime, page, seed, token, { forbiddenTokens, stepTimeoutMs }) {
+async function verifyLedgerPaymentByUi(runtime, page, seed, token, { copy, forbiddenTokens, stepTimeoutMs }) {
   return runtime.withTimeout('browser-ledger-verify-payment-and-api-readback', stepTimeoutMs * 2, async () => {
+    await openCollectionDesk(page, copy.receivableNav, copy.overdue, stepTimeoutMs);
     await page.getByTestId('collection-tab-ledger').click();
     await page.getByTestId(`collection-ledger-row-${seed.paymentId}`).waitFor({ state: 'visible', timeout: stepTimeoutMs });
     await page.getByTestId(`collection-ledger-verify-${seed.paymentId}`).click();

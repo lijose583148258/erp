@@ -11,6 +11,7 @@ export interface RuntimeDataRepairReport {
   entries: RuntimeDataRepairEntry[];
 }
 
+const ALLOW_DEMO_DATA_REPAIR = process.env.AILAODA_ALLOW_DEMO_DATA_REPAIR === '1';
 const replacementChar = String.fromCharCode(65533);
 const looksCorrupted = (value: unknown) =>
   typeof value === 'string' && (value.includes('?') || value.includes(replacementChar));
@@ -173,81 +174,85 @@ const repairProductionMojibakeData = async (report: RuntimeDataRepairReport) => 
 export const repairRuntimeData = async (): Promise<RuntimeDataRepairReport> => {
   const report: RuntimeDataRepairReport = { entries: [] };
 
-  await repairSupplier(report, 3, {
-    nameZh: '烟测供应商0410',
-    nameEn: 'Supplier Smoke 0410',
-    nameVi: 'Nha cung cap Smoke 0410',
-  });
+  if (ALLOW_DEMO_DATA_REPAIR) {
+    await repairSupplier(report, 3, {
+      nameZh: '烟测供应商0410',
+      nameEn: 'Supplier Smoke 0410',
+      nameVi: 'Nha cung cap Smoke 0410',
+    });
 
-  await repairSupplier(report, 5, {
-    name: '爱牢达供应商总部',
-    nameZh: '爱牢达供应商总部',
-    nameEn: 'Ailao Supplier',
-    nameVi: 'Nhà cung cấp Ailao',
-    nameAliases: JSON.stringify(['Ailao Materials', 'ALD VN']),
-    contactsJson: JSON.stringify([
-      {
-        position: '采购负责人',
-        name: '李采购',
-        phone: '13800138000',
-        email: 'buyer@ailao.test',
-        isPrimary: true,
-        language: 'zh',
-      },
-    ]),
-    addressesJson: JSON.stringify([
-      {
-        city: 'HCM',
-        label: '法定主体 / Supplier HQ',
-        fullAddress: '越南胡志明市工业园区88号',
-        type: 'legal',
-        isPrimary: true,
-        countryCode: 'VN',
-      },
-    ]),
-    category: '化工原料',
-    contact: '李采购',
-  });
+    await repairSupplier(report, 5, {
+      name: '爱牢达供应商总部',
+      nameZh: '爱牢达供应商总部',
+      nameEn: 'Ailao Supplier',
+      nameVi: 'Nhà cung cấp Ailao',
+      nameAliases: JSON.stringify(['Ailao Materials', 'ALD VN']),
+      contactsJson: JSON.stringify([
+        {
+          position: '采购负责人',
+          name: '李采购',
+          phone: '13800138000',
+          email: 'buyer@ailao.test',
+          isPrimary: true,
+          language: 'zh',
+        },
+      ]),
+      addressesJson: JSON.stringify([
+        {
+          city: 'HCM',
+          label: '法定主体 / Supplier HQ',
+          fullAddress: '越南胡志明市工业园区88号',
+          type: 'legal',
+          isPrimary: true,
+          countryCode: 'VN',
+        },
+      ]),
+      category: '化工原料',
+      contact: '李采购',
+    });
 
-  await repairSupplier(report, 15, {
-    addressesJson: JSON.stringify([
-      {
-        city: 'HCM',
-        label: '法定地址',
-        fullAddress: 'API Address',
-        type: 'legal',
-        isPrimary: true,
-        countryCode: 'VN',
-      },
-    ]),
-  });
+    await repairSupplier(report, 15, {
+      addressesJson: JSON.stringify([
+        {
+          city: 'HCM',
+          label: '法定地址',
+          fullAddress: 'API Address',
+          type: 'legal',
+          isPrimary: true,
+          countryCode: 'VN',
+        },
+      ]),
+    });
 
-  await repairCustomer(report, 5, {
-    name: '烟测客户 1775784935',
-    nameZh: '烟测客户 1775784935',
-    nameEn: 'UI Smoke Customer 1775784935',
-    nameVi: 'Khách hàng smoke 1775784935',
-  });
+    await repairCustomer(report, 5, {
+      name: '烟测客户 1775784935',
+      nameZh: '烟测客户 1775784935',
+      nameEn: 'UI Smoke Customer 1775784935',
+      nameVi: 'Khách hàng smoke 1775784935',
+    });
 
-  await repairProductionBom(report, 1, {
-    productName: '烟测产品A',
-    outputUnit: 'kg',
-    notes: '烟测BOM',
-  });
+    await repairProductionBom(report, 1, {
+      productName: '烟测产品A',
+      outputUnit: 'kg',
+      notes: '烟测BOM',
+    });
 
-  await repairProductionBomItem(report, 1, {
-    materialName: '原料A',
-    notes: '烟测BOM明细',
-  });
+    await repairProductionBomItem(report, 1, {
+      materialName: '原料A',
+      notes: '烟测BOM明细',
+    });
 
-  await repairProductionWorkOrder(report, 1, {
-    productName: '烟测产品A',
-    note: '烟测工单',
-  });
+    await repairProductionWorkOrder(report, 1, {
+      productName: '烟测产品A',
+      note: '烟测工单',
+    });
 
-  await repairProductionStep(report, 1, {
-    title: '备料',
-  });
+    await repairProductionStep(report, 1, {
+      title: '备料',
+    });
+  } else {
+    pushEntry(report, 'demoFixedIdRepair', 0, 'skipped', ['set AILAODA_ALLOW_DEMO_DATA_REPAIR=1 to repair demo rows']);
+  }
 
   await repairProductionMojibakeData(report);
 

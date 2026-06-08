@@ -57,8 +57,10 @@ const KNOWN_TABLES = new Set([
   'production_boms', 'production_bom_items', 'production_work_orders',
   'inventory_cost_ledgers',
   'warehouses', 'locations', 'stock_balances', 'stock_entries', 'stock_movements',
-  'auth_roles', 'auth_permissions', 'auth_role_permissions',
+  'auth_roles', 'auth_permissions', 'auth_role_permissions', 'auth_policy_migrations',
   'receivable_adjustments',
+  'workflow_definitions', 'workflow_instances', 'workflow_tasks', 'workflow_actions',
+  'notifications', 'business_events', 'alert_rules', 'bi_sales_daily',
 ]);
 
 export const columnExists = async (tableName: string, columnName: string) => {

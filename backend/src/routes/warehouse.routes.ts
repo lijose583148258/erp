@@ -23,7 +23,7 @@ router.post(
 );
 
 // 库存余额
-router.get('/stock-entries', authorizePermission('warehouse.read'), authRoute((req, res) => controller.listStockEntries(req, res)));
+router.get('/stock-entries', authorizePermission('warehouse.ledger.read'), authRoute((req, res) => controller.listStockEntries(req, res)));
 router.get('/stock-balances', authorizePermission('warehouse.read'), authRoute((req, res) => controller.listStockBalances(req, res)));
 router.post('/stock-balances', authorizePermission('warehouse.write'), authRoute((req, res) => controller.createStockBalance(req, res)));
 router.patch(
@@ -32,6 +32,13 @@ router.patch(
   [param('id').isInt({ min: 1 })],
   validateRequest,
   authRoute((req, res) => controller.updateStockBalance(req, res)),
+);
+router.post(
+  '/stock-balances/:id/transfer',
+  authorizePermission('warehouse.write'),
+  [param('id').isInt({ min: 1 })],
+  validateRequest,
+  authRoute((req, res) => controller.transferStockBalance(req, res)),
 );
 
 export default router;

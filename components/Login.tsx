@@ -27,6 +27,9 @@ const copy = {
     },
     language: '语言',
     loginError: '用户名或密码错误',
+    serverUnavailable: '无法连接到服务器，请确认系统服务已启动后重试',
+    accountDisabled: '账号已停用，请联系管理员',
+    roleDisabled: '账号角色不可用，请联系管理员',
   },
   en: {
     title: 'AiLaoDa ERP+CRM',
@@ -46,6 +49,9 @@ const copy = {
     },
     language: 'Language',
     loginError: 'Invalid credentials',
+    serverUnavailable: 'Cannot reach the server. Confirm the system service is running and try again.',
+    accountDisabled: 'This account is disabled. Contact an administrator.',
+    roleDisabled: 'This account role is unavailable. Contact an administrator.',
   },
   vi: {
     title: 'AiLaoDa ERP+CRM',
@@ -65,6 +71,9 @@ const copy = {
     },
     language: 'Ngôn ngữ',
     loginError: 'Thông tin đăng nhập không hợp lệ',
+    serverUnavailable: 'Không thể kết nối máy chủ. Hãy kiểm tra dịch vụ hệ thống rồi thử lại.',
+    accountDisabled: 'Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.',
+    roleDisabled: 'Vai trò của tài khoản không khả dụng. Vui lòng liên hệ quản trị viên.',
   },
 } as const;
 
@@ -85,8 +94,22 @@ const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) =>
     const submittedPassword = String(formData.get('password') ?? password);
     try {
       await onLogin(submittedUsername, submittedPassword);
-    } catch {
-      setError(text.loginError);
+    } catch (loginError) {
+      const candidate = loginError as Error & { status?: number; isTimeout?: boolean };
+      const message = String(candidate?.message || '');
+      if (
+        candidate?.status === 0
+        || candidate?.isTimeout
+        || /无法连接|network error|failed to fetch|timeout|cannot reach/i.test(message)
+      ) {
+        setError(text.serverUnavailable);
+      } else if (candidate?.status === 403 && /停用|disabled|vô hiệu/i.test(message)) {
+        setError(text.accountDisabled);
+      } else if (candidate?.status === 403 && /角色|role|vai trò/i.test(message)) {
+        setError(text.roleDisabled);
+      } else {
+        setError(text.loginError);
+      }
     } finally {
       setIsLoading(false);
     }

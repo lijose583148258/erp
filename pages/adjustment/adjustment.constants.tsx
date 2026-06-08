@@ -1,5 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import { BadgeDollarSign, Factory, Package2 } from 'lucide-react';
+import { getStatusBorderBadgeClassName } from '../../components/ui/StatusBadge';
 import type {
   AdjustmentDomain,
   AdjustmentStatus,
@@ -128,8 +129,8 @@ export const adjustmentDomainMeta: AdjustmentDomainMeta = {
 };
 
 export const adjustmentStatusMeta: AdjustmentStatusMeta = {
-  pending: { label: '\u5f85\u5904\u7406', className: 'bg-slate-100 text-slate-600 border-slate-200' },
-  posted: { label: '\u5df2\u751f\u6548', className: 'bg-emerald-50 text-emerald-700 border-emerald-100' },
-  reversed: { label: '\u5df2\u51b2\u9500', className: 'bg-rose-50 text-rose-700 border-rose-100' },
-  rejected: { label: '\u5df2\u9a73\u56de', className: 'bg-amber-50 text-amber-700 border-amber-100' },
+  pending: { label: '\u5f85\u5904\u7406', className: getStatusBorderBadgeClassName('pending') },
+  posted: { label: '\u5df2\u751f\u6548', className: getStatusBorderBadgeClassName('posted') },
+  reversed: { label: '\u5df2\u51b2\u9500', className: getStatusBorderBadgeClassName('reversed') },
+  rejected: { label: '\u5df2\u9a73\u56de', className: getStatusBorderBadgeClassName('rejected') },
 };

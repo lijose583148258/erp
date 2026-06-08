@@ -199,26 +199,31 @@ export class ReceiptDiscrepancyController {
       }
 
       const id = Number(req.params.id);
-      const action = await ReceiptDiscrepancyService.createAction(prisma, id, {
-        ...req.body,
-        createdBy: req.user?.userId || null,
+      const action = await prisma.$transaction(async (tx) => {
+        const createdAction = await ReceiptDiscrepancyService.createAction(tx, id, {
+          ...req.body,
+          createdBy: req.user?.userId || null,
+        });
+        if (!createdAction) return null;
+
+        await tx.auditLog.create({
+          data: {
+            userId: req.user!.userId,
+            action: 'CREATE_RECEIPT_DISCREPANCY_ACTION',
+            resource: 'receipt_discrepancy_action',
+            resourceId: createdAction.id,
+            details: `创建收发货差异处置动作 ${createdAction.actionNo} -> ${createdAction.actionType}`,
+            ipAddress: req.ip,
+            userAgent: req.get('user-agent'),
+          },
+        });
+
+        return createdAction;
       });
 
       if (!action) {
         return res.status(404).json({ success: false, message: '收发货差异单不存在' } as ApiResponse);
       }
-
-      await prisma.auditLog.create({
-        data: {
-          userId: req.user!.userId,
-          action: 'CREATE_RECEIPT_DISCREPANCY_ACTION',
-          resource: 'receipt_discrepancy_action',
-          resourceId: action.id,
-          details: `创建收发货差异处置动作 ${action.actionNo} -> ${action.actionType}`,
-          ipAddress: req.ip,
-          userAgent: req.get('user-agent'),
-        },
-      });
 
       return res.status(201).json({
         success: true,

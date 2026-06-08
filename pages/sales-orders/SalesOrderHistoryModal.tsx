@@ -21,6 +21,8 @@ type Props = {
     getOutstandingAmount: (order: SalesOrder) => number;
     getCollectionView: (order: SalesOrder) => CollectionView;
     canVerifyPayment: boolean;
+    canOpenPromise: boolean;
+    canOpenDispute: boolean;
     onClose: () => void;
     onOpenPromise: () => void;
     onOpenDispute: () => void;
@@ -38,6 +40,8 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
     getOutstandingAmount,
     getCollectionView,
     canVerifyPayment,
+    canOpenPromise,
+    canOpenDispute,
     onClose,
     onOpenPromise,
     onOpenDispute,
@@ -97,14 +101,23 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                     </div>
                 )}
 
-                {getOutstandingAmount(selectedOrder) > 0 && (
+                {getOutstandingAmount(selectedOrder) > 0 && (canOpenPromise || canOpenDispute) && (
                     <div className="mb-4 grid grid-cols-2 gap-3">
-                        <button data-testid="sales-order-open-promise-button" onClick={onOpenPromise} className="px-4 py-3 rounded-[18px] bg-amber-50 text-amber-700 border border-amber-200 text-xs font-black uppercase tracking-widest hover:bg-amber-100">
-                            承诺付款
-                        </button>
-                        <button data-testid="sales-order-open-dispute-button" onClick={onOpenDispute} className="px-4 py-3 rounded-[18px] bg-rose-50 text-rose-700 border border-rose-200 text-xs font-black uppercase tracking-widest hover:bg-rose-100">
-                            发起争议
-                        </button>
+                        {canOpenPromise && (
+                            <button data-testid="sales-order-open-promise-button" onClick={onOpenPromise} className="px-4 py-3 rounded-[18px] bg-amber-50 text-amber-700 border border-amber-200 text-xs font-black uppercase tracking-widest hover:bg-amber-100">
+                                承诺付款
+                            </button>
+                        )}
+                        {canOpenDispute && (
+                            <button data-testid="sales-order-open-dispute-button" onClick={onOpenDispute} className="px-4 py-3 rounded-[18px] bg-rose-50 text-rose-700 border border-rose-200 text-xs font-black uppercase tracking-widest hover:bg-rose-100">
+                                发起争议
+                            </button>
+                        )}
+                    </div>
+                )}
+                {getOutstandingAmount(selectedOrder) > 0 && !canOpenPromise && !canOpenDispute && (
+                    <div className="mb-4 rounded-[18px] border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-500 dark:border-slate-800 dark:bg-slate-800/50">
+                        当前角色只能查看订单回款摘要，承诺付款和争议处理需由回款中心授权角色操作。
                     </div>
                 )}
 
@@ -197,7 +210,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
 
                 {historyTab === 'payments' && (
                     <div className="mt-6 pt-6 border-t border-slate-100 dark:border-slate-800 flex justify-between items-end">
-                        <div className="text-xs font-bold text-slate-400 uppercase">Total Verified</div>
+                        <div className="text-xs font-bold text-slate-400 uppercase">已核验合计</div>
                         <div className="text-2xl font-black text-slate-900 dark:text-white italic">{formatPrice(selectedOrder.paidAmount || 0)}</div>
                     </div>
                 )}

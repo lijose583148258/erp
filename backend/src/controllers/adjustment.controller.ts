@@ -10,209 +10,16 @@ import {
     AdjustmentStatus,
 } from '../services/adjustment.service';
 import { getAdjustmentConflictMessage } from '../services/adjustment/finance-adjustment.service';
-import { ProductionCostLedgerService } from '../services/production-cost-ledger.service';
-import { hasDataScope } from '../utils/recordAccess';
-
-const DEFAULT_PAGE_SIZE = 20;
-const MAX_PAGE_SIZE = 100;
-
-const toNumber = (value: unknown): number | null => {
-    if (value === undefined || value === null || value === '') {
-        return null;
-    }
-
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : null;
-};
-
-const defaultReasonCategory = (domain: string) => {
-    if (domain === 'finance') {
-        return 'manual_reconciliation';
-    }
-
-    if (domain === 'production') {
-        return 'production_loss';
-    }
-
-    return 'inventory_discrepancy';
-};
-
-const getAccessibleAdjustmentDomains = (req: AuthRequest): AdjustmentDomain[] | null => {
-    if (!req.user) return [];
-    if (req.user.role === 'admin' || hasDataScope(req, 'all')) return null;
-
-    const domains = new Set<AdjustmentDomain>();
-    if (hasDataScope(req, 'finance_visible')) {
-        domains.add('finance');
-    }
-    if (hasDataScope(req, 'warehouse_visible')) {
-        domains.add('production');
-        domains.add('inventory');
-    }
-    return Array.from(domains);
-};
-
-const buildAdjustmentWhere = (req: AuthRequest, extra: Record<string, any> = {}) => {
-    const where: Record<string, any> = {
-        ...extra,
-    };
-
-    const domains = getAccessibleAdjustmentDomains(req);
-    if (domains !== null) {
-        if (domains.length === 0) {
-            where.id = -1;
-            return where;
-        }
-
-        const requestedDomain = typeof where.domain === 'string' ? where.domain : null;
-        if (requestedDomain && !domains.includes(requestedDomain as AdjustmentDomain)) {
-            where.id = -1;
-            return where;
-        }
-        where.domain = requestedDomain || { in: domains };
-    }
-
-    return where;
-};
-
-const canOperateAdjustmentDomain = (req: AuthRequest, domain: string) => {
-    const domains = getAccessibleAdjustmentDomains(req);
-    return domains === null || domains.includes(domain as AdjustmentDomain);
-};
-
-const getCustomerDisplayName = (customer?: {
-    name?: string | null;
-    nameZh?: string | null;
-    nameEn?: string | null;
-    nameVi?: string | null;
-}) => customer?.nameZh || customer?.nameEn || customer?.nameVi || customer?.name || null;
-
-const formatAdjustment = (record: any) => ({
-    id: record.id,
-    adjustmentNo: record.adjustmentNo,
-    domain: record.domain,
-    targetType: record.targetType,
-    targetId: record.targetId,
-    targetRef: record.targetRef,
-    orderId: record.orderId,
-    orderNo: record.order?.orderNo || null,
-    batchId: record.batchId,
-    batchNo: record.productBatch?.batchNo || null,
-    productName: record.productBatch?.productName || record.order?.productName || null,
-    customerId: record.customerId || record.order?.customer?.id || null,
-    customerName: getCustomerDisplayName(record.order?.customer),
-    customerNameZh: record.order?.customer?.nameZh || null,
-    customerNameEn: record.order?.customer?.nameEn || null,
-    customerNameVi: record.order?.customer?.nameVi || null,
-    customerDisplayName: getCustomerDisplayName(record.order?.customer),
-    quantityDelta: record.quantityDelta !== null ? Number(record.quantityDelta) : null,
-    amountDelta: record.amountDelta !== null ? Number(record.amountDelta) : null,
-    reason: record.reason,
-    reasonCategory: record.reasonCategory || null,
-    lossType: record.lossType || null,
-    note: record.note,
-    status: record.status,
-    createdBy: record.createdBy,
-    creator: record.creator ? {
-        id: record.creator.id,
-        username: record.creator.username,
-        role: record.creator.role,
-    } : null,
-    approvedBy: record.approvedBy,
-    approver: record.approver ? {
-        id: record.approver.id,
-        username: record.approver.username,
-        role: record.approver.role,
-    } : null,
-    approvedAt: record.approvedAt,
-    appliedAt: record.appliedAt,
-    beforeSnapshot: parseSnapshot(record.beforeSnapshot),
-    afterSnapshot: parseSnapshot(record.afterSnapshot),
-    createdAt: record.createdAt,
-    updatedAt: record.updatedAt,
-});
-
-function parseSnapshot(snapshot: string | null | undefined) {
-    if (!snapshot) {
-        return null;
-    }
-
-    try {
-        return JSON.parse(snapshot);
-    } catch {
-        return snapshot;
-    }
-}
-
-const createAuditLog = async (
-    req: AuthRequest,
-    action: string,
-    details: Record<string, unknown>,
-    resourceId?: number | null,
-) => {
-    await prisma.auditLog.create({
-        data: {
-            userId: req.user!.userId,
-            action,
-            resource: 'adjustment',
-            resourceId: resourceId ?? null,
-            details: JSON.stringify(details),
-            ipAddress: req.ip,
-            userAgent: req.get('user-agent'),
-        },
-    });
-};
-
-const getLedgerSourceType = (domain: AdjustmentDomain, reversed = false) => {
-    if (domain === 'inventory') {
-        return reversed ? 'inventory_reversal' : 'inventory_adjustment';
-    }
-
-    return reversed ? 'production_reversal' : 'production_adjustment';
-};
-
-const recordLedgerFromAdjustment = async (params: {
-    adjustment: any;
-    createdBy: number;
-    reversed?: boolean;
-}) => {
-    const { adjustment, createdBy, reversed = false } = params;
-    if (!adjustment || !['production', 'inventory'].includes(String(adjustment.domain))) {
-      return null;
-    }
-
-    if (!adjustment.batchId) {
-      return null;
-    }
-
-    const batch = await prisma.productBatch.findUnique({
-      where: { id: Number(adjustment.batchId) },
-      select: { stockQuantity: true },
-    });
-
-    if (!batch) {
-      return null;
-    }
-
-    const quantityDelta = Number(adjustment.quantityDelta || 0);
-    const quantityAfter = Number(batch.stockQuantity || 0);
-    const quantityBefore = Number((quantityAfter - quantityDelta).toFixed(6));
-
-    return ProductionCostLedgerService.recordAdjustmentLedger({
-      batchId: Number(adjustment.batchId),
-      adjustmentId: Number(adjustment.id),
-      adjustmentNo: String(adjustment.adjustmentNo),
-      sourceType: getLedgerSourceType(adjustment.domain as AdjustmentDomain, reversed),
-      quantityBefore,
-      quantityDelta,
-      quantityAfter,
-      amountDelta: adjustment.amountDelta !== null && adjustment.amountDelta !== undefined
-        ? Number(adjustment.amountDelta)
-        : null,
-      note: adjustment.note ? String(adjustment.note) : null,
-      createdBy,
-    });
-};
+import {
+    DEFAULT_PAGE_SIZE,
+    MAX_PAGE_SIZE,
+    buildAdjustmentWhere,
+    canOperateAdjustmentDomain,
+    createAuditLog,
+    defaultReasonCategory,
+    formatAdjustment,
+    toNumber,
+} from './adjustment/adjustment-controller.helpers';
 
 export class AdjustmentController {
     async getSummary(req: AuthRequest, res: Response) {
@@ -381,8 +188,13 @@ export class AdjustmentController {
                 ? String(lossType)
                 : (normalizedDomain === 'production' ? 'loss' : normalizedDomain === 'inventory' ? 'count_difference' : null);
 
-            const resolvedOrderId = toNumber(orderId) ?? toNumber(targetId);
-            const resolvedBatchId = toNumber(batchId) ?? toNumber(targetId);
+            const numericTargetId = toNumber(targetId);
+            const resolvedOrderId = normalizedDomain === 'finance'
+                ? toNumber(orderId) ?? numericTargetId
+                : null;
+            const resolvedBatchId = normalizedDomain === 'production' || normalizedDomain === 'inventory'
+                ? toNumber(batchId) ?? numericTargetId
+                : null;
             const resolvedCustomerId = toNumber(customerId);
             const resolvedAmountDelta = toNumber(amountDelta);
             const resolvedQuantityDelta = toNumber(quantityDelta);
@@ -458,17 +270,6 @@ export class AdjustmentController {
                 status: normalizedStatus,
             }, created.adjustment.id);
 
-            try {
-                if (created.adjustment.status === 'posted') {
-                    await recordLedgerFromAdjustment({
-                        adjustment: created.adjustment,
-                        createdBy: req.user!.userId,
-                    });
-                }
-            } catch (ledgerError) {
-                logger.warn('Failed to record adjustment cost ledger', ledgerError);
-            }
-
             res.status(201).json({
                 success: true,
                 data: {
@@ -507,17 +308,6 @@ export class AdjustmentController {
                 adjustmentId: Number(id),
                 status: result.adjustment.status,
             }, Number(id));
-
-            try {
-                if (result.adjustment.status === 'posted') {
-                    await recordLedgerFromAdjustment({
-                        adjustment: result.adjustment,
-                        createdBy: req.user!.userId,
-                    });
-                }
-            } catch (ledgerError) {
-                logger.warn('Failed to record adjustment cost ledger', ledgerError);
-            }
 
             res.json({
                 success: true,
@@ -559,18 +349,6 @@ export class AdjustmentController {
                 adjustmentId: Number(id),
                 note: note ? String(note) : null,
             }, Number(id));
-
-            try {
-                if (result.reverse && result.original.status === 'reversed') {
-                    await recordLedgerFromAdjustment({
-                        adjustment: result.reverse,
-                        createdBy: req.user!.userId,
-                        reversed: true,
-                    });
-                }
-            } catch (ledgerError) {
-                logger.warn('Failed to record adjustment reversal cost ledger', ledgerError);
-            }
 
             res.json({
                 success: true,

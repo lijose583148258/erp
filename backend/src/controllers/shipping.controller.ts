@@ -7,7 +7,6 @@ import { AppError, ErrorCode } from '../middleware/errorHandler';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
-import { RECEIPT_MIME_EXT, storeReceiptFile } from '../services/shipping-receipt-file.service';
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
 import { createShippingReceiptEvent } from './shipping-receipt-event.controller';
 import {
@@ -155,143 +154,29 @@ export class ShippingController {
 
     async uploadReceipt(req: AuthRequest, res: Response) {
         try {
-            if (!canManageShipping(req)) {
-                return res.status(403).json({ success: false, message: '无权上传签收凭证' });
-            }
-
             const shipmentId = Number(req.params.id);
-            const { fileName, mimeType, dataUrl } = req.body;
-
-            if (!fileName || !mimeType || !dataUrl) {
-                return res.status(400).json({ success: false, message: '请上传真实签收凭证文件' });
-            }
-
-            if (!RECEIPT_MIME_EXT[mimeType]) {
-                return res.status(400).json({ success: false, message: '签收文件格式不支持' });
-            }
-
             const existingShipment = await prisma.shipment.findUnique({
                 where: { id: shipmentId },
                 select: {
                     id: true,
                     shipmentNo: true,
                     status: true,
-                    shippedAt: true,
-                    signedReceiptUrl: true,
-                    orderId: true,
-                    productName: true,
                     quantity: true,
                     unit: true,
-                    batchNo: true,
-                    order: {
-                        select: {
-                            shipmentHold: true,
-                        },
-                    },
                 },
             });
 
             if (!existingShipment) {
                 return res.status(404).json({ success: false, message: '发货单不存在' });
             }
-
-            if (existingShipment.order?.shipmentHold && existingShipment.status === 'pending') {
-                return res.status(409).json({ success: false, message: '订单处于发货拦截状态，不能上传签收并推进状态' });
-            }
-
-            if (existingShipment.status === 'delivered') {
-                const shipmentDetail = await getShipmentDetail(existingShipment.id);
-                return res.status(409).json({ success: false, data: shipmentDetail, message: '发货单已签收，不能重复上传凭证' });
-            }
-
-            const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => {
-                const claimed = await claimShipmentReceiptWrite(tx, shipmentId);
-                if (!claimed) {
-                    throw new AppError('SHIPMENT_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
-                }
-
-                const lockedShipment = await tx.shipment.findUnique({
-                    where: { id: shipmentId },
-                    select: {
-                        id: true,
-                        shipmentNo: true,
-                        status: true,
-                        shippedAt: true,
-                        orderId: true,
-                        productName: true,
-                        quantity: true,
-                        unit: true,
-                        batchNo: true,
-                        signedReceiptUrl: true,
-                    },
-                });
-                if (!lockedShipment) {
-                    throw new AppError('SHIPMENT_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
-                }
-                if (lockedShipment.status === 'delivered' || lockedShipment.signedReceiptUrl) {
-                    return null;
-                }
-
-                const receiptTotals = await getShipmentReceiptTotals(tx, lockedShipment.id);
-                if (receiptTotals.receiptCount > 0) {
-                    throw new AppError('SHIPMENT_PARTIAL_RECEIPTS_EXIST', 409, ErrorCode.CONFLICT);
-                }
-
-                let signedReceiptUrl = '';
-                try {
-                    signedReceiptUrl = storeReceiptFile(lockedShipment.shipmentNo, fileName, mimeType, dataUrl);
-                } catch {
-                    throw new AppError('INVALID_RECEIPT_FILE', 400, ErrorCode.VALIDATION_ERROR);
-                }
-
-                const issueResult = await postShippingIssueIfMissing(tx, {
-                    shipmentNo: lockedShipment.shipmentNo,
-                    productName: lockedShipment.productName,
-                    quantity: Number(lockedShipment.quantity || 0),
-                    unit: lockedShipment.unit || 'kg',
-                    batchNo: lockedShipment.batchNo,
-                }, req.user?.userId || null);
-
-                const updateData = {
-                    status: 'delivered',
-                    // 仅当尚未发货时填充 shippedAt（兼容直接签收的极端情况）
-                    ...(lockedShipment.shippedAt ? {} : { shippedAt: new Date() }),
-                    deliveredAt: new Date(),
-                    signedReceiptUrl,
-                    ...(issueResult.issueStock && !lockedShipment.batchNo ? { batchNo: issueResult.issueStock.batchNo } : {}),
-                };
-                await tx.shipment.update({
-                    where: { id: shipmentId },
-                    data: updateData,
-                });
-
-                if (lockedShipment.orderId) {
-                    await syncOrderShipmentState(tx, lockedShipment.orderId);
-                }
-
-                return tx.shipment.findUnique({ where: { id: shipmentId } });
-            }), { label: 'uploadShipmentReceipt' });
-
-            if (!shipment) {
-                const shipmentDetail = await getShipmentDetail(existingShipment.id);
-                return res.status(409).json({ success: false, data: shipmentDetail, message: '发货单已被其他操作推进，请刷新后重试' });
-            }
-
-            const shipmentDetail = await getShipmentDetail(shipment.id);
-
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'UPLOAD_RECEIPT',
-                    resource: 'shipment',
-                    resourceId: shipment.id,
-                    details: `上传签收凭证 ${existingShipment.shipmentNo}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
-            });
-
-            return res.json({ success: true, data: shipmentDetail ?? shipment, message: '签收凭证已上传' });
+            req.body = {
+                ...req.body,
+                quantity: Number(existingShipment.quantity || 0),
+                acceptedQuantity: Number(existingShipment.quantity || 0),
+                rejectedQuantity: 0,
+                note: `Legacy full receipt upload routed to receipt event for ${existingShipment.shipmentNo}`,
+            };
+            return createShippingReceiptEvent(req, res);
         } catch (error) {
             logger.error('上传签收凭证错误:', error);
             const message = error instanceof Error ? error.message : '服务器内部错误';

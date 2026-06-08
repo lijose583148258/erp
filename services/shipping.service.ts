@@ -144,7 +144,8 @@ export const shipmentService = {
             mimeType: file.type || 'application/octet-stream',
             dataUrl,
         });
-        return mapShipment(response.data || {});
+        const data = toApiRecord(response.data || {});
+        return mapShipment(data.shipment || data);
     },
 
     async getReceiptEvents(id: string): Promise<ShipmentReceiptBundle> {

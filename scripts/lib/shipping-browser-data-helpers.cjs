@@ -86,6 +86,8 @@ async function seedShipmentStock({
         batchNo: data.batchNo,
         quantity: data.stockQuantity,
         unit: 'kg',
+        sourceRef: `shipping-browser-audit:${runId}`,
+        reason: 'shipping_browser_seed_stock',
         note: `Shipping browser audit seed ${runId}`,
       },
     });

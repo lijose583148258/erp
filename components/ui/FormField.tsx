@@ -48,6 +48,7 @@ export const FormField: React.FC<Props> = ({
 }) => {
   const baseClass = `app-control w-full ${error ? 'border-rose-300 focus:border-rose-300 focus:ring-rose-100 dark:focus:ring-rose-900/30' : ''} ${inputClassName}`;
   const handleChange = (nextValue: string) => onChange(transformValue ? transformValue(nextValue) : nextValue);
+  const valueTitle = value.length > 18 ? value : undefined;
 
   return (
     <label className={`block space-y-1.5 ${className}`}>
@@ -62,17 +63,19 @@ export const FormField: React.FC<Props> = ({
         <textarea
           data-testid={dataTestId}
           value={value}
+          title={valueTitle}
           onChange={(event) => handleChange(event.target.value)}
           placeholder={placeholder}
           rows={rows}
           disabled={disabled}
           readOnly={readOnly}
-          className={`${baseClass} resize-none`}
+          className={`${baseClass} min-h-[96px] resize-y app-long-text`}
         />
       ) : as === 'select' ? (
         <select
           data-testid={dataTestId}
           value={value}
+          title={valueTitle}
           onChange={(event) => handleChange(event.target.value)}
           disabled={disabled}
           className={baseClass}
@@ -88,6 +91,7 @@ export const FormField: React.FC<Props> = ({
           data-testid={dataTestId}
           type={type}
           value={value}
+          title={valueTitle}
           onChange={(event) => handleChange(event.target.value)}
           placeholder={placeholder}
           disabled={disabled}

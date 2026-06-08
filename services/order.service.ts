@@ -185,6 +185,11 @@ export const orderService = {
         return mapOrderResponse(response.data);
     },
 
+    async complete(id: string): Promise<SalesOrder> {
+        const response = await api.put<unknown, ApiDataResponse<unknown>>(`/orders/${id}/complete`);
+        return mapOrderResponse(response.data);
+    },
+
     async recordPayment(orderId: string, payment: PaymentRecord): Promise<SalesOrder> {
         const response = await api.post<unknown, ApiDataResponse<unknown>>(`/orders/${orderId}/payment`, {
             amount: payment.amount,

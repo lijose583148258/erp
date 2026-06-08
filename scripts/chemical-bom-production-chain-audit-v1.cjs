@@ -177,6 +177,10 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
 
     const preview = await getPreviewConsumption(adminToken, workOrder.id);
     assertPreviewConsumption(preview);
+    const expectedConsumptionByCode = new Map(preview.map(row => [
+      String(row.materialName || ''),
+      Number(row.requiredQty || 0),
+    ]));
     recordStep('preview_consumption', 'passed', {
       previewLineCount: preview.length,
       firstLine: preview[0],
@@ -219,10 +223,20 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       issueTypes: incompleteIssues.map(issue => issue.type),
     });
 
-    const fullConsumption = seededBalances.map(balance => ({
-      stockBalanceId: balance.id,
-      quantity: 1,
-    }));
+    const fullConsumption = preview.map(row => {
+      const pick = Array.isArray(row.pickList) ? row.pickList[0] : null;
+      if (!pick?.stockBalanceId) {
+        fail('Preview consumption did not provide a pick-list stock balance', { row });
+      }
+      const quantity = Number(pick.deductQty || row.requiredQty || 0);
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        fail('Preview consumption produced an invalid deduction quantity', { row, quantity });
+      }
+      return {
+        stockBalanceId: pick.stockBalanceId,
+        quantity,
+      };
+    });
 
     const completed = await completeWorkOrder(adminToken, workOrder.id, {
       status: 'completed',
@@ -261,10 +275,19 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       if (!balance) {
         fail('Raw material stock balance was not found after completion', { code, balances });
       }
-      if (Math.abs(Number(balance.quantity || 0) - 49) > 0.0001) {
-        fail('Raw material stock balance was not deducted correctly', { code, quantity: balance.quantity });
+      const expectedRemaining = 50 - Number(expectedConsumptionByCode.get(code) || 0);
+      if (Math.abs(Number(balance.quantity || 0) - expectedRemaining) > 0.0001) {
+        fail('Raw material stock balance was not deducted correctly', {
+          code,
+          quantity: balance.quantity,
+          expectedRemaining,
+        });
       }
-      rawBalanceChecks.push({ code, quantity: Number(balance.quantity || 0) });
+      rawBalanceChecks.push({
+        code,
+        deductedQuantity: Number(expectedConsumptionByCode.get(code) || 0),
+        quantity: Number(balance.quantity || 0),
+      });
     }
     recordStep('read_back_raw_material_deduction', 'passed', {
       checkedCount: rawBalanceChecks.length,

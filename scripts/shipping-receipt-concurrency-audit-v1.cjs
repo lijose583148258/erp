@@ -140,6 +140,8 @@ async function seedFinishedGoods(token, productName, batchNo, quantity) {
       batchNo,
       quantity,
       unit: 'kg',
+      sourceRef: `SHIPPING-RECEIPT-CONCURRENCY-STOCK-SEED-${RUN_ID}-${batchNo}`,
+      reason: 'shipping_receipt_concurrency_seed',
       note: `shipping receipt concurrency audit ${RUN_ID}`,
     },
   }, token));
@@ -428,8 +430,8 @@ async function runLegacyUploadRace(managerToken, salesToken) {
     if (partialResult.status !== 409) fail('Partial receipt should conflict after legacy upload wins', { partialResult });
     if (finalShipment.status !== 'delivered') fail('Legacy-wins final shipment should be delivered', { finalShipment });
     if (!finalShipment.signedReceiptUrl) fail('Legacy-wins final shipment should have receipt URL', { finalShipment });
-    if (finalTotals.receiptCount !== 0 || finalTotals.processedQuantity !== 0) {
-      fail('Legacy-wins final receipt totals should stay empty', { finalTotals });
+    if (finalTotals.receiptCount !== 1 || finalTotals.processedQuantity !== ctx.quantity) {
+      fail('Legacy-wins final receipt totals should be represented by one full receipt event', { finalTotals, ctx });
     }
   }
 

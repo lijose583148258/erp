@@ -1,10 +1,12 @@
 ﻿import prisma from '../config/database';
+import type { Prisma } from '@prisma/client';
 import { CollectionStateService } from './collection-state.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { getOutstandingAmount } from './collection/collection.helpers';
 
 const ACTIVE_DISPUTE_STATUSES = ['open', 'reviewing'] as const;
+type CollectionMutationDb = typeof prisma | Prisma.TransactionClient;
 export const PROMISE_AMOUNT_EXCEEDS_OUTSTANDING = 'PROMISE_AMOUNT_EXCEEDS_OUTSTANDING';
 export const DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING = 'DISPUTE_AMOUNT_EXCEEDS_OUTSTANDING';
 export const getCollectionMutationConflictMessage = (error: unknown) => {
@@ -54,15 +56,15 @@ function assertDisputeTransition(currentStatus: string, nextStatus: 'reviewing' 
     }
 }
 
-async function syncOrderDisputeShipmentHold(orderId: number) {
+async function syncOrderDisputeShipmentHold(db: CollectionMutationDb, orderId: number) {
     const [activeDisputes, order] = await Promise.all([
-        prisma.collectionDispute.count({
+        db.collectionDispute.count({
             where: {
                 orderId,
                 status: { in: [...ACTIVE_DISPUTE_STATUSES] },
             },
         }),
-        prisma.order.findUnique({
+        db.order.findUnique({
             where: { id: orderId },
             select: {
                 id: true,
@@ -77,7 +79,7 @@ async function syncOrderDisputeShipmentHold(orderId: number) {
     }
 
     if (activeDisputes > 0) {
-        await prisma.order.update({
+        await db.order.update({
             where: { id: orderId },
             data: {
                 shipmentHold: true,
@@ -90,7 +92,7 @@ async function syncOrderDisputeShipmentHold(orderId: number) {
     }
 
     if (order.shipmentHoldSource === 'dispute') {
-        await prisma.order.update({
+        await db.order.update({
             where: { id: orderId },
             data: {
                 shipmentHold: false,
@@ -155,7 +157,7 @@ export class CollectionMutationService {
                 throw new Error(PROMISE_AMOUNT_EXCEEDS_OUTSTANDING);
             }
 
-            return tx.collectionPromise.create({
+            const record = await tx.collectionPromise.create({
                 data: {
                     promiseNo: buildBusinessNo('PRM'),
                     customerId: input.customerId,
@@ -170,9 +172,10 @@ export class CollectionMutationService {
                     status: 'open',
                 },
             });
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, input.customerId);
+            return record;
         }), { label: 'createPromiseToPay' });
 
-        await CollectionStateService.refreshCustomerCollectionState(input.customerId);
         return promise;
     }
 
@@ -229,12 +232,9 @@ export class CollectionMutationService {
                 throw new Error('Promise record not found');
             }
 
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, record.customerId);
             return { changed: true, customerId: record.customerId, record };
         }), { label: 'updatePromiseStatus' });
-
-        if (result.changed) {
-            await CollectionStateService.refreshCustomerCollectionState(result.customerId);
-        }
 
         return result.record;
     }
@@ -293,7 +293,7 @@ export class CollectionMutationService {
                 }
             }
 
-            return tx.collectionDispute.create({
+            const record = await tx.collectionDispute.create({
                 data: {
                     disputeNo: buildBusinessNo('DSP'),
                     customerId: input.customerId,
@@ -307,11 +307,11 @@ export class CollectionMutationService {
                     status: 'open',
                 },
             });
+            await syncOrderDisputeShipmentHold(tx, input.orderId);
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, input.customerId);
+            return record;
         }), { label: 'createDispute' });
 
-        await syncOrderDisputeShipmentHold(input.orderId);
-
-        await CollectionStateService.refreshCustomerCollectionState(input.customerId);
         return dispute;
     }
 
@@ -371,13 +371,10 @@ export class CollectionMutationService {
                 throw new Error('Dispute record not found');
             }
 
+            await syncOrderDisputeShipmentHold(tx, record.orderId);
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, record.customerId);
             return { changed: true, customerId: record.customerId, orderId: record.orderId, record };
         }), { label: 'updateDisputeStatus' });
-
-        if (result.changed) {
-            await syncOrderDisputeShipmentHold(result.orderId);
-            await CollectionStateService.refreshCustomerCollectionState(result.customerId);
-        }
 
         return result.record;
     }
@@ -398,14 +395,15 @@ export class CollectionMutationService {
             data.shipmentHoldUpdatedAt = now;
         }
 
-        const customer = await prisma.customer.update({
-            where: { id: customerId },
-            data,
-            select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true },
-        });
-
-        await CollectionStateService.refreshCustomerCollectionState(customerId);
-        return customer;
+        return withDbRetry(() => prisma.$transaction(async tx => {
+            const customer = await tx.customer.update({
+                where: { id: customerId },
+                data,
+                select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true },
+            });
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, customerId);
+            return customer;
+        }), { label: 'setCustomerHold' });
     }
 
     static async releaseCustomerHold(customerId: number, type: 'credit' | 'shipment') {
@@ -424,67 +422,70 @@ export class CollectionMutationService {
             data.shipmentHoldUpdatedAt = now;
         }
 
-        const customer = await prisma.customer.update({
-            where: { id: customerId },
-            data,
-            select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true },
-        });
-
-        await CollectionStateService.refreshCustomerCollectionState(customerId);
-        return customer;
+        return withDbRetry(() => prisma.$transaction(async tx => {
+            const customer = await tx.customer.update({
+                where: { id: customerId },
+                data,
+                select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true },
+            });
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, customerId);
+            return customer;
+        }), { label: 'releaseCustomerHold' });
     }
 
     static async setOrderShipmentHold(orderId: number, reason: string, source = 'manual') {
         const now = new Date();
-        const order = await prisma.order.update({
-            where: { id: orderId },
-            data: {
-                shipmentHold: true,
-                shipmentHoldReason: reason,
-                shipmentHoldSource: source,
-                shipmentHoldUpdatedAt: now,
-            },
-            select: {
-                id: true,
-                orderNo: true,
-                customerId: true,
-            },
-        });
-
-        await CollectionStateService.refreshCustomerCollectionState(order.customerId);
-        return order;
+        return withDbRetry(() => prisma.$transaction(async tx => {
+            const order = await tx.order.update({
+                where: { id: orderId },
+                data: {
+                    shipmentHold: true,
+                    shipmentHoldReason: reason,
+                    shipmentHoldSource: source,
+                    shipmentHoldUpdatedAt: now,
+                },
+                select: {
+                    id: true,
+                    orderNo: true,
+                    customerId: true,
+                },
+            });
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, order.customerId);
+            return order;
+        }), { label: 'setOrderShipmentHold' });
     }
 
     static async releaseOrderShipmentHold(orderId: number) {
-        const activeDisputes = await prisma.collectionDispute.count({
-            where: {
-                orderId,
-                status: { in: [...ACTIVE_DISPUTE_STATUSES] },
-            },
-        });
+        return withDbRetry(() => prisma.$transaction(async tx => {
+            const activeDisputes = await tx.collectionDispute.count({
+                where: {
+                    orderId,
+                    status: { in: [...ACTIVE_DISPUTE_STATUSES] },
+                },
+            });
 
-        if (activeDisputes > 0) {
-            throw new Error('Order still has active disputes and cannot release shipment hold');
-        }
+            if (activeDisputes > 0) {
+                throw new Error('Order still has active disputes and cannot release shipment hold');
+            }
 
-        const now = new Date();
-        const order = await prisma.order.update({
-            where: { id: orderId },
-            data: {
-                shipmentHold: false,
-                shipmentHoldReason: null,
-                shipmentHoldSource: null,
-                shipmentHoldUpdatedAt: now,
-            },
-            select: {
-                id: true,
-                orderNo: true,
-                customerId: true,
-            },
-        });
-
-        await CollectionStateService.refreshCustomerCollectionState(order.customerId);
-        return order;
+            const now = new Date();
+            const order = await tx.order.update({
+                where: { id: orderId },
+                data: {
+                    shipmentHold: false,
+                    shipmentHoldReason: null,
+                    shipmentHoldSource: null,
+                    shipmentHoldUpdatedAt: now,
+                },
+                select: {
+                    id: true,
+                    orderNo: true,
+                    customerId: true,
+                },
+            });
+            await CollectionStateService.refreshCustomerCollectionStateTx(tx, order.customerId);
+            return order;
+        }), { label: 'releaseOrderShipmentHold' });
     }
 }
 

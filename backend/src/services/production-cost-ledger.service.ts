@@ -54,6 +54,19 @@ export interface InventoryCostLedgerRecord {
   createdAt: string;
 }
 
+export interface AdjustmentCostLedgerInput {
+  batchId: number;
+  adjustmentId: number;
+  adjustmentNo: string;
+  sourceType: InventoryCostLedgerSourceType;
+  quantityBefore: number;
+  quantityDelta: number;
+  quantityAfter: number;
+  amountDelta?: number | null;
+  note?: string | null;
+  createdBy: number;
+}
+
 export interface InventoryCostLedgerBatchSummary {
   totalQuantityDelta: number;
   totalCostAmountDelta: number;
@@ -405,19 +418,8 @@ export class ProductionCostLedgerService {
     });
   }
 
-  static async recordAdjustmentLedger(input: {
-    batchId: number;
-    adjustmentId: number;
-    adjustmentNo: string;
-    sourceType: InventoryCostLedgerSourceType;
-    quantityBefore: number;
-    quantityDelta: number;
-    quantityAfter: number;
-    amountDelta?: number | null;
-    note?: string | null;
-    createdBy: number;
-  }) {
-    return withDbRetry(() => prisma.$transaction(async tx => insertLedgerRow(tx, {
+  static async recordAdjustmentLedgerTx(tx: any, input: AdjustmentCostLedgerInput) {
+    return insertLedgerRow(tx, {
       batchId: input.batchId,
       sourceType: input.sourceType,
       sourceRef: input.adjustmentNo,
@@ -428,7 +430,11 @@ export class ProductionCostLedgerService {
       costAmountDelta: input.amountDelta ?? null,
       note: input.note || null,
       createdBy: input.createdBy,
-    })), { label: 'recordAdjustmentLedger' });
+    });
+  }
+
+  static async recordAdjustmentLedger(input: AdjustmentCostLedgerInput) {
+    return withDbRetry(() => prisma.$transaction(async tx => this.recordAdjustmentLedgerTx(tx, input)), { label: 'recordAdjustmentLedger' });
   }
 
   static async listByBatchId(batchId: number, options: { page?: number; pageSize?: number } = {}) {

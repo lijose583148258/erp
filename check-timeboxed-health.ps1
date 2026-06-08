@@ -6,6 +6,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+Write-Host "NOTE: check:timebox is a side-effectful preflight, not a pure health probe."
+Write-Host "It builds the backend and creates a database backup. For pure runtime health use: npm run check:runtime"
+Write-Host ""
+
 function Invoke-TimeboxedCommand {
     param(
         [Parameter(Mandatory = $true)][string]$Name,

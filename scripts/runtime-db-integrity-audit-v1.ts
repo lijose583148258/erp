@@ -18,6 +18,15 @@ const { auditRuntimeSchema } = requireFromScript('../backend/src/database/runtim
     issues: Array<Record<string, unknown>>;
   }>;
 };
+const {
+  classifyShadowDb,
+  isGovernedShadowDb,
+  shadowDbGovernanceNote,
+} = requireFromScript('./lib/runtime-db-governance.cjs') as {
+  classifyShadowDb: (relativePath: string) => string;
+  isGovernedShadowDb: (relativePath: string) => boolean;
+  shadowDbGovernanceNote: (classification: string) => string;
+};
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
@@ -48,12 +57,20 @@ const REQUIRED_TABLES = [
 
 type SqliteNameRow = { name: string };
 type IntegrityRow = Record<string, unknown>;
-type FindingLevel = 'P0' | 'P1' | 'P2';
+type FindingLevel = 'P0' | 'P1' | 'P2' | 'P3';
 
 type Finding = {
   level: FindingLevel;
   area: string;
   message: string;
+};
+
+type ShadowDbWarning = {
+  path: string;
+  relativePath: string;
+  classification: string;
+  governance: 'governed-quarantined' | 'unresolved';
+  governanceNote: string;
 };
 
 const normalizeSqlitePath = (filePath: string | null) =>
@@ -68,8 +85,11 @@ const getIntegrityMessages = (rows: IntegrityRow[]) =>
     .map(row => String(Object.values(row)[0] ?? ''))
     .filter(Boolean);
 
+const toRepoRelativePath = (filePath: string) =>
+  path.relative(ROOT, filePath).replace(/\\/g, '/');
+
 const getShadowDbWarnings = (runtimeDbPath: string | null) => {
-  const warnings: string[] = [];
+  const warnings: ShadowDbWarning[] = [];
   const normalizedRuntime = normalizeSqlitePath(runtimeDbPath);
   const candidates = [
     path.join(ROOT, 'backend', 'prisma', '%LOCALAPPDATA%', 'AilaoDaRuntime', 'stable.db'),
@@ -83,7 +103,16 @@ const getShadowDbWarnings = (runtimeDbPath: string | null) => {
     const normalizedCandidate = normalizeSqlitePath(candidate);
     if (!normalizedCandidate || normalizedCandidate === normalizedRuntime) continue;
     if (fs.existsSync(candidate)) {
-      warnings.push(normalizedCandidate);
+      const relativePath = toRepoRelativePath(candidate);
+      const classification = classifyShadowDb(relativePath);
+      const governed = isGovernedShadowDb(relativePath);
+      warnings.push({
+        path: normalizedCandidate,
+        relativePath,
+        classification,
+        governance: governed ? 'governed-quarantined' : 'unresolved',
+        governanceNote: shadowDbGovernanceNote(classification),
+      });
     }
   }
 
@@ -141,8 +170,17 @@ const run = async () => {
   }
 
   const shadowDbWarnings = getShadowDbWarnings(sqlitePath);
-  for (const shadowDbPath of shadowDbWarnings) {
-    addFinding(findings, 'P2', 'shadow-db', `Historical SQLite file exists outside the active runtime path: ${shadowDbPath}`);
+  for (const shadowDb of shadowDbWarnings) {
+    if (shadowDb.governance === 'governed-quarantined') {
+      addFinding(
+        findings,
+        'P3',
+        'governed-shadow-db',
+        `Historical SQLite file is governed and quarantined from the active runtime path: ${shadowDb.path} (${shadowDb.governanceNote})`,
+      );
+      continue;
+    }
+    addFinding(findings, 'P2', 'shadow-db', `Historical SQLite file exists outside the active runtime path and is not governed: ${shadowDb.path}`);
   }
 
   let tables: SqliteNameRow[] = [];
@@ -204,13 +242,16 @@ const run = async () => {
       schemaIssueCount: schemaAudit.issueCount,
       missingRequiredTableCount: missingRequiredTables.length,
       shadowDbWarningCount: shadowDbWarnings.length,
+      governedShadowDbWarningCount: shadowDbWarnings.filter(item => item.governance === 'governed-quarantined').length,
+      unresolvedShadowDbWarningCount: shadowDbWarnings.filter(item => item.governance === 'unresolved').length,
     },
     findings,
     missingRequiredTables,
     integrityMessages,
     foreignKeyViolations,
     schemaIssues: schemaAudit.issues,
-    shadowDbWarnings,
+    shadowDbWarnings: shadowDbWarnings.map(item => item.path),
+    shadowDbWarningDetails: shadowDbWarnings,
     reports: {
       json: JSON_REPORT,
       markdown: MD_REPORT,

@@ -2,6 +2,7 @@ import React from 'react';
 import type { ProductBatch } from '../../services/asset.service';
 import type { AdjustmentRecord } from '../../services/adjustment.service';
 import type { ProductionWorkOrderStatus } from '../../services/production.service';
+import { getStatusBorderBadgeClassName } from '../../components/ui/StatusBadge';
 import { WO_LABELS } from './productionWorkspaceConfig';
 
 export const SectionHeader = ({ title, subtitle }: { title: string; subtitle: string }) => (
@@ -36,6 +37,7 @@ export const Field = ({
   placeholder,
   type = 'text',
   readOnly = false,
+  dataTestId,
 }: {
   label: string;
   value: string;
@@ -43,10 +45,12 @@ export const Field = ({
   placeholder: string;
   type?: string;
   readOnly?: boolean;
+  dataTestId?: string;
 }) => (
   <label className="block">
     <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
     <input
+      data-testid={dataTestId}
       value={value}
       readOnly={readOnly}
       onChange={readOnly ? undefined : e => onChange(e.target.value)}
@@ -62,24 +66,26 @@ export const SelectField = ({
   value,
   onChange,
   options,
+  dataTestId,
 }: {
   label: string;
   value: string;
   onChange: (value: any) => void;
   options: Array<{ value: string; label: string }>;
+  dataTestId?: string;
 }) => (
   <label className="block">
     <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
-    <select value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700">
+    <select data-testid={dataTestId} value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700">
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
   </label>
 );
 
-export const TextareaField = ({ label, value, onChange, placeholder }: { label: string; value: string; onChange: (value: string) => void; placeholder: string }) => (
+export const TextareaField = ({ label, value, onChange, placeholder, dataTestId }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; dataTestId?: string }) => (
   <label className="block">
     {label ? <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span> : null}
-    <textarea value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full min-h-24 px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
+    <textarea data-testid={dataTestId} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full min-h-24 px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
   </label>
 );
 
@@ -108,19 +114,19 @@ export const MiniTag = ({ label }: { label: string }) => (
 );
 
 export const BatchBadge = ({ status }: { status?: ProductBatch['status'] }) => (
-  <span className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${status === 'expired' ? 'bg-rose-50 text-rose-600 border-rose-100 dark:bg-rose-900/20 dark:border-rose-800' : status === 'expiring' ? 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20 dark:border-amber-800' : 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800'}`}>
+  <span className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${getStatusBorderBadgeClassName(status || 'healthy')}`}>
     {status === 'expired' ? '已过期' : status === 'expiring' ? '临期' : '正常'}
   </span>
 );
 
 export const AdjustmentBadge = ({ status }: { status: AdjustmentRecord['status'] }) => (
-  <span className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${status === 'posted' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800' : status === 'reversed' ? 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:border-slate-700' : 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20 dark:border-amber-800'}`}>
+  <span className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${getStatusBorderBadgeClassName(status)}`}>
     {status === 'posted' ? '已生效' : status === 'reversed' ? '已冲销' : '待处理'}
   </span>
 );
 
-export const StatusBadge = ({ status }: { status: ProductionWorkOrderStatus }) => (
-  <span className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${status === 'completed' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800' : status === 'qc_pending' ? 'bg-amber-50 text-amber-600 border-amber-100 dark:bg-amber-900/20 dark:border-amber-800' : status === 'in_progress' ? 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:border-blue-800' : 'bg-slate-100 text-slate-500 border-slate-200 dark:bg-slate-800 dark:border-slate-700'}`}>
+export const WorkOrderStatusBadge = ({ status }: { status: ProductionWorkOrderStatus }) => (
+  <span className={`px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${getStatusBorderBadgeClassName(status)}`}>
     {WO_LABELS[status]}
   </span>
 );

@@ -29,7 +29,7 @@ const App: React.FC = () => {
                         setActiveTab={shell.setActiveTab} 
                     />
                     <Layout activeTab={shell.activeTab} setActiveTab={shell.setActiveTab} onLogout={shell.handleLogout}>
-                        <Suspense fallback={<div className="min-h-[50vh] flex items-center justify-center text-slate-400 font-black uppercase tracking-[0.25em]">Loading...</div>}>
+                        <Suspense fallback={<div className="min-h-[50vh] flex items-center justify-center text-slate-600 font-black">正在加载...</div>}>
                             <div className="animate-in fade-in zoom-in-95 duration-500 min-h-full pb-32 lg:pb-0">
                                 {shell.content}
                             </div>

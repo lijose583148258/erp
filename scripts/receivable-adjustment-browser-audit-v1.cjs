@@ -7,6 +7,8 @@ const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright', 'receivable-
 const REPORT_PATH = path.join(process.cwd(), 'output', 'playwright', 'receivable-adjustment-browser-audit-report-v1.json');
 const SCRIPT_TIMEOUT_MS = 290_000;
 const STEP_TIMEOUT_MS = 20_000;
+const FLOW_TIMEOUT_MS = 60_000;
+const REVERSE_DIALOG_TEST_ID = 'receivable-adjustment-reverse-dialog';
 const ADMIN = { username: 'admin', password: 'admin123' };
 const SALES = { username: 'sales', password: 'sales123' };
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}`;
@@ -217,8 +219,14 @@ async function openFinancePage(page) {
 }
 
 async function createAdjustmentByUi(page, order) {
-  return withTimeout('create-adjustment-by-ui', STEP_TIMEOUT_MS, async () => {
+  return withTimeout('create-adjustment-by-ui', FLOW_TIMEOUT_MS, async () => {
     const reason = `RA-UI-${RUN_ID}`;
+    await page.waitForFunction(
+      (orderId) => Array.from(document.querySelectorAll('#receivable-adjustment-order-options option'))
+        .some((option) => String(option.getAttribute('value') || '').includes(`ID:${orderId}`)),
+      order.id,
+      { timeout: STEP_TIMEOUT_MS },
+    );
     await page.getByTestId('receivable-adjustment-order').fill(`ID:${order.id}`);
     await page.getByTestId('receivable-adjustment-type').selectOption('discount_allowance');
     await page.getByTestId('receivable-adjustment-amount').fill('12.34');
@@ -229,6 +237,10 @@ async function createAdjustmentByUi(page, order) {
     const created = await waitForAdjustment(page, order.id, reason, 'pending');
     report.seeded.adjustmentId = created.id;
     report.seeded.adjustmentNo = created.adjustmentNo;
+    const ledgerSearch = page.getByTestId('receivable-adjustment-search');
+    if (await ledgerSearch.count()) {
+      await ledgerSearch.fill(created.adjustmentNo);
+    }
     await page.waitForSelector(`[data-testid="receivable-adjustment-post-${created.id}"]`, { timeout: STEP_TIMEOUT_MS });
     return created;
   });
@@ -247,8 +259,16 @@ async function waitForAdjustment(page, orderId, reason, expectedStatus) {
 }
 
 async function verifySalesOrderPaymentModal(page, order) {
-  return withTimeout('verify-sales-order-payment-modal-effective-receivable', STEP_TIMEOUT_MS, async () => {
+  return withTimeout('verify-sales-order-payment-modal-effective-receivable', FLOW_TIMEOUT_MS, async () => {
     await page.goto(`${APP_URL}#orders`, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT_MS });
+    const paymentDesk = page.getByTestId('sales-desk-payments');
+    await paymentDesk.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS });
+    await paymentDesk.click();
+    await page.waitForSelector('[data-testid="sales-order-payments-boundary-notice"]', { timeout: STEP_TIMEOUT_MS });
+    const searchInput = page.getByTestId('sales-order-search');
+    if (await searchInput.count()) {
+      await searchInput.fill(String(order.orderNo || order.id));
+    }
     const row = page.getByTestId(`sales-order-row-${makeTestId(order.id)}`);
     await row.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS });
     await row.getByTestId('sales-order-payment-button').click();
@@ -266,7 +286,7 @@ async function verifySalesOrderPaymentModal(page, order) {
 }
 
 async function postAndReverseByUi(page, order, adjustment) {
-  return withTimeout('post-and-reverse-by-ui', STEP_TIMEOUT_MS, async () => {
+  return withTimeout('post-and-reverse-by-ui', FLOW_TIMEOUT_MS, async () => {
     await page.getByTestId(`receivable-adjustment-post-${adjustment.id}`).click();
     await waitForAdjustment(page, order.id, adjustment.reason, 'posted');
     const afterPost = await apiFetch(page, `/orders/${order.id}`);
@@ -281,10 +301,10 @@ async function postAndReverseByUi(page, order, adjustment) {
     await verifySalesOrderPaymentModal(page, order);
     await openFinancePage(page);
 
-    page.once('dialog', async (dialog) => {
-      await dialog.accept(`browser reverse ${RUN_ID}`);
-    });
     await page.getByTestId(`receivable-adjustment-reverse-${adjustment.id}`).click();
+    await page.getByTestId(REVERSE_DIALOG_TEST_ID).waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS });
+    await page.getByTestId(`${REVERSE_DIALOG_TEST_ID}-input`).fill(`browser reverse ${RUN_ID}`);
+    await page.getByTestId(`${REVERSE_DIALOG_TEST_ID}-confirm`).click();
     await waitForAdjustment(page, order.id, adjustment.reason, 'reversed');
     const afterReverse = await apiFetch(page, `/orders/${order.id}`);
     assert(afterReverse.ok && afterReverse.json?.data, 'order readback after reverse failed', afterReverse);

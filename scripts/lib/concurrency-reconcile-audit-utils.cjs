@@ -142,6 +142,7 @@ function createConcurrencyApiClient({ apiBase, runId }) {
 
   async function seedStock(token, code, productName, batchNo, quantity) {
     const location = await resolveLocation(token, code);
+    const seedRef = `concurrency-audit-seed:${runId}:${code}:${batchNo}`;
     const response = await apiFetch('/warehouses/stock-balances', {
       method: 'POST',
       data: {
@@ -150,6 +151,8 @@ function createConcurrencyApiClient({ apiBase, runId }) {
         batchNo,
         quantity,
         unit: 'kg',
+        sourceRef: seedRef,
+        reason: 'concurrency_audit_seed_stock',
         note: `concurrency-audit-${runId}-${code}`,
       },
     }, token);

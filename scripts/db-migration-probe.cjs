@@ -2,7 +2,7 @@ const { execFileSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 
-const REPORT_DIR = path.join(process.cwd(), 'output', 'playwright');
+const REPORT_DIR = path.join(process.cwd(), 'output', 'audit');
 const REPORT_PATH = path.join(REPORT_DIR, 'db-migration-probe-report.json');
 const SCHEMA_DIR = path.join(process.cwd(), 'backend', 'prisma');
 const SCHEMA_PATH = path.join(SCHEMA_DIR, 'schema.prisma');

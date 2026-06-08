@@ -1,6 +1,7 @@
 import { ProductBatch } from '../../services/asset.service';
 import { ExtractedFormData, OcrDocumentData, matchCustomer } from '../../services/smartFormService';
 import { CommissionStatus, Customer, ExtraItem, OrderStatus, SalesOrder, SalesOrderItem } from '../../types';
+import type { CurrentUser } from '../../types';
 
 export const createEmptySalesOrderItem = (): SalesOrderItem => ({
     sku: '',
@@ -152,6 +153,115 @@ export const calculateOrderTotals = (formData: SalesOrderFormData) => {
     const grandTotal = subtotal + totalTax;
     const estComm = grandTotal * (formData.commissionRateSubmitted / 100);
     return { subtotal, totalDiscount, totalTax, grandTotal, estComm, totalCBM, totalWeight };
+};
+
+export type SalesOrderTotals = ReturnType<typeof calculateOrderTotals>;
+
+export type SalesOrderLineErrors = Record<number, string[]>;
+
+const isBlankOrderLine = (item: SalesOrderItem) =>
+    !String(item.productName || '').trim()
+    && !String(item.packagingSpec || '').trim()
+    && Number(item.quantity || 0) <= 0
+    && !String(item.unit || '').trim()
+    && Number(item.unitPrice || 0) <= 0
+    && Number(item.discount || 0) <= 0
+    && Number(item.taxAmount || 0) <= 0;
+
+export const validateSalesOrderItems = (items: SalesOrderItem[]): SalesOrderLineErrors => {
+    const errors: SalesOrderLineErrors = {};
+    const effectiveItems = items.filter(item => !isBlankOrderLine(item));
+
+    if (!effectiveItems.length) {
+        errors[0] = ['至少录入一行商品明细'];
+        return errors;
+    }
+
+    items.forEach((item, index) => {
+        if (isBlankOrderLine(item)) return;
+
+        const lineErrors: string[] = [];
+        const quantity = Number(item.quantity || 0);
+        const unitPrice = Number(item.unitPrice || 0);
+        const discount = Number(item.discount || 0);
+        const taxAmount = Number(item.taxAmount || 0);
+
+        if (!String(item.productName || '').trim()) lineErrors.push('商品名称不能为空');
+        if (quantity <= 0) lineErrors.push('数量必须大于 0');
+        if (!String(item.unit || '').trim()) lineErrors.push('单位不能为空');
+        if (unitPrice < 0) lineErrors.push('单价不能为负数');
+        if (discount < 0) lineErrors.push('折扣不能为负数');
+        if (taxAmount < 0) lineErrors.push('税额不能为负数');
+        if (discount > quantity * unitPrice) lineErrors.push('折扣不能大于本行未税金额');
+
+        if (lineErrors.length) errors[index] = lineErrors;
+    });
+
+    return errors;
+};
+
+export const getFirstSalesOrderLineError = (errors: SalesOrderLineErrors) => {
+    const firstIndex = Object.keys(errors)
+        .map(Number)
+        .sort((a, b) => a - b)[0];
+
+    if (firstIndex === undefined) return null;
+
+    return {
+        index: firstIndex,
+        messages: errors[firstIndex] || [],
+    };
+};
+
+export const getValidSalesOrderItems = (items: SalesOrderItem[]) =>
+    items.filter(item => !isBlankOrderLine(item));
+
+export const buildSalesOrderSavePayload = (params: {
+    formData: SalesOrderFormData;
+    isEditMode: boolean;
+    selectedOrder: SalesOrder | null;
+    customer?: Customer;
+    customerLabel: string;
+    currentUser: CurrentUser;
+    totals: SalesOrderTotals;
+}): SalesOrder => {
+    const {
+        formData,
+        isEditMode,
+        selectedOrder,
+        customer,
+        customerLabel,
+        currentUser,
+        totals,
+    } = params;
+    const normalizedCustomerId = Number(formData.customerId);
+
+    return {
+        id: isEditMode ? formData.id : '',
+        customerId: String(normalizedCustomerId),
+        customerName: customerLabel || customer?.name || 'Unknown',
+        customerNameZh: customer?.nameZh,
+        customerNameEn: customer?.nameEn,
+        customerNameVi: customer?.nameVi,
+        customerDisplayName: customer ? customerLabel : undefined,
+        orderDate: isEditMode && selectedOrder ? selectedOrder.orderDate : new Date().toISOString().split('T')[0],
+        items: getValidSalesOrderItems(formData.items).map(it => ({ ...it, amount: (it.unitPrice * it.quantity) - (it.discount || 0) })),
+        extraItems: formData.extraItems,
+        notes: formData.notes,
+        taxInclusive: formData.taxInclusive,
+        discountTotal: totals.totalDiscount,
+        taxTotal: totals.totalTax,
+        paymentTermsDays: formData.paymentTermsDays,
+        totalAmount: totals.grandTotal,
+        paidAmount: isEditMode && selectedOrder ? selectedOrder.paidAmount : 0,
+        paymentRecords: isEditMode && selectedOrder ? selectedOrder.paymentRecords : [],
+        status: isEditMode && selectedOrder ? selectedOrder.status : OrderStatus.PENDING,
+        paymentStatus: isEditMode && selectedOrder ? selectedOrder.paymentStatus : 'unpaid',
+        commissionAmount: totals.estComm,
+        commissionStatus: isEditMode && selectedOrder ? selectedOrder.commissionStatus : CommissionStatus.PENDING,
+        salespersonId: isEditMode && selectedOrder ? selectedOrder.salespersonId : currentUser.id,
+        historyLogs: isEditMode && selectedOrder ? selectedOrder.historyLogs : [],
+    };
 };
 
 export const updateDimensionalItem = (item: SalesOrderItem) => {

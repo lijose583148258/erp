@@ -33,6 +33,10 @@ function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
 }
 
+function readReceiptShipmentStatus(responseJson) {
+  return responseJson?.data?.shipment?.status || responseJson?.data?.status || null;
+}
+
 async function apiFetch(endpoint, options = {}, token = '') {
   const response = await fetch(`${APP_URL}api${endpoint}`, {
     method: options.method || 'GET',
@@ -137,6 +141,8 @@ async function seedFinishedGoodsStock(token, productName = DATA.shipmentProduct,
       batchNo,
       quantity,
       unit: '件',
+      sourceRef: `SHIPPING-API-STOCK-SEED-${RUN_ID}-${batchNo}`,
+      reason: 'shipping_api_audit_seed',
       note: `Shipping API audit seed ${RUN_ID}`,
     },
   }, token);
@@ -321,7 +327,7 @@ async function run() {
     if (!uploadReceipt.ok) {
       throw new Error(`upload receipt failed: ${uploadReceipt.status} — ${JSON.stringify(uploadReceipt.json)}`);
     }
-    report.shipment.status = uploadReceipt.json?.data?.status || 'delivered';
+    report.shipment.status = readReceiptShipmentStatus(uploadReceipt.json) || 'delivered';
     recordStep({ step: 'upload-receipt', result: 'passed', shipmentId: shipment.id });
 
     const duplicateReceipt = await apiFetch(`/shipping/${shipment.id}/receipt`, {
@@ -400,6 +406,15 @@ async function run() {
     }
     const directShipment = createDirectShipment.json?.data;
 
+    const dispatchDirectShipment = await apiFetch(`/shipping/${directShipment.id}/status`, {
+      method: 'PATCH',
+      data: { status: 'in_transit' },
+    }, manager.token);
+    if (!dispatchDirectShipment.ok) {
+      throw new Error(`dispatch direct receipt shipment failed: ${dispatchDirectShipment.status} - ${JSON.stringify(dispatchDirectShipment.json)}`);
+    }
+    recordStep({ step: 'dispatch-direct-receipt-shipment', result: 'passed', shipmentId: directShipment.id });
+
     const uploadDirectReceipt = await apiFetch(`/shipping/${directShipment.id}/receipt`, {
       method: 'POST',
       data: {
@@ -411,8 +426,9 @@ async function run() {
     if (!uploadDirectReceipt.ok) {
       throw new Error(`direct receipt upload failed: ${uploadDirectReceipt.status} — ${JSON.stringify(uploadDirectReceipt.json)}`);
     }
-    if (String(uploadDirectReceipt.json?.data?.status) !== 'delivered') {
-      throw new Error(`direct receipt expected delivered, got ${uploadDirectReceipt.json?.data?.status}`);
+    const directReceiptStatus = readReceiptShipmentStatus(uploadDirectReceipt.json);
+    if (String(directReceiptStatus) !== 'delivered') {
+      throw new Error(`direct receipt expected delivered, got ${directReceiptStatus}`);
     }
     const directIssueEvidence = await verifyShippingIssue(
       manager.token,

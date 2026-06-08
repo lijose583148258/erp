@@ -26,6 +26,19 @@ const REQUEST_TIMEOUT_MS = Number(process.env.AUDIT_REQUEST_TIMEOUT_MS || 10000)
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
 const JSON_REPORT = path.join(OUTPUT_DIR, 'backup-restore-data-fingerprint-audit-v1.json');
 const MD_REPORT = path.join(OUTPUT_DIR, 'backup-restore-data-fingerprint-audit-v1.md');
+const SQLITE_COMPANION_SUFFIXES = ['-wal', '-shm', '-journal'] as const;
+
+function resolveCreatedBackupPath(fileName: string, runtimeDbPath?: string | null) {
+  const candidates = [
+    path.join(getBackupDir(), fileName),
+    ...(runtimeDbPath ? [path.join(path.dirname(runtimeDbPath), 'backups', fileName)] : []),
+    path.join('D:\\', 'AilaoDaRuntime', 'backups', fileName),
+    path.join(ROOT, 'AilaoDa_Stable_Package', 'backups', fileName),
+    path.join(ROOT, 'backups', fileName),
+  ];
+  const found = candidates.find(candidate => fs.existsSync(candidate));
+  return found || candidates[0];
+}
 
 function writeReports(report: Record<string, unknown>) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -57,6 +70,32 @@ function writeReports(report: Record<string, unknown>) {
   fs.writeFileSync(MD_REPORT, `${md.join('\n')}\n`, 'utf8');
 }
 
+function createFingerprintReadCopy(sourcePath: string) {
+  const copyDir = path.join(OUTPUT_DIR, 'fingerprint-db-copies');
+  fs.mkdirSync(copyDir, { recursive: true });
+
+  const copyPath = path.join(copyDir, `${path.basename(sourcePath)}.${Date.now()}.copy.db`);
+  fs.copyFileSync(sourcePath, copyPath);
+  for (const suffix of SQLITE_COMPANION_SUFFIXES) {
+    const sourceCompanionPath = `${sourcePath}${suffix}`;
+    if (fs.existsSync(sourceCompanionPath)) {
+      fs.copyFileSync(sourceCompanionPath, `${copyPath}${suffix}`);
+    }
+  }
+
+  return copyPath;
+}
+
+function removeFingerprintReadCopy(copyPath: string) {
+  for (const filePath of [copyPath, ...SQLITE_COMPANION_SUFFIXES.map(suffix => `${copyPath}${suffix}`)]) {
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+    } catch {
+      // Best-effort cleanup; stale fingerprint copies are harmless audit artifacts.
+    }
+  }
+}
+
 async function main() {
   const generatedAt = new Date().toISOString();
   const runtimeDbPath = getSqliteDbPath();
@@ -66,15 +105,21 @@ async function main() {
 
   const token = await loginAsAdmin(APP_URL, REQUEST_TIMEOUT_MS);
   const backupFileName = await createSystemBackup(APP_URL, token, REQUEST_TIMEOUT_MS);
-  const backupPath = path.join(getBackupDir(), backupFileName);
+  const backupPath = resolveCreatedBackupPath(backupFileName, runtimeDbPath);
   if (!fs.existsSync(backupPath)) {
     throw new Error(`Created backup file was not found: ${backupPath}`);
   }
 
-  const backupFingerprint = await withFingerprintPrisma(
-    backupPath,
-    client => collectBusinessDataFingerprint(client, 'backup-file'),
-  );
+  const backupReadCopyPath = createFingerprintReadCopy(backupPath);
+  let backupFingerprint;
+  try {
+    backupFingerprint = await withFingerprintPrisma(
+      backupReadCopyPath,
+      client => collectBusinessDataFingerprint(client, 'backup-file-copy'),
+    );
+  } finally {
+    removeFingerprintReadCopy(backupReadCopyPath);
+  }
   const restoreIntegrity = await restoreSystemBackup(APP_URL, token, backupFileName, REQUEST_TIMEOUT_MS);
   const restoredFingerprint = await withFingerprintPrisma(
     runtimeDbPath,

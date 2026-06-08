@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { Layers3, PencilLine, Sparkles } from 'lucide-react';
+import { AlertTriangle, Layers3, PencilLine, Sparkles } from 'lucide-react';
 import type { AdjustmentFormState, AdjustmentTemplate } from './adjustment.constants';
 import type {
   AdjustmentDomain,
@@ -21,14 +21,26 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       <div className="flex items-start justify-between gap-4">
         <div>
           <h3 className="text-xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white">
-            新建调账
+            新建异常调账
           </h3>
           <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
-            收款更正、生产损耗、库存盘差
+            跨域补偿、冲销、历史修正
           </p>
         </div>
         <div className="rounded-2xl bg-slate-100 p-3 text-slate-500 dark:bg-slate-800">
           <PencilLine size={18} />
+        </div>
+      </div>
+
+      <div className="mt-5 rounded-[26px] border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
+        <div className="flex items-start gap-3">
+          <AlertTriangle size={18} className="mt-0.5 shrink-0" />
+          <div>
+            <div className="text-xs font-black tracking-[0.16em]">先判断入口，再登记</div>
+            <p className="mt-2 text-xs font-bold leading-6">
+              日常回款核销去“回款中心”，生产完工扣料去“生产工单”，仓库正常入库去“仓储/采购/生产来源单”。本页只做已确认异常、跨域补偿和可冲销审计记录。
+            </p>
+          </div>
         </div>
       </div>
 
@@ -74,8 +86,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
           onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as AdjustmentStatus }))}
           className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black dark:border-slate-700 dark:bg-slate-800"
         >
-          <option value="posted">直接生效</option>
-          <option value="pending">先登记</option>
+          <option value="posted">直接生效（仅授权）</option>
+          <option value="pending">先登记（推荐）</option>
         </select>
       </div>
 

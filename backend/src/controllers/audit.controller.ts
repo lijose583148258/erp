@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Response } from 'express';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
@@ -9,11 +9,6 @@ export class AuditController {
      */
     async getLogs(req: AuthRequest, res: Response) {
         try {
-            // 仅管理员可查看审计日志
-            if (req.user?.role !== 'admin') {
-                return res.status(403).json({ success: false, message: '权限不足' });
-            }
-
             const { page = 1, pageSize = 20, userId, action, resource, startDate, endDate } = req.query;
 
             const limit = Math.min(Number(pageSize), 100);

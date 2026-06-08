@@ -3,24 +3,17 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
     Search,
     Command,
-    Users,
-    ShoppingCart,
-    LayoutDashboard,
-    ShieldCheck,
-    Truck,
-    Container,
     BarChart3,
     Moon,
     Sun,
     Database,
     Plus,
     Zap,
-    Network,
-    HandCoins,
-    ArrowRightLeft,
-    ClipboardList,
 } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
+import { canOpenModule } from '../app/permissions';
+import { getModuleAliases, getModuleDescription, getModuleLabel, getNavigationModules } from './navigation/moduleRegistry';
+import api from '../utils/api';
 
 interface CommandItem {
     id: string;
@@ -30,6 +23,7 @@ interface CommandItem {
     category: 'navigation' | 'actions' | 'system';
     action: () => void;
     shortcut?: string;
+    aliases?: readonly string[];
 }
 
 const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActiveTab: (tab: string) => void }> = ({
@@ -37,25 +31,30 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
     onClose,
     setActiveTab
 }) => {
-    const { t, theme, toggleTheme, notify } = useAppContext();
+    const { t, theme, toggleTheme, notify, language, currentUser } = useAppContext();
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
     const inputRef = useRef<HTMLInputElement>(null);
 
     // Define commands
+    const navigationCommands = useMemo<CommandItem[]>(() => getNavigationModules()
+        .filter(module => canOpenModule(currentUser, module.id))
+        .map(module => {
+            const Icon = module.icon;
+            return {
+                id: `nav-${module.id}`,
+                title: getModuleLabel(module.id, language),
+                description: getModuleDescription(module.id, language),
+                icon: <Icon className="w-5 h-5" />,
+                category: 'navigation' as const,
+                action: () => setActiveTab(module.id),
+                aliases: getModuleAliases(module.id, language),
+            };
+        }), [currentUser, language, setActiveTab]);
+
     const commands = useMemo<CommandItem[]>(() => [
         // --- Navigation ---
-        { id: 'nav-dashboard', title: t.dashboard, description: t.dashboardDesc, icon: <LayoutDashboard className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('dashboard') },
-        { id: 'nav-crm', title: t.crm, description: t.crmDesc, icon: <Users className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('crm') },
-        { id: 'nav-orders', title: t.orders, description: t.ordersDesc, icon: <ShoppingCart className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('orders') },
-        { id: 'nav-barter', title: t.barterTitle || '货抵支付 / 换货贸易', description: t.barterDesc || '货抵结算、估值换算、核销与冲销', icon: <ArrowRightLeft className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('barter') },
-        { id: 'nav-collections', title: t.collectionsTitle || '回款中心', description: t.collectionsDesc || '收款核销、逾期追踪、催收提醒', icon: <HandCoins className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('collections') },
-        { id: 'nav-finance-analytics', title: t.performanceReport || '财务经营工作台', description: '报表、账龄、回款、调账与风险分析', icon: <BarChart3 className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('financeAnalytics') },
-        { id: 'nav-procurement', title: t.procurementTitle, description: t.procurementDesc, icon: <Network className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('procurement') },
-        { id: 'nav-shipping', title: t.shipping, description: t.shippingDesc, icon: <Truck className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('shipping') },
-        { id: 'nav-discrepancies', title: t.receiptDiscrepancyWorkbench || '收发货差异', description: '采购拒收、客户短签、容差规则和异常处理队列', icon: <ClipboardList className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('discrepancies') },
-        { id: 'nav-risk', title: t.risk, description: t.riskDesc, icon: <ShieldCheck className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('risk') },
-        { id: 'nav-assets', title: t.assets, description: t.assetsDesc, icon: <Container className="w-5 h-5" />, category: 'navigation', action: () => setActiveTab('assets') },
+        ...navigationCommands,
 
         // --- Actions ---
         { id: 'act-new-order', title: t.actNewOrder, description: t.actNewOrderDesc, icon: <Plus className="w-5 h-5 text-blue-500" />, category: 'actions', action: () => { setActiveTab('orders'); window.dispatchEvent(new CustomEvent('command:create-order')); } },
@@ -69,19 +68,14 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                 try {
                     // This will be handled by the server
                     notify('info', '备份请求已发起，请稍后查看结果');
-                    const response = await fetch('/api/system/backups', {
-                        method: 'POST',
-                        headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
-                    });
-                    const result = await response.json();
-                    if (result.success) notify('success', '数据库备份成功！');
-                    else throw new Error();
+                    await api.post('/system/backups');
+                    notify('success', '数据库备份成功！');
                 } catch {
                     notify('error', '备份失败，请检查网络或权限');
                 }
             }
         },
-    ], [t, theme, toggleTheme, setActiveTab, notify]);
+    ], [t, theme, toggleTheme, setActiveTab, notify, navigationCommands]);
 
     // Fuzzy filter
     const filteredCommands = useMemo(() => {
@@ -90,7 +84,8 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
         return commands.filter(cmd =>
             cmd.title.toLowerCase().includes(lowerQuery) ||
             cmd.description.toLowerCase().includes(lowerQuery) ||
-            cmd.category.toLowerCase().includes(lowerQuery)
+            cmd.category.toLowerCase().includes(lowerQuery) ||
+            Boolean(cmd.aliases?.some(alias => alias.toLowerCase().includes(lowerQuery)))
         );
     }, [commands, query]);
 

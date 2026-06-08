@@ -2,17 +2,10 @@
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 
-const APP_URL = 'http://127.0.0.1:5001/';
+const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'sales-orders-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'sales-orders-audit-report-v1.json');
-
-const UI = {
-  routeName: '\u8ba2\u5355',
-  newOrder: /\u65b0\u5efa\u8ba2\u5355|\u5f55\u5165\u65b0\u9500\u552e\u5355|New Order|Create Order/i,
-  recordPaymentTitle: /\u56de\u6b3e|\u6536\u6b3e|Payment/i,
-  historyTitle: /\u5386\u53f2|History|Activity/i,
-};
 
 const REQUIRED_ROUTE_COPY = ['\u8ba2\u5355'];
 const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
@@ -145,13 +138,6 @@ async function apiFetch(page, endpoint, options = {}) {
   return { ok: response.ok(), status: response.status(), json };
 }
 
-function unwrapList(payload) {
-  const data = payload?.json?.data;
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  return [];
-}
-
 function assertNoMojibake(text, scopeName) {
   for (const keyword of FORBIDDEN_MOJIBAKE) {
     if (text.includes(keyword)) {
@@ -184,19 +170,41 @@ async function openOrders(page) {
     throw new Error('orders route not ready');
   });
 
+  await withTimebox(page, 'wait-orders-workspace-ready', TIMEOUTS.route, async () => {
+    for (let index = 0; index < 40; index += 1) {
+      const deskVisible = await page.locator('[data-testid="sales-desk-orders"]').first().isVisible().catch(() => false);
+      const createVisible = await page.locator('[data-testid="sales-order-create-button"]').first().isVisible().catch(() => false);
+      const loadingText = await page.locator('body').innerText().catch(() => '');
+      if ((deskVisible || createVisible) && !/LOADING/i.test(loadingText)) {
+        assertNoMojibake(loadingText, 'sales-orders workspace ready');
+        return;
+      }
+      await page.waitForTimeout(500);
+    }
+    throw new Error('orders workspace still loading or actions unavailable');
+  });
+
   const shot = await safeScreenshot(page, 'orders-route');
   recordStep({ step: 'orders-route-evidence', result: 'passed', evidence: shot });
 }
 
 async function selectFirstRealOption(selectLocator) {
-  const value = await selectLocator.evaluate((element) => {
-    const options = Array.from(element.options || []);
-    const target = options.find((option) => option.value && !option.disabled);
-    return target ? target.value : '';
-  });
-  if (!value) throw new Error('no selectable option found');
-  await selectLocator.selectOption(value);
-  return value;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const option = await selectLocator.evaluate((element) => {
+      const options = Array.from(element.options || []);
+      const target = options.find((item) => item.value && !item.disabled);
+      return target ? { value: target.value, label: target.textContent || '' } : null;
+    });
+
+    if (option?.value) {
+      await selectLocator.selectOption(option.value);
+      return option;
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 250));
+  }
+
+  throw new Error('no selectable option found');
 }
 
 function extractMarker(rowText) {
@@ -208,106 +216,175 @@ function extractMarker(rowText) {
   return line.trim().slice(0, 32);
 }
 
+async function readFirstOrderRowSnapshot(page) {
+  const row = page.locator('[data-testid^="sales-order-row-"]').first();
+  if (!(await row.count())) return null;
+
+  const testId = await row.getAttribute('data-testid');
+  const text = await row.innerText().catch(() => '');
+  return {
+    row,
+    testId: testId || '',
+    text,
+  };
+}
+
 async function createOrder(page) {
   return withTimebox(page, 'create-sales-order', TIMEOUTS.save, async () => {
-    const beforeFirstRowText = await page.locator('tbody tr').first().innerText().catch(() => '');
-
-    const createButton = page.locator('button').filter({ hasText: UI.newOrder }).first();
+    const beforeFirstRow = await readFirstOrderRowSnapshot(page);
+    const createButton = page.locator('[data-testid="sales-order-create-button"]').first();
     if (!(await createButton.count())) throw new Error('new order button not found');
     await createButton.click();
 
-    const modal = page.locator('div.fixed.inset-0').last();
+    const modal = page.locator('[data-testid="sales-order-editor-modal"]').first();
     await modal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
 
-    const selects = modal.locator('select');
-    const inputs = modal.locator('input:not([type="file"]):not([type="checkbox"])');
+    const customerSelect = modal.locator('[data-testid="sales-order-customer-select"]').first();
+    const selectedCustomer = await selectFirstRealOption(customerSelect);
+    report.selectedCustomer = selectedCustomer;
 
-    await selectFirstRealOption(selects.nth(1));
-    await inputs.nth(1).fill(TEST_DATA.productName);
-    await inputs.nth(2).fill(TEST_DATA.packaging);
-    await inputs.nth(3).fill(String(TEST_DATA.quantity));
-    await inputs.nth(4).fill(TEST_DATA.unit);
-    await inputs.nth(5).fill(String(TEST_DATA.unitPrice));
-    await inputs.nth(6).fill(String(TEST_DATA.taxAmount));
+    const saveButton = modal.locator('[data-testid="sales-order-save-button"]').first();
+    if (!(await saveButton.count())) throw new Error('order save button not found');
 
-    const buttons = modal.locator('button');
-    const count = await buttons.count();
-    if (!count) throw new Error('order save button not found');
-    await buttons.nth(count - 1).click();
+    await saveButton.click();
+    const errorSummary = modal.locator('[data-testid="sales-order-line-error-summary"]').first();
+    await errorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    const lineError = modal.locator('[data-testid="sales-order-line-0-errors"]').first();
+    await lineError.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    const validationText = `${await errorSummary.innerText()} ${await lineError.innerText()}`;
+    assertNoMojibake(validationText, 'sales-order line validation');
+    if (!validationText.includes('商品名称') && !validationText.includes('至少录入一行商品明细')) {
+      throw new Error('line validation did not explain the missing product name');
+    }
+    recordStep({
+      step: 'sales-order-line-validation-blocked',
+      result: 'passed',
+      evidence: validationText,
+    });
 
-    let createdRow = null;
-    for (let index = 0; index < 30; index += 1) {
-      const row = page.locator('tbody tr').first();
-      if (await row.count()) {
-        const currentText = await row.innerText();
-        if (currentText && currentText !== beforeFirstRowText) {
-          createdRow = row;
-          report.createdRowText = currentText;
-          report.createdRowMarker = extractMarker(currentText);
-          break;
-        }
+    await modal.locator('[data-testid="sales-order-line-0-product"]').fill(TEST_DATA.productName);
+    await modal.locator('[data-testid="sales-order-line-0-packaging"]').fill(TEST_DATA.packaging);
+    await modal.locator('[data-testid="sales-order-line-0-quantity"]').fill(String(TEST_DATA.quantity));
+    await modal.locator('[data-testid="sales-order-line-0-unit"]').fill(TEST_DATA.unit);
+    await modal.locator('[data-testid="sales-order-line-0-unit-price"]').fill(String(TEST_DATA.unitPrice));
+    await modal.locator('[data-testid="sales-order-line-0-discount"]').fill('0');
+    await modal.locator('[data-testid="sales-order-line-0-tax"]').fill(String(TEST_DATA.taxAmount));
+
+    await saveButton.click();
+    await modal.waitFor({ state: 'hidden', timeout: TIMEOUTS.save });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      const afterFirstRow = await readFirstOrderRowSnapshot(page);
+      const rowChanged = afterFirstRow
+        && (!beforeFirstRow || afterFirstRow.testId !== beforeFirstRow.testId || afterFirstRow.text !== beforeFirstRow.text);
+
+      if (rowChanged) {
+        report.createdRowText = afterFirstRow.text;
+        report.createdRowTestId = afterFirstRow.testId;
+        report.createdRowMarker = extractMarker(afterFirstRow.text);
+        report.createdOrderIdFromGrid = String(afterFirstRow.testId).replace(/^sales-order-row-/, '');
+        return afterFirstRow;
       }
+
       await page.waitForTimeout(400);
     }
 
-    if (!createdRow) throw new Error('new order row did not appear');
-    const shot = await safeScreenshot(page, 'sales-order-created');
-    recordStep({ step: 'sales-order-created-evidence', result: 'passed', evidence: shot, rowMarker: report.createdRowMarker });
-    return createdRow;
+    throw new Error('new order row did not appear in grid');
   });
 }
 
 async function findCreatedOrderByApi(page) {
   return withTimebox(page, 'verify-order-created-readback', TIMEOUTS.api, async () => {
-    const markerId = String(report.createdRowMarker || '').match(/#(\d+)/)?.[1];
-    if (markerId) {
-      const detailResponse = await apiFetch(page, `/orders/${markerId}`);
-      if (!detailResponse.ok) throw new Error(`order detail api failed: ${detailResponse.status}`);
-      const detail = detailResponse.json?.data;
-      const hasProduct = Array.isArray(detail?.items) && detail.items.some((line) => line.productName === TEST_DATA.productName);
-      if (!hasProduct) throw new Error('created order detail does not contain expected product');
-      report.createdOrder = {
-        id: detail.id,
-        orderNo: detail.orderNo,
-        customerName: detail.customerName || detail.customerDisplayName,
-        paidAmount: Number(detail.paidAmount || 0),
-        paymentStatus: detail.paymentStatus,
-      };
-      return detail;
+    const candidateId = String(report.createdOrderIdFromGrid || '').trim()
+      || String(report.createdRowMarker || '').match(/#(\d+)/)?.[1];
+    if (!candidateId) {
+      throw new Error('created order id not captured from grid');
     }
 
-    const response = await apiFetch(page, '/orders?pageSize=100');
-    if (!response.ok) throw new Error(`orders api failed: ${response.status}`);
-    const created = unwrapList(response).find((item) => Array.isArray(item.items) && item.items.some((line) => line.productName === TEST_DATA.productName));
-    if (!created) throw new Error('created order not found by API readback');
+    const detailResponse = await apiFetch(page, `/orders/${candidateId}`);
+    if (!detailResponse.ok) throw new Error(`order detail api failed: ${detailResponse.status}`);
+
+    const detail = detailResponse.json?.data;
+    const hasProduct = Array.isArray(detail?.items) && detail.items.some((line) => line.productName === TEST_DATA.productName);
+    if (!hasProduct) throw new Error('created order detail does not contain expected product');
+
     report.createdOrder = {
-      id: created.id,
-      orderNo: created.orderNo,
-      customerName: created.customerName || created.customerDisplayName,
-      paidAmount: Number(created.paidAmount || 0),
-      paymentStatus: created.paymentStatus,
+      id: detail.id,
+      orderNo: detail.orderNo,
+      customerName: detail.customerName || detail.customerDisplayName,
+      paidAmount: Number(detail.paidAmount || 0),
+      paymentStatus: detail.paymentStatus,
     };
-    return created;
+    report.createdRowMarker = extractMarker(detail.orderNo || `#${detail.id}`);
+    return detail;
   });
 }
 
-async function recordPaymentForRow(page, row) {
+function getOrderRowTestId(orderId) {
+  return `sales-order-row-${String(orderId ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-')}`;
+}
+
+async function waitForCreatedOrderRow(page, orderId) {
+  const rowTestId = getOrderRowTestId(orderId);
+
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const row = page.locator(`[data-testid="${rowTestId}"]`).first();
+    if (await row.count()) {
+      return row;
+    }
+
+    if (attempt === 9) {
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.waitForTimeout(1200);
+    } else {
+      await page.waitForTimeout(400);
+    }
+  }
+
+  throw new Error(`created order row not visible: ${rowTestId}`);
+}
+
+async function captureCreatedRowEvidence(page, orderId) {
+  return withTimebox(page, 'verify-created-row-visible', TIMEOUTS.readBack, async () => {
+    const row = await waitForCreatedOrderRow(page, orderId);
+    const rowText = await row.innerText();
+    assertNoMojibake(rowText, 'sales-order row readback');
+    report.createdRowText = rowText;
+    report.createdRowTestId = getOrderRowTestId(orderId);
+    const shot = await safeScreenshot(page, 'sales-order-created');
+    recordStep({
+      step: 'sales-order-created-evidence',
+      result: 'passed',
+      evidence: shot,
+      rowMarker: report.createdRowMarker,
+      rowTestId: report.createdRowTestId,
+    });
+    return row;
+  });
+}
+
+async function recordPaymentForRow(page, orderId) {
   await withTimebox(page, 'record-order-payment', TIMEOUTS.save, async () => {
+    const paymentDesk = page.locator('[data-testid="sales-desk-payments"]').first();
+    if (await paymentDesk.count()) {
+      await paymentDesk.click();
+      await page.waitForTimeout(500);
+    }
+
+    const row = await waitForCreatedOrderRow(page, orderId);
     await row.hover();
-    const paymentButton = row.locator('button[title*="Payment"], button[title*="\u56de\u6b3e"], button[title*="\u6536\u6b3e"]').first();
+    const paymentButton = row.locator('[data-testid="sales-order-payment-button"]').first();
     if (!(await paymentButton.count())) throw new Error('payment action button not found');
     await paymentButton.click();
 
-    const payModal = page.locator('div.fixed.inset-0').last();
+    const payModal = page.locator('[data-testid="sales-order-payment-modal"]').first();
     await payModal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
-    const payInputs = payModal.locator('input:not([type="checkbox"])');
-    await payInputs.nth(0).fill(String(TEST_DATA.paymentAmount));
-    await payInputs.last().fill(TEST_DATA.paymentNote);
-
-    const buttons = payModal.locator('button');
-    const count = await buttons.count();
-    if (!count) throw new Error('payment confirm button not found');
-    await buttons.nth(count - 1).click();
+    await payModal.locator('[data-testid="sales-order-payment-amount"]').fill(String(TEST_DATA.paymentAmount));
+    await payModal.locator('input[type="text"]').last().fill(TEST_DATA.paymentNote);
+    const confirmButton = payModal.locator('[data-testid="sales-order-payment-confirm"]').first();
+    if (!(await confirmButton.count())) throw new Error('payment confirm button not found');
+    await confirmButton.click();
+    await payModal.waitFor({ state: 'hidden', timeout: TIMEOUTS.save });
     await page.waitForTimeout(1200);
   });
 
@@ -339,21 +416,18 @@ async function openHistoryAndVerify(page) {
     await page.reload({ waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(1500);
 
-    let row = page.locator('tbody tr').first();
-    if (report.createdRowMarker) {
-      const matched = page.locator('tbody tr').filter({ hasText: report.createdRowMarker }).first();
-      if (await matched.count()) row = matched;
-    }
-
+    const row = await waitForCreatedOrderRow(page, report.createdOrder?.id);
     await row.hover();
-    const historyButton = row.locator('button[title*="History"], button[title*="\u5386\u53f2"]').first();
+    const historyButton = row.locator('[data-testid="sales-order-history-button"]').first();
     if (!(await historyButton.count())) throw new Error('history action button not found');
     await historyButton.click();
 
+    const modal = page.locator('[data-testid="sales-order-history-modal"]').first();
+    await modal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
     for (let index = 0; index < 30; index += 1) {
-      const bodyText = await page.locator('body').innerText();
-      if (bodyText.includes(TEST_DATA.paymentNote)) {
-        assertNoMojibake(bodyText, 'sales-order history modal');
+      const modalText = await modal.innerText();
+      if (modalText.includes(TEST_DATA.paymentNote)) {
+        assertNoMojibake(modalText, 'sales-order history modal');
         return;
       }
       await page.waitForTimeout(400);
@@ -382,9 +456,10 @@ async function main() {
     page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
     await seedLoginState(page);
     await openOrders(page);
-    const row = await createOrder(page);
+    await createOrder(page);
     const created = await findCreatedOrderByApi(page);
-    await recordPaymentForRow(page, row);
+    await captureCreatedRowEvidence(page, created.id);
+    await recordPaymentForRow(page, created.id);
     await verifyPaymentByApi(page, created.id);
     await openHistoryAndVerify(page);
     report.status = 'passed';

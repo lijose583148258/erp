@@ -1,3 +1,10 @@
+const { createProductionSmokeModule } = require('./browser-human-flow-production-module.cjs');
+const {
+  assertNoNewConsoleErrors,
+  findCreatedSalesOrderRow,
+  getConsoleErrorCount,
+} = require('./browser-human-flow-shared.cjs');
+
 function createBrowserHumanFlowModules({
   DATA,
   FLOW_STATE,
@@ -87,30 +94,6 @@ function createBrowserHumanFlowModules({
     };
   }
 
-  async function findCreatedSalesOrderRow(page) {
-    const row = page.locator('[data-testid^="sales-order-row-"]').filter({ hasText: DATA.crm.nameZh }).first();
-    await row.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
-    const testId = await row.getAttribute('data-testid');
-    const idText = String(testId || '').replace(/^sales-order-row-/, '');
-    const id = Number(idText);
-    if (Number.isInteger(id) && id > 0) {
-      FLOW_STATE.salesOrderId = id;
-    }
-    return row;
-  }
-
-  function getConsoleErrorCount(page) {
-    return Array.isArray(page.__humanFlowConsoleErrors) ? page.__humanFlowConsoleErrors.length : 0;
-  }
-
-  async function assertNoNewConsoleErrors(page, startCount, actionName) {
-    await page.waitForTimeout(250);
-    const errors = Array.isArray(page.__humanFlowConsoleErrors) ? page.__humanFlowConsoleErrors.slice(startCount) : [];
-    if (errors.length > 0) {
-      throw new Error(`${actionName} produced console/API errors: ${errors.map((item) => item.text).join(' | ')}`);
-    }
-  }
-
   async function moduleOrdersAndCollections(page) {
     await openHash(page, '#orders', 'orders', ['订单', 'Order', 'Sales Order']);
 
@@ -153,12 +136,13 @@ function createBrowserHumanFlowModules({
       await modal.locator('[data-testid="sales-order-save-button"]').click();
     });
 
-    await findCreatedSalesOrderRow(page);
+    await findCreatedSalesOrderRow(page, { DATA, FLOW_STATE, TIMEOUTS });
     const orderShot = await safeScreenshot(page, 'orders-created');
 
     await withTimeout('orders-record-payment', TIMEOUTS.action, async () => {
       const consoleStart = getConsoleErrorCount(page);
-      const orderRow = await findCreatedSalesOrderRow(page);
+      await page.locator('[data-testid="sales-desk-payments"]').click();
+      const orderRow = await findCreatedSalesOrderRow(page, { DATA, FLOW_STATE, TIMEOUTS });
       const paymentButton = orderRow.locator('[data-testid="sales-order-payment-button"]').first();
       if (!(await paymentButton.count())) {
         throw new Error('record payment button not found');
@@ -177,7 +161,7 @@ function createBrowserHumanFlowModules({
 
     await withTimeout('orders-create-promise', TIMEOUTS.action, async () => {
       const consoleStart = getConsoleErrorCount(page);
-      const orderRow = await findCreatedSalesOrderRow(page);
+      const orderRow = await findCreatedSalesOrderRow(page, { DATA, FLOW_STATE, TIMEOUTS });
       const historyButton = orderRow.locator('[data-testid="sales-order-history-button"]').first();
       if (!(await historyButton.count())) {
         throw new Error('order history button not found');
@@ -218,8 +202,18 @@ function createBrowserHumanFlowModules({
     await openHash(page, '#shipping', 'shipping', ['出货物流', 'Shipment', '物流']);
 
     const stockBackedProduct = 'QA-GLUE-BARTER-1776434928717';
+    let createdShipmentId = '';
+
+    function shipmentRow() {
+      if (createdShipmentId) {
+        return page.locator(`[data-testid="shipment-row-${createdShipmentId}"]`).first();
+      }
+      return page.locator('[data-testid^="shipment-row-"]').filter({ hasText: stockBackedProduct }).first();
+    }
 
     await withTimeout('shipping-create-from-ocr', TIMEOUTS.save, async () => {
+      await page.locator('[data-testid="shipping-desk-ocr"]').click();
+      await page.locator('[data-testid="shipping-ocr-textarea"]').waitFor({ state: 'visible', timeout: TIMEOUTS.action });
       const ocrText = [
         `Customer: ${DATA.crm.nameZh}`,
         `Product: ${stockBackedProduct}`,
@@ -230,22 +224,52 @@ function createBrowserHumanFlowModules({
       await page.locator('[data-testid="shipping-ocr-textarea"]').fill(ocrText);
       await page.locator('[data-testid="shipping-ocr-parse-button"]').click();
       await waitForVisibleText(page, stockBackedProduct);
-      await page.locator('[data-testid="shipping-ocr-apply-button"]').click();
-      const row = page.locator('[data-testid^="shipment-row-"]').filter({ hasText: stockBackedProduct }).first();
+      const [createResponse] = await Promise.all([
+        page.waitForResponse((response) => (
+          response.url().includes('/api/shipping')
+          && response.request().method() === 'POST'
+        ), { timeout: TIMEOUTS.save }),
+        page.locator('[data-testid="shipping-ocr-apply-button"]').click(),
+      ]);
+      if (!createResponse.ok()) {
+        const body = await createResponse.text().catch(() => '');
+        throw new Error(`shipping OCR create failed: ${createResponse.status()} ${body.slice(0, 300)}`);
+      }
+      const createPayload = await createResponse.json().catch(() => null);
+      const createdId = createPayload?.data?.id ?? createPayload?.id;
+      createdShipmentId = createdId ? String(createdId) : '';
+      await page.locator('[data-testid="shipping-desk-logistics"]').click();
+      const row = shipmentRow();
       await row.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
     });
-
-    const shipmentRow = () => page.locator('[data-testid^="shipment-row-"]').filter({ hasText: stockBackedProduct }).first();
 
     await withTimeout('shipping-dispatch', TIMEOUTS.action, async () => {
       const row = shipmentRow();
       await row.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
       const dispatchButton = row.locator('[data-testid^="shipment-dispatch-"]').first();
-      if (!(await dispatchButton.count())) {
-        throw new Error('shipping dispatch button not found');
+      const receiptButton = row.locator('[data-testid^="shipment-receipts-button-"]').first();
+      if (await dispatchButton.count()) {
+        const [dispatchResponse] = await Promise.all([
+          page.waitForResponse((response) => (
+            response.url().includes('/api/shipping/')
+            && response.url().includes('/status')
+            && (!createdShipmentId || response.url().includes(`/api/shipping/${createdShipmentId}/status`))
+            && response.request().method() === 'PATCH'
+          ), { timeout: TIMEOUTS.save }),
+          dispatchButton.click(),
+        ]);
+        if (!dispatchResponse.ok()) {
+          const body = await dispatchResponse.text().catch(() => '');
+          throw new Error(`shipping dispatch failed: ${dispatchResponse.status()} ${body.slice(0, 300)}`);
+        }
+        await shipmentRow().locator('[data-testid^="shipment-receipts-button-"]').first().waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+        return;
       }
-      await dispatchButton.click();
-      await row.locator('[data-testid^="shipment-receipts-button-"]').first().waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+      if (await receiptButton.count()) {
+        return;
+      }
+      const rowText = await row.innerText().catch(() => '');
+      throw new Error(`shipping dispatch/receipt control not found for created row: ${rowText.slice(0, 300)}`);
     });
 
     await withTimeout('shipping-open-receipt', TIMEOUTS.action, async () => {
@@ -290,6 +314,10 @@ function createBrowserHumanFlowModules({
       await page.locator('[data-testid="supplier-contact-input"]').fill(DATA.procurement.contactName);
       await page.locator('[data-testid="supplier-phone-input"]').fill(DATA.procurement.phone);
       await page.locator('[data-testid="supplier-email-input"]').fill(DATA.procurement.email);
+      const supplierAdvancedToggle = page.locator('[data-testid="supplier-toggle-advanced"]');
+      if (await supplierAdvancedToggle.count()) {
+        await supplierAdvancedToggle.click();
+      }
       await page.locator('[data-testid="supplier-address-label-input"]').fill(DATA.procurement.addressLabel);
       await page.locator('[data-testid="supplier-country-code-input"]').fill(DATA.procurement.countryCode);
       await page.locator('[data-testid="supplier-city-input"]').fill(DATA.procurement.city);
@@ -302,7 +330,7 @@ function createBrowserHumanFlowModules({
     const supplierShot = await safeScreenshot(page, 'procurement-supplier-created');
 
     await withTimeout('procurement-create-order', TIMEOUTS.save, async () => {
-      await page.locator('[data-testid="procurement-tab-orders"]').click();
+      await page.locator('[data-testid="procurement-desk-orders"]').click();
       await page.waitForTimeout(500);
       await selectOptionContaining(page.locator('[data-testid="purchase-supplier-select"]'), DATA.procurement.supplierName);
       await page.locator('[data-testid="purchase-item-input"]').fill(DATA.procurement.purchaseItem);
@@ -349,26 +377,26 @@ function createBrowserHumanFlowModules({
     await openHash(page, '#warehouse', 'warehouse', ['仓储管理', 'Warehouse', '库存']);
 
     await withTimeout('warehouse-create-warehouse', TIMEOUTS.save, async () => {
-      await page.locator('button').filter({ hasText: /新建仓库|New Warehouse|Create Warehouse/ }).first().click();
-      const dialog = page.locator('div.fixed').filter({ hasText: /新建仓库|Create Warehouse|New Warehouse/ }).last();
+      await page.locator('[data-testid="warehouse-create-open"]').click();
+      const dialog = page.locator('[data-testid="warehouse-create-modal"]');
       await dialog.waitFor({ state: 'visible', timeout: TIMEOUTS.action });
-      await dialog.locator('input').nth(0).fill(DATA.warehouse.code);
-      await dialog.locator('input').nth(1).fill(DATA.warehouse.name);
+      await dialog.locator('[data-testid="warehouse-create-code-input"]').fill(DATA.warehouse.code);
+      await dialog.locator('[data-testid="warehouse-create-name-input"]').fill(DATA.warehouse.name);
       await dialog.locator('select').first().selectOption('physical');
-      await dialog.getByRole('button', { name: /创建|Create/ }).click();
+      await dialog.locator('[data-testid="warehouse-create-confirm"]').click();
       await page.waitForTimeout(1000);
     });
 
     await waitForVisibleText(page, DATA.warehouse.name);
 
     await withTimeout('warehouse-create-location', TIMEOUTS.save, async () => {
-      await page.locator('button').filter({ hasText: /新增库位|Add Location|Create Location/ }).first().click();
-      const dialog = page.locator('div.fixed').filter({ hasText: /新建库位|Create Location|New Location/ }).last();
+      await page.locator('[data-testid="warehouse-location-create-open"]').click();
+      const dialog = page.locator('[data-testid="warehouse-location-create-modal"]');
       await dialog.waitFor({ state: 'visible', timeout: TIMEOUTS.action });
-      await dialog.locator('input').nth(0).fill(DATA.warehouse.locationCode);
-      await dialog.locator('input').nth(1).fill(DATA.warehouse.locationName);
+      await dialog.locator('[data-testid="warehouse-location-create-code-input"]').fill(DATA.warehouse.locationCode);
+      await dialog.locator('[data-testid="warehouse-location-create-name-input"]').fill(DATA.warehouse.locationName);
       await dialog.locator('select').first().selectOption('internal');
-      await dialog.getByRole('button', { name: /创建|Create/ }).click();
+      await dialog.locator('[data-testid="warehouse-location-create-confirm"]').click();
       await page.waitForTimeout(1000);
     });
 
@@ -392,6 +420,9 @@ function createBrowserHumanFlowModules({
       await page.locator('[data-testid="warehouse-inbound-quantity-input"]').fill(String(DATA.warehouse.inboundQuantity));
       const unitSelect = page.locator('[data-testid="warehouse-inbound-unit-select"]');
       await unitSelect.selectOption({ label: DATA.warehouse.inboundUnit }).catch(() => {});
+      await page.locator('[data-testid="warehouse-inbound-source-ref-input"]').fill(DATA.warehouse.inboundSourceRef || `HF-INBOUND-${RUN_ID}`);
+      await page.locator('[data-testid="warehouse-inbound-reason-select"]').selectOption(DATA.warehouse.inboundReason || 'inventory_surplus');
+      await page.locator('[data-testid="warehouse-inbound-note-input"]').fill(`browser human flow inbound ${RUN_ID}`);
       await page.locator('[data-testid="warehouse-inbound-confirm-button"]').click();
       const message = page.locator('[data-testid="warehouse-inbound-message"]').first();
       await message.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
@@ -404,6 +435,11 @@ function createBrowserHumanFlowModules({
         throw new Error(`warehouse inbound save failed: ${bodyAfterSave.slice(0, 500)}`);
       }
       if (!/入库成功|Inbound success/i.test(bodyAfterSave)) {
+        if (/应急补录\s*\/\s*盘盈入库成功|入库成功|Inbound success/i.test(bodyAfterSave)) {
+          await page.locator('[data-testid="warehouse-tab-inventory"]').click();
+          await page.locator('[data-testid="warehouse-inventory-search"]').fill(DATA.warehouse.inboundProduct);
+          return;
+        }
         throw new Error('warehouse inbound success message not visible after save');
       }
       await page.locator('[data-testid="warehouse-tab-inventory"]').click();
@@ -489,17 +525,12 @@ function createBrowserHumanFlowModules({
     };
   }
 
-  async function moduleProductionSmoke(page) {
-    await openHash(page, '#production', 'production', ['生产管理', 'BOM', '工单']);
-    const body = await getBodyText(page);
-    const shot = await safeScreenshot(page, 'production-smoke');
-    return {
-      status: 'not_covered',
-      evidence: [shot].filter(Boolean),
-      notes: 'Production has a route smoke screenshot only. It is not a completed input-readback proof yet.',
-      bodySnippet: body.slice(0, 400),
-    };
-  }
+  const moduleProductionSmoke = createProductionSmokeModule({
+    getBodyText,
+    openHash,
+    safeScreenshot,
+    withTimeout,
+  });
 
   const moduleDefinitions = [
     {
@@ -541,7 +572,7 @@ function createBrowserHumanFlowModules({
       name: 'production',
       role: 'admin',
       dependencies: [],
-      purpose: 'Production route smoke only until BOM input-readback anchors are completed.',
+      purpose: 'Run production route smoke plus deep browser proof for chemical formula lines, work order, QC, completion, and batch readback.',
       run: moduleProductionSmoke,
     },
   ];

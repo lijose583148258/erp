@@ -1,4 +1,5 @@
 import { canSendToExternalAI } from './aiSecurity';
+import { reportClientIssue } from '../utils/clientIssue';
 
 export type AIModelType = 'local' | 'ollama' | 'deepseek' | 'groq' | 'openrouter' | 'custom';
 
@@ -114,7 +115,7 @@ export const saveAIConfig = (config: Partial<AIConfigState>): void => {
         const updated = { ...current, ...config };
         localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
     } catch (e) {
-        console.error('Failed to save AI config:', e);
+        reportClientIssue('ai-config-save', e);
     }
 };
 
@@ -238,7 +239,7 @@ export const callAIModel = async (
             const data = await response.json();
             return data.response || '';
         } catch (e) {
-            console.error('Ollama call failed:', e);
+            reportClientIssue('ai-ollama-call', e, 'warning');
             return processLocalRules(prompt);
         }
     }
@@ -272,7 +273,7 @@ export const callAIModel = async (
         const data = await response.json();
         return data.choices?.[0]?.message?.content || '';
     } catch (e) {
-        console.error('AI API call failed:', e);
+        reportClientIssue('ai-api-call', e, 'warning');
         return processLocalRules(prompt);
     }
 };

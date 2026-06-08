@@ -29,7 +29,7 @@ const rolePayloadValidators = [
 ];
 
 router.use(authenticate);
-router.use(authorizePermission('team.write'));
+router.use(authorizePermission('authorization.roles.manage'));
 
 router.get('/', async (_req, res) => {
   const roles = await listRoles();

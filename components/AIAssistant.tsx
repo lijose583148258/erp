@@ -83,41 +83,63 @@ const AIAssistant = ({ context }: { context: any }) => {
   const handleDataConfirmed = async (data: any[], type: string) => {
     setShowTableImport(false);
 
-    // 添加成功提示消息
     const typeNames: Record<string, string> = {
       customer: t.aiTypeCustomer,
       order: t.aiTypeOrder,
       sample: t.aiTypeSample,
       shipment: t.aiTypeShipment,
     };
+    const typeName = typeNames[type] || type;
 
     setMessages((prev) => [
       ...prev,
       {
         role: 'ai',
-        text: `${t.aiImportSuccess}\n\n${t.aiImportType}：${typeNames[type] || type}\n${t.aiImportCount}：${data.length}\n\n${t.aiImportHint}`,
+        text: `正在写入业务数据库，请稍候...\n\n${t.aiImportType || '识别类型'}：${typeName}\n${t.aiImportCount || '导入数量'}：${data.length}`,
       },
     ]);
 
-    // 真实数据入库
+    let persistedCount = 0;
+
     try {
       if (type === 'customer') {
         await customerService.import(data);
+        persistedCount = data.length;
       } else if (type === 'order') {
         for (const item of data) {
           await orderService.create(item);
+          persistedCount += 1;
         }
       } else if (type === 'sample') {
         for (const item of data) {
           await sampleService.create(item);
+          persistedCount += 1;
         }
       } else if (type === 'shipment') {
         for (const item of data) {
           await shipmentService.create(item);
+          persistedCount += 1;
         }
+      } else {
+        throw new Error(`暂不支持写入此类表格：${type}`);
       }
+
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          text: `${t.aiImportSuccess || '表格导入完成'}\n\n${t.aiImportType || '识别类型'}：${typeName}\n${t.aiImportCount || '导入数量'}：${persistedCount}\n\n已完成业务入库。请到对应模块刷新列表或台账回读，确认本次导入记录没有遗漏。`,
+        },
+      ]);
     } catch (err) {
-      console.error('AI Import Persistence Failed:', err);
+      const message = err instanceof Error ? err.message : String(err || '未知错误');
+      setMessages((prev) => [
+        ...prev,
+        {
+          role: 'ai',
+          text: `表格写入没有完整成功。\n\n${t.aiImportType || '识别类型'}：${typeName}\n已写入：${persistedCount}/${data.length}\n失败原因：${message}\n\n请先到对应模块核对已入库记录，再决定是否只补导失败行，避免重复导入。`,
+        },
+      ]);
     }
   };
 

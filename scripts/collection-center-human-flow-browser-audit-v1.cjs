@@ -40,7 +40,12 @@ const copy = {
   ledger: '\u6536\u6b3e\u53f0\u8d26',
   milestone: '\u5408\u540c\u8282\u70b9',
   currentTarget: '\u5f53\u524d\u52a8\u4f5c\u5bf9\u8c61',
+  promiseNav: '\u627f\u8bfa\u8ddf\u8fdb',
+  receivableNav: '\u5e94\u6536\u4efb\u52a1',
+  riskNav: '\u4e89\u8bae / \u62e6\u622a',
   promiseTable: '\u627f\u8bfa\u4ed8\u6b3e\u6267\u884c\u8868',
+  disputeTable: '\u4e89\u8bae\u5904\u7406\u8868',
+  holdTable: '\u62e6\u622a\u63a7\u5236\u8868',
 };
 const forbiddenTokens = ['\ufffd', 'undefined', 'NaN', '\u935a', '\u9359', '\u95ab', '\u93c0', '\u9428', '\u7035', '\u93c6', '\u941c', '\u8216', '\u20ac'];
 const testData = {
@@ -106,7 +111,7 @@ async function main() {
     await submitPromiseByUi(runtime, page, seed, admin.token, { testData, ...common });
     await submitDisputeByUi(runtime, page, seed, admin.token, { testData, ...common });
     await exerciseFilters(runtime, page, common);
-    await exerciseExports(runtime, page, { outputDir: OUTPUT_DIR, report, downloadTimeoutMs: DOWNLOAD_TIMEOUT_MS });
+    await exerciseExports(runtime, page, { outputDir: OUTPUT_DIR, report, downloadTimeoutMs: DOWNLOAD_TIMEOUT_MS, ...common });
     await verifyLedgerPaymentByUi(runtime, page, seed, admin.token, common);
     assertNoBrowserRuntimeErrors(runtime, report);
     report.status = 'passed';

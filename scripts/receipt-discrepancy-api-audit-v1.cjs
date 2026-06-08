@@ -161,6 +161,8 @@ async function seedStock(token, productName, batchNo, quantity) {
       batchNo,
       quantity,
       unit: 'kg',
+      sourceRef: `RECEIPT-DISCREPANCY-STOCK-SEED-${RUN_ID}-${batchNo}`,
+      reason: 'receipt_discrepancy_audit_seed',
       note: `receipt discrepancy audit ${RUN_ID}`,
     },
   }, token));

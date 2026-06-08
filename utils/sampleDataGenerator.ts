@@ -2,6 +2,7 @@
  * 生成测试用的示例表格数据
  * 用于演示智能表格识别功能
  */
+import { reportClientIssue } from './clientIssue';
 
 // 客户信息示例数据
 export const sampleCustomerData = [
@@ -86,7 +87,7 @@ export const downloadExcel = async (data: string[][], filename: string) => {
     XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
     XLSX.writeFile(wb, filename);
   } catch (error) {
-    console.error('Excel导出失败，尝试使用CSV格式', error);
+    reportClientIssue('sample-excel-export', error, 'warning');
     downloadCSV(data, filename.replace('.xlsx', '.csv'));
   }
 };

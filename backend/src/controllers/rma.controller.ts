@@ -72,7 +72,9 @@ export class RmaController {
                         },
                         creator: { select: { id: true, username: true } },
                     },
-                    orderBy: { createdAt: 'desc' },
+                    // Runtime DBs may contain mixed Date string formats from old builds.
+                    // id desc is the stable insertion-order fallback for "latest RMA first".
+                    orderBy: { id: 'desc' },
                     skip: offset,
                     take: limit,
                 }),

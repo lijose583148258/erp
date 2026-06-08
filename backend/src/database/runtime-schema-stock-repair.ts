@@ -3,15 +3,49 @@ import {
   addColumnIfMissing,
   createIndexIfMissing,
   createTableIfMissing,
+  dropIndexIfExists,
   indexExists,
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
 
+const STOCK_SOURCE_UNIQUE_INDEX_NAME = 'stock_entries_source_type_ref_status_key';
+const IDEMPOTENT_STOCK_SOURCE_TYPES = [
+  'production_consumption',
+  'production_output',
+  'procurement_receipt',
+  'warehouse_manual_inbound',
+  'shipping_issue',
+  'barter_receipt',
+  'barter_issue',
+  'barter_receipt_reversal',
+  'barter_issue_reversal',
+];
+
+const stockSourceTypeSqlList = () => IDEMPOTENT_STOCK_SOURCE_TYPES.map((sourceType) => `'${sourceType}'`).join(',\n         ');
+
+const getIndexSql = async (indexName: string) => {
+  const rows = await prisma.$queryRawUnsafe<Array<{ sql: string | null }>>(
+    'SELECT sql FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1',
+    'index',
+    indexName,
+  );
+  return rows[0]?.sql || null;
+};
+
+const existingStockSourceIndexIsCurrent = async () => {
+  const sql = await getIndexSql(STOCK_SOURCE_UNIQUE_INDEX_NAME);
+  if (!sql) return false;
+  return IDEMPOTENT_STOCK_SOURCE_TYPES.every((sourceType) => sql.includes(`'${sourceType}'`));
+};
+
 const createStockSourceUniqueIndexIfSafe = async (report: SchemaRepairReport) => {
-  const indexName = 'stock_entries_source_type_ref_status_key';
+  const indexName = STOCK_SOURCE_UNIQUE_INDEX_NAME;
   if (await indexExists(indexName)) {
-    report.entries.push({ kind: 'index', target: indexName, action: 'exists' });
-    return;
+    if (await existingStockSourceIndexIsCurrent()) {
+      report.entries.push({ kind: 'index', target: indexName, action: 'exists' });
+      return;
+    }
+    await dropIndexIfExists(report, indexName);
   }
 
   const duplicates = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
@@ -21,14 +55,7 @@ const createStockSourceUniqueIndexIfSafe = async (report: SchemaRepairReport) =>
        FROM stock_entries
        WHERE source_ref IS NOT NULL AND source_ref <> ''
          AND source_type IN (
-           'production_consumption',
-           'production_output',
-           'procurement_receipt',
-           'shipping_issue',
-           'barter_receipt',
-           'barter_issue',
-           'barter_receipt_reversal',
-           'barter_issue_reversal'
+           ${stockSourceTypeSqlList()}
          )
        GROUP BY source_type, source_ref, status
        HAVING COUNT(*) > 1
@@ -46,15 +73,42 @@ const createStockSourceUniqueIndexIfSafe = async (report: SchemaRepairReport) =>
      WHERE "source_ref" IS NOT NULL
        AND "source_ref" <> ''
        AND "source_type" IN (
-         'production_consumption',
-         'production_output',
-         'procurement_receipt',
-         'shipping_issue',
-         'barter_receipt',
-         'barter_issue',
-         'barter_receipt_reversal',
-         'barter_issue_reversal'
+         ${stockSourceTypeSqlList()}
        )`,
+  );
+  report.entries.push({ kind: 'index', target: indexName, action: 'created' });
+};
+
+const createWarehouseTransferUniqueIndexIfSafe = async (report: SchemaRepairReport) => {
+  const indexName = 'stock_entries_warehouse_transfer_ref_status_key';
+  if (await indexExists(indexName)) {
+    report.entries.push({ kind: 'index', target: indexName, action: 'exists' });
+    return;
+  }
+
+  const duplicates = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
+    `SELECT COUNT(*) AS count
+     FROM (
+       SELECT source_type, source_ref, status, COUNT(*) AS duplicate_count
+       FROM stock_entries
+       WHERE source_ref IS NOT NULL AND source_ref <> ''
+         AND source_type = 'warehouse_transfer'
+       GROUP BY source_type, source_ref, status
+       HAVING COUNT(*) > 1
+       LIMIT 1
+     ) duplicate_sources`,
+  );
+  if (Number(duplicates[0]?.count || 0) > 0) {
+    report.entries.push({ kind: 'index', target: indexName, action: 'skipped' });
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(
+    `CREATE UNIQUE INDEX "stock_entries_warehouse_transfer_ref_status_key"
+     ON "stock_entries"("source_type", "source_ref", "status")
+     WHERE "source_ref" IS NOT NULL
+       AND "source_ref" <> ''
+       AND "source_type" = 'warehouse_transfer'`,
   );
   report.entries.push({ kind: 'index', target: indexName, action: 'created' });
 };
@@ -143,6 +197,7 @@ export const repairStockSchema = async (report: SchemaRepairReport) => {
   await createIndexIfMissing(report, 'stock_entries_source_type_idx', 'CREATE INDEX "stock_entries_source_type_idx" ON "stock_entries"("source_type")');
   await createIndexIfMissing(report, 'stock_entries_source_ref_idx', 'CREATE INDEX "stock_entries_source_ref_idx" ON "stock_entries"("source_ref")');
   await createStockSourceUniqueIndexIfSafe(report);
+  await createWarehouseTransferUniqueIndexIfSafe(report);
   await createIndexIfMissing(report, 'stock_entries_warehouse_id_idx', 'CREATE INDEX "stock_entries_warehouse_id_idx" ON "stock_entries"("warehouse_id")');
   await createIndexIfMissing(report, 'stock_entries_location_id_idx', 'CREATE INDEX "stock_entries_location_id_idx" ON "stock_entries"("location_id")');
   await createIndexIfMissing(report, 'stock_entries_created_at_idx', 'CREATE INDEX "stock_entries_created_at_idx" ON "stock_entries"("created_at")');
@@ -157,7 +212,7 @@ export const repairStockSchema = async (report: SchemaRepairReport) => {
       "batch_no" TEXT NOT NULL,
       "unit" TEXT NOT NULL DEFAULT 'kg',
       "quantity_before" REAL NOT NULL DEFAULT 0,
-      "quantity_delta" REAL NOT NULL,
+      "quantity_delta" REAL NOT NULL DEFAULT 0,
       "quantity_after" REAL NOT NULL DEFAULT 0,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT "stock_movements_entry_id_fkey" FOREIGN KEY ("entry_id") REFERENCES "stock_entries" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
@@ -172,7 +227,7 @@ export const repairStockSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'stock_movements', 'batch_no', 'TEXT');
   await addColumnIfMissing(report, 'stock_movements', 'unit', `TEXT NOT NULL DEFAULT 'kg'`);
   await addColumnIfMissing(report, 'stock_movements', 'quantity_before', 'REAL NOT NULL DEFAULT 0');
-  await addColumnIfMissing(report, 'stock_movements', 'quantity_delta', 'REAL NOT NULL');
+  await addColumnIfMissing(report, 'stock_movements', 'quantity_delta', 'REAL NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'stock_movements', 'quantity_after', 'REAL NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'stock_movements', 'created_at', 'DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP');
   await createIndexIfMissing(report, 'stock_movements_entry_id_idx', 'CREATE INDEX "stock_movements_entry_id_idx" ON "stock_movements"("entry_id")');

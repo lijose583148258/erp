@@ -214,6 +214,8 @@ async function seedStock(token, productName, batchNo, quantity) {
       batchNo,
       quantity,
       unit: 'kg',
+      sourceRef: `RECEIPT-TOLERANCE-STOCK-SEED-${RUN_ID}-${batchNo}`,
+      reason: 'receipt_tolerance_audit_seed',
       note: `receipt tolerance audit ${RUN_ID}`,
     },
   }, token));

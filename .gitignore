@@ -14,6 +14,7 @@ uploads/
 output/
 runtime-db/
 runtime-logs/
+runtime-data/
 scratchdb/
 tempdb/
 *.db
@@ -56,3 +57,4 @@ Thumbs.db
 测试/
 AilaoDa_Stable_Package/
 AilaoDa_Stable_Package_previous_*/
+AilaoDa_Stable_Package_*.zip

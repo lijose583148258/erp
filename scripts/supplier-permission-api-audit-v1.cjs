@@ -141,6 +141,14 @@ async function searchSuppliers(token, search) {
   return unwrapList(response);
 }
 
+async function assertSupplierSearchForbidden(token, label, search) {
+  const response = await apiFetch(`/procurement/suppliers?pageSize=50&search=${encodeURIComponent(search)}`, {}, token);
+  if (response.status !== 403) {
+    throw new Error(`${label} 应拒绝供应商主数据查询，实际 ${response.status} ${JSON.stringify(response.json)}`);
+  }
+  return response.status;
+}
+
 async function searchCustomers(token, search) {
   const response = await apiFetch(`/customers?pageSize=50&search=${encodeURIComponent(search)}`, {}, token);
   if (!response.ok) {
@@ -334,23 +342,16 @@ async function run() {
     }
     recordStep({ step: 'verify-manager-supplier-full-view', result: 'passed' });
 
-    const salesRows = await searchSuppliers(sales.token, DATA.supplierName);
-    const salesSupplier = findSupplier(salesRows);
-    if (!salesSupplier) throw new Error('销售应能查询供应商基础名称用于货抵/联想选择');
-    if ((salesSupplier.contacts || []).length || (salesSupplier.addresses || []).length || salesSupplier.contact) {
-      throw new Error('销售视角不应返回供应商联系人/地址/主联系人');
-    }
-    recordStep({ step: 'verify-sales-supplier-redacted-view', result: 'passed' });
-
-    const salesPhoneSearch = await searchSuppliers(sales.token, DATA.supplierPhone);
-    if (findSupplier(salesPhoneSearch)) {
-      throw new Error('销售不应通过供应商电话反查供应商');
-    }
-    const salesAddressSearch = await searchSuppliers(sales.token, DATA.supplierAddress);
-    if (findSupplier(salesAddressSearch)) {
-      throw new Error('销售不应通过供应商地址反查供应商');
-    }
-    recordStep({ step: 'verify-sales-cannot-reverse-search-sensitive-supplier-fields', result: 'passed' });
+    const salesSupplierNameStatus = await assertSupplierSearchForbidden(sales.token, '销售按供应商名称查询', DATA.supplierName);
+    const salesSupplierPhoneStatus = await assertSupplierSearchForbidden(sales.token, '销售按供应商电话查询', DATA.supplierPhone);
+    const salesSupplierAddressStatus = await assertSupplierSearchForbidden(sales.token, '销售按供应商地址查询', DATA.supplierAddress);
+    recordStep({
+      step: 'verify-sales-cannot-search-supplier-masterdata',
+      result: 'passed',
+      nameStatus: salesSupplierNameStatus,
+      phoneStatus: salesSupplierPhoneStatus,
+      addressStatus: salesSupplierAddressStatus,
+    });
 
     const customerSearchBySupplierName = await searchCustomers(manager.token, DATA.supplierName);
     if (findCustomerByDisplayName(customerSearchBySupplierName, DATA.supplierName)) {

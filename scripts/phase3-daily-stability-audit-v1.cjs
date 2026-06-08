@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { childOutputTailBase64, decodeChildOutputDetails } = require('./lib/child-output-decoder.cjs');
 
 const ROOT = process.cwd();
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
@@ -11,6 +12,7 @@ const SUMMARY_PATH = path.join(OUTPUT_DIR, 'phase3-daily-stability-ledger-v1.jso
 const LEGACY_LEDGER_PATH = path.join(ROOT, 'output', 'audit', 'phase3-daily-stability-ledger-v1.jsonl');
 const LEGACY_SUMMARY_PATH = path.join(ROOT, 'output', 'audit', 'phase3-daily-stability-ledger-v1.json');
 const REQUEST_TIMEOUT_MS = 30_000;
+const REQUIRE_PACKAGE_ORIGIN = ['1', 'true', 'yes', 'on'].includes(String(process.env.AILAODA_DAILY_REQUIRE_PACKAGE || '').toLowerCase());
 
 const report = {
   appUrl: APP_URL,
@@ -104,6 +106,8 @@ function compactDailyRun(finalReport) {
     databaseType: systemStatus?.databaseType || null,
     databaseExists: systemStatus?.databaseExists ?? null,
     backupCount: backupList?.backupCount ?? systemStatus?.backupCount ?? null,
+    packageOrigin: finalReport.steps.find(step => step.step === 'package-origin')?.result || (REQUIRE_PACKAGE_ORIGIN ? 'missing' : 'not-required'),
+    packageFreshness: finalReport.steps.find(step => step.step === 'package-freshness')?.result || (REQUIRE_PACKAGE_ORIGIN ? 'missing' : 'not-required'),
     reportPath: toProjectPath(REPORT_PATH),
   };
 }
@@ -168,6 +172,88 @@ async function withTimeout(label, fn, timeoutMs = REQUEST_TIMEOUT_MS) {
   }
 }
 
+function runCommandStep(label, command, args, timeoutMs = 120_000) {
+  const { spawn } = require('child_process');
+  return new Promise((resolve, reject) => {
+    const started = Date.now();
+    const stdoutChunks = [];
+    const stderrChunks = [];
+    let timedOut = false;
+    const child = spawn(command, args, {
+      cwd: ROOT,
+      env: { ...process.env, APP_URL },
+      windowsHide: true,
+      shell: false,
+    });
+    const timer = setTimeout(() => {
+      timedOut = true;
+      try { child.kill('SIGTERM'); } catch {}
+      setTimeout(() => {
+        try { child.kill('SIGKILL'); } catch {}
+      }, 3000).unref();
+    }, timeoutMs);
+
+    child.stdout.on('data', chunk => { stdoutChunks.push(Buffer.from(chunk)); });
+    child.stderr.on('data', chunk => { stderrChunks.push(Buffer.from(chunk)); });
+    child.on('error', error => {
+      clearTimeout(timer);
+      const stdoutDecoded = decodeChildOutputDetails(stdoutChunks);
+      const stderrDecoded = decodeChildOutputDetails(stderrChunks);
+      const entry = {
+        step: label,
+        result: 'failed',
+        durationMs: Date.now() - started,
+        command: [command, ...args].join(' '),
+        error: error.message,
+        stdout: stdoutDecoded.text.slice(-1200),
+        stderr: stderrDecoded.text.slice(-1200),
+        stdoutEncoding: stdoutDecoded,
+        stderrEncoding: stderrDecoded,
+        stdoutRawTailBase64: childOutputTailBase64(stdoutChunks),
+        stderrRawTailBase64: childOutputTailBase64(stderrChunks),
+      };
+      recordStep(entry);
+      reject(error);
+    });
+    child.on('close', code => {
+      clearTimeout(timer);
+      const stdoutDecoded = decodeChildOutputDetails(stdoutChunks);
+      const stderrDecoded = decodeChildOutputDetails(stderrChunks);
+      const failed = timedOut || code !== 0;
+      const entry = {
+        step: label,
+        result: failed ? (timedOut ? 'stuck' : 'failed') : 'passed',
+        durationMs: Date.now() - started,
+        command: [command, ...args].join(' '),
+        exitCode: code,
+        timedOut,
+        stdout: stdoutDecoded.text.slice(-1200),
+        stderr: stderrDecoded.text.slice(-1200),
+        stdoutEncoding: stdoutDecoded,
+        stderrEncoding: stderrDecoded,
+        stdoutRawTailBase64: failed ? childOutputTailBase64(stdoutChunks) : undefined,
+        stderrRawTailBase64: failed ? childOutputTailBase64(stderrChunks) : undefined,
+      };
+      recordStep(entry);
+      if (failed) {
+        reject(new Error(`${label} ${timedOut ? 'timed out' : `failed with exit code ${code}`}`));
+        return;
+      }
+      resolve(entry);
+    });
+  });
+}
+
+function npmStepArgs(scriptName) {
+  if (process.platform === 'win32') {
+    return {
+      command: 'cmd.exe',
+      args: ['/d', '/s', '/c', `npm run ${scriptName}`],
+    };
+  }
+  return { command: 'npm', args: ['run', scriptName] };
+}
+
 async function apiFetch(endpoint, options = {}, token = '') {
   const response = await fetch(`${APP_URL}api${endpoint}`, {
     method: options.method || 'GET',
@@ -203,6 +289,13 @@ async function login(signal) {
 async function main() {
   let admin = null;
   try {
+    if (REQUIRE_PACKAGE_ORIGIN) {
+      const packageOrigin = npmStepArgs('audit:package:origin');
+      await runCommandStep('package-origin', packageOrigin.command, packageOrigin.args, 60_000);
+      const packageFreshness = npmStepArgs('audit:package:freshness');
+      await runCommandStep('package-freshness', packageFreshness.command, packageFreshness.args, 90_000);
+    }
+
     await withTimeout('health', async signal => {
       const response = await fetch(`${APP_URL}api/health`, { signal });
       const json = await response.json();

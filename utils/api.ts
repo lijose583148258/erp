@@ -1,4 +1,5 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
+import { reportClientIssue } from './clientIssue';
 
 export type ApiRequestOptions = {
     signal?: AbortSignal;
@@ -21,19 +22,26 @@ export const isCanceledApiError = (error: unknown): boolean => {
     );
 };
 
+const LOCAL_BROWSER_HOSTS = new Set(['localhost', '127.0.0.1', '::1']);
+
+const normalizeApiBaseUrl = (value: string) => value.replace(/\/+$/, '');
+
 const resolveApiBaseUrl = () => {
     const explicitBaseUrl = import.meta.env.VITE_API_BASE_URL || import.meta.env.VITE_API_ABSOLUTE_URL;
-    if (explicitBaseUrl) return explicitBaseUrl;
+    if (explicitBaseUrl) return normalizeApiBaseUrl(explicitBaseUrl);
 
     if (typeof window !== 'undefined') {
-        const { protocol, hostname, port } = window.location;
+        const { protocol, hostname, port, origin } = window.location;
         if (port === '5001') {
-            return `${window.location.origin}/api`;
+            return `${origin}/api`;
         }
-        return `${protocol}//${hostname}:5001/api`;
+        if (LOCAL_BROWSER_HOSTS.has(hostname)) {
+            return `${protocol}//${hostname}:5001/api`;
+        }
+        return `${origin}/api`;
     }
 
-    return 'http://127.0.0.1:5001/api';
+    return '/api';
 };
 
 const apiBaseUrl = resolveApiBaseUrl();
@@ -103,10 +111,13 @@ api.interceptors.response.use(
         }
 
         // 提取错误信息，并保留后端结构化业务问题，供生产/库存等关键页面展示细节。
-        const message = error.response?.data?.message || error.message || '请求失败';
+        let message = error.response?.data?.message || error.message || '请求失败';
+        if (message === 'Network Error' || error.code === 'ERR_NETWORK') {
+            message = '无法连接到服务器，请确认爱劳达后端服务已启动（端口 5001）';
+        }
         const isTimeout = error?.code === 'ECONNABORTED' || /timeout/i.test(String(message));
         if (!isTimeout) {
-            console.error('API Error:', message);
+            reportClientIssue('api-error', message);
         }
 
         const enrichedError = new Error(message) as ApiClientError;

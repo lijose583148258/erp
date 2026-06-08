@@ -18,9 +18,6 @@ const TableImportTest = () => {
     setImportedData(data);
     setImportType(type);
     setShowImport(false);
-    
-    // 这里可以调用实际的API保存数据
-    // 数据已导入，由 UI 反馈用户
   };
 
   const downloadSample = (type: 'customer' | 'order' | 'sample' | 'shipment') => {
@@ -85,12 +82,12 @@ const TableImportTest = () => {
                 <CheckCircle className="w-6 h-6 text-green-600 mr-3 mt-1 flex-shrink-0" />
                 <div className="flex-1">
                   <h3 className="text-lg font-bold text-green-800 mb-2">
-                    ✅ 导入成功！
+                    ✅ 表格解析完成，等待正式保存
                   </h3>
                   <div className="space-y-1 text-sm text-green-700">
                     <p>• 识别类型：<span className="font-semibold">{getTypeName(importType)}</span></p>
-                    <p>• 导入数量：<span className="font-semibold">{importedData.length} 条</span></p>
-                    <p>• 状态：数据已保存到系统</p>
+                    <p>• 解析数量：<span className="font-semibold">{importedData.length} 条</span></p>
+                    <p>• 状态：仅完成本地预览，尚未写入业务数据库</p>
                   </div>
                   
                   <button
@@ -200,7 +197,7 @@ const TableImportTest = () => {
                 <li>✅ 智能字段映射（中英文）</li>
                 <li>✅ 数据验证和清洗</li>
                 <li>✅ 实时预览和确认</li>
-                <li>✅ 批量导入（支持1000+条）</li>
+                <li>✅ 批量解析和预览（正式保存需走对应业务接口）</li>
                 <li>✅ 完全本地运行，无需API</li>
               </ul>
             </div>

@@ -17,6 +17,7 @@ export interface CurrentUser {
   segment?: 'direct' | 'channel' | 'mixed';
   avatar: string;
   permissions?: string[];
+  dataScopes?: string[];
 }
 
 export enum RiskLevel {
@@ -35,6 +36,7 @@ export enum SampleStatus {
 }
 
 export enum RmaStatus {
+  PENDING = 'pending',
   IN_REVIEW = 'in_review',
   APPROVED = 'approved',
   REJECTED = 'rejected'
@@ -299,6 +301,7 @@ export interface SalesOrder {
 export interface TeamMember {
   id: string;
   name: string;
+  isActive: boolean;
   type: 'direct' | 'channel' | 'mixed';
   role: string;
   region: string;
@@ -325,10 +328,14 @@ export interface Invoice {
 
 export interface Shipment {
   id: string;
+  shipmentNo?: string;
   orderId: string;
   orderNo?: string;
   customerId?: string;
   customerName: string;
+  customerNameZh?: string;
+  customerNameEn?: string;
+  customerNameVi?: string;
   productName?: string;
   casNo?: string;
   msdsStatus?: 'valid' | 'missing' | 'expired' | string;
@@ -414,6 +421,9 @@ export interface RmaRecord {
   customerNameEn?: string;
   customerNameVi?: string;
   customerDisplayName?: string;
+  productName?: string;
+  quantity?: string | number;
+  unit?: string;
   reason: string;
   status: RmaStatus;
   type: 'return' | 'refund' | 'exchange' | string;

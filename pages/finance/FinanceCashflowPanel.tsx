@@ -14,10 +14,10 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
   const rows = data?.rows || [];
 
   const summaryCards = useMemo(() => ([
-    { label: t.cashflowInflow || 'Total Inflow', value: isLoading ? '…' : formatPrice(data?.totalInflow || 0), icon: <TrendingUp size={18} /> },
-    { label: t.cashflowOutflow || 'Total Outflow', value: isLoading ? '…' : formatPrice(data?.totalOutflow || 0), icon: <CircleDollarSign size={18} /> },
-    { label: t.cashflowNet || 'Net Cashflow', value: isLoading ? '…' : formatPrice(data?.netCashflow || 0), icon: <WalletCards size={18} /> },
-    { label: t.cashflowPending || 'Pending Receipts', value: isLoading ? '…' : formatPrice(data?.pendingReceiptAmount || 0), icon: <Clock3 size={18} /> },
+    { label: t.cashflowInflow || '总流入', value: isLoading ? '--' : formatPrice(data?.totalInflow || 0), icon: <TrendingUp size={18} /> },
+    { label: t.cashflowOutflow || '总流出', value: isLoading ? '--' : formatPrice(data?.totalOutflow || 0), icon: <CircleDollarSign size={18} /> },
+    { label: t.cashflowNet || '净现金流', value: isLoading ? '--' : formatPrice(data?.netCashflow || 0), icon: <WalletCards size={18} /> },
+    { label: t.cashflowPending || '待确认回款', value: isLoading ? '--' : formatPrice(data?.pendingReceiptAmount || 0), icon: <Clock3 size={18} /> },
   ]), [data?.netCashflow, data?.pendingReceiptAmount, data?.totalInflow, data?.totalOutflow, formatPrice, isLoading, t]);
 
   const handleExport = () => {
@@ -32,37 +32,37 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
     })), 'finance-cashflow.csv');
 
     if (!success) {
-      notify('warning', t.cashflowNoExport || 'No cashflow data to export');
+      notify('warning', t.cashflowNoExport || '暂无可导出的现金流数据');
     }
   };
 
   return (
-    <section className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-6">
+    <section className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[24px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-6 space-y-5">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h3 className="text-2xl font-black tracking-tighter italic flex items-center">
-            <div className="w-2 h-8 bg-emerald-500 rounded-full mr-4" />{t.cashflowTitle || 'Cashflow Overview'}
+          <h3 className="text-xl font-black tracking-tight flex items-center">
+            <div className="w-2 h-8 bg-emerald-500 rounded-full mr-4" />{t.cashflowTitle || '现金流概览'}
           </h3>
-          <p className="text-xs font-bold text-slate-400 tracking-wide mt-2">
-            {t.cashflowSub || 'Posted receipts and net adjustment impact'}
+          <p className="text-xs font-bold text-slate-600 tracking-wide mt-2">
+            {t.cashflowSub || '已过账回款与调整影响'}
           </p>
         </div>
         <button
           onClick={handleExport}
-          className="flex items-center px-5 py-3 rounded-[18px] text-xs font-bold bg-gradient-to-br from-emerald-500 to-emerald-600 text-white shadow-xl shadow-emerald-500/25 active-shrink"
+          className="flex items-center px-4 py-2.5 rounded-[12px] text-xs font-bold bg-emerald-600 text-white shadow-sm active-shrink"
         >
-          <Download size={16} className="mr-2.5" />{t.export || 'Export CSV'}
+          <Download size={16} className="mr-2.5" />{t.export || '导出 CSV'}
         </button>
       </div>
 
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3">
         {summaryCards.map((card) => (
-          <div key={card.label} className="rounded-[24px] border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 p-4">
+          <div key={card.label} className="rounded-[12px] border border-slate-100 dark:border-slate-700 bg-slate-50/80 dark:bg-slate-800/60 p-3">
             <div className="flex items-center justify-between">
-              <div className="text-xs font-bold text-slate-400">{card.label}</div>
+              <div className="text-xs font-bold text-slate-600">{card.label}</div>
               <div className="text-emerald-600 dark:text-emerald-400">{card.icon}</div>
             </div>
-            <div className="mt-3 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{card.value}</div>
+            <div className="mt-2 text-xl font-black tracking-tight text-slate-900 dark:text-white">{card.value}</div>
           </div>
         ))}
       </div>
@@ -71,19 +71,19 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-slate-100/50 dark:border-slate-800">
-              <Th>{t.cashflowPeriod || 'Period'}</Th>
-              <Th>{t.cashflowInflow || 'Inflow'}</Th>
-              <Th>{t.cashflowOutflow || 'Outflow'}</Th>
-              <Th>{t.cashflowNet || 'Net'}</Th>
-              <Th>{t.cashflowReceiptCount || 'Receipts'}</Th>
-              <Th>{t.cashflowAdjCount || 'Adjustments'}</Th>
-              <Th>{t.cashflowPending || 'Pending'}</Th>
+              <Th>{t.cashflowPeriod || '期间'}</Th>
+              <Th>{t.cashflowInflow || '流入'}</Th>
+              <Th>{t.cashflowOutflow || '流出'}</Th>
+              <Th>{t.cashflowNet || '净额'}</Th>
+              <Th>{t.cashflowReceiptCount || '回款笔数'}</Th>
+              <Th>{t.cashflowAdjCount || '调整笔数'}</Th>
+              <Th>{t.cashflowPending || '待确认'}</Th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
             {isLoading ? (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-xs font-bold text-slate-400">{t.loading || 'Loading…'}</td>
+                <td colSpan={7} className="py-8 text-center text-xs font-bold text-slate-600">{t.loading || '正在加载...'}</td>
               </tr>
             ) : rows.length ? (
               rows.map((row) => (
@@ -99,7 +99,7 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
               ))
             ) : (
               <tr>
-                <td colSpan={7} className="py-8 text-center text-xs font-bold text-slate-400">{t.emptyState || 'No records'}</td>
+                <td colSpan={7} className="py-8 text-center text-xs font-bold text-slate-600">{t.emptyState || '暂无记录'}</td>
               </tr>
             )}
           </tbody>
@@ -110,11 +110,11 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
 };
 
 const Th = ({ children }: { children: React.ReactNode }) => (
-  <th className="py-4 px-3 text-xs font-bold text-slate-400 whitespace-nowrap">{children}</th>
+  <th className="py-3 px-3 text-xs font-bold text-slate-600 whitespace-nowrap">{children}</th>
 );
 
 const Td = ({ children, mono = false, className = '' }: { children: React.ReactNode; mono?: boolean; className?: string }) => (
-  <td className={`py-4 px-3 text-sm text-slate-700 dark:text-slate-200 ${mono ? 'font-mono text-xs' : 'font-bold'} ${className}`}>{children}</td>
+  <td className={`py-3 px-3 text-sm text-slate-700 dark:text-slate-200 ${mono ? 'font-mono text-xs' : 'font-bold'} ${className}`}>{children}</td>
 );
 
 export default FinanceCashflowPanel;

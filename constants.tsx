@@ -59,10 +59,10 @@ export const MOCK_CUSTOMERS: Customer[] = [
 ];
 
 export const MOCK_TEAM_MEMBERS: TeamMember[] = [
-  { id: 'T-001', name: '张志诚', type: 'direct', role: '华东区大客户经理', region: '上海', performance: 4500000, customerCount: 15, commissionRate: 0.03, totalCommission: 135000 },
-  { id: 'T-002', name: '刘美玲', type: 'direct', role: '华南销售主管', region: '广州', performance: 2800000, customerCount: 22, commissionRate: 0.025, totalCommission: 70000 },
-  { id: 'T-003', name: '南方化工分销公司', type: 'channel', role: '核心经销商', region: '深圳', performance: 12000000, customerCount: 84, commissionRate: 0.08, totalCommission: 960000 },
-  { id: 'T-004', name: 'Nguyen Logistics', type: 'channel', role: '海外渠道商', region: '胡志明市', performance: 5600000, customerCount: 31, commissionRate: 0.07, totalCommission: 392000 },
+  { id: 'T-001', name: '张志诚', isActive: true, type: 'direct', role: '华东区大客户经理', region: '上海', performance: 4500000, customerCount: 15, commissionRate: 0.03, totalCommission: 135000 },
+  { id: 'T-002', name: '刘美玲', isActive: true, type: 'direct', role: '华南销售主管', region: '广州', performance: 2800000, customerCount: 22, commissionRate: 0.025, totalCommission: 70000 },
+  { id: 'T-003', name: '南方化工分销公司', isActive: true, type: 'channel', role: '核心经销商', region: '深圳', performance: 12000000, customerCount: 84, commissionRate: 0.08, totalCommission: 960000 },
+  { id: 'T-004', name: 'Nguyen Logistics', isActive: true, type: 'channel', role: '海外渠道商', region: '胡志明市', performance: 5600000, customerCount: 31, commissionRate: 0.07, totalCommission: 392000 },
 ];
 
 export const MOCK_ORDERS: SalesOrder[] = [

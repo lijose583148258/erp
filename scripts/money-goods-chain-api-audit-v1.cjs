@@ -87,6 +87,8 @@ async function seedStock(token, locationCode, quantity) {
       batchNo: DATA.batchNo,
       quantity,
       unit: 'kg',
+      sourceRef: `MGC-STOCK-SEED-${RUN_ID}-${locationCode}`,
+      reason: `money_goods_chain_seed_${locationCode.toLowerCase()}`,
       note: `money-goods-chain-audit ${RUN_ID} ${locationCode}`,
     },
   }, token);

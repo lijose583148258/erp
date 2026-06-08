@@ -21,6 +21,9 @@ ENV DATABASE_URL=file:/data/stable.db
 ENV BACKUP_DIR=/data/backups
 ENV LOG_DIR=/data/logs
 ENV UPLOAD_DIR=/data/uploads
+ENV BACKUP_RETENTION_DAYS=90
+ENV BACKUP_MAX_FILES=800
+ENV BACKUP_MAX_TOTAL_MB=8192
 
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/backend/dist ./backend/dist

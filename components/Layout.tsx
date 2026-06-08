@@ -1,49 +1,55 @@
-import React, { Suspense, lazy, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useState } from 'react';
 import {
-  Settings, Search, Command, ArrowRightLeft, FileText, Factory, Warehouse,
-  FlaskConical, ShoppingCart, Languages, Sun, Moon, Users2, DollarSign, Menu, X, UserCircle, LogOut, Briefcase, Network, ShieldCheck, HandCoins, BarChart3,
-  LayoutDashboard, Users, ShieldAlert, Truck, RotateCcw, ClipboardList
+  Settings, Search, Command, Languages, Sun, Moon,
+  DollarSign, Menu, X, UserCircle, LogOut, Briefcase, Network,
 } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { canOpenModule } from '../app/permissions';
 import { Language, Currency, UserRole } from '../types';
 import { Brain } from 'lucide-react';
+import {
+  getModuleDefinition,
+  getModuleDescription,
+  getModuleLabel,
+  getModuleTitle,
+  getNavigationModules,
+  type ModuleGroup,
+} from './navigation/moduleRegistry';
 
 const AIAssistant = lazy(() => import('./AIAssistant'));
 const AISettings = lazy(() => import('./AISettings'));
 const APP_BRAND = '爱劳达 ERP+CRM';
 
-type ModuleIconConfig = {
-  icon: React.ComponentType<{ size?: number; className?: string }>;
-  gradient: string;
-  accent: string;
-  ornament: 'dot' | 'bar' | 'ring' | 'spark';
+const MODULE_GROUP_ORDER: ModuleGroup[] = ['overview', 'sales', 'supply', 'production', 'governance'];
+
+const MODULE_GROUP_LABELS: Record<ModuleGroup, Record<Language, string>> = {
+  overview: { zh: '经营总览', en: 'Overview', vi: 'Tổng quan' },
+  sales: { zh: '客户与销售', en: 'Sales', vi: 'Bán hàng' },
+  supply: { zh: '采购仓储', en: 'Supply', vi: 'Cung ứng' },
+  production: { zh: '生产与售后', en: 'Production', vi: 'Sản xuất' },
+  governance: { zh: '治理与权限', en: 'Governance', vi: 'Quản trị' },
 };
 
-const moduleIconMap: Record<string, ModuleIconConfig> = {
-  dashboard: { icon: LayoutDashboard, gradient: 'from-sky-500 via-blue-600 to-indigo-700', accent: 'bg-cyan-300', ornament: 'ring' },
-  crm: { icon: Users, gradient: 'from-fuchsia-500 via-violet-600 to-blue-600', accent: 'bg-fuchsia-200', ornament: 'dot' },
-  orders: { icon: ShoppingCart, gradient: 'from-emerald-500 via-teal-500 to-cyan-600', accent: 'bg-lime-200', ornament: 'bar' },
-  collections: { icon: HandCoins, gradient: 'from-amber-400 via-orange-500 to-rose-500', accent: 'bg-white/80', ornament: 'dot' },
-  financeAnalytics: { icon: BarChart3, gradient: 'from-violet-500 via-purple-600 to-fuchsia-700', accent: 'bg-violet-200', ornament: 'spark' },
-  contracts: { icon: FileText, gradient: 'from-slate-700 via-slate-800 to-zinc-900', accent: 'bg-slate-300', ornament: 'bar' },
-  barter: { icon: ArrowRightLeft, gradient: 'from-cyan-500 via-sky-600 to-blue-700', accent: 'bg-cyan-200', ornament: 'dot' },
-  risk: { icon: ShieldAlert, gradient: 'from-rose-500 via-red-600 to-orange-500', accent: 'bg-rose-200', ornament: 'ring' },
-  dealerAnalytics: { icon: DollarSign, gradient: 'from-emerald-500 via-lime-500 to-teal-600', accent: 'bg-emerald-200', ornament: 'spark' },
-  samples: { icon: FlaskConical, gradient: 'from-cyan-500 via-blue-600 to-violet-700', accent: 'bg-cyan-200', ornament: 'bar' },
-  shipping: { icon: Truck, gradient: 'from-slate-500 via-blue-600 to-cyan-600', accent: 'bg-white/80', ornament: 'dot' },
-  discrepancies: { icon: ClipboardList, gradient: 'from-amber-500 via-red-500 to-rose-600', accent: 'bg-amber-100', ornament: 'spark' },
-  rma: { icon: RotateCcw, gradient: 'from-amber-500 via-orange-500 to-red-500', accent: 'bg-amber-200', ornament: 'ring' },
-  team: { icon: Users2, gradient: 'from-blue-500 via-indigo-500 to-fuchsia-600', accent: 'bg-blue-200', ornament: 'dot' },
-  assets: { icon: Briefcase, gradient: 'from-stone-500 via-slate-600 to-zinc-700', accent: 'bg-stone-200', ornament: 'bar' },
-  production: { icon: Factory, gradient: 'from-emerald-600 via-teal-600 to-cyan-700', accent: 'bg-emerald-200', ornament: 'spark' },
-  procurement: { icon: Network, gradient: 'from-violet-600 via-fuchsia-600 to-pink-600', accent: 'bg-pink-200', ornament: 'ring' },
-  warehouse: { icon: Warehouse, gradient: 'from-amber-500 via-orange-500 to-rose-500', accent: 'bg-amber-200', ornament: 'bar' },
-  audit: { icon: ShieldCheck, gradient: 'from-slate-700 via-slate-800 to-slate-900', accent: 'bg-slate-300', ornament: 'dot' },
+const ROLE_SWITCH_COPY: Record<Language, { title: string; hint: string; button: string }> = {
+  zh: {
+    title: '权限视角',
+    hint: '仅用于管理员验收和权限核对，日常业务不需要切换。',
+    button: '切换视角',
+  },
+  en: {
+    title: 'Permission view',
+    hint: 'For admin verification only. Daily users should not switch roles.',
+    button: 'Switch view',
+  },
+  vi: {
+    title: 'Góc nhìn quyền',
+    hint: 'Chỉ dùng cho quản trị viên kiểm tra quyền, người dùng hằng ngày không cần đổi.',
+    button: 'Đổi góc nhìn',
+  },
 };
 
 const ModuleBadge: React.FC<{ id: string; active?: boolean; size?: 'sm' | 'md' | 'lg' }> = ({ id, active = false, size = 'md' }) => {
-  const tone = moduleIconMap[id] ?? moduleIconMap.dashboard;
+  const tone = getModuleDefinition(id);
   const Icon = tone.icon;
 
   const sizeClass = size === 'lg'
@@ -91,31 +97,33 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
   const [showPicker, setShowPicker] = useState<'lang' | 'curr' | 'role' | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAISettings, setShowAISettings] = useState(false);
+  const [compactMode, setCompactMode] = useState(() => {
+    try {
+      return window.localStorage.getItem('ailao.compactMode') === 'on';
+    } catch {
+      return false;
+    }
+  });
   const { language, setLanguage, theme, toggleTheme, currency, setCurrency, currentUser, switchUser, t, setIsCommandPaletteOpen } = useAppContext();
 
-  const allMenuItems = [
-    { id: 'dashboard', label: t.dashboard, icon: LayoutDashboard, roles: ['admin', 'manager', 'sales', 'warehouse', 'finance'] },
-    { id: 'crm', label: t.crm, icon: Users, roles: ['admin', 'manager', 'sales', 'finance'] },
-    { id: 'orders', label: t.orders, icon: ShoppingCart, roles: ['admin', 'manager', 'sales', 'finance'] },
-    { id: 'collections', label: t.collectionsTitle || '回款中心', icon: HandCoins, roles: ['admin', 'manager', 'sales', 'finance'] },
-    { id: 'financeAnalytics', label: t.performanceReport || '财务经营工作台', icon: BarChart3, roles: ['admin', 'manager', 'finance'] },
-    { id: 'contracts', label: t.contractsTitle || '合同管理', icon: FileText, roles: ['admin', 'manager', 'sales', 'finance'] },
-    { id: 'barter', label: t.barterTitle || '货抵支付 / 换货贸易', icon: ArrowRightLeft, roles: ['admin', 'manager', 'sales', 'warehouse'] },
-    { id: 'risk', label: t.risk, icon: ShieldAlert, roles: ['admin', 'manager', 'finance', 'sales'] },
-    { id: 'dealerAnalytics', label: t.dealerAnalytics, icon: DollarSign, roles: ['admin', 'manager', 'finance'] },
-    { id: 'samples', label: t.samples, icon: FlaskConical, roles: ['admin', 'manager', 'sales', 'warehouse'] },
-    { id: 'shipping', label: t.shipping, icon: Truck, roles: ['admin', 'manager', 'sales', 'warehouse'] },
-    { id: 'discrepancies', label: t.receiptDiscrepancyWorkbench || '收发货差异', icon: ClipboardList, roles: ['admin', 'manager', 'warehouse', 'finance'] },
-    { id: 'rma', label: t.rma, icon: RotateCcw, roles: ['admin', 'manager', 'sales'] },
-    { id: 'team', label: t.team, icon: Users2, roles: ['admin', 'manager'] },
-    { id: 'assets', label: t.assets, icon: Briefcase, roles: ['admin', 'manager', 'warehouse', 'finance'] },
-    { id: 'production', label: t.production || '生产管理', icon: Factory, roles: ['admin', 'manager', 'warehouse', 'finance'] },
-    { id: 'warehouse', label: t.warehouse || '仓储管理', icon: Warehouse, roles: ['admin', 'manager', 'warehouse'] },
-    { id: 'procurement', label: t.procurement, icon: Network, roles: ['admin', 'manager', 'warehouse', 'finance'] },
-    { id: 'audit', label: t.audit, icon: ShieldCheck, roles: ['admin'] },
-  ];
+  const activeModule = getModuleDefinition(activeTab);
+  const activeModuleTitle = getModuleTitle(activeTab, language);
+  const activeModuleDescription = getModuleDescription(activeTab, language);
+  const roleSwitchCopy = ROLE_SWITCH_COPY[language] || ROLE_SWITCH_COPY.zh;
+  const allMenuItems = getNavigationModules().map(item => ({
+    id: item.id,
+    group: item.group,
+    label: getModuleLabel(item.id, language),
+    title: getModuleTitle(item.id, language),
+    description: getModuleDescription(item.id, language),
+  }));
 
   const menuItems = allMenuItems.filter(item => canOpenModule(currentUser, item.id));
+  const groupedMenuItems = MODULE_GROUP_ORDER.map(group => ({
+    group,
+    label: MODULE_GROUP_LABELS[group][language] || MODULE_GROUP_LABELS[group].zh,
+    items: menuItems.filter(item => item.group === group),
+  })).filter(section => section.items.length > 0);
 
   const getRoleLabel = (role: UserRole, segment?: string) => {
     if (role === 'manager' && segment === 'direct') return t.roleManagerDirect;
@@ -132,10 +140,20 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
   };
   const getRoleColor = (role: UserRole) => roleColors[role] || 'bg-slate-600';
 
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.classList.toggle('app-compact', compactMode);
+    try {
+      window.localStorage.setItem('ailao.compactMode', compactMode ? 'on' : 'off');
+    } catch {
+      // ignore storage errors
+    }
+  }, [compactMode]);
+
   return (
     <div className="flex h-screen bg-[#F8FAFC] dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden font-sans selection:bg-blue-200 dark:selection:bg-blue-900">
 
-      <aside className="hidden lg:flex w-72 bg-white/60 dark:bg-slate-900/60 backdrop-blur-[24px] border-r border-white/40 dark:border-slate-800/50 flex-col z-30 transition-all duration-500 m-5 rounded-[44px] shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] dark:shadow-none hover:shadow-blue-500/5 transition-all">
+      <aside className={`hidden lg:flex w-72 bg-white/60 dark:bg-slate-900/60 backdrop-blur-[24px] border-r border-white/40 dark:border-slate-800/50 flex-col z-30 transition-all duration-500 ${compactMode ? 'm-2 rounded-2xl' : 'm-5 rounded-[44px]'} shadow-[0_32px_64px_-16px_rgba(0,0,0,0.08)] dark:shadow-none hover:shadow-blue-500/5`}>
         <div className="p-10">
           <div className="flex items-center space-x-4 mb-2 group">
             <div className="w-12 h-12 bg-gradient-to-br from-blue-600 to-indigo-700 rounded-[22px] flex items-center justify-center text-white shadow-xl shadow-blue-500/30 group-hover:rotate-6 transition-transform duration-500">
@@ -148,20 +166,29 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           </div>
         </div>
 
-        <nav className="flex-1 px-6 space-y-1.5 overflow-y-auto no-scrollbar pb-6 mt-2">
-          {menuItems.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setActiveTab(item.id)}
-              className={`group w-full flex items-center px-6 py-4 rounded-[26px] transition-all duration-300 bouncy active-shrink ${activeTab === item.id
-                ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-2xl shadow-blue-500/40 scale-100 z-10'
-                : 'text-slate-500 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-800/80 hover:scale-[1.03] hover:shadow-lg hover:shadow-slate-200/40 dark:hover:shadow-none'
-                }`}
-            >
-              <ModuleBadge id={item.id} active={activeTab === item.id} />
-              <span className={`ml-4 text-sm tracking-wide ${activeTab === item.id ? 'font-black' : 'font-bold'}`}>{item.label}</span>
-              {activeTab === item.id && <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse shadow-sm" />}
-            </button>
+        <nav className="flex-1 px-6 overflow-y-auto no-scrollbar pb-6 mt-2 space-y-5">
+          {groupedMenuItems.map(section => (
+            <section key={section.group} className="space-y-2">
+              <div className="px-3 flex items-center justify-between">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">{section.label}</p>
+                {activeModule.group === section.group && <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shadow-[0_0_0_4px_rgba(37,99,235,0.12)]" />}
+              </div>
+              {section.items.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  title={item.description}
+                  className={`group w-full flex items-center px-4 py-3 rounded-[24px] transition-all duration-300 bouncy active-shrink ${activeTab === item.id
+                    ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-2xl shadow-blue-500/40 scale-100 z-10'
+                    : 'text-slate-500 dark:text-slate-400 hover:bg-white/80 dark:hover:bg-slate-800/80 hover:scale-[1.02] hover:shadow-lg hover:shadow-slate-200/40 dark:hover:shadow-none'
+                    }`}
+                >
+                  <ModuleBadge id={item.id} active={activeTab === item.id} size="sm" />
+                  <span className={`ml-3 text-sm tracking-wide ${activeTab === item.id ? 'font-black' : 'font-bold'}`}>{item.label}</span>
+                  {activeTab === item.id && <div className="ml-auto w-1.5 h-1.5 bg-white rounded-full animate-pulse shadow-sm" />}
+                </button>
+              ))}
+            </section>
           ))}
         </nav>
 
@@ -175,14 +202,21 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               <p className="text-xs font-black truncate text-slate-900 dark:text-white">{currentUser.name}</p>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-tighter truncate">{getRoleLabel(currentUser.role, currentUser.segment)}</p>
             </div>
-            <button onClick={() => setShowPicker(showPicker === 'role' ? null : 'role')} className="p-2 text-slate-300 hover:text-blue-500 transition-all hover:rotate-90 duration-500">
+            <button
+              onClick={() => setShowPicker(showPicker === 'role' ? null : 'role')}
+              className="p-2 text-slate-300 hover:text-blue-500 transition-all hover:rotate-90 duration-500"
+              title={roleSwitchCopy.button}
+            >
               <Settings size={16} />
             </button>
 
             {showPicker === 'role' && (
               <div className="absolute bottom-full left-0 mb-4 w-72 bg-white/95 dark:bg-slate-900/95 backdrop-blur-2xl rounded-2xl shadow-[0_20px_50px_rgba(0,0,0,0.15)] border border-white/40 dark:border-slate-800 p-4 z-[110] animate-in slide-in-from-bottom-4 zoom-in-95 duration-300">
-                <div className="flex justify-between items-center mb-4 px-1">
-                  <p className="text-xs font-black uppercase text-blue-600 tracking-wider">{t.switchRole}</p>
+                <div className="flex justify-between items-start mb-4 px-1 gap-3">
+                  <div>
+                    <p className="text-xs font-black uppercase text-blue-600 tracking-wider">{roleSwitchCopy.title}</p>
+                    <p className="mt-1 text-[11px] leading-4 font-bold text-slate-400">{roleSwitchCopy.hint}</p>
+                  </div>
                   <button onClick={() => setShowPicker(null)} className="text-slate-300 hover:text-slate-500 px-1"><X size={14} /></button>
                 </div>
 
@@ -261,8 +295,18 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
       )}
 
       <main className="flex-1 flex flex-col overflow-hidden relative">
-        <header className="h-24 lg:h-28 flex items-center justify-between px-6 lg:px-12 z-20 transition-all">
-          <div className="flex items-center w-full max-w-2xl">
+        <header className={`${compactMode ? 'h-14 lg:h-16' : 'h-24 lg:h-28'} flex items-center justify-between px-6 lg:px-12 z-20 transition-all`}>
+          <div className="flex items-center w-full max-w-5xl">
+            <div className="hidden xl:flex items-center min-w-[300px] max-w-[360px] mr-5">
+              <ModuleBadge id={activeTab} active size="sm" />
+              <div className="ml-3 min-w-0">
+                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-500">
+                  {MODULE_GROUP_LABELS[activeModule.group][language] || MODULE_GROUP_LABELS[activeModule.group].zh}
+                </p>
+                <h2 className="truncate text-lg font-black tracking-tight text-slate-900 dark:text-white">{activeModuleTitle}</h2>
+                <p className="truncate text-xs font-bold text-slate-400">{activeModuleDescription}</p>
+              </div>
+            </div>
             <div className="hidden lg:flex flex-1 items-center bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl px-7 py-4.5 rounded-2xl shadow-sm border border-white/50 dark:border-slate-800 focus-within:shadow-[0_15px_40px_-5px_rgba(37,99,235,0.12)] focus-within:border-blue-200 dark:focus-within:border-blue-900 focus-within:ring-0 transition-all duration-500 group cursor-pointer" onClick={() => setIsCommandPaletteOpen(true)}>
               <Search size={22} className="text-slate-400 group-focus-within:text-blue-600 transition-colors" />
               <input type="text" placeholder={t.commandPlaceholder} readOnly className="bg-transparent border-none focus:ring-0 text-sm ml-5 w-full font-black text-slate-800 dark:text-white placeholder:text-slate-300 cursor-pointer" />
@@ -278,8 +322,28 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             </div>
           </div>
 
-          <div className="flex items-center space-x-3 lg:space-x-5">
-            <button onClick={toggleTheme} className="p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[22px] text-slate-500 hover:bg-amber-100 dark:hover:bg-indigo-900 hover:text-amber-600 dark:hover:text-indigo-300 transition-all shadow-sm border border-white/40 dark:border-slate-800 active-shrink group">
+          <div className="hidden lg:flex items-center space-x-3 lg:space-x-5">
+            <button
+              onClick={() => setCompactMode(prev => !prev)}
+              data-testid="compact-mode-toggle"
+              aria-label={compactMode ? '关闭紧凑模式' : '开启紧凑模式'}
+              title={compactMode ? '关闭紧凑模式' : '开启紧凑模式'}
+              className={`p-4 backdrop-blur-xl rounded-[22px] transition-all shadow-sm border active-shrink group ${
+                compactMode
+                  ? 'border-blue-200 bg-blue-600 text-white dark:border-blue-800 dark:bg-blue-500'
+                  : 'border-white/40 bg-white/60 text-slate-500 hover:bg-blue-100 hover:text-blue-600 dark:border-slate-800 dark:bg-slate-900/60 dark:hover:bg-blue-900/30 dark:hover:text-blue-400'
+              }`}
+            >
+              <Settings size={22} className="group-hover:rotate-90 transition-transform duration-500" />
+            </button>
+
+            <button
+              onClick={toggleTheme}
+              data-testid="theme-toggle"
+              aria-label={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
+              title={theme === 'light' ? '切换到深色模式' : '切换到浅色模式'}
+              className="p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[22px] text-slate-500 hover:bg-amber-100 dark:hover:bg-indigo-900 hover:text-amber-600 dark:hover:text-indigo-300 transition-all shadow-sm border border-white/40 dark:border-slate-800 active-shrink group"
+            >
               {theme === 'light' ? <Moon size={22} className="group-hover:rotate-12 transition-transform duration-500" /> : <Sun size={22} className="group-hover:rotate-45 transition-transform duration-700" />}
             </button>
 
@@ -330,8 +394,8 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             </div>
 
             <div
-              onClick={() => setShowPicker(p => p === 'role' ? null : 'role')}
-              className={`w-14 h-14 rounded-[24px] border-4 border-white/80 dark:border-slate-800 shadow-2xl overflow-hidden shrink-0 active-shrink cursor-pointer flex items-center justify-center text-white p-0.5 transition-all hover:scale-105 active:scale-95 ${roleColors[currentUser.role]}`}
+              title={`${currentUser.name} - ${getRoleLabel(currentUser.role, currentUser.segment)}`}
+              className={`w-14 h-14 rounded-[24px] border-4 border-white/80 dark:border-slate-800 shadow-2xl overflow-hidden shrink-0 flex items-center justify-center text-white p-0.5 ${roleColors[currentUser.role]}`}
             >
               <div className="w-full h-full rounded-[20px] overflow-hidden bg-white/10 backdrop-blur-sm flex items-center justify-center">
                 {(typeof currentUser.avatar === 'string' && currentUser.avatar.includes('http')) ? <img src={currentUser.avatar} className="w-full h-full object-cover" /> : <UserCircle size={28} />}
@@ -346,14 +410,14 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           </div>
         </div>
 
-        <div className="lg:hidden fixed bottom-8 left-6 right-6 h-22 bg-white/70 dark:bg-slate-950/70 backdrop-blur-2xl rounded-2xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.25)] border border-white/40 dark:border-slate-800/50 flex items-center justify-evenly px-4 z-[90] animate-in slide-in-from-bottom-12 duration-700">
+        <div className="lg:hidden fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 right-4 h-[88px] bg-white/86 dark:bg-slate-950/86 backdrop-blur-2xl rounded-2xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.25)] border border-white/50 dark:border-slate-800/50 flex items-center justify-evenly px-3 z-[90] animate-in slide-in-from-bottom-12 duration-700">
           {menuItems.slice(0, 4).map(item => (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`relative flex flex-col items-center justify-center w-auto h-auto px-4 py-2 flex-wrap rounded-[24px] transition-all duration-500 active-shrink ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 -translate-y-4 border-4 border-slate-50 dark:border-slate-950' : 'text-slate-400'}`}>
-              <item.icon size={26} className={activeTab === item.id ? 'stroke-[2.5px]' : ''} />
-              {activeTab === item.id && <span className="absolute -bottom-6 text-xs font-black uppercase text-blue-600 tracking-wider">{item.label}</span>}
+            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`relative flex h-14 min-w-14 flex-col items-center justify-center px-3 py-2 rounded-[18px] transition-all duration-300 active-shrink ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 -translate-y-2 border-2 border-slate-50 dark:border-slate-950' : 'text-slate-500'}`}>
+              <ModuleBadge id={item.id} active={activeTab === item.id} size="sm" />
+              {activeTab === item.id && <span className="absolute -bottom-5 max-w-[72px] truncate text-xs font-black text-blue-600">{item.label}</span>}
             </button>
           ))}
-          <button className="flex flex-col items-center justify-center w-auto h-auto px-4 py-2 flex-wrap rounded-[24px] text-slate-500 bg-slate-100/80 dark:bg-slate-800/80 active-shrink" onClick={() => setMobileMenuOpen(true)}>
+          <button className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] text-slate-600 bg-slate-100/90 dark:bg-slate-800/90 dark:text-slate-200 active-shrink" onClick={() => setMobileMenuOpen(true)}>
             <Menu size={26} />
           </button>
         </div>

@@ -21,9 +21,10 @@ import {
 } from '../services/collections.service';
 import { getCustomerDisplayName } from '../utils/customerName';
 import { isCanceledApiError } from '../utils/api';
+import CommercialOpsPanel from '../components/CommercialOpsPanel';
 
 const RiskControl = () => {
-  const { t, formatPrice, language } = useAppContext();
+  const { t, formatPrice, language, notify } = useAppContext();
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [overdueOrders, setOverdueOrders] = useState<CollectionOverdueRecord[]>([]);
   const [ledger, setLedger] = useState<CollectionLedgerRecord[]>([]);
@@ -44,11 +45,11 @@ const RiskControl = () => {
 
     load().catch((error) => {
       if (isCanceledApiError(error)) return;
-      console.error('Failed to load risk control data', error);
       if (!cancelled) {
         setSummary(null);
         setOverdueOrders([]);
         setLedger([]);
+        notify('error', error instanceof Error ? error.message : '风控数据加载失败，请刷新后再核对');
       }
     });
 
@@ -56,7 +57,7 @@ const RiskControl = () => {
       cancelled = true;
       controller.abort();
     };
-  }, []);
+  }, [notify]);
 
   const invoices = useMemo<Invoice[]>(() => {
     const verifiedPaymentsByOrder = ledger.reduce<Record<number, PaymentRecord[]>>((acc, record) => {
@@ -241,6 +242,8 @@ const RiskControl = () => {
 
   return (
     <div className="space-y-8 pb-12">
+      <CommercialOpsPanel />
+
       {/* Dynamic Overdue Ticker */}
       <div className="bg-slate-900 dark:bg-black h-14 flex items-center overflow-hidden rounded-[24px] shadow-2xl border border-slate-800">
         <div className="bg-rose-600 h-full px-4 md:px-8 flex items-center z-10 border-r border-rose-500 shadow-lg">

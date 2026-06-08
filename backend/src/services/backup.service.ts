@@ -3,9 +3,27 @@ import path from 'path';
 import crypto from 'crypto';
 import { logger } from '../utils/logger';
 import { getBackupDir, getSqliteDbPath, loadRuntimeEnv, runtime } from '../config/runtime';
+import prisma, { configureRuntimeDatabase } from '../config/database';
 
 const SQLITE_BACKUP_COMPANION_SUFFIXES = ['-wal', '-shm', '-journal'] as const;
 const DEFAULT_BACKUP_RETENTION_DAYS = 90;
+type BackupRetentionMode = 'report-only' | 'enforce';
+
+export interface BackupRetentionPolicy {
+    mode: BackupRetentionMode;
+    retentionDays: number;
+    maxFiles: number | null;
+    maxTotalMB: number | null;
+    maxTotalBytes: number | null;
+}
+
+export interface BackupDirectoryStats {
+    totalFiles: number;
+    totalBytes: number;
+    dbFiles: number;
+    manifestFiles: number;
+    companionFiles: number;
+}
 
 export interface BackupFileInfo {
     filename: string;
@@ -42,6 +60,14 @@ export interface RestoreBackupResult {
     integrity: BackupIntegrityResult;
 }
 
+export const BACKUP_OPERATION_IN_PROGRESS = 'BACKUP_OPERATION_IN_PROGRESS';
+export const BACKUP_OPERATION_IN_PROGRESS_MESSAGE = 'A backup or restore operation is already running.';
+export const getBackupOperationConflictMessage = (error: unknown) => (
+    error instanceof Error && error.message === BACKUP_OPERATION_IN_PROGRESS
+        ? BACKUP_OPERATION_IN_PROGRESS_MESSAGE
+        : null
+);
+
 export interface DatabaseStatus {
     nodeEnv: string;
     databaseType: 'sqlite-file' | 'external';
@@ -51,10 +77,32 @@ export interface DatabaseStatus {
     databaseUpdatedAt: Date | null;
     backupDir: string;
     backupCount: number;
+    backupTotalSize: number;
+    backupDirectoryStats: BackupDirectoryStats;
+    backupRetention: BackupRetentionPolicy;
     latestBackup: BackupFileInfo | null;
 }
 
 export class BackupService {
+    private static exclusiveOperation: { label: string; promise: Promise<unknown> } | null = null;
+
+    private static async runExclusiveBackupOperation<T>(label: string, operation: () => Promise<T>): Promise<T> {
+        if (this.exclusiveOperation) {
+            throw new Error(BACKUP_OPERATION_IN_PROGRESS);
+        }
+
+        const promise = operation();
+        this.exclusiveOperation = { label, promise };
+
+        try {
+            return await promise;
+        } finally {
+            if (this.exclusiveOperation?.promise === promise) {
+                this.exclusiveOperation = null;
+            }
+        }
+    }
+
     private static normalizePathCandidates(filePath: string) {
         const raw = String(filePath || '');
         const cleaned = raw
@@ -163,10 +211,79 @@ export class BackupService {
         return true;
     }
 
+    private static async checkpointSqliteWal(context: string) {
+        const configuredDbPath = getSqliteDbPath();
+        if (!configuredDbPath) return;
+
+        try {
+            await prisma.$queryRawUnsafe('PRAGMA wal_checkpoint(TRUNCATE)');
+        } catch (error) {
+            logger.warn(`SQLite WAL checkpoint skipped before ${context}`, error);
+        }
+    }
+
+    private static async prepareSqliteFileRestore() {
+        await this.checkpointSqliteWal('restore');
+        await prisma.$disconnect();
+    }
+
+    private static async reconnectAfterSqliteFileRestore() {
+        await configureRuntimeDatabase();
+    }
+
     private static removeIfExists(filePath: string) {
         if (fs.existsSync(filePath)) {
             fs.unlinkSync(filePath);
         }
+    }
+
+    private static parsePositiveNumber(value: string | undefined, fallback: number | null = null) {
+        if (value === undefined || value === null || String(value).trim() === '') return fallback;
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+    }
+
+    private static parsePositiveInteger(value: string | undefined, fallback: number | null = null) {
+        const parsed = this.parsePositiveNumber(value, fallback);
+        return parsed === null ? null : Math.floor(parsed);
+    }
+
+    private static parseRetentionMode(value: string | undefined): BackupRetentionMode {
+        return String(value || 'report-only').trim().toLowerCase() === 'enforce' ? 'enforce' : 'report-only';
+    }
+
+    private static getRetentionPolicy(): BackupRetentionPolicy {
+        const retentionDays = this.parsePositiveNumber(process.env.BACKUP_RETENTION_DAYS, DEFAULT_BACKUP_RETENTION_DAYS) || DEFAULT_BACKUP_RETENTION_DAYS;
+        const maxFiles = this.parsePositiveInteger(process.env.BACKUP_MAX_FILES);
+        const maxTotalMB = this.parsePositiveNumber(process.env.BACKUP_MAX_TOTAL_MB);
+        return {
+            mode: this.parseRetentionMode(process.env.BACKUP_RETENTION_MODE),
+            retentionDays,
+            maxFiles,
+            maxTotalMB,
+            maxTotalBytes: maxTotalMB ? Math.floor(maxTotalMB * 1024 * 1024) : null,
+        };
+    }
+
+    private static getBackupDirectoryStats(): BackupDirectoryStats {
+        const backupDir = this.ensureBackupDir();
+        return fs.readdirSync(backupDir).reduce<BackupDirectoryStats>((stats, file) => {
+            const filePath = path.join(backupDir, file);
+            const fileStats = fs.statSync(filePath);
+            if (!fileStats.isFile()) return stats;
+            stats.totalFiles += 1;
+            stats.totalBytes += fileStats.size;
+            if (file.endsWith('.db')) stats.dbFiles += 1;
+            if (file.endsWith('.manifest.json')) stats.manifestFiles += 1;
+            if (SQLITE_BACKUP_COMPANION_SUFFIXES.some(suffix => file.endsWith(suffix))) stats.companionFiles += 1;
+            return stats;
+        }, {
+            totalFiles: 0,
+            totalBytes: 0,
+            dbFiles: 0,
+            manifestFiles: 0,
+            companionFiles: 0,
+        });
     }
 
     static init() {
@@ -175,6 +292,10 @@ export class BackupService {
     }
 
     static async performBackup(): Promise<string> {
+        return this.runExclusiveBackupOperation('backup', () => this.performBackupExclusive());
+    }
+
+    private static async performBackupExclusive(): Promise<string> {
         this.init();
 
         const configuredDbPath = getSqliteDbPath();
@@ -196,6 +317,7 @@ export class BackupService {
         const backupPath = path.join(this.ensureBackupDir(), backupFileName);
 
         try {
+            await this.checkpointSqliteWal('backup');
             const copiedFilePaths: string[] = [];
             this.copyExistingFile(dbPath, backupPath);
             copiedFilePaths.push(backupPath);
@@ -257,6 +379,10 @@ export class BackupService {
     }
 
     static async restoreBackup(fileName: string): Promise<RestoreBackupResult> {
+        return this.runExclusiveBackupOperation('restore', () => this.restoreBackupExclusive(fileName));
+    }
+
+    private static async restoreBackupExclusive(fileName: string): Promise<RestoreBackupResult> {
         this.init();
 
         const configuredDbPath = getSqliteDbPath();
@@ -280,6 +406,7 @@ export class BackupService {
         }
 
         try {
+            await this.prepareSqliteFileRestore();
             const restoreSnapshotName = `restore-pre-${new Date().toISOString().replace(/[:.]/g, '-')}.db`;
             const restoreSnapshotPath = path.join(this.ensureBackupDir(), restoreSnapshotName);
             const restoreSnapshotFilePaths: string[] = [];
@@ -313,6 +440,8 @@ export class BackupService {
         } catch (error) {
             logger.error('Database restore failed', error);
             throw error;
+        } finally {
+            await this.reconnectAfterSqliteFileRestore();
         }
     }
 
@@ -324,6 +453,7 @@ export class BackupService {
         const dbExists = Boolean(dbPath && fs.existsSync(dbPath));
         const dbStats = dbExists && dbPath ? fs.statSync(dbPath) : null;
         const backups = this.getBackupList();
+        const backupDirectoryStats = this.getBackupDirectoryStats();
 
         return {
             nodeEnv: runtime.nodeEnv,
@@ -334,15 +464,15 @@ export class BackupService {
             databaseUpdatedAt: dbStats ? dbStats.mtime : null,
             backupDir,
             backupCount: backups.length,
+            backupTotalSize: backupDirectoryStats.totalBytes,
+            backupDirectoryStats,
+            backupRetention: this.getRetentionPolicy(),
             latestBackup: backups.length > 0 ? backups[0] : null,
         };
     }
 
     private static cleanupOldBackups() {
-        const configuredRetentionDays = Number(process.env.BACKUP_RETENTION_DAYS || DEFAULT_BACKUP_RETENTION_DAYS);
-        const MAX_AGE_DAYS = Number.isFinite(configuredRetentionDays) && configuredRetentionDays > 0
-            ? configuredRetentionDays
-            : DEFAULT_BACKUP_RETENTION_DAYS;
+        const retentionPolicy = this.getRetentionPolicy();
         const now = Date.now();
         const backupDir = this.ensureBackupDir();
 
@@ -356,7 +486,11 @@ export class BackupService {
                     if (!file.endsWith('.db')) return;
 
                     const ageInDays = (now - stats.mtimeMs) / (1000 * 60 * 60 * 24);
-                    if (ageInDays > MAX_AGE_DAYS) {
+                    if (ageInDays > retentionPolicy.retentionDays) {
+                        if (retentionPolicy.mode !== 'enforce') {
+                            logger.warn(`Backup retention report-only: expired backup would be removed: ${file}`);
+                            return;
+                        }
                         fs.unlinkSync(filePath);
                         this.getCompanionFilePaths(filePath).forEach((companionPath) => this.removeIfExists(companionPath));
                         this.removeIfExists(this.getManifestPath(filePath));
@@ -368,6 +502,50 @@ export class BackupService {
             });
         } catch (error) {
             logger.error('Failed to clean old backups', error);
+        }
+
+        this.cleanupBackupsByCountAndSize(retentionPolicy);
+    }
+
+    private static cleanupBackupsByCountAndSize(retentionPolicy: BackupRetentionPolicy) {
+        if (!retentionPolicy.maxFiles && !retentionPolicy.maxTotalBytes) return;
+
+        const backupDir = this.ensureBackupDir();
+        try {
+            const backupFiles = fs.readdirSync(backupDir)
+                .filter(file => file.endsWith('.db'))
+                .map(file => {
+                    const filePath = path.join(backupDir, file);
+                    const stats = fs.statSync(filePath);
+                    return { file, filePath, size: stats.size, mtimeMs: stats.mtimeMs };
+                })
+                .filter(item => fs.statSync(item.filePath).isFile())
+                .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+            let retainedCount = 0;
+            let retainedBytes = 0;
+            for (const item of backupFiles) {
+                const keepAtLeastOneBackup = retainedCount === 0;
+                const exceedsCount = !keepAtLeastOneBackup && retentionPolicy.maxFiles !== null && retainedCount >= retentionPolicy.maxFiles;
+                const exceedsSize = !keepAtLeastOneBackup && retentionPolicy.maxTotalBytes !== null && retainedBytes + item.size > retentionPolicy.maxTotalBytes;
+                if (exceedsCount || exceedsSize) {
+                    if (retentionPolicy.mode !== 'enforce') {
+                        logger.warn(`Backup retention report-only: backup would be removed by ${exceedsCount ? 'count' : 'size'} guardrail: ${item.file}`);
+                        retainedCount += 1;
+                        retainedBytes += item.size;
+                        continue;
+                    }
+                    fs.unlinkSync(item.filePath);
+                    this.getCompanionFilePaths(item.filePath).forEach((companionPath) => this.removeIfExists(companionPath));
+                    this.removeIfExists(this.getManifestPath(item.filePath));
+                    logger.info(`Backup removed by retention policy: ${item.file}`);
+                    continue;
+                }
+                retainedCount += 1;
+                retainedBytes += item.size;
+            }
+        } catch (error) {
+            logger.error('Failed to enforce backup count/size retention', error);
         }
     }
 

@@ -1,12 +1,16 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, ClipboardList, Truck } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
+import { can } from '../app/permissions';
+import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
+import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
 import { PageShell } from '../components/ui';
 import { procurementService, PurchaseOrder, PurchaseReceiptBundle, Supplier } from '../services/procurement.service';
 import { orderService } from '../services/order.service';
 import { CustomerAddress, SalesOrder } from '../types';
 import { matchesScopedSearch, splitSearchTerms } from '../utils/scopedSearch';
 import { buildPurchaseOrderColumns, buildSupplierColumns } from './procurement/ProcurementColumns';
+import { ProcurementDeskNavigator, type ProcurementDeskTab } from './procurement/ProcurementDeskNavigator';
 import { ProcurementStats } from './procurement/ProcurementStats';
 import { PurchaseOrderWorkspace } from './procurement/PurchaseOrderWorkspace';
 import { PurchaseReceiptDrawer } from './procurement/PurchaseReceiptDrawer';
@@ -20,11 +24,17 @@ import {
   mergePreservingLocalWrites,
   splitAliases,
   upsertById,
+  validatePurchaseOrderForm,
+  validatePurchaseReceiptForm,
+  validateSupplierForm,
+  type ProcurementFormErrors,
 } from './procurement/procurementForms';
 
 const Procurement = () => {
   const { t, notify, language, currentUser } = useAppContext();
-  const [activeTab, setActiveTab] = useState<'suppliers' | 'orders'>('suppliers');
+  const canReadProcurement = can(currentUser, 'procurement.read') || can(currentUser, 'procurement.write');
+  const canWriteProcurement = can(currentUser, 'procurement.write');
+  const [activeDesk, setActiveDesk] = useState<ProcurementDeskTab>('suppliers');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [salesOrders, setSalesOrders] = useState<SalesOrder[]>([]);
@@ -32,6 +42,9 @@ const Procurement = () => {
   const [purchaseSearch, setPurchaseSearch] = useState('');
   const [newSupplier, setNewSupplier] = useState(createEmptySupplierForm);
   const [newOrder, setNewOrder] = useState(createEmptyPurchaseOrderForm);
+  const [supplierErrors, setSupplierErrors] = useState<ProcurementFormErrors>({});
+  const [purchaseErrors, setPurchaseErrors] = useState<ProcurementFormErrors>({});
+  const [receiptErrors, setReceiptErrors] = useState<ProcurementFormErrors>({});
   const [isB2B, setIsB2B] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [b2bLinks, setB2bLinks] = useState<Record<string, { linked: boolean; purchaseOrder?: PurchaseOrder }>>({});
@@ -49,8 +62,7 @@ const Procurement = () => {
         procurementService.getAllSuppliers(),
         orderService.getAll(),
       ]);
-      const canReadPurchaseOrders = ['admin', 'manager', 'warehouse', 'finance'].includes(currentUser.role);
-      const ordersData = canReadPurchaseOrders ? await procurementService.getAllOrders() : [];
+      const ordersData = canReadProcurement ? await procurementService.getAllOrders() : [];
 
       const hasLocalWriteDuringLoad = localWriteVersionRef.current !== loadStartedAtVersion;
       setSuppliers(prev => hasLocalWriteDuringLoad ? mergePreservingLocalWrites(prev, suppliersData) : suppliersData);
@@ -61,7 +73,7 @@ const Procurement = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [currentUser.role, notify, t.loadDataFail]);
+  }, [canReadProcurement, notify, t.loadDataFail]);
 
   useEffect(() => {
     void loadData();
@@ -92,6 +104,49 @@ const Procurement = () => {
   }, [orders, suppliers]);
 
   const purchaseCostPreview = useMemo(() => calculatePurchaseCostPreview(newOrder), [newOrder]);
+
+  const receiptReadyCount = useMemo(
+    () => orders.filter(order => ['approved', 'in_transit', 'received'].includes(order.status)).length,
+    [orders],
+  );
+
+  const displayedPurchaseOrders = useMemo(
+    () => activeDesk === 'receipts'
+      ? orders.filter(order => ['approved', 'in_transit', 'received'].includes(order.status))
+      : orders,
+    [activeDesk, orders],
+  );
+
+  const switchProcurementDesk = useCallback((desk: ProcurementDeskTab) => {
+    setActiveDesk(desk);
+  }, []);
+
+  const clearSupplierError = useCallback((field: string) => {
+    setSupplierErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
+  const clearPurchaseError = useCallback((field: string) => {
+    setPurchaseErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }, []);
+
+  const clearReceiptError = useCallback((field: string) => {
+    setReceiptErrors(prev => {
+      if (!prev[field]) return prev;
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }, []);
 
   const filteredSuppliers = useMemo(() => {
     const terms = splitSearchTerms(supplierSearch);
@@ -173,11 +228,15 @@ const Procurement = () => {
   );
 
   const updatePurchaseStatus = async (order: PurchaseOrder, status: PurchaseOrder['status']) => {
+    if (!canWriteProcurement) {
+      notify('warning', '当前角色只能查看采购数据，不能变更采购状态');
+      return;
+    }
     try {
       const updatedOrder = await procurementService.updateOrderStatus(order.id, status);
       setOrders(prev => prev.map(item => item.id === order.id ? updatedOrder : item));
-      if (status === 'approved') notify('success', t.paymentVerified || 'PO approved');
-      if (status === 'in_transit') notify('success', t.activeTransit || 'PO dispatched');
+      if (status === 'approved') notify('success', t.paymentVerified || '采购单已审核');
+      if (status === 'in_transit') notify('success', t.activeTransit || '采购单已发运');
       if (status === 'received') notify('success', `${getOrderStatusLabel(status)} / ${language === 'en' ? 'stock received' : language === 'vi' ? 'đã nhập kho' : '已入库'}`);
     } catch {
       notify('error', t.connectionFailed || 'Purchase status update failed');
@@ -186,10 +245,12 @@ const Procurement = () => {
 
   const resetReceiptForm = (order?: PurchaseOrder | null, bundle?: PurchaseReceiptBundle | null) => {
     setReceiptForm(createReceiptFormForOrder(order, bundle));
+    setReceiptErrors({});
   };
 
   const openReceiptDrawer = async (order: PurchaseOrder) => {
     try {
+      switchProcurementDesk('receipts');
       setReceiptDrawerOrder(order);
       setIsReceiptLoading(true);
       const bundle = await procurementService.getOrderReceipts(order.id);
@@ -204,13 +265,19 @@ const Procurement = () => {
 
   const submitReceipt = async () => {
     if (!receiptDrawerOrder) return;
+    if (!canWriteProcurement) {
+      notify('warning', '当前角色只能查看采购收货批次，不能保存收货');
+      return;
+    }
+    const nextErrors = validatePurchaseReceiptForm(receiptForm, receiptDrawerOrder, receiptBundle);
+    if (Object.keys(nextErrors).length) {
+      setReceiptErrors(nextErrors);
+      notify('error', Object.values(nextErrors)[0] || '请先修正收货批次');
+      return;
+    }
     const quantity = Number(receiptForm.quantity);
     const acceptedQuantity = Number(receiptForm.acceptedQuantity || 0);
     const rejectedQuantity = Number(receiptForm.rejectedQuantity || 0);
-    if (!Number.isFinite(quantity) || quantity <= 0 || Math.abs(quantity - acceptedQuantity - rejectedQuantity) > 0.000001) {
-      notify('error', '本次收货必须等于合格数量与差异数量之和');
-      return;
-    }
 
     try {
       setIsReceiptLoading(true);
@@ -226,6 +293,7 @@ const Procurement = () => {
       setReceiptDrawerOrder(bundle.purchaseOrder);
       setOrders(prev => prev.map(item => item.id === bundle.purchaseOrder.id ? bundle.purchaseOrder : item));
       resetReceiptForm(bundle.purchaseOrder, bundle);
+      setReceiptErrors({});
       notify('success', '收货批次已入账');
     } catch {
       notify('error', t.saveFail || '收货批次保存失败');
@@ -241,7 +309,7 @@ const Procurement = () => {
 
   const renderPurchaseOrderActions = (order: PurchaseOrder) => (
     <div className="flex justify-end gap-2">
-      {order.status === 'pending' && (
+      {order.status === 'pending' && canWriteProcurement && (
         <button
           data-testid={`purchase-order-approve-${order.id}`}
           type="button"
@@ -252,7 +320,7 @@ const Procurement = () => {
           <CheckCircle size={14} />
         </button>
       )}
-      {order.status === 'approved' && (
+      {order.status === 'approved' && canWriteProcurement && (
         <button
           data-testid={`purchase-order-dispatch-${order.id}`}
           type="button"
@@ -278,7 +346,16 @@ const Procurement = () => {
   );
 
   const addSupplier = async () => {
-    if (!newSupplier.name || !newSupplier.category) return;
+    if (!canWriteProcurement) {
+      notify('warning', '当前角色只能查看供应商，不能新增供应商');
+      return;
+    }
+    const nextErrors = validateSupplierForm(newSupplier);
+    if (Object.keys(nextErrors).length) {
+      setSupplierErrors(nextErrors);
+      notify('error', Object.values(nextErrors)[0] || '请先补全供应商信息');
+      return;
+    }
 
     const contacts = [
       {
@@ -324,15 +401,31 @@ const Procurement = () => {
       localWriteVersionRef.current += 1;
       setSuppliers(prev => upsertById(createdSupplier, prev));
       setNewSupplier(createEmptySupplierForm());
-        notify('success', t.supplierCreated);
+      setSupplierErrors({});
+      switchProcurementDesk('suppliers');
+      notify('success', t.supplierCreated);
     } catch {
       notify('error', t.supplierCreateFail);
     }
   };
 
   const addOrder = async () => {
+    if (!canWriteProcurement) {
+      notify('warning', '当前角色只能查看采购单，不能新增采购单');
+      return;
+    }
+    const nextErrors = validatePurchaseOrderForm(newOrder, isB2B);
+    if (Object.keys(nextErrors).length) {
+      setPurchaseErrors(nextErrors);
+      notify('error', Object.values(nextErrors)[0] || '请先补全采购单信息');
+      return;
+    }
     const supplier = suppliers.find(item => item.id === newOrder.supplierId);
-    if (!supplier || !newOrder.item) return;
+    if (!supplier) {
+      setPurchaseErrors({ supplierId: '请选择供应商' });
+      notify('error', '请选择供应商');
+      return;
+    }
     const linkedSalesOrder = isB2B && newOrder.salesOrderRef
       ? salesOrders.find(so => so.id === newOrder.salesOrderRef || (so as any).orderNo === newOrder.salesOrderRef)
       : null;
@@ -366,7 +459,9 @@ const Procurement = () => {
       localWriteVersionRef.current += 1;
       setOrders(prev => upsertById(createdOrder, prev));
       setNewOrder(createEmptyPurchaseOrderForm());
-        notify('success', t.purchaseCreated);
+      setPurchaseErrors({});
+      switchProcurementDesk('orders');
+      notify('success', t.purchaseCreated);
 
       if (isB2B && newOrder.salesOrderRef) {
         const salesOrder = linkedSalesOrder;
@@ -398,29 +493,40 @@ const Procurement = () => {
 
   return (
     <PageShell
-      title={t.procurement}
-      subtitle={t.procurementSubtitle}
-      tabs={[
-        {
-          id: 'suppliers',
-          label: t.suppliers,
-          active: activeTab === 'suppliers',
-          onClick: () => setActiveTab('suppliers'),
-          testId: 'procurement-tab-suppliers',
-        },
-        {
-          id: 'orders',
-          label: t.purchaseOrders,
-          active: activeTab === 'orders',
-          onClick: () => setActiveTab('orders'),
-          testId: 'procurement-tab-orders',
-        },
-      ]}
+      title={getModuleTitle('procurement', language)}
+      subtitle={getModuleDescription('procurement', language)}
     >
+      <DocumentInputGuide
+        testId="procurement-input-guide"
+        eyebrow="采购 / 供应商 / 收货路线"
+        title="供应商、采购单、收货动作必须分清"
+        description="采购页不能把供应商建档、采购开单、分批收货、入库、差异处理混成一个大表。成熟进销存习惯是先维护供应商，再开采购单和明细行，到货后按批次收货并回写库存；短收、拒收、质检差异再进入差异/RMA链。"
+        tone="amber"
+        steps={[
+          { title: '供应商主数据', description: '维护供应商多名称、多地址、多联系人和账期，不在这里做收货。', badge: '主数据' },
+          { title: '采购单', description: '录采购单头和物料明细，确认数量、单价、币种、交期。', badge: '开单' },
+          { title: '分批收货', description: '按到货批次收货，保存后必须回读采购单状态和库存入库。', badge: '执行' },
+          { title: '差异闭环', description: '短收、拒收、质量问题进入差异处理或RMA，不直接改采购单历史。', badge: '异常' },
+        ]}
+        boundaries={[
+          { title: '本区负责', items: ['供应商', '采购单', '采购明细', '分批收货', '入库关联'] },
+          { title: '转入其他区', items: ['库存调拨', '财务付款', '异常线索复核', 'RMA补偿'] },
+        ]}
+        evidence={['供应商能查到', '采购单能回读', '收货后库存变化', '差异能追踪']}
+      />
 
       <ProcurementStats t={t} supplierCount={suppliers.length} stats={stats} />
 
-      {activeTab === 'suppliers' && (
+      <ProcurementDeskNavigator
+        language={language}
+        activeDesk={activeDesk}
+        supplierCount={suppliers.length}
+        orderCount={orders.length}
+        receiptReadyCount={receiptReadyCount}
+        onChange={switchProcurementDesk}
+      />
+
+      {activeDesk === 'suppliers' && (
         <SupplierWorkspace
           t={t}
           filteredSuppliers={filteredSuppliers}
@@ -430,14 +536,18 @@ const Procurement = () => {
           isLoading={isLoading}
           newSupplier={newSupplier}
           setNewSupplier={setNewSupplier}
+          supplierErrors={supplierErrors}
+          clearSupplierError={clearSupplierError}
           addSupplier={addSupplier}
+          canWrite={canWriteProcurement}
         />
       )}
 
-      {activeTab === 'orders' && (
+      {(activeDesk === 'orders' || activeDesk === 'receipts') && (
         <PurchaseOrderWorkspace
           t={t}
-          orders={orders}
+          mode={activeDesk === 'receipts' ? 'receipts' : 'orders'}
+          orders={displayedPurchaseOrders}
           purchaseOrderColumns={purchaseOrderColumns}
           purchaseSearch={purchaseSearch}
           setPurchaseSearch={setPurchaseSearch}
@@ -445,6 +555,8 @@ const Procurement = () => {
           renderPurchaseOrderActions={renderPurchaseOrderActions}
           newOrder={newOrder}
           setNewOrder={setNewOrder}
+          purchaseErrors={purchaseErrors}
+          clearPurchaseError={clearPurchaseError}
           addOrder={addOrder}
           isB2B={isB2B}
           setIsB2B={setIsB2B}
@@ -453,6 +565,7 @@ const Procurement = () => {
           suppliers={suppliers}
           getSupplierLabel={getSupplierLabel}
           purchaseCostPreview={purchaseCostPreview}
+          canWrite={canWriteProcurement}
         />
       )}
 
@@ -466,9 +579,12 @@ const Procurement = () => {
           receiptBundle={receiptBundle}
           receiptForm={receiptForm}
           setReceiptForm={setReceiptForm}
+          receiptErrors={receiptErrors}
+          clearReceiptError={clearReceiptError}
           isReceiptLoading={isReceiptLoading}
           submitReceipt={submitReceipt}
           onClose={() => setReceiptDrawerOrder(null)}
+          canWrite={canWriteProcurement}
         />
       )}
     </PageShell>

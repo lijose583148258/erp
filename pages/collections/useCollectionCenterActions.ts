@@ -24,6 +24,8 @@ interface CollectionCenterActionsInput {
   overdueBucketFilter: OverdueBucketFilter;
   overdueRiskFilter: RiskFilter;
   loadData: (options?: CollectionLoadOptions) => Promise<void>;
+  syncing: boolean;
+  batching: boolean;
   setSyncing: Dispatch<SetStateAction<boolean>>;
   setBatching: Dispatch<SetStateAction<boolean>>;
   setSelectedOrderId: Dispatch<SetStateAction<number | null>>;
@@ -38,6 +40,8 @@ export const useCollectionCenterActions = ({
   overdueBucketFilter,
   overdueRiskFilter,
   loadData,
+  syncing,
+  batching,
   setSyncing,
   setBatching,
   setSelectedOrderId,
@@ -45,6 +49,10 @@ export const useCollectionCenterActions = ({
   setActionTarget,
 }: CollectionCenterActionsInput) => {
   const handleSyncOverdue = async () => {
+    if (syncing) {
+      notify('info', '逾期同步正在进行，请稍后');
+      return;
+    }
     if (!permissions.canSyncOverdue) {
       notify('warning', '当前角色没有同步逾期权限');
       return;
@@ -96,6 +104,10 @@ export const useCollectionCenterActions = ({
   };
 
   const handleBatchReminder = async () => {
+    if (batching) {
+      notify('info', '批量催收正在进行，请稍后');
+      return;
+    }
     if (!permissions.canCreateReminder) {
       notify('warning', '当前角色没有批量催收权限');
       return;

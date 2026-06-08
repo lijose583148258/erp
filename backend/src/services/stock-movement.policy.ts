@@ -1,6 +1,8 @@
 import type { StockSourceType } from './stock-movement.types';
 
 export const IDEMPOTENT_SOURCE_TYPES = new Set<StockSourceType>([
+  'warehouse_manual_inbound',
+  'warehouse_transfer',
   'production_consumption',
   'production_output',
   'procurement_receipt',

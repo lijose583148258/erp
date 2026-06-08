@@ -124,18 +124,18 @@ router.get('/', authRoute(async (req, res) => {
                 _sum: { overdueAmount: true },
             }),
 
-            // 库存预警：销售角色不展示全局库存预警，避免越权推断库存和生产状态。
-            isSales ? Promise.resolve([]) : prisma.productBatch.findMany({
+            // 库存预警以仓储余额为准，避免 product_batches 的批次登记量与真实库存余额分裂。
+            isSales ? Promise.resolve([]) : prisma.stockBalance.findMany({
                 where: {
-                    stockQuantity: { lt: 500 } // 实战逻辑：少于500为预警
+                    quantity: { lt: 500 } // 实战逻辑：少于500为预警
                 },
+                orderBy: { quantity: 'asc' },
                 take: 5,
                 select: {
                     batchNo: true,
                     productName: true,
-                    stockQuantity: true,
+                    quantity: true,
                     unit: true,
-                    expiryDate: true
                 }
             })
         ]);
@@ -197,12 +197,12 @@ router.get('/', authRoute(async (req, res) => {
                 inventoryAlerts: inventoryAlerts.map(inv => ({
                     sku: inv.batchNo,
                     name: inv.productName,
-                    stock: inv.stockQuantity,
+                    stock: inv.quantity,
                     reorderPoint: 500,
                     pendingOrders: 0,
-                    daysOfStock: inv.stockQuantity > 0 ? Math.max(1, Math.floor(inv.stockQuantity / 50)) : 0,
-                    priority: inv.stockQuantity < 100 ? 'high' as const : inv.stockQuantity < 300 ? 'medium' as const : 'low' as const,
-                    suggestion: inv.stockQuantity < 100 ? '库存极低，建议立即采购补货。' : '库存偏低，请关注后续订单需求。'
+                    daysOfStock: inv.quantity > 0 ? Math.max(1, Math.floor(inv.quantity / 50)) : 0,
+                    priority: inv.quantity < 100 ? 'high' as const : inv.quantity < 300 ? 'medium' as const : 'low' as const,
+                    suggestion: inv.quantity < 100 ? '库存极低，建议立即采购补货。' : '库存偏低，请关注后续订单需求。'
                 })),
                 // 系统状态快照
                 systemStatus: {

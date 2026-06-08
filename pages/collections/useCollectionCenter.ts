@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useAppContext } from '../../app/AppContext';
-import { can } from '../../app/permissions';
+import { can, hasDataScope } from '../../app/permissions';
 import {
+  collectionsService,
   CollectionDisputeRecord,
   CollectionHoldRecord,
   CollectionLedgerRecord,
+  CollectionListMeta,
   CollectionMilestoneRecord,
   CollectionOverdueRecord,
   CollectionPromiseRecord,
   CollectionSummary,
 } from '../../services/collections.service';
+import { isCanceledApiError } from '../../utils/api';
 import { CollectionActionMode, CollectionActionTarget } from '../../components/collections/CollectionActionModal';
 import { requestCollectionLoadBundle, type CollectionLoadOptions } from './collectionLoadBundle';
 import { reportClientIssue } from '../../utils/clientIssue';
@@ -104,6 +107,12 @@ export interface CollectionCenterState {
   setLedgerSort: Dispatch<SetStateAction<LedgerSort>>;
   setMilestoneSort: Dispatch<SetStateAction<MilestoneSort>>;
   setOverdueSort: Dispatch<SetStateAction<OverdueSort>>;
+  overdueSearch: string;
+  setOverdueSearch: Dispatch<SetStateAction<string>>;
+  overdueSearchLoading: boolean;
+  overdueSearchMeta: CollectionListMeta;
+  setOverdueSearchPage: Dispatch<SetStateAction<number>>;
+  setOverdueSearchPageSize: Dispatch<SetStateAction<number>>;
   setPromiseSort: Dispatch<SetStateAction<PromiseSort>>;
   setDisputeSort: Dispatch<SetStateAction<DisputeSort>>;
   setHoldSort: Dispatch<SetStateAction<HoldSort>>;
@@ -135,16 +144,27 @@ export const useCollectionCenterState = (): CollectionCenterState => {
   const [ledgerSort, setLedgerSort] = useState<LedgerSort>('created_desc');
   const [milestoneSort, setMilestoneSort] = useState<MilestoneSort>('due_asc');
   const [overdueSort, setOverdueSort] = useState<OverdueSort>('days_desc');
+  const [overdueSearch, setOverdueSearch] = useState('');
+  const [overdueSearchRows, setOverdueSearchRows] = useState<CollectionOverdueRecord[]>([]);
+  const [overdueSearchPage, setOverdueSearchPage] = useState(1);
+  const [overdueSearchPageSize, setOverdueSearchPageSize] = useState(20);
+  const [overdueSearchMeta, setOverdueSearchMeta] = useState<CollectionListMeta>({
+    page: 1,
+    pageSize: 20,
+    total: 0,
+    totalPages: 1,
+  });
+  const [overdueSearchLoading, setOverdueSearchLoading] = useState(false);
   const [promiseSort, setPromiseSort] = useState<PromiseSort>('promised_at_asc');
   const [disputeSort, setDisputeSort] = useState<DisputeSort>('active_first');
   const [holdSort, setHoldSort] = useState<HoldSort>('active_first');
   const permissions = useMemo<CollectionActionPermissions>(() => ({
-    canSyncOverdue: can(currentUser, 'collections.sync'),
+    canSyncOverdue: can(currentUser, 'collections.sync') && hasDataScope(currentUser, 'finance_visible'),
     canCreateReminder: can(currentUser, 'collections.reminder.write'),
     canManagePromise: can(currentUser, 'collections.promise.write'),
     canManageDispute: can(currentUser, 'collections.dispute.write'),
-    canManageHold: can(currentUser, 'collections.hold.manage'),
-    canVerifyPayment: can(currentUser, 'orders.payment.verify'),
+    canManageHold: can(currentUser, 'collections.hold.manage') && hasDataScope(currentUser, 'finance_visible'),
+    canVerifyPayment: can(currentUser, 'orders.payment.verify') && hasDataScope(currentUser, 'finance_visible'),
   }), [currentUser]);
 
   const loadData = useCallback(async (options: CollectionLoadOptions = {}) => {
@@ -174,20 +194,69 @@ export const useCollectionCenterState = (): CollectionCenterState => {
   }, [loadData]);
 
   useEffect(() => {
-    const fallbackOrderId = overdue[0]?.orderId ?? ledger[0]?.orderId ?? null;
-    if (!overdue.length && !ledger.length) {
+    const query = overdueSearch.trim();
+    if (!query) {
+      setOverdueSearchRows([]);
+      setOverdueSearchMeta({
+        page: 1,
+        pageSize: overdueSearchPageSize,
+        total: 0,
+        totalPages: 1,
+      });
+      setOverdueSearchLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setOverdueSearchLoading(true);
+      try {
+        const result = await collectionsService.getOverdueOrdersPage({
+          search: query,
+          page: overdueSearchPage,
+          pageSize: overdueSearchPageSize,
+          signal: controller.signal,
+        });
+        setOverdueSearchRows(result.data);
+        setOverdueSearchMeta(result.meta);
+      } catch (error) {
+        if (!isCanceledApiError(error)) {
+          reportClientIssue('collections.overdue-search', error, 'warning');
+          notify('error', '逾期清单搜索失败，请稍后重试');
+          setOverdueSearchRows([]);
+        }
+      } finally {
+        if (!controller.signal.aborted) setOverdueSearchLoading(false);
+      }
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [notify, overdueSearch, overdueSearchPage, overdueSearchPageSize]);
+
+  useEffect(() => {
+    setOverdueSearchPage(1);
+  }, [overdueSearch]);
+
+  const visibleOverdue = overdueSearch.trim() ? overdueSearchRows : overdue;
+
+  useEffect(() => {
+    const fallbackOrderId = visibleOverdue[0]?.orderId ?? ledger[0]?.orderId ?? null;
+    if (!visibleOverdue.length && !ledger.length) {
       setSelectedOrderId(null);
       setSelectedOverdue(null);
       return;
     }
 
     setSelectedOrderId((current) => {
-      if (current && (overdue.some((row) => row.orderId === current) || ledger.some((row) => row.orderId === current))) {
+      if (current && (visibleOverdue.some((row) => row.orderId === current) || ledger.some((row) => row.orderId === current))) {
         return current;
       }
       return fallbackOrderId;
     });
-  }, [overdue, ledger]);
+  }, [visibleOverdue, ledger]);
 
   useEffect(() => {
     if (!selectedOrderId) {
@@ -195,9 +264,9 @@ export const useCollectionCenterState = (): CollectionCenterState => {
       return;
     }
 
-    const matched = overdue.find((row) => row.orderId === selectedOrderId) || null;
+    const matched = visibleOverdue.find((row) => row.orderId === selectedOrderId) || null;
     setSelectedOverdue(matched);
-  }, [selectedOrderId, overdue]);
+  }, [selectedOrderId, visibleOverdue]);
 
   const {
     handleSyncOverdue,
@@ -212,10 +281,12 @@ export const useCollectionCenterState = (): CollectionCenterState => {
   } = useCollectionCenterActions({
     permissions,
     notify,
-    overdue,
+    overdue: visibleOverdue,
     overdueBucketFilter,
     overdueRiskFilter,
     loadData,
+    syncing,
+    batching,
     setSyncing,
     setBatching,
     setSelectedOrderId,
@@ -236,7 +307,7 @@ export const useCollectionCenterState = (): CollectionCenterState => {
     sortedMilestones,
   } = useCollectionCenterDerivedLists({
     ledger,
-    overdue,
+    overdue: visibleOverdue,
     milestones,
     promises,
     disputes,
@@ -319,6 +390,12 @@ export const useCollectionCenterState = (): CollectionCenterState => {
     setLedgerSort,
     setMilestoneSort,
     setOverdueSort,
+    overdueSearch,
+    setOverdueSearch,
+    overdueSearchLoading,
+    overdueSearchMeta,
+    setOverdueSearchPage,
+    setOverdueSearchPageSize,
     setPromiseSort,
     setDisputeSort,
     setHoldSort,

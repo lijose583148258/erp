@@ -66,6 +66,28 @@ const ensureWritableDir = (dirPath: string) => {
   fs.accessSync(dirPath, fs.constants.W_OK);
 };
 
+const isTruthy = (value?: string) =>
+  ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+const normalizeDeploymentMode = (value?: string) => {
+  const mode = String(value || 'local').trim().toLowerCase();
+  if (mode === 'local' || mode === 'private' || mode === 'saas') return mode;
+  throw new Error(`Invalid AILAODA_DEPLOYMENT_MODE '${value}'. Use local, private, or saas.`);
+};
+
+const detectDatabaseEngine = (value?: string) => {
+  const raw = sanitizeEnvPathValue(value || '');
+  if (!raw || raw.toLowerCase().startsWith('file:')) return 'sqlite';
+  if (/^postgres(?:ql)?:\/\//i.test(raw)) return 'postgresql';
+  return 'unknown';
+};
+
+const isForbiddenSqliteRuntimeDbPath = (candidatePath: string) => {
+  const normalized = path.resolve(candidatePath).replace(/\\/g, '/').toLowerCase();
+  const prismaRoot = path.join(backendRoot, 'prisma').replace(/\\/g, '/').toLowerCase();
+  return normalized.startsWith(`${prismaRoot}/`);
+};
+
 const resolveSqliteDbPath = () => {
   const raw = sanitizeEnvPathValue(process.env.DATABASE_URL || '');
   if (raw && !raw.toLowerCase().startsWith('file:')) return null;
@@ -83,6 +105,9 @@ const resolveSqliteDbPath = () => {
   for (const dbPath of runtimeDbCandidates) {
     const candidatePath = path.isAbsolute(dbPath) ? dbPath : path.resolve(backendRoot, dbPath);
     try {
+      if (isForbiddenSqliteRuntimeDbPath(candidatePath) && !isTruthy(process.env.AILAODA_ALLOW_LEGACY_PRISMA_DB)) {
+        continue;
+      }
       ensureWritableDir(path.dirname(candidatePath));
       return candidatePath;
     } catch {
@@ -97,6 +122,8 @@ export const runtime = {
   backendRoot,
   projectRoot,
   nodeEnv: process.env.NODE_ENV || 'development',
+  deploymentMode: normalizeDeploymentMode(process.env.AILAODA_DEPLOYMENT_MODE),
+  databaseEngine: detectDatabaseEngine(process.env.DATABASE_URL),
   port: Number(process.env.PORT || 5001),
   corsOrigins: parseList(process.env.CORS_ORIGIN),
   backupDir: resolveProjectRuntimePath(process.env.BACKUP_DIR || 'backups'),
@@ -106,6 +133,18 @@ export const runtime = {
   serveFrontend: String(process.env.SERVE_FRONTEND ?? 'true').toLowerCase() !== 'false',
   trustProxy: String(process.env.TRUST_PROXY ?? 'false').toLowerCase() !== 'false',
   sqliteDbPath: resolveSqliteDbPath(),
+};
+
+export const assertRuntimeDeploymentPolicy = () => {
+  if (runtime.nodeEnv !== 'production') return;
+
+  if (runtime.deploymentMode === 'saas' && runtime.databaseEngine !== 'postgresql') {
+    throw new Error('SaaS deployment requires PostgreSQL DATABASE_URL. Refusing to start with SQLite.');
+  }
+
+  if (runtime.databaseEngine === 'postgresql') {
+    throw new Error('PostgreSQL DATABASE_URL is configured, but this runtime package is built with the SQLite Prisma provider. Build a PostgreSQL-specific server artifact before SaaS deployment.');
+  }
 };
 
 export const getAllowedOrigins = () => {

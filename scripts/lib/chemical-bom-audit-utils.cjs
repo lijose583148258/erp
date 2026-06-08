@@ -200,6 +200,8 @@ const createChemicalBomAuditContext = ({ appUrl, reportDir, reportPath }) => {
       quantity,
       unit: 'kg',
       unitCost,
+      sourceRef: `CHEM-BOM-AUDIT-SEED-${code}`,
+      reason: '化工 BOM 审计前置原料库存补录，验证生产完工扣减闭环',
       note: 'chemical bom audit seed',
     };
     const result = await requestJson('POST', '/api/warehouses/stock-balances', {

@@ -162,6 +162,7 @@ function toAppUser(user) {
     segment: user.segment || 'direct',
     avatar: user.avatar || '',
     permissions: user.permissions || [],
+    dataScopes: user.dataScopes || [],
   };
 }
 
@@ -204,34 +205,74 @@ async function openCollectionsAs(browser, actor, label) {
   return { context, page, consoleErrors };
 }
 
-async function waitForOrder(page, orderNo, label) {
+async function waitForOrder(page, orderNo, label, orderId = null) {
   await withTimebox(`wait-order-${label}`, 25_000, async () => {
-    await page.getByText(String(orderNo), { exact: false }).first().waitFor({ state: 'visible', timeout: 20_000 });
+    if (orderId) {
+      await page.locator(`[data-testid="collection-overdue-row-${orderId}"]`).first().waitFor({ state: 'visible', timeout: 20_000 });
+      return;
+    }
+    await page.getByText(String(orderNo), { exact: false }).last().waitFor({ state: 'visible', timeout: 20_000 });
   });
 }
 
-async function selectOrder(page, orderNo, label) {
-  await waitForOrder(page, orderNo, label);
+async function selectOrder(page, orderNo, label, orderId = null) {
+  await waitForOrder(page, orderNo, label, orderId);
   await withTimebox(`select-order-${label}`, 15_000, async () => {
-    await page.getByText(String(orderNo), { exact: false }).first().click();
+    if (orderId) {
+      await page.locator(`[data-testid="collection-overdue-row-${orderId}"]`).first().click();
+    } else {
+      await page.getByText(String(orderNo), { exact: false }).last().click();
+    }
     await page.waitForTimeout(600);
   });
 }
 
-async function buttonCount(page, label) {
-  return page.getByRole('button', { name: label, exact: true }).count();
+async function searchOverdueOrder(page, orderNo, label) {
+  await withTimebox(`search-order-${label}`, 20_000, async () => {
+    const input = page.locator('[data-testid="collection-overdue-search"]');
+    await input.waitFor({ state: 'visible', timeout: 10_000 });
+    await input.fill(orderNo);
+    await page.waitForTimeout(1200);
+  });
 }
 
-async function expectButtonVisible(page, label, roleLabel) {
-  const count = await buttonCount(page, label);
-  expect(count > 0, `${roleLabel}: expected visible button "${label}"`, { count });
-  recordStep({ step: 'button-visible', role: roleLabel, label, count, result: 'passed' });
+async function openLedgerTab(page, label) {
+  await withTimebox(`open-ledger-tab-${label}`, 15_000, async () => {
+    await page.locator('[data-testid="collection-tab-ledger"]').click();
+    await page.waitForTimeout(800);
+  });
 }
 
-async function expectButtonHidden(page, label, roleLabel) {
-  const count = await buttonCount(page, label);
-  expect(count === 0, `${roleLabel}: expected hidden button "${label}"`, { count });
-  recordStep({ step: 'button-hidden', role: roleLabel, label, count, result: 'passed' });
+async function testIdCount(page, testId) {
+  return page.locator(`[data-testid="${testId}"]`).count();
+}
+
+async function testIdPrefixCount(page, prefix) {
+  return page.locator(`[data-testid^="${prefix}"]`).count();
+}
+
+async function expectTestIdVisible(page, testId, roleLabel) {
+  const count = await testIdCount(page, testId);
+  expect(count > 0, `${roleLabel}: expected visible action "${testId}"`, { count });
+  recordStep({ step: 'action-visible', role: roleLabel, testId, count, result: 'passed' });
+}
+
+async function expectTestIdHidden(page, testId, roleLabel) {
+  const count = await testIdCount(page, testId);
+  expect(count === 0, `${roleLabel}: expected hidden action "${testId}"`, { count });
+  recordStep({ step: 'action-hidden', role: roleLabel, testId, count, result: 'passed' });
+}
+
+async function expectTestIdPrefixVisible(page, prefix, roleLabel) {
+  const count = await testIdPrefixCount(page, prefix);
+  expect(count > 0, `${roleLabel}: expected visible action prefix "${prefix}"`, { count });
+  recordStep({ step: 'action-prefix-visible', role: roleLabel, testIdPrefix: prefix, count, result: 'passed' });
+}
+
+async function expectTestIdPrefixHidden(page, prefix, roleLabel) {
+  const count = await testIdPrefixCount(page, prefix);
+  expect(count === 0, `${roleLabel}: expected hidden action prefix "${prefix}"`, { count });
+  recordStep({ step: 'action-prefix-hidden', role: roleLabel, testIdPrefix: prefix, count, result: 'passed' });
 }
 
 async function waitForPromiseReadback(token, note, orderId) {
@@ -254,10 +295,14 @@ async function waitForPromiseReadback(token, note, orderId) {
 async function auditViewer(browser, actor, seed) {
   const { context, page, consoleErrors } = await openCollectionsAs(browser, actor, 'viewer');
   try {
-    await selectOrder(page, seed.order.orderNo, 'viewer');
-    for (const label of ['同步逾期', '批量催收', '催收提醒', '承诺付款', '发起争议', '核销', '核销该笔', '释放']) {
-      await expectButtonHidden(page, label, 'viewer');
-    }
+    await selectOrder(page, seed.order.orderNo, 'viewer', seed.order.id);
+    await expectTestIdHidden(page, 'collection-workspace-sync-overdue', 'viewer');
+    await expectTestIdHidden(page, 'collection-workspace-batch-reminder', 'viewer');
+    await expectTestIdHidden(page, `collection-workspace-reminder-${seed.order.orderId ?? seed.order.id}`, 'viewer');
+    await expectTestIdHidden(page, `collection-workspace-promise-${seed.order.orderId ?? seed.order.id}`, 'viewer');
+    await expectTestIdHidden(page, `collection-workspace-dispute-${seed.order.orderId ?? seed.order.id}`, 'viewer');
+    await expectTestIdPrefixHidden(page, 'collection-workspace-verify-', 'viewer');
+    await expectTestIdPrefixHidden(page, 'collection-ledger-verify-', 'viewer');
     const screenshot = await safeScreenshot(page, 'viewer-hidden-actions');
     recordStep({ step: 'viewer-evidence', result: 'passed', screenshot, consoleErrors: consoleErrors.slice(0, 8) });
   } finally {
@@ -268,21 +313,22 @@ async function auditViewer(browser, actor, seed) {
 async function auditOperator(browser, actor, seed) {
   const { context, page, consoleErrors } = await openCollectionsAs(browser, actor, 'operator');
   try {
-    await selectOrder(page, seed.order.orderNo, 'operator');
-    for (const label of ['同步逾期', '核销', '核销该笔', '释放']) {
-      await expectButtonHidden(page, label, 'operator');
-    }
-    for (const label of ['批量催收', '催收提醒', '承诺付款', '发起争议']) {
-      await expectButtonVisible(page, label, 'operator');
-    }
+    await selectOrder(page, seed.order.orderNo, 'operator', seed.order.id);
+    await expectTestIdHidden(page, 'collection-workspace-sync-overdue', 'operator');
+    await expectTestIdPrefixHidden(page, 'collection-workspace-verify-', 'operator');
+    await expectTestIdPrefixHidden(page, 'collection-ledger-verify-', 'operator');
+    await expectTestIdVisible(page, 'collection-workspace-batch-reminder', 'operator');
+    await expectTestIdVisible(page, `collection-workspace-reminder-${seed.order.orderId ?? seed.order.id}`, 'operator');
+    await expectTestIdVisible(page, `collection-workspace-promise-${seed.order.orderId ?? seed.order.id}`, 'operator');
+    await expectTestIdVisible(page, `collection-workspace-dispute-${seed.order.orderId ?? seed.order.id}`, 'operator');
     await withTimebox('operator-submit-promise-modal', 30_000, async () => {
-      await page.getByRole('button', { name: '承诺付款' }).first().click();
-      const modal = page.locator('div.fixed.inset-0').last();
-      await modal.getByRole('heading', { name: /承诺/ }).first().waitFor({ state: 'visible', timeout: 10_000 });
-      await page.locator('input[type="number"]').first().fill('88');
+      await page.locator(`[data-testid="collection-workspace-promise-${seed.order.orderId ?? seed.order.id}"]`).click();
+      const modal = page.locator('[data-testid="collection-action-modal"]').last();
+      await modal.waitFor({ state: 'visible', timeout: 10_000 });
+      await modal.locator('[data-testid="collection-action-promised-amount"]').fill('88');
       const note = `UI-PERM-PROMISE-${RUN_ID}`;
-      await modal.locator('input').last().fill(note);
-      await modal.getByRole('button', { name: /提交|承诺/ }).last().click();
+      await modal.locator('[data-testid="collection-action-note"]').fill(note);
+      await modal.locator('[data-testid="collection-action-submit"]').click();
       await waitForPromiseReadback(actor.token, note, seed.order.id);
     });
     const screenshot = await safeScreenshot(page, 'operator-action-visible-and-promise-submitted');
@@ -295,12 +341,18 @@ async function auditOperator(browser, actor, seed) {
 async function auditFinance(browser, actor, seed) {
   const { context, page, consoleErrors } = await openCollectionsAs(browser, actor, 'finance');
   try {
-    await selectOrder(page, seed.order.orderNo, 'finance');
-    for (const label of ['同步逾期', '核销该笔', '释放']) {
-      await expectButtonVisible(page, label, 'finance');
-    }
+    await searchOverdueOrder(page, seed.order.orderNo, 'finance');
+    await selectOrder(page, seed.order.orderNo, 'finance', seed.order.id);
+    await expectTestIdVisible(page, 'collection-workspace-sync-overdue', 'finance');
+    await expectTestIdPrefixVisible(page, 'collection-workspace-verify-', 'finance');
+    await openLedgerTab(page, 'finance');
+    await expectTestIdPrefixVisible(page, 'collection-ledger-verify-', 'finance');
+    await expectTestIdHidden(page, 'collection-workspace-batch-reminder', 'finance');
+    await expectTestIdHidden(page, `collection-workspace-reminder-${seed.order.orderId ?? seed.order.id}`, 'finance');
+    await expectTestIdHidden(page, `collection-workspace-promise-${seed.order.orderId ?? seed.order.id}`, 'finance');
+    await expectTestIdHidden(page, `collection-workspace-dispute-${seed.order.orderId ?? seed.order.id}`, 'finance');
     await withTimebox('finance-click-verify-payment', 25_000, async () => {
-      await page.getByRole('button', { name: '核销该笔' }).first().click();
+      await page.locator('[data-testid^="collection-ledger-verify-"]').first().click();
       await page.waitForTimeout(1200);
     });
     const orderResponse = await apiFetch(`/orders/${seed.order.id}`, {}, actor.token);

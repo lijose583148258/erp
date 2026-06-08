@@ -37,7 +37,7 @@ const copy = {
     custom: '自定义角色',
     active: '启用',
     inactive: '停用',
-    readonly: '系统角色只读，避免误改基础权限。',
+    readonly: '系统角色的编码和启用状态已锁定，但权限点可由超级管理员调整。',
     code: '角色编码',
     name: '角色名称',
     description: '说明',
@@ -63,7 +63,7 @@ const copy = {
     custom: 'Custom Role',
     active: 'Active',
     inactive: 'Disabled',
-    readonly: 'System roles are read-only to protect baseline access.',
+    readonly: 'System role code and active state are locked, but super admins can adjust permissions.',
     code: 'Role Code',
     name: 'Role Name',
     description: 'Description',
@@ -89,7 +89,7 @@ const copy = {
     custom: 'Vai trò tùy chỉnh',
     active: 'Đang bật',
     inactive: 'Đã tắt',
-    readonly: 'Vai trò hệ thống chỉ đọc để bảo vệ quyền nền.',
+    readonly: 'Mã vai trò hệ thống và trạng thái bật được khóa, nhưng siêu quản trị có thể chỉnh quyền.',
     code: 'Mã vai trò',
     name: 'Tên vai trò',
     description: 'Mô tả',
@@ -175,7 +175,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
   }, [roles, selectedRoleCode, isCreating]);
 
   const activeRole = !isCreating ? roles.find((role) => role.code === selectedRoleCode) : undefined;
-  const isReadOnly = Boolean(activeRole?.isSystem);
+  const isSystemRole = Boolean(activeRole?.isSystem);
   const selectedPermissionSet = useMemo(() => new Set(draft.permissions), [draft.permissions]);
 
   const filteredPermissionGroups = useMemo(() => {
@@ -222,7 +222,6 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
   };
 
   const togglePermission = (permissionCode: string) => {
-    if (isReadOnly) return;
     setDraft((prev) => ({
       ...prev,
       permissions: prev.permissions.includes(permissionCode)
@@ -245,11 +244,6 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
       notify('warning', text.validationPermissions);
       return;
     }
-    if (isReadOnly) {
-      notify('warning', text.readonly);
-      return;
-    }
-
     setSaving(true);
     try {
       const payload = {
@@ -332,7 +326,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
         </div>
 
         <div className="p-8 space-y-8">
-          {isReadOnly && (
+          {isSystemRole && (
             <div className="flex items-center gap-3 rounded-[26px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm font-bold text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
               <LockKeyhole size={18} />
               {text.readonly}
@@ -357,7 +351,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
               <input
                 data-testid="role-name-input"
                 value={draft.name}
-                disabled={isReadOnly}
+                disabled={isSystemRole}
                 onChange={(event) => setDraft((prev) => ({ ...prev, name: event.target.value }))}
                 className={`${panelInputClass} disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-900`}
                 placeholder={text.name}
@@ -368,7 +362,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
               <textarea
                 data-testid="role-description-input"
                 value={draft.description}
-                disabled={isReadOnly}
+                disabled={isSystemRole}
                 onChange={(event) => setDraft((prev) => ({ ...prev, description: event.target.value }))}
                 className={`${panelInputClass} min-h-[92px] resize-y disabled:bg-slate-100 disabled:text-slate-400 dark:disabled:bg-slate-900`}
                 placeholder={text.description}
@@ -384,7 +378,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
                   type="checkbox"
                   data-testid="role-active-toggle"
                   checked={draft.isActive}
-                  disabled={isReadOnly}
+                  disabled={isSystemRole}
                   onChange={(event) => setDraft((prev) => ({ ...prev, isActive: event.target.checked }))}
                   className="h-4 w-4 accent-blue-600"
                 />
@@ -402,7 +396,6 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
                     type="checkbox"
                     data-testid={`role-scope-${scope.code}`}
                     checked={draft.dataScopes.includes(scope.code)}
-                    disabled={isReadOnly}
                     onChange={() => toggleDataScope(scope.code)}
                     className="h-4 w-4 accent-blue-600"
                   />
@@ -431,7 +424,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
 
             {loadingPermissions ? (
               <div className="rounded-[28px] border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-400 dark:border-slate-800">
-                Loading...
+                正在加载...
               </div>
             ) : filteredPermissionGroups.length === 0 ? (
               <div className="rounded-[28px] border border-dashed border-slate-200 p-8 text-center text-sm font-black text-slate-400 dark:border-slate-800">
@@ -455,13 +448,12 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
                               checked
                                 ? 'border-blue-200 bg-white text-slate-900 shadow-sm dark:border-blue-900 dark:bg-slate-900 dark:text-white'
                                 : 'border-transparent bg-white/60 text-slate-500 hover:border-slate-200 dark:bg-slate-900/60'
-                            } ${isReadOnly ? 'cursor-not-allowed opacity-80' : ''}`}
+                            }`}
                           >
                             <input
                               type="checkbox"
                               data-testid={`role-permission-${permission.code}`}
                               checked={checked}
-                              disabled={isReadOnly}
                               onChange={() => togglePermission(permission.code)}
                               className="mt-1 h-4 w-4 accent-blue-600"
                             />
@@ -487,7 +479,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
             <button
               data-testid="role-save"
               onClick={() => void saveRole()}
-              disabled={saving || isReadOnly}
+              disabled={saving}
               className="inline-flex items-center justify-center rounded-[24px] bg-blue-600 px-7 py-4 text-sm font-black text-white shadow-2xl shadow-blue-500/25 transition-all hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Save size={18} className="mr-2" />

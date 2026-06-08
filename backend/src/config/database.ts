@@ -2,12 +2,13 @@ import { PrismaClient } from '@prisma/client';
 import fs from 'fs';
 import path from 'path';
 import { logger } from '../utils/logger';
-import { getSqliteDbPath, loadRuntimeEnv } from './runtime';
+import { assertRuntimeDeploymentPolicy, getSqliteDbPath, loadRuntimeEnv, runtime } from './runtime';
 
 loadRuntimeEnv();
+assertRuntimeDeploymentPolicy();
 
 const sqliteDbPath = getSqliteDbPath();
-if (sqliteDbPath) {
+if (runtime.databaseEngine === 'sqlite' && sqliteDbPath) {
   const sqliteDir = path.dirname(sqliteDbPath);
   if (!fs.existsSync(sqliteDir)) {
     fs.mkdirSync(sqliteDir, { recursive: true });
@@ -30,9 +31,22 @@ prisma.$on('query', (event: any) => {
   }
 });
 
+export const configureRuntimeDatabase = async () => {
+  await prisma.$connect();
+
+  if (sqliteDbPath) {
+    await prisma.$queryRawUnsafe('PRAGMA journal_mode = WAL');
+    await prisma.$queryRawUnsafe('PRAGMA busy_timeout = 5000');
+    await prisma.$queryRawUnsafe('PRAGMA foreign_keys = ON');
+
+    // Validate the generated Prisma mapping instead of assuming a physical table name.
+    await prisma.user.findFirst({ select: { id: true } });
+  }
+};
+
 export const connectDatabase = async () => {
   try {
-    await prisma.$connect();
+    await configureRuntimeDatabase();
     logger.info('数据库连接成功');
   } catch (error) {
     logger.error('数据库连接失败', error);

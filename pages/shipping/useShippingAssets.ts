@@ -43,7 +43,7 @@ export const useShippingAssets = ({ t, notify, language, customers, loadData }: 
 
     const handleAssetSubmit = async () => {
         if (!assetForm.customerId || assetForm.quantity <= 0) {
-            notify('error', t.fillValidForm || 'Please fill a valid record');
+            notify('error', t.fillValidForm || '请先选择客户，并填写有效数量。');
             return;
         }
 
@@ -66,7 +66,7 @@ export const useShippingAssets = ({ t, notify, language, customers, loadData }: 
         try {
             await assetService.create(newTx);
             setIsAssetModalOpen(false);
-            notify('success', t.assetSuccess || 'Asset flow recorded');
+            notify('success', t.assetSuccess || '资产流水已登记。');
             loadData();
         } catch (err) {
             reportClientIssue('shipping.asset-submit', err);

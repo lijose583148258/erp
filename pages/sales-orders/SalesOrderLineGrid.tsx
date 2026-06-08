@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { SalesOrderItem } from '../../types';
 import type { SalesOrderFormData } from './useSalesOrders';
+import type { SalesOrderLineErrors } from './salesOrderFormHelpers';
 
 type Props = {
     t: Record<string, string>;
@@ -12,6 +13,7 @@ type Props = {
     removeOrderItem: (index: number) => void;
     importOrderItemsFromGrid: (rawText: string) => void;
     formatPrice: (amount: number) => string;
+    lineErrors: SalesOrderLineErrors;
     totals: {
         subtotal?: number;
         totalDiscount: number;
@@ -35,6 +37,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
     removeOrderItem,
     importOrderItemsFromGrid,
     formatPrice,
+    lineErrors,
     totals,
 }) => {
     const [pasteText, setPasteText] = useState('');
@@ -57,6 +60,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
         setPasteText('');
         setShowPastePanel(false);
     };
+    const errorCount = Object.keys(lineErrors).length;
 
     return (
         <div className="rounded-[32px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
@@ -68,6 +72,11 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     <p className="mt-2 text-sm text-slate-400">
                         {t.orderLineGridHint || '这里专门录明细行，按行连续输入、复制、粘贴，不再把订单头字段混进来。'}
                     </p>
+                    {errorCount > 0 && (
+                        <div data-testid="sales-order-line-error-summary" className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
+                            还有 {errorCount} 行明细未完成，请按红色提示逐行修正后再保存。
+                        </div>
+                    )}
                 </div>
                 <div className="flex flex-wrap items-center gap-2">
                     <button
@@ -140,9 +149,10 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     <tbody>
                         {formData.items.map((item, index) => {
                             const lineAmount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)) - Number(item.discount || 0) + Number(item.taxAmount || 0);
+                            const currentLineErrors = lineErrors[index] || [];
 
                             return (
-                                <tr key={`${index}-${item.productName}-${item.batchNo || ''}`} className="border-b border-slate-100 align-top last:border-b-0 dark:border-slate-800">
+                                <tr key={`${index}-${item.productName}-${item.batchNo || ''}`} className={`border-b align-top last:border-b-0 ${currentLineErrors.length ? 'border-rose-200 bg-rose-50/60 dark:border-rose-900/50 dark:bg-rose-950/10' : 'border-slate-100 dark:border-slate-800'}`}>
                                     <td className="px-3 py-3 text-xs font-black text-slate-400">{index + 1}</td>
                                     <td className="px-3 py-3">
                                         <input
@@ -150,8 +160,15 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             onChange={(event) => updateOrderItem(index, { productName: event.target.value })}
                                             placeholder={t.productName || '产品名称'}
                                             data-testid={`sales-order-line-${index}-product`}
-                                            className={baseInputClass}
+                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('商品名称')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
+                                        {currentLineErrors.length > 0 && (
+                                            <div data-testid={`sales-order-line-${index}-errors`} className="mt-2 space-y-1 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[11px] font-bold text-rose-600 dark:border-rose-900/50 dark:bg-slate-950 dark:text-rose-200">
+                                                {currentLineErrors.map((error) => (
+                                                    <div key={error}>第 {index + 1} 行：{error}</div>
+                                                ))}
+                                            </div>
+                                        )}
                                     </td>
                                     <td className="px-3 py-3">
                                         {item.isDimensional ? (
@@ -204,7 +221,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.quantity}
                                             onChange={(event) => updateOrderItem(index, { quantity: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-quantity`}
-                                            className={baseInputClass}
+                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('数量')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -212,7 +229,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.unit}
                                             onChange={(event) => updateOrderItem(index, { unit: event.target.value })}
                                             data-testid={`sales-order-line-${index}-unit`}
-                                            className={baseInputClass}
+                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('单位')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -222,7 +239,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.unitPrice}
                                             onChange={(event) => updateOrderItem(index, { unitPrice: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-unit-price`}
-                                            className={baseInputClass}
+                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('单价')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -232,7 +249,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.discount}
                                             onChange={(event) => updateOrderItem(index, { discount: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-discount`}
-                                            className={baseInputClass}
+                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('折扣')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -242,7 +259,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.taxAmount}
                                             onChange={(event) => updateOrderItem(index, { taxAmount: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-tax`}
-                                            className={baseInputClass}
+                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('税额')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3 text-right">

@@ -1,10 +1,12 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { verifyToken } from '../utils/jwt';
-import { isTokenBlacklisted } from '../controllers/auth.controller';
+import { isTokenBlacklisted } from '../services/auth-token-store.service';
 import { logger } from '../utils/logger';
 import { DataScope, Permission } from '../permissions/permissionRegistry';
 import { casbinAllowsAllPermissions } from '../permissions/casbinAuthorization';
-import { getDataScopesForRole } from '../services/authorization-policy.service';
+import { getDataScopesForRole, roleExistsAndActive } from '../services/authorization-policy.service';
+import { resolveUserSegment } from '../services/role-assignment-policy.service';
+import prisma from '../config/database';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -40,10 +42,7 @@ export const authenticate = async (
     const bearerToken = authHeader && authHeader.startsWith('Bearer ')
       ? authHeader.substring(7)
       : null;
-    const queryToken = req.method === 'GET' && typeof req.query.token === 'string'
-      ? req.query.token
-      : null;
-    const token = bearerToken || queryToken;
+    const token = bearerToken;
 
     if (!token) {
       return res.status(401).json({
@@ -61,10 +60,48 @@ export const authenticate = async (
     }
 
     const payload = verifyToken(token);
+    const currentUser = await prisma.user.findUnique({
+      where: { id: payload.userId },
+      select: {
+        id: true,
+        username: true,
+        role: true,
+        segment: true,
+        isActive: true,
+        updatedAt: true,
+      },
+    });
+
+    if (!currentUser?.isActive) {
+      return res.status(401).json({
+        success: false,
+        message: '账号已停用或不存在，请联系管理员',
+      });
+    }
+
+    if (!(await roleExistsAndActive(currentUser.role))) {
+      return res.status(403).json({
+        success: false,
+        message: '账号角色已停用，请联系管理员重新分配权限',
+      });
+    }
+
+    const issuedAtMs = payload.authAt || (payload.iat ? payload.iat * 1000 : 0);
+    const userChangedAtMs = currentUser.updatedAt.getTime();
+    if (!issuedAtMs || issuedAtMs < userChangedAtMs) {
+      return res.status(401).json({
+        success: false,
+        message: '账号信息或密码已更新，请重新登录',
+      });
+    }
+
+    const segment = resolveUserSegment(currentUser.role, currentUser.segment);
     req.user = {
-      ...payload,
-      segment: payload.segment || (payload.role === 'sales' ? 'direct' : 'mixed'),
-      dataScopes: await getDataScopesForRole(payload.role),
+      userId: currentUser.id,
+      username: currentUser.username,
+      role: currentUser.role,
+      segment,
+      dataScopes: await getDataScopesForRole(currentUser.role),
     };
 
     next();

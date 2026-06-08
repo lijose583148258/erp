@@ -5,6 +5,7 @@ import { EnterpriseDataGrid } from '../components/ui/EnterpriseDataGrid';
 import { FormField } from '../components/ui/FormField';
 import { ModuleHero } from '../components/ui/ModuleHero';
 import { PageShell } from '../components/ui/PageShell';
+import { WorkspaceTaskNavigator, type WorkspaceTaskNavigatorItem } from '../components/ui/WorkspaceTaskNavigator';
 import {
   receiptDiscrepancyService,
   type ReceiptDiscrepancyActionType,
@@ -19,6 +20,10 @@ import {
 import { isCanceledApiError } from '../utils/api';
 import { actionLabels, actionOptions, counterpartyLabels, discrepancyTypeLabels, discrepancyTypeOptions, initialRuleDraft, sourceTypeLabels, statusLabels, type ActiveTab, type RuleDraft } from './receiptDiscrepancyWorkbench.config';
 import { caseColumns, ruleColumns } from './receiptDiscrepancyWorkbench.columns';
+
+const getErrorMessage = (error: unknown, fallback: string) => (
+  error instanceof Error ? error.message : fallback
+);
 
 const ReceiptDiscrepancyWorkbench: React.FC = () => {
   const { currentUser, notify } = useAppContext();
@@ -36,6 +41,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
 
   const canManageRules = ['admin', 'manager'].includes(currentUser.role);
   const canResolveCases = ['admin', 'manager', 'warehouse'].includes(currentUser.role);
+  const canCreateCustomerRma = ['admin', 'manager'].includes(currentUser.role);
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -49,8 +55,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
       setRules(ruleResponse.data);
     } catch (error) {
       if (isCanceledApiError(error)) return;
-      console.error(error);
-      notify('error', '收发货差异工作台加载失败，请检查接口或权限');
+      notify('error', getErrorMessage(error, '收发货差异工作台加载失败，请检查接口或权限'));
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
@@ -92,8 +97,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
       setCases((current) => current.map((row) => (row.id === updated.id ? updated : row)));
       notify('success', `差异单 ${updated.caseNo} 已更新为 ${statusLabels[updated.status] || updated.status}`);
     } catch (error) {
-      console.error(error);
-      notify('error', '差异单状态更新失败');
+      notify('error', getErrorMessage(error, '差异单状态更新失败'));
     }
   };
 
@@ -118,8 +122,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
       await loadData();
       notify('success', `已创建处置动作 ${action.actionNo}${action.targetRef ? `，关联 ${action.targetRef}` : ''}`);
     } catch (error) {
-      console.error(error);
-      notify('error', '处置动作创建失败，请检查权限或差异单状态');
+      notify('error', getErrorMessage(error, '处置动作创建失败，请检查权限或差异单状态'));
     } finally {
       setActioningCaseId(null);
     }
@@ -149,31 +152,45 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
       setActiveTab('rules');
       notify('success', `容差规则 ${rule.ruleNo} 已创建`);
     } catch (error) {
-      console.error(error);
-      notify('error', '容差规则创建失败');
+      notify('error', getErrorMessage(error, '容差规则创建失败'));
     } finally {
       setSavingRule(false);
     }
   };
+
+  const deskItems = useMemo<WorkspaceTaskNavigatorItem<ActiveTab>[]>(() => [
+    {
+      id: 'cases',
+      title: '差异处理队列',
+      subtitle: '已发生异常、人工处置和后续动作',
+      purpose: '只处理已经发生的收发货差异，不在这里维护未来判定规则。',
+      icon: AlertTriangle,
+      count: filteredCases.length,
+      testId: 'receipt-discrepancy-desk-cases',
+    },
+    {
+      id: 'rules',
+      title: '容差规则配置',
+      subtitle: '未来差异如何自动判定',
+      purpose: '只维护规则，不替代已有差异单的评审、RMA、索赔或财务动作。',
+      icon: ShieldCheck,
+      count: rules.length,
+      testId: 'receipt-discrepancy-desk-rules',
+    },
+  ], [filteredCases.length, rules.length]);
 
   return (
     <PageShell
       eyebrow="EXCEPTION GOVERNANCE"
       title="收发货差异工作台"
       subtitle="统一查看采购拒收、客户短签、破损和错货；先把异常归队列和规则管住，再接质检、RMA、索赔和财务扣减。"
-      tabs={[
-        { id: 'cases', label: '差异队列', active: activeTab === 'cases', onClick: () => setActiveTab('cases'), testId: 'receipt-discrepancy-tab-cases' },
-        { id: 'rules', label: '容差规则', active: activeTab === 'rules', onClick: () => setActiveTab('rules'), testId: 'receipt-discrepancy-tab-rules' },
-      ]}
       actions={(
         <button
           type="button"
           onClick={() => void loadData()}
           className="inline-flex items-center rounded-[18px] bg-white px-4 py-3 text-xs font-black uppercase tracking-[0.14em] text-slate-600 shadow-sm ring-1 ring-slate-100 transition hover:bg-slate-50 dark:bg-slate-900 dark:text-slate-200 dark:ring-slate-800"
         >
-          <RefreshCw size={14} className="mr-2" />
-          刷新
-        </button>
+          <RefreshCw size={14} className="mr-2" />新增规则</button>
       )}
     >
       <ModuleHero
@@ -187,6 +204,32 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
           { label: '阻止规则', value: stats.blockingRules, icon: <ShieldCheck size={18} />, tone: 'rose' },
         ]}
       />
+
+      <WorkspaceTaskNavigator
+        eyebrow="差异职责导航"
+        title="先处理异常单，再维护判定规则"
+        description="差异队列是已经发生的业务事实；容差规则是未来自动判定的配置。两者同属收发货差异治理，但不能互相替代。"
+        items={deskItems}
+        activeId={activeTab}
+        onChange={(id) => {
+          if (id === 'cases' || id === 'rules') {
+            setActiveTab(id);
+          }
+        }}
+        variant="blue"
+        columns="two"
+      />
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <div className="rounded-[28px] border border-blue-100 bg-blue-50/70 p-5 text-sm font-bold leading-6 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-blue-600 dark:text-blue-200">差异处理队列</div>
+          这里只处理已经发生的收货、发货、短签、破损、错货差异。用户应先确认差异事实，再选择评审、转 RMA、转财务或关闭。
+        </div>
+        <div className="rounded-[28px] border border-amber-100 bg-amber-50/70 p-5 text-sm font-bold leading-6 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-amber-600 dark:text-amber-200">容差规则设置</div>
+          这里只维护未来差异如何自动判定的规则。规则不是差异处理结果，改规则不能替代对已有差异单的人工处置。
+        </div>
+      </div>
 
       {activeTab === 'cases' ? (
         <div className="space-y-4">
@@ -211,6 +254,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
             data={filteredCases}
             columns={caseColumns}
             rowKey="id"
+            getRowTestId={(row) => `receipt-discrepancy-case-${row.id}`}
             title="差异队列"
             description="按差异类型、容差动作和状态追踪，避免采购/发货各自处理导致断链。"
             searchValue={caseSearch}
@@ -225,6 +269,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
               <div className="flex justify-end gap-2">
                 <button
                   type="button"
+                  data-testid={`receipt-discrepancy-review-${row.id}`}
                   disabled={!canResolveCases || row.status === 'resolved' || row.status === 'cancelled'}
                   onClick={() => updateCaseStatus(row, 'in_review')}
                   className="rounded-xl bg-blue-50 px-3 py-2 text-[11px] font-black text-blue-700 transition hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-blue-950/30 dark:text-blue-200"
@@ -233,7 +278,8 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
                 </button>
                 <button
                   type="button"
-                  disabled={!canResolveCases || actioningCaseId === row.id || Boolean(row.actionRef) || row.status === 'resolved' || row.status === 'cancelled' || row.counterpartyType !== 'customer'}
+                  data-testid={`receipt-discrepancy-customer-rma-${row.id}`}
+                  disabled={!canCreateCustomerRma || actioningCaseId === row.id || Boolean(row.actionRef) || row.status === 'resolved' || row.status === 'cancelled' || row.counterpartyType !== 'customer'}
                   onClick={() => createCaseAction(row, 'customer_rma')}
                   className="rounded-xl bg-indigo-50 px-3 py-2 text-[11px] font-black text-indigo-700 transition hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-indigo-950/30 dark:text-indigo-200"
                 >
@@ -241,6 +287,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
                 </button>
                 <button
                   type="button"
+                  data-testid={`receipt-discrepancy-finance-action-${row.id}`}
                   disabled={!canResolveCases || actioningCaseId === row.id || Boolean(row.actionRef) || row.status === 'resolved' || row.status === 'cancelled'}
                   onClick={() => createCaseAction(row, 'credit_or_deduction')}
                   className="rounded-xl bg-amber-50 px-3 py-2 text-[11px] font-black text-amber-700 transition hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-amber-950/30 dark:text-amber-200"
@@ -249,6 +296,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
                 </button>
                 <button
                   type="button"
+                  data-testid={`receipt-discrepancy-close-${row.id}`}
                   disabled={!canResolveCases || row.status === 'resolved' || row.status === 'cancelled'}
                   onClick={() => updateCaseStatus(row, 'resolved')}
                   className="rounded-xl bg-emerald-50 px-3 py-2 text-[11px] font-black text-emerald-700 transition hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-emerald-950/30 dark:text-emerald-200"
@@ -264,11 +312,9 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
           <div className="app-panel p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div>
-                <p className="app-section-title mb-2">RULE MANAGEMENT</p>
+                <p className="app-section-title mb-2">规则管理</p>
                 <h2 className="text-xl font-black text-slate-900 dark:text-white">容差规则</h2>
-                <p className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-300">
-                  规则越具体优先级越高；产品、对象、差异类型越精确，越先被命中。
-                </p>
+                <p className="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">规则越具体优先级越高；产品、对象、差异类型越精确，越先被命中。</p>
               </div>
               <button
                 type="button"

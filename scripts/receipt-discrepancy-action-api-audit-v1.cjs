@@ -129,6 +129,8 @@ async function seedStock(token) {
       batchNo: data.batchNo,
       quantity: 8,
       unit: 'kg',
+      sourceRef: `DCA-STOCK-SEED-${RUN_ID}`,
+      reason: 'receipt_discrepancy_action_seed',
       note: `discrepancy action audit ${RUN_ID}`,
     },
   }, token));
@@ -227,7 +229,7 @@ async function run() {
     }, manager.token));
     const action = createAction.json.data;
     assertEqual(action.actionType, 'customer_rma', 'action type');
-    assertEqual(action.status, 'posted', 'action status');
+    assertEqual(action.status, 'approved', 'action status');
     assertEqual(action.targetModule, 'rma', 'action target module');
     assert(action.targetId, 'action targetId missing');
     assert(action.targetRef, 'action targetRef missing');

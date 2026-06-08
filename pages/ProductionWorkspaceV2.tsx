@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
+import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
+import { WorkspaceTaskNavigator, type WorkspaceTaskNavigatorItem } from '../components/ui/WorkspaceTaskNavigator';
 import { assetService, ProductBatch } from '../services/asset.service';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
 import { productionService, ProductionBom, ProductionSummary, ProductionWorkOrder, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
@@ -7,7 +9,9 @@ import { isCanceledApiError } from '../utils/api';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
+import { ProductionAdjustmentReverseDialog } from './production/ProductionAdjustmentReverseDialog';
 import { CompleteWorkOrderModal } from './production/CompleteWorkOrderModal';
+import { getEffectiveBomQuantityPerUnit, isEffectiveBomItemDraft } from './production/ProductionBomLineGrid';
 import {
   getJsonSummary,
   newStep,
@@ -25,8 +29,34 @@ import {
   useProductionWorkOrderForm,
 } from './production/useProductionWorkspaceForms';
 
+type ProductionDeskTab = 'bom' | 'workOrders' | 'batches';
+
+const PRODUCTION_DESK_TABS: WorkspaceTaskNavigatorItem<ProductionDeskTab>[] = [
+  {
+    id: 'bom',
+    title: '配方主档',
+    subtitle: '维护产品配方版本和原料明细',
+    purpose: '先定义“做什么、按什么版本做、需要哪些原料”；实际耗用必须到工单完工时确认。',
+    testId: 'production-desk-bom',
+  },
+  {
+    id: 'workOrders',
+    title: '工单 / 质检',
+    subtitle: '排产、工序流转、质检和完工扣料',
+    purpose: '把已确认的配方变成可执行工单，并在完工时回写库存。',
+    testId: 'production-desk-work-orders',
+  },
+  {
+    id: 'batches',
+    title: '批次追踪 / 异常调整',
+    subtitle: '批次追踪、现场异常登记和冲销回放',
+    purpose: '只处理已经形成库存事实的批次异常；配方维护、工单完工和正常入库必须回到前两个工作区或仓储主入口。',
+    testId: 'production-desk-batches',
+  },
+];
+
 const ProductionWorkspaceV2 = () => {
-  const { t, notify } = useAppContext();
+  const { notify, language } = useAppContext();
   const [summary, setSummary] = useState<ProductionSummary | null>(null);
   const [boms, setBoms] = useState<ProductionBom[]>([]);
   const [workOrders, setWorkOrders] = useState<ProductionWorkOrder[]>([]);
@@ -46,6 +76,9 @@ const ProductionWorkspaceV2 = () => {
   const [showCompleteModal, setShowCompleteModal] = useState(false);
   const [completingWorkOrderId, setCompletingWorkOrderId] = useState<number | null>(null);
   const [selectedBatchId, setSelectedBatchId] = useState<number | null>(null);
+  const [activeDeskTab, setActiveDeskTab] = useState<ProductionDeskTab>('bom');
+  const [reverseAdjustment, setReverseAdjustment] = useState<AdjustmentRecord | null>(null);
+  const [reverseSubmitting, setReverseSubmitting] = useState(false);
 
   const createInitialWorkOrderSteps = useCallback(
     () => [newStep('备料'), newStep('生产'), newStep('质检')],
@@ -167,25 +200,23 @@ const ProductionWorkspaceV2 = () => {
       return notify('warning', '百分比配方请填写标准批量，系统才能自动换算单耗');
     }
     if (bomFormulationMode === 'percentage' && bomPercentageSummary > 0 && Math.abs(bomPercentageSummary - 100) > 0.01) {
-return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，建议校正为 100%`);
+      return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，建议校正为 100%`);
     }
 
     const items = bomItems
-      .filter(item => item.materialName.trim() || item.materialCode.trim())
+      .filter(isEffectiveBomItemDraft)
       .map(item => {
         const safeMaterialName = item.materialName.trim() || item.materialCode.trim();
+        const dosageMode = item.dosageMode || null;
+        const percentageValue = item.percentage.trim() ? Number(item.percentage || 0) : null;
+        const normalizedQuantityPerUnit = getEffectiveBomQuantityPerUnit(item);
         return {
         materialName: safeMaterialName,
         materialCode: item.materialCode.trim() || null,
         ingredientRole: item.ingredientRole || null,
-        dosageMode: item.dosageMode || null,
-        percentage: item.percentage.trim() ? Number(item.percentage || 0) : null,
-        quantityPerUnit: Number(
-          item.quantityPerUnit
-          || (item.dosageMode === 'percentage' && standardBatchSize > 0 && Number(item.percentage || 0) > 0
-            ? (standardBatchSize * Number(item.percentage || 0)) / 100
-            : 0),
-        ),
+        dosageMode,
+        percentage: percentageValue,
+        quantityPerUnit: normalizedQuantityPerUnit,
         unit: item.unit.trim() || 'kg',
         lossRate: Number(item.lossRate || 0),
         allowedVarianceRate: item.allowedVarianceRate.trim() ? Number(item.allowedVarianceRate || 0) : null,
@@ -194,8 +225,7 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
         yieldContribution: item.yieldContribution.trim() ? Number(item.yieldContribution || 0) : null,
         notes: item.notes.trim() || null,
       };
-      })
-      .filter(item => item.quantityPerUnit > 0);
+      });
 
     if (!items.length) return notify('warning', '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码');
     if (bomType === 'chemical_formula' && items.length < 10) {
@@ -365,79 +395,110 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
   };
 
   const handleReverseAdjustment = async (record: AdjustmentRecord) => {
-    const note = window.prompt('请输入冲销说明', '生产调账冲销');
-    if (note === null) return;
+    setReverseAdjustment(record);
+  };
+
+  const confirmReverseAdjustment = async (note: string) => {
+    if (!reverseAdjustment) return;
+    setReverseSubmitting(true);
     try {
-      await adjustmentService.reverse(record.id, note.trim() || '生产调账冲销');
+      await adjustmentService.reverse(reverseAdjustment.id, note.trim() || '生产调账冲销');
       notify('success', '已完成冲销');
+      setReverseAdjustment(null);
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '冲销失败');
+    } finally {
+      setReverseSubmitting(false);
     }
   };
 
   const selectedChecks = selectedWorkOrder?.qualityChecks || [];
+  const productionDeskItems = useMemo(
+    () => PRODUCTION_DESK_TABS.map(tab => ({
+      ...tab,
+      count: tab.id === 'bom' ? boms.length : tab.id === 'workOrders' ? workOrders.length : batches.length,
+    })),
+    [batches.length, boms.length, workOrders.length],
+  );
+
   return (
     <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
       <ProductionWorkspaceHeader
-        title={t.production || '生产管理'}
-        description={t.productionDesc || '管理 BOM、工单、工序、质检和批次追踪'}
+        title={getModuleTitle('production', language)}
+        description={getModuleDescription('production', language)}
         stats={stats}
         isInitialLoading={isInitialLoading}
         onRefresh={() => void loadData()}
       />
 
-      <div className="grid grid-cols-1 xl:grid-cols-12 gap-8">
-        <ProductionBomSection
-          bomKeyword={bomKeyword}
-          setBomKeyword={setBomKeyword}
-          bomProductName={bomProductName}
-          setBomProductName={setBomProductName}
-          bomVersion={bomVersion}
-          setBomVersion={setBomVersion}
-          bomType={bomType}
-          setBomType={setBomType}
-          bomStatus={bomStatus}
-          setBomStatus={setBomStatus}
-          bomFormulationMode={bomFormulationMode}
-          setBomFormulationMode={setBomFormulationMode}
-          bomOutputUnit={bomOutputUnit}
-          setBomOutputUnit={setBomOutputUnit}
-          bomStandardBatchSize={bomStandardBatchSize}
-          setBomStandardBatchSize={setBomStandardBatchSize}
-          bomBatchSizeUnit={bomBatchSizeUnit}
-          setBomBatchSizeUnit={setBomBatchSizeUnit}
-          bomDensity={bomDensity}
-          setBomDensity={setBomDensity}
-          bomSolidContent={bomSolidContent}
-          setBomSolidContent={setBomSolidContent}
-          bomProcessText={bomProcessText}
-          setBomProcessText={setBomProcessText}
-          bomEffectiveFrom={bomEffectiveFrom}
-          setBomEffectiveFrom={setBomEffectiveFrom}
-          bomEffectiveTo={bomEffectiveTo}
-          setBomEffectiveTo={setBomEffectiveTo}
-          bomQualitySpecText={bomQualitySpecText}
-          setBomQualitySpecText={setBomQualitySpecText}
-          bomNotes={bomNotes}
-          setBomNotes={setBomNotes}
-          bomPercentageSummary={bomPercentageSummary}
-          numericStandardBatchSize={numericStandardBatchSize}
-          bomItems={bomItems}
-          setBomItems={setBomItems}
-          loading={loading}
-          handleCreateBom={handleCreateBom}
-          displayedBoms={displayedBoms}
-          selectedBomId={selectedBomId}
-          setSelectedBomId={setSelectedBomId}
-          setWoProductName={setWoProductName}
-          selectedBom={selectedBom}
-          selectedBomPercentageSummary={selectedBomPercentageSummary}
-          selectedBomProcessSummary={selectedBomProcessSummary}
-          selectedBomQualitySummary={selectedBomQualitySummary}
-        />
+      <WorkspaceTaskNavigator
+        eyebrow="生产职责导航"
+        title="先选工作区，再输入数据"
+        description="按成熟 ERP 的“对象库 / 执行动作 / 台账回放”拆开：BOM 只管配方，工单只管执行，批次区只做追溯和异常登记，避免同一页面同时承担建档、排产、调账和入库。"
+        items={productionDeskItems}
+        activeId={activeDeskTab}
+        onChange={(id) => {
+          if (id === 'bom' || id === 'workOrders' || id === 'batches') {
+            setActiveDeskTab(id);
+          }
+        }}
+        variant="blue"
+      />
 
-        <section className="xl:col-span-7 space-y-8">
+      <div className="space-y-8">
+        {activeDeskTab === 'bom' ? (
+          <ProductionBomSection
+            bomKeyword={bomKeyword}
+            setBomKeyword={setBomKeyword}
+            bomProductName={bomProductName}
+            setBomProductName={setBomProductName}
+            bomVersion={bomVersion}
+            setBomVersion={setBomVersion}
+            bomType={bomType}
+            setBomType={setBomType}
+            bomStatus={bomStatus}
+            setBomStatus={setBomStatus}
+            bomFormulationMode={bomFormulationMode}
+            setBomFormulationMode={setBomFormulationMode}
+            bomOutputUnit={bomOutputUnit}
+            setBomOutputUnit={setBomOutputUnit}
+            bomStandardBatchSize={bomStandardBatchSize}
+            setBomStandardBatchSize={setBomStandardBatchSize}
+            bomBatchSizeUnit={bomBatchSizeUnit}
+            setBomBatchSizeUnit={setBomBatchSizeUnit}
+            bomDensity={bomDensity}
+            setBomDensity={setBomDensity}
+            bomSolidContent={bomSolidContent}
+            setBomSolidContent={setBomSolidContent}
+            bomProcessText={bomProcessText}
+            setBomProcessText={setBomProcessText}
+            bomEffectiveFrom={bomEffectiveFrom}
+            setBomEffectiveFrom={setBomEffectiveFrom}
+            bomEffectiveTo={bomEffectiveTo}
+            setBomEffectiveTo={setBomEffectiveTo}
+            bomQualitySpecText={bomQualitySpecText}
+            setBomQualitySpecText={setBomQualitySpecText}
+            bomNotes={bomNotes}
+            setBomNotes={setBomNotes}
+            bomPercentageSummary={bomPercentageSummary}
+            numericStandardBatchSize={numericStandardBatchSize}
+            bomItems={bomItems}
+            setBomItems={setBomItems}
+            loading={loading}
+            handleCreateBom={handleCreateBom}
+            displayedBoms={displayedBoms}
+            selectedBomId={selectedBomId}
+            setSelectedBomId={setSelectedBomId}
+            setWoProductName={setWoProductName}
+            selectedBom={selectedBom}
+            selectedBomPercentageSummary={selectedBomPercentageSummary}
+            selectedBomProcessSummary={selectedBomProcessSummary}
+            selectedBomQualitySummary={selectedBomQualitySummary}
+          />
+        ) : null}
+
+        {activeDeskTab === 'workOrders' ? (
           <ProductionWorkOrderSection
             woProductName={woProductName}
             setWoProductName={setWoProductName}
@@ -479,7 +540,9 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
             setQcNote={setQcNote}
             handleCreateQc={handleCreateQc}
           />
+        ) : null}
 
+        {activeDeskTab === 'batches' ? (
           <ProductionBatchAdjustmentSection
             batches={batches}
             batchKeyword={batchKeyword}
@@ -505,7 +568,7 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
             setAdjustmentStatus={setAdjustmentStatus}
             handleReverseAdjustment={handleReverseAdjustment}
           />
-        </section>
+        ) : null}
       </div>
       {showCompleteModal && completingWorkOrder ? (
         <CompleteWorkOrderModal
@@ -519,6 +582,12 @@ return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.
           onConfirm={handleCompleteWorkOrder}
         />
       ) : null}
+      <ProductionAdjustmentReverseDialog
+        record={reverseAdjustment}
+        loading={reverseSubmitting}
+        onCancel={() => setReverseAdjustment(null)}
+        onConfirm={confirmReverseAdjustment}
+      />
     </div>
   );
 };

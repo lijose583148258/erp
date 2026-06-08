@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { authService } from '../services/auth.service';
 import { translations } from '../translations';
 import type { AppContextType, CurrentUser, Currency, Language, Notification, Theme, UserRole } from '../types';
@@ -54,7 +54,15 @@ export const useAppShell = (): AppShellResult => {
         }
         return 'zh';
     });
-    const [theme, setTheme] = useState<Theme>('light');
+    const [theme, setTheme] = useState<Theme>(() => {
+        try {
+            const stored = window.localStorage.getItem('ailao.theme');
+            if (stored === 'light' || stored === 'dark') return stored;
+        } catch {
+            // ignore storage errors (private mode / disabled storage)
+        }
+        return 'light';
+    });
     const [currency, setCurrency] = useState<Currency>('CNY');
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
@@ -95,6 +103,14 @@ export const useAppShell = (): AppShellResult => {
     }, [language]);
 
     useEffect(() => {
+        try {
+            window.localStorage.setItem('ailao.theme', theme);
+        } catch {
+            // ignore
+        }
+    }, [theme]);
+
+    useEffect(() => {
         const syncFromHash = () => {
             const nextTab = readTabFromLocation();
             setActiveTab(prev => (prev === nextTab ? prev : nextTab));
@@ -128,7 +144,6 @@ export const useAppShell = (): AppShellResult => {
 
     const t = useMemo(() => ({
         ...(translations['zh'] || {}),
-        ...(translations['en'] || {}),
         ...(translations[language] || {}),
     }), [language]);
 
@@ -139,8 +154,10 @@ export const useAppShell = (): AppShellResult => {
             setIsLoggedIn(true);
             notify('success', `${t.loginSuccess}${user.name}`);
         } catch (error) {
-            notify('error', t.loginFail);
-            console.error(error);
+            const message = error instanceof Error && error.message
+                ? error.message
+                : t.loginFail;
+            notify('error', message);
             throw error;
         }
     };
@@ -160,12 +177,12 @@ export const useAppShell = (): AppShellResult => {
 
     const switchUser = useCallback((role: UserRole, segment: 'direct' | 'channel' | 'mixed' = 'mixed') => {
         const rolesData: Record<string, Partial<CurrentUser>> = {
-            admin: { name: 'Super Admin', avatar: '' },
-            manager_direct: { name: 'Alice (Direct Mgr)', avatar: '', segment: 'direct' },
-            manager_channel: { name: 'Bob (Channel Mgr)', avatar: '', segment: 'channel' },
-            sales: { name: 'John Sales', avatar: '' },
-            warehouse: { name: 'Mike Warehouse', avatar: '' },
-            finance: { name: 'Emma Finance', avatar: '' },
+            admin: { name: '超级管理员', avatar: '' },
+            manager_direct: { name: '直营经理', avatar: '', segment: 'direct' },
+            manager_channel: { name: '渠道经理', avatar: '', segment: 'channel' },
+            sales: { name: '销售员', avatar: '' },
+            warehouse: { name: '仓库员', avatar: '' },
+            finance: { name: '财务员', avatar: '' },
         };
 
         let lookupKey: string = role;
@@ -176,8 +193,15 @@ export const useAppShell = (): AppShellResult => {
         const userData = rolesData[lookupKey] || rolesData[role];
         setCurrentUser(prev => ({ ...prev, role, segment, ...userData }));
 
-        const segmentLabel = segment === 'direct' ? 'Direct Sales' : segment === 'channel' ? 'Channel Dist.' : '';
-        notify('info', `Switched to ${role.toUpperCase()} ${segmentLabel ? `(${segmentLabel})` : ''}`);
+        const roleLabel: Record<UserRole, string> = {
+            admin: '超级管理员',
+            manager: '经理',
+            sales: '销售员',
+            warehouse: '仓库员',
+            finance: '财务员',
+        };
+        const segmentLabel = segment === 'direct' ? '直营' : segment === 'channel' ? '渠道' : '';
+        notify('info', `已切换到${roleLabel[role]}${segmentLabel ? `（${segmentLabel}）` : ''}`);
     }, [notify]);
 
     const formatPrice = useCallback((amount: number, fromCurrency: Currency = 'CNY'): string => {
@@ -191,8 +215,10 @@ export const useAppShell = (): AppShellResult => {
 
     useEffect(() => {
         (window as typeof window & { __SYS_VERSION__?: string }).__SYS_VERSION__ = '2.2.0-FINAL-G3F';
-        console.log(`%c[CORE-SYSTEM] Version 2.2.0-FINAL Charged. Language: ${language}`, 'color: #2563eb; font-weight: 800; font-size: 14px;');
-        console.log('%c[i18n] Resource Mapping Status: OK', 'color: #059669; font-weight: bold;');
+        if (import.meta.env.DEV) {
+            console.log(`%c[CORE-SYSTEM] Version 2.2.0-FINAL Charged. Language: ${language}`, 'color: #2563eb; font-weight: 800; font-size: 14px;');
+            console.log('%c[i18n] Resource Mapping Status: OK', 'color: #059669; font-weight: bold;');
+        }
     }, [language]);
 
     const toggleTheme = useCallback(() => setTheme(prev => prev === 'light' ? 'dark' : 'light'), []);
@@ -205,6 +231,19 @@ export const useAppShell = (): AppShellResult => {
             root.classList.remove('dark');
         }
     }, [theme]);
+
+    useEffect(() => {
+        const handleOffline = () => notify('warning', '网络连接已断开，请检查网络或等待后端重启');
+        const handleOnline = () => notify('success', '网络连接已恢复');
+        
+        window.addEventListener('offline', handleOffline);
+        window.addEventListener('online', handleOnline);
+        
+        return () => {
+            window.removeEventListener('offline', handleOffline);
+            window.removeEventListener('online', handleOnline);
+        };
+    }, [notify]);
 
     const contextValue = useMemo<AppContextType>(() => ({
         language,

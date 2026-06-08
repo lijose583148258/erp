@@ -1,12 +1,13 @@
 import React, { type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { ArrowRightLeft, CheckCircle, Link, Plus } from 'lucide-react';
+import { ArrowRightLeft, CheckCircle, Link, Plus, ShieldCheck } from 'lucide-react';
 import { EnterpriseDataGrid, FormField, type EnterpriseColumn } from '../../components/ui';
 import type { PurchaseOrder, Supplier } from '../../services/procurement.service';
 import type { SalesOrder } from '../../types';
-import type { NewPurchaseOrderForm, PurchaseCostPreview } from './procurementForms';
+import type { NewPurchaseOrderForm, ProcurementFormErrors, PurchaseCostPreview } from './procurementForms';
 
 type PurchaseOrderWorkspaceProps = {
   t: any;
+  mode?: 'orders' | 'receipts';
   orders: PurchaseOrder[];
   purchaseOrderColumns: EnterpriseColumn<PurchaseOrder>[];
   purchaseSearch: string;
@@ -15,6 +16,8 @@ type PurchaseOrderWorkspaceProps = {
   renderPurchaseOrderActions: (order: PurchaseOrder) => ReactNode;
   newOrder: NewPurchaseOrderForm;
   setNewOrder: Dispatch<SetStateAction<NewPurchaseOrderForm>>;
+  purchaseErrors: ProcurementFormErrors;
+  clearPurchaseError: (field: string) => void;
   addOrder: () => void;
   isB2B: boolean;
   setIsB2B: Dispatch<SetStateAction<boolean>>;
@@ -23,10 +26,12 @@ type PurchaseOrderWorkspaceProps = {
   suppliers: Supplier[];
   getSupplierLabel: (supplier?: Pick<Supplier, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'supplierDisplayName'> | null) => string;
   purchaseCostPreview: PurchaseCostPreview;
+  canWrite: boolean;
 };
 
 export const PurchaseOrderWorkspace = ({
   t,
+  mode = 'orders',
   orders,
   purchaseOrderColumns,
   purchaseSearch,
@@ -35,6 +40,8 @@ export const PurchaseOrderWorkspace = ({
   renderPurchaseOrderActions,
   newOrder,
   setNewOrder,
+  purchaseErrors,
+  clearPurchaseError,
   addOrder,
   isB2B,
   setIsB2B,
@@ -43,94 +50,102 @@ export const PurchaseOrderWorkspace = ({
   suppliers,
   getSupplierLabel,
   purchaseCostPreview,
-}: PurchaseOrderWorkspaceProps) => (
+  canWrite,
+}: PurchaseOrderWorkspaceProps) => {
+  const isReceiptMode = mode === 'receipts';
+  const [showAdvancedOrderFields, setShowAdvancedOrderFields] = React.useState(false);
+  const updateOrderField = (field: keyof NewPurchaseOrderForm, value: string) => {
+    clearPurchaseError(field);
+    setNewOrder(prev => ({ ...prev, [field]: value }));
+  };
+  const purchaseErrorCount = Object.keys(purchaseErrors).length;
+  const advancedSummary = [
+    isB2B ? '已启用背靠背关联' : '',
+    newOrder.currency !== 'CNY' ? `币种 ${newOrder.currency}` : '',
+    Number(newOrder.freightCost || 0) > 0 ? '已填运费' : '',
+    Number(newOrder.dutyCost || 0) > 0 ? '已填关税' : '',
+  ].filter(Boolean).join(' · ') || '币种/汇率/税费/背靠背可稍后补充';
+
+  return (
   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-    <div className="lg:col-span-8 app-card p-6">
+    <div className={`${isReceiptMode ? 'lg:col-span-12' : 'lg:col-span-8'} app-card p-6`}>
+      {isReceiptMode ? (
+        <div className="mb-4 rounded-[28px] border border-emerald-100 bg-emerald-50/70 px-5 py-4 text-xs font-bold leading-6 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
+          当前是收货职责区，只显示可收货订单队列。新增采购单请切回“采购订单”职责区，收货批次会从订单行右侧按钮进入并保存后回读。
+        </div>
+      ) : (
+        <section data-testid="procurement-order-boundary" className="mb-4 rounded-[28px] border border-blue-100 bg-blue-50/80 p-4 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/30">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-2xl bg-white p-2 text-blue-600 shadow-sm dark:bg-slate-900 dark:text-blue-300">
+              <ShieldCheck size={16} />
+            </div>
+            <div>
+              <h3 className="text-sm font-black tracking-tight text-slate-950 dark:text-white">采购订单主入口</h3>
+              <p className="mt-2 text-xs font-bold leading-6 text-slate-600 dark:text-slate-300">
+                这里记录供应商、物料、数量、价格、到岸成本和关联销售单，是采购承诺，不是库存流水。真实收货必须从订单行进入收货批次，保存后再回读库存和差异。
+              </p>
+            </div>
+          </div>
+        </section>
+      )}
       <EnterpriseDataGrid
         data={orders}
         columns={purchaseOrderColumns}
         rowKey="id"
-        title={t.purchaseOrders}
-        description={t.backToBack}
+        title={isReceiptMode ? '可收货订单队列' : t.purchaseOrders}
+        description={isReceiptMode ? '从已批准、在途或已收货订单进入收货批次，不在这里新建采购单。' : t.backToBack}
         searchValue={purchaseSearch}
         onSearchChange={setPurchaseSearch}
         searchPlaceholder={t.search}
         loading={isLoading}
-        emptyTitle={t.noData || '暂无采购订单'}
-        emptyDescription={t.selectSupplier || '请在右侧选择供应商并新增采购单。'}
+        emptyTitle={isReceiptMode ? '暂无可收货订单' : (t.noData || '暂无采购订单')}
+        emptyDescription={isReceiptMode ? '请先在采购订单区完成审批或发运，再回到这里登记收货批次。' : (t.selectSupplier || '请在右侧选择供应商并新增采购单。')}
         getRowTestId={(order) => `purchase-order-card-${order.id}`}
         rowActions={renderPurchaseOrderActions}
         defaultPageSize={8}
       />
     </div>
 
-    <div className="lg:col-span-4 app-card p-6">
-      <div className="flex items-center justify-between mb-4">
+    {!isReceiptMode ? (
+    <div className="lg:col-span-4 app-card flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 lg:sticky lg:top-6">
+      <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
         <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">{t.addPurchase}</h3>
         <Plus size={16} className="text-slate-400" />
       </div>
-      <div className="space-y-3">
-        <div className="flex items-center justify-between p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-2xl border border-indigo-100 dark:border-indigo-800">
-          <div className="flex items-center">
-            <ArrowRightLeft size={16} className="text-indigo-600 mr-2" />
-            <span className="text-[10px] font-black text-indigo-700 uppercase tracking-widest">{t.backToBack}</span>
-          </div>
-          <button
-            data-testid="b2b-toggle"
-            onClick={() => setIsB2B(!isB2B)}
-            className={`w-10 h-5 rounded-full transition-all relative ${isB2B ? 'bg-indigo-600' : 'bg-slate-300'}`}
-          >
-            <div className={`absolute top-1 w-3 h-3 bg-white rounded-full transition-all ${isB2B ? 'left-6' : 'left-1'}`} />
-          </button>
+      {!canWrite ? (
+        <div className="m-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-5 text-sm font-bold leading-6 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+          当前角色只能查看采购单，新增采购单、审批、发运和收货需要采购写入权限。
         </div>
-
-        {isB2B && (
-          <div className="space-y-2">
-            <select
-              data-testid="linked-sales-order-select"
-              value={newOrder.salesOrderRef}
-              onChange={e => setNewOrder(prev => ({ ...prev, salesOrderRef: e.target.value }))}
-              className="app-control w-full bg-indigo-50/50 text-xs font-bold dark:bg-indigo-900/10"
-            >
-              <option value="">{t.selectLinkedSalesOrder}</option>
-              {salesOrders.filter(so => so.status !== 'cancelled').map(so => {
-                const salesOrderNo = (so as any).orderNo || so.id;
-                return (
-                  <option key={so.id} value={so.id}>
-                    {salesOrderNo} - {so.customerDisplayName || so.customerName || so.customerNameZh || ''} ({so.items?.length || 0}{t.itemsUnit})
-                  </option>
-                );
-              })}
-            </select>
-            {newOrder.salesOrderRef && b2bLinks[newOrder.salesOrderRef] && (
-              <div className={`p-2 rounded-lg text-[11px] font-bold flex items-center gap-1 ${b2bLinks[newOrder.salesOrderRef].linked ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
-                {b2bLinks[newOrder.salesOrderRef].linked ? (
-                  <><CheckCircle size={10} />{t.purchaseAlreadyLinked}</>
-                ) : (
-                  <><Link size={10} />{t.purchaseNotLinked}</>
-                )}
-              </div>
-            )}
+      ) : (
+      <>
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-6 py-4 pr-4">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/70 p-4 text-xs font-bold leading-6 text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+          先填“供应商、物料、数量、单价、预计到货”即可生成采购承诺。背靠背销售单、外币汇率、税费和到岸成本是高级信息，展开后补齐。
+        </div>
+        {purchaseErrorCount > 0 && (
+          <div data-testid="purchase-form-error-summary" className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
+            还有 {purchaseErrorCount} 项采购单信息需要修正：{Object.values(purchaseErrors)[0]}
           </div>
         )}
-
         <FormField
           dataTestId="purchase-supplier-select"
           as="select"
           value={newOrder.supplierId}
-          onChange={(value) => setNewOrder(prev => ({ ...prev, supplierId: value }))}
+          onChange={(value) => updateOrderField('supplierId', value)}
           options={[
             { value: '', label: t.selectSupplier },
             ...suppliers.map(supplier => ({ value: supplier.id, label: getSupplierLabel(supplier) || supplier.name })),
           ]}
           required
+          error={purchaseErrors.supplierId}
         />
-        <FormField dataTestId="purchase-item-input" value={newOrder.item} onChange={(value) => setNewOrder(prev => ({ ...prev, item: value }))} placeholder={t.productName} required />
+        <FormField dataTestId="purchase-item-input" value={newOrder.item} onChange={(value) => updateOrderField('item', value)} placeholder={t.productName} required error={purchaseErrors.item} />
         <div className="grid grid-cols-3 gap-3">
-          <FormField dataTestId="purchase-quantity-input" value={newOrder.quantity} onChange={(value) => setNewOrder(prev => ({ ...prev, quantity: value }))} placeholder={t.quantity} />
-          <FormField value={newOrder.unit} onChange={(value) => setNewOrder(prev => ({ ...prev, unit: value }))} placeholder={t.unit} />
-          <FormField dataTestId="purchase-price-input" value={newOrder.price} onChange={(value) => setNewOrder(prev => ({ ...prev, price: value }))} placeholder={t.price} />
+          <FormField dataTestId="purchase-quantity-input" value={newOrder.quantity} onChange={(value) => updateOrderField('quantity', value)} placeholder={t.quantity} error={purchaseErrors.quantity} />
+          <FormField dataTestId="purchase-unit-input" value={newOrder.unit} onChange={(value) => updateOrderField('unit', value)} placeholder={t.unit} error={purchaseErrors.unit} />
+          <FormField dataTestId="purchase-price-input" value={newOrder.price} onChange={(value) => updateOrderField('price', value)} placeholder={t.price} error={purchaseErrors.price} />
         </div>
+        <FormField dataTestId="purchase-eta-input" type="date" value={newOrder.eta} onChange={(value) => updateOrderField('eta', value)} label="预计到货" error={purchaseErrors.eta} />
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 dark:border-emerald-900/30 dark:bg-emerald-950/20">
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">到岸成本</p>
@@ -138,34 +153,101 @@ export const PurchaseOrderWorkspace = ({
               CNY {purchaseCostPreview.landedUnitCost.toLocaleString()} / {newOrder.unit || t.unit}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField
-              dataTestId="purchase-currency-select"
-              as="select"
-              value={newOrder.currency}
-              onChange={(value) => setNewOrder(prev => ({ ...prev, currency: value, exchangeRate: value === 'CNY' ? '1' : prev.exchangeRate }))}
-              options={[
-                { value: 'CNY', label: 'CNY' },
-                { value: 'USD', label: 'USD' },
-                { value: 'VND', label: 'VND' },
-              ]}
-              inputClassName="bg-white dark:bg-slate-900"
-            />
-            <FormField dataTestId="purchase-exchange-rate-input" label="汇率" value={newOrder.exchangeRate} onChange={(value) => setNewOrder(prev => ({ ...prev, exchangeRate: value }))} placeholder="1 CNY = X" inputClassName="bg-white dark:bg-slate-900" />
-            <FormField dataTestId="purchase-tax-rate-input" label="税率%" value={newOrder.taxRate} onChange={(value) => setNewOrder(prev => ({ ...prev, taxRate: value }))} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField dataTestId="purchase-tax-amount-input" label="税额" value={newOrder.taxAmount} onChange={(value) => setNewOrder(prev => ({ ...prev, taxAmount: value }))} placeholder="留空自动按税率" inputClassName="bg-white dark:bg-slate-900" />
-            <FormField dataTestId="purchase-freight-cost-input" label="运费(CNY)" value={newOrder.freightCost} onChange={(value) => setNewOrder(prev => ({ ...prev, freightCost: value }))} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField dataTestId="purchase-duty-cost-input" label="关税(CNY)" value={newOrder.dutyCost} onChange={(value) => setNewOrder(prev => ({ ...prev, dutyCost: value }))} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField dataTestId="purchase-insurance-cost-input" label="保险(CNY)" value={newOrder.insuranceCost} onChange={(value) => setNewOrder(prev => ({ ...prev, insuranceCost: value }))} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField dataTestId="purchase-other-cost-input" label="其他(CNY)" value={newOrder.otherCost} onChange={(value) => setNewOrder(prev => ({ ...prev, otherCost: value }))} inputClassName="bg-white dark:bg-slate-900" />
-          </div>
           <p className="mt-3 text-[11px] font-bold text-emerald-700/80 dark:text-emerald-300/80">
             预估总到岸成本：CNY {purchaseCostPreview.landedCostAmount.toLocaleString()}
           </p>
         </div>
-        <FormField dataTestId="purchase-eta-input" type="date" value={newOrder.eta} onChange={(value) => setNewOrder(prev => ({ ...prev, eta: value }))} />
-        <button data-testid="save-purchase-button" onClick={addOrder} className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700">{t.savePurchase}</button>
+        <button
+          type="button"
+          data-testid="purchase-toggle-advanced"
+          onClick={() => setShowAdvancedOrderFields(prev => !prev)}
+          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-xs font-black text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-blue-950/30"
+        >
+          {showAdvancedOrderFields ? '收起高级采购信息' : '展开高级采购信息'} · {advancedSummary}
+        </button>
+        {showAdvancedOrderFields ? (
+          <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+            <div className="flex items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
+              <div className="flex items-center">
+                <ArrowRightLeft size={16} className="mr-2 text-indigo-600" />
+                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700">{t.backToBack}</span>
+              </div>
+              <button
+                data-testid="b2b-toggle"
+                onClick={() => setIsB2B(!isB2B)}
+                className={`relative h-5 w-10 rounded-full transition-all ${isB2B ? 'bg-indigo-600' : 'bg-slate-300'}`}
+              >
+                <div className={`absolute top-1 h-3 w-3 rounded-full bg-white transition-all ${isB2B ? 'left-6' : 'left-1'}`} />
+              </button>
+            </div>
+
+            {isB2B && (
+              <div className="space-y-2">
+                <select
+                  data-testid="linked-sales-order-select"
+                  value={newOrder.salesOrderRef}
+                  onChange={e => updateOrderField('salesOrderRef', e.target.value)}
+                  className="app-control w-full bg-indigo-50/50 text-xs font-bold dark:bg-indigo-900/10"
+                >
+                  <option value="">{t.selectLinkedSalesOrder}</option>
+                  {salesOrders.filter(so => so.status !== 'cancelled').map(so => {
+                    const salesOrderNo = (so as any).orderNo || so.id;
+                    return (
+                      <option key={so.id} value={so.id}>
+                        {salesOrderNo} - {so.customerDisplayName || so.customerName || so.customerNameZh || ''} ({so.items?.length || 0}{t.itemsUnit})
+                      </option>
+                    );
+                  })}
+                </select>
+                {newOrder.salesOrderRef && b2bLinks[newOrder.salesOrderRef] && (
+                  <div className={`flex items-center gap-1 rounded-lg p-2 text-[11px] font-bold ${b2bLinks[newOrder.salesOrderRef].linked ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-400' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400'}`}>
+                    {b2bLinks[newOrder.salesOrderRef].linked ? (
+                      <><CheckCircle size={10} />{t.purchaseAlreadyLinked}</>
+                    ) : (
+                      <><Link size={10} />{t.purchaseNotLinked}</>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="grid grid-cols-2 gap-3">
+              <FormField
+                dataTestId="purchase-currency-select"
+                label="币种"
+                as="select"
+                value={newOrder.currency}
+                onChange={(value) => {
+                  clearPurchaseError('exchangeRate');
+                  updateOrderField('currency', value);
+                  if (value === 'CNY') updateOrderField('exchangeRate', '1');
+                }}
+                options={[
+                  { value: 'CNY', label: 'CNY' },
+                  { value: 'USD', label: 'USD' },
+                  { value: 'VND', label: 'VND' },
+                ]}
+                error={purchaseErrors.currency}
+                inputClassName="bg-white dark:bg-slate-900"
+              />
+              <FormField dataTestId="purchase-exchange-rate-input" label="汇率" value={newOrder.exchangeRate} onChange={(value) => updateOrderField('exchangeRate', value)} placeholder="1 CNY = X" error={purchaseErrors.exchangeRate} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="purchase-tax-rate-input" label="税率%" value={newOrder.taxRate} onChange={(value) => updateOrderField('taxRate', value)} error={purchaseErrors.taxRate} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="purchase-tax-amount-input" label="税额" value={newOrder.taxAmount} onChange={(value) => updateOrderField('taxAmount', value)} placeholder="留空自动按税率" error={purchaseErrors.taxAmount} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="purchase-freight-cost-input" label="运费(CNY)" value={newOrder.freightCost} onChange={(value) => updateOrderField('freightCost', value)} error={purchaseErrors.freightCost} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="purchase-duty-cost-input" label="关税(CNY)" value={newOrder.dutyCost} onChange={(value) => updateOrderField('dutyCost', value)} error={purchaseErrors.dutyCost} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="purchase-insurance-cost-input" label="保险(CNY)" value={newOrder.insuranceCost} onChange={(value) => updateOrderField('insuranceCost', value)} error={purchaseErrors.insuranceCost} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="purchase-other-cost-input" label="其他(CNY)" value={newOrder.otherCost} onChange={(value) => updateOrderField('otherCost', value)} error={purchaseErrors.otherCost} inputClassName="bg-white dark:bg-slate-900" />
+            </div>
+          </div>
+        ) : null}
       </div>
+      <div className="border-t border-slate-100 bg-white/95 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <button data-testid="save-purchase-button" onClick={addOrder} disabled={!canWrite} className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.savePurchase}</button>
+      </div>
+      </>
+      )}
     </div>
+    ) : null}
   </div>
-);
+  );
+};

@@ -55,26 +55,22 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
     }, [setActiveTab]);
 
     const handleOcrParse = () => {
-        if (!ocrText.trim() && !ocrImage) {
+        const normalizedText = ocrText.trim();
+        const hasOnlyUploadedImages = normalizedText.startsWith('Images:') || normalizedText.startsWith('已上传');
+
+        if (!normalizedText && !ocrImage) {
             notify('warning', t.ocrMissingText);
+            return;
+        }
+
+        if (!normalizedText || hasOnlyUploadedImages) {
+            notify('warning', '当前离线模式不会把图片自动识别成真实发货数据，请在文本框粘贴识别内容后再解析。');
             return;
         }
 
         setIsOcrProcessing(true);
         setTimeout(() => {
-            const index = selectedImageIndex % 4;
-            const samples = [
-                'AI Extracted: Sample Chemical Co, Methanol 99.9%, CAS: 67-56-1, Batch: CH-2026-02, Qty: 2000kg',
-                'AI Extracted: BioReagent Ltd, Acetonitrile 99.8%, CAS: 75-05-8, Batch: ACN-2026-02, Qty: 500kg',
-                'AI Extracted: PharmaChem, Ethanol 99.9%, CAS: 64-17-5, Batch: ET-2026-02, Qty: 1200kg',
-                'AI Extracted: FineChem, Toluene 99.5%, CAS: 108-88-3, Batch: TL-2026-02, Qty: 800kg'
-            ];
-
-            const text = ocrText.trim() && !ocrText.trim().startsWith('Images:')
-                ? ocrText
-                : (ocrImages.length > 0 ? samples[index] : (ocrText || samples[0]));
-
-            const parsed = parseOcrDocument(text, 'shipment');
+            const parsed = parseOcrDocument(normalizedText, 'shipment');
             setOcrResult(parsed);
             setIsOcrProcessing(false);
             notify('success', t.autoFillSuccess || 'Recognized successfully');
@@ -93,8 +89,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
             setSelectedImageIndex(startingIndex);
             setOcrImage(dataUrls[0] || null);
             setPreviewMode(nextImages.length > 1 ? 'gallery' : 'single');
-            setOcrText(`Images: ${nextImages.length} files uploaded for AI analysis`);
-            notify('success', `Uploaded ${files.length} image(s)`);
+            setOcrText(`已上传 ${nextImages.length} 张图片，请粘贴识别文本后再解析`);
+            notify('success', `已上传 ${files.length} 张图片`);
         } catch {
             notify('error', t.imageReadFail || 'Failed to read image');
         } finally {
@@ -154,6 +150,7 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
                 matched = matchCustomer(ocrResult.customerName, toCustomerMatchItems(candidateCustomers));
             } catch (err) {
                 reportClientIssue('shipping.ocr-customer-refresh', err);
+                notify('warning', '客户列表刷新失败，已先使用当前页面客户数据继续匹配');
             }
         }
 

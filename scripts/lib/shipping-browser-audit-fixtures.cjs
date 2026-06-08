@@ -32,7 +32,7 @@ function createReceiptFixture(shotDir, runId) {
   return filePath;
 }
 
-const REQUIRED_ROUTE_COPY = ['\u53d1\u8d27', 'OCR', '\u8bc6\u522b\u9884\u89c8'];
+const REQUIRED_ROUTE_COPY = ['\u53d1\u8d27', '\u53d1\u8d27\u804c\u8d23\u5206\u6d41', '\u7269\u6d41\u8ddf\u8e2a', 'OCR'];
 
 const MOJIBAKE_MARKERS = [
   'undefined',

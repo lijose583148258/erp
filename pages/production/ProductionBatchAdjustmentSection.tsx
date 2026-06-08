@@ -1,4 +1,4 @@
-import { ArrowUpRight, Filter, Search, Undo2 } from 'lucide-react';
+import { ArrowUpRight, Filter, Search, ShieldAlert, Undo2 } from 'lucide-react';
 import { ProductBatch } from '../../services/asset.service';
 import { AdjustmentRecord } from '../../services/adjustment.service';
 import {
@@ -89,11 +89,11 @@ export function ProductionBatchAdjustmentSection({
             <div className="flex items-center gap-3">
               <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-full">
                 <Search size={14} className="text-slate-400" />
-                <input value={batchKeyword} onChange={e => setBatchKeyword(e.target.value)} placeholder="搜索批次" className="bg-transparent outline-none text-xs font-bold text-slate-600 dark:text-slate-200 w-32" />
+                <input data-testid="production-batch-search-input" value={batchKeyword} onChange={e => setBatchKeyword(e.target.value)} placeholder="搜索批次" className="bg-transparent outline-none text-xs font-bold text-slate-600 dark:text-slate-200 w-32" />
               </div>
               <div className="flex items-center gap-2 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-full">
                 <Filter size={14} className="text-slate-400" />
-                <select value={batchStatus} onChange={e => setBatchStatus(e.target.value as BatchStatusFilter)} className="bg-transparent outline-none text-xs font-bold text-slate-600 dark:text-slate-200">
+                <select data-testid="production-batch-status-filter" value={batchStatus} onChange={e => setBatchStatus(e.target.value as BatchStatusFilter)} className="bg-transparent outline-none text-xs font-bold text-slate-600 dark:text-slate-200">
                   <option value="all">全部</option>
                   <option value="healthy">正常</option>
                   <option value="expiring">临期</option>
@@ -116,7 +116,12 @@ export function ProductionBatchAdjustmentSection({
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                 {batches.map(batch => (
-                  <tr key={batch.id} onClick={() => setSelectedBatchId(batch.id)} className={`cursor-pointer transition-all ${selectedBatchId === batch.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}>
+                  <tr
+                    key={batch.id}
+                    data-testid={`production-batch-row-${batch.id}`}
+                    onClick={() => setSelectedBatchId(batch.id)}
+                    className={`cursor-pointer transition-all ${selectedBatchId === batch.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}
+                  >
                     <Td mono>{batch.batchNo}</Td>
                     <Td strong>{batch.productName}</Td>
                     <Td>{formatDateOnly(batch.productionDate)} / {formatDateOnly(batch.expiryDate)}</Td>
@@ -132,6 +137,14 @@ export function ProductionBatchAdjustmentSection({
 
         <div className="xl:col-span-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-6">
           <SectionHeader title="批次追踪" subtitle="入库 / 效期 / 温控 / 盘点" />
+          <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
+            <div className="flex items-start gap-3">
+              <ShieldAlert size={16} className="mt-0.5 shrink-0" />
+              <p className="text-xs font-bold leading-6">
+                批次区只做追踪和已形成库存事实后的异常调整。正常 BOM、工单完工、采购入库不要在这里补录；提交异常后会进入调账台账，后续可审计和冲销。
+              </p>
+            </div>
+          </div>
           {selectedBatch ? (
             <>
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-3">
@@ -159,9 +172,12 @@ export function ProductionBatchAdjustmentSection({
               </div>
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-3">
                 <div className="flex items-center justify-between">
-                  <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">生产调账模板</div>
+                  <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">批次异常调整（现场入口）</div>
                   <div className="text-[11px] font-black text-slate-500">{selectedTemplate.label}</div>
                 </div>
+                <p className="rounded-[18px] bg-blue-50 px-4 py-3 text-xs font-bold leading-6 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200">
+                  当前已选批次：这里只登记该批次的现场异常，例如损耗复核、盘点差异或批次纠偏。
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {TEMPLATES.map(template => (
                     <button key={template.id} onClick={() => { setTemplateId(template.id); setAdjustmentReason(template.reason); }} className={`text-left p-4 rounded-[24px] border transition-all duration-300 ${templateId === template.id ? 'bg-blue-600 text-white border-blue-500 shadow-xl shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-200 dark:hover:border-blue-900'}`}>
@@ -171,12 +187,12 @@ export function ProductionBatchAdjustmentSection({
                   ))}
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Field label="数量" value={adjustmentQuantity} onChange={setAdjustmentQuantity} placeholder="例如 12" />
-                  <Field label="方向" value={selectedTemplate.sign > 0 ? '入库增加' : '库存减少'} onChange={() => undefined} placeholder="" readOnly />
+                  <Field dataTestId="production-adjustment-quantity-input" label="数量" value={adjustmentQuantity} onChange={setAdjustmentQuantity} placeholder="例如 12" />
+                  <Field dataTestId="production-adjustment-direction-input" label="方向" value={selectedTemplate.sign > 0 ? '入库增加' : '库存减少'} onChange={() => undefined} placeholder="" readOnly />
                 </div>
-                <Field label="原因" value={adjustmentReason} onChange={setAdjustmentReason} placeholder="调账原因" />
-                <TextareaField label="备注" value={adjustmentNote} onChange={setAdjustmentNote} placeholder="可填损耗原因、工艺说明或盘点备注" />
-                <button onClick={handleCreateAdjustment} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">登记生产调账</button>
+                <Field dataTestId="production-adjustment-reason-input" label="原因" value={adjustmentReason} onChange={setAdjustmentReason} placeholder="调账原因" />
+                <TextareaField dataTestId="production-adjustment-note-input" label="备注" value={adjustmentNote} onChange={setAdjustmentNote} placeholder="可填损耗原因、工艺说明或盘点备注" />
+                <button data-testid="production-adjustment-submit" onClick={handleCreateAdjustment} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">提交批次异常调整</button>
               </div>
             </>
           ) : (
@@ -215,7 +231,7 @@ export function ProductionBatchAdjustmentSection({
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
               {adjustments.map(record => (
-                <tr key={record.id} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all">
+                <tr key={record.id} data-testid={`production-adjustment-row-${record.id}`} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all">
                   <Td mono>{record.adjustmentNo}</Td>
                   <Td>
                     <div className="font-bold text-slate-900 dark:text-white text-sm">{record.batchNo || ''}</div>
@@ -235,7 +251,7 @@ export function ProductionBatchAdjustmentSection({
                   <Td><AdjustmentBadge status={record.status} /></Td>
                   <Td className="text-xs text-slate-400 font-black uppercase tracking-tight">{formatDate(record.createdAt)}</Td>
                   <Td>
-                    <button onClick={() => handleReverseAdjustment(record)} disabled={record.status !== 'posted'} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40"><Undo2 size={12} className="inline mr-1" />冲销</button>
+                    <button data-testid="production-adjustment-reverse-button" onClick={() => handleReverseAdjustment(record)} disabled={record.status !== 'posted'} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-40"><Undo2 size={12} className="inline mr-1" />冲销</button>
                   </Td>
                 </tr>
               ))}

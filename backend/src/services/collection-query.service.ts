@@ -108,6 +108,44 @@ export interface CollectionQueryResult<T> {
   };
 }
 
+type CollectionOverdueQueryOptions = {
+  page?: number;
+  pageSize?: number;
+  search?: string;
+};
+
+const normalizeSearchText = (value: unknown) => String(value ?? '').trim().toLowerCase();
+
+const getOverdueSearchHaystack = (order: {
+  orderNo: string;
+  customerName: string;
+  customerNameZh?: string | null;
+  customerNameEn?: string | null;
+  customerNameVi?: string | null;
+  customerDisplayName?: string | null;
+  contactName: string | null;
+  contactPhone: string | null;
+  ownerName: string;
+  riskLevel: string;
+  paymentStatus: string;
+  contractNo: string | null;
+  contractTitle: string | null;
+}) => [
+  order.orderNo,
+  order.customerName,
+  order.customerNameZh,
+  order.customerNameEn,
+  order.customerNameVi,
+  order.customerDisplayName,
+  order.contactName,
+  order.contactPhone,
+  order.ownerName,
+  order.riskLevel,
+  order.paymentStatus,
+  order.contractNo,
+  order.contractTitle,
+].map(normalizeSearchText).join(' ');
+
 export class CollectionQueryService {
   static async getLedger(req: AuthRequest, options: { page?: number; pageSize?: number; status?: string; method?: string; customerId?: number }) {
     const page = options.page ?? 1;
@@ -219,11 +257,12 @@ export class CollectionQueryService {
     };
   }
 
-  static async getOverdueOrders(req: AuthRequest, options: { page?: number; pageSize?: number } = {}) {
+  static async getOverdueOrders(req: AuthRequest, options: CollectionOverdueQueryOptions = {}) {
     const page = options.page ?? 1;
     const pageSize = options.pageSize ?? COLLECTION_DEFAULT_PAGE_SIZE;
     const limit = Math.min(pageSize || COLLECTION_DEFAULT_PAGE_SIZE, COLLECTION_MAX_PAGE_SIZE);
     const offset = (page - 1) * limit;
+    const searchTerms = normalizeSearchText(options.search).split(/\s+/).filter(Boolean);
     const now = new Date();
 
     const orders = await prisma.order.findMany({
@@ -303,7 +342,7 @@ export class CollectionQueryService {
           contactName: order.customer.contactName,
           contactPhone: order.customer.contactPhone,
           ownerName: order.customer.salesperson?.username || '未分配',
-          riskLevel: order.customer.riskLevel,
+          riskLevel: order.customer.riskLevel || 'medium',
           overdueAmount: Number(order.customer.overdueAmount),
           collectionsStatus: order.customer.collectionsStatus,
           dunningLevel: Math.max(order.customer.dunningLevel, getDunningLevel(daysOverdue)),
@@ -312,7 +351,17 @@ export class CollectionQueryService {
           contractTitle: order.contract?.title || null,
         };
       })
-      .filter(order => order.outstanding > 0 && order.daysOverdue > 0);
+      .filter(order => order.outstanding > 0 && order.daysOverdue > 0)
+      .filter(order => {
+        if (searchTerms.length === 0) return true;
+        const haystack = getOverdueSearchHaystack(order);
+        return searchTerms.every(term => haystack.includes(term));
+      })
+      .sort((a, b) => {
+        if (b.daysOverdue !== a.daysOverdue) return b.daysOverdue - a.daysOverdue;
+        if (b.outstanding !== a.outstanding) return b.outstanding - a.outstanding;
+        return b.orderId - a.orderId;
+      });
 
     const total = overdueOrders.length;
     const pageRows = overdueOrders.slice(offset, offset + limit);
@@ -362,6 +411,10 @@ export class CollectionQueryService {
         paymentStatus: order.paymentStatus,
         customerId: order.customerId,
         customerName: order.customerName,
+        customerNameZh: order.customerNameZh,
+        customerNameEn: order.customerNameEn,
+        customerNameVi: order.customerNameVi,
+        customerDisplayName: order.customerDisplayName,
         contactName: order.contactName,
         contactPhone: order.contactPhone,
         ownerName: order.ownerName,

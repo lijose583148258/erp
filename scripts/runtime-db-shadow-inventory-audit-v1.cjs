@@ -1,6 +1,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const {
+  classifyShadowDb,
+  isGovernedShadowDb,
+  shadowDbGovernanceNote,
+} = require('./lib/runtime-db-governance.cjs');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
@@ -123,15 +128,6 @@ function checkStartupReferences(findings) {
   }
 }
 
-function classifyShadowDb(relativePath) {
-  if (/^backend\/prisma\/tenants\//.test(relativePath)) return 'legacy-tenant-demo';
-  if (/^backend\/prisma\//.test(relativePath)) return 'legacy-prisma-db';
-  if (/^backend\/backend\/data\//.test(relativePath)) return 'legacy-nested-backend-data';
-  if (/^backend\/%TEMP%\//.test(relativePath)) return 'bad-env-literal-runtime-path';
-  if (/^runtime-data\//.test(relativePath)) return 'project-runtime-fallback';
-  return 'unexpected-shadow-db';
-}
-
 function writeReports(report) {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
@@ -143,6 +139,8 @@ function writeReports(report) {
   md.push(`- generated: ${report.generatedAt}`);
   md.push(`- active runtime db: ${report.activeRuntimeDb || 'not resolved'}`);
   md.push(`- shadow db files: ${report.summary.shadowDbFiles}`);
+  md.push(`- governed shadow db files: ${report.summary.governedShadowDbFiles}`);
+  md.push(`- unresolved shadow db files: ${report.summary.unresolvedShadowDbFiles}`);
   md.push(`- P0 findings: ${report.summary.p0Findings}`);
   md.push(`- P2 findings: ${report.summary.p2Findings}`);
   md.push('');
@@ -193,13 +191,28 @@ function main() {
 
   const shadowDatabases = repoDbFiles
     .filter(item => item.path !== activeRuntimeDb)
-    .map(item => ({
-      ...item,
-      classification: classifyShadowDb(item.relativePath),
-    }));
+    .map(item => {
+      const classification = classifyShadowDb(item.relativePath);
+      const governed = isGovernedShadowDb(item.relativePath);
+      return {
+        ...item,
+        classification,
+        governance: governed ? 'governed-quarantined' : 'unresolved',
+        governanceNote: shadowDbGovernanceNote(classification),
+      };
+    });
 
   for (const item of shadowDatabases) {
     const isJournal = /-journal$/i.test(item.relativePath);
+    if (item.governance === 'governed-quarantined') {
+      findings.push({
+        level: 'P3',
+        area: isJournal ? 'governed-shadow-db-journal' : 'governed-shadow-db',
+        file: item.relativePath,
+        message: `${item.classification} is a governed quarantined database artifact; ${item.governanceNote}`,
+      });
+      continue;
+    }
     findings.push({
       level: 'P2',
       area: isJournal ? 'shadow-db-journal' : 'shadow-db',
@@ -209,6 +222,8 @@ function main() {
   }
 
   const hasP0 = findings.some(finding => finding.level === 'P0');
+  const governedShadowDbFiles = shadowDatabases.filter(item => item.governance === 'governed-quarantined').length;
+  const unresolvedShadowDbFiles = shadowDatabases.length - governedShadowDbFiles;
   const report = {
     name: 'Runtime DB Shadow Inventory Audit',
     version: '1.0',
@@ -220,9 +235,12 @@ function main() {
     summary: {
       repoDbFiles: repoDbFiles.length,
       shadowDbFiles: shadowDatabases.length,
+      governedShadowDbFiles,
+      unresolvedShadowDbFiles,
       p0Findings: findings.filter(finding => finding.level === 'P0').length,
       p1Findings: findings.filter(finding => finding.level === 'P1').length,
       p2Findings: findings.filter(finding => finding.level === 'P2').length,
+      p3Findings: findings.filter(finding => finding.level === 'P3').length,
     },
     findings,
     shadowDatabases,

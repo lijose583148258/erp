@@ -59,7 +59,7 @@ const AXIS_LABEL: Record<string, string> = {
   pending_release: '待放货',
   ready_to_ship: '待发运',
   in_transit: '运输中',
-  unpaid: '未收款',
+  unpaid: '未回款',
   payment_submitted: '待财务核验',
   partial: '部分收款',
   paid: '已结清',

@@ -154,7 +154,7 @@ export class ReceivableAdjustmentService {
     const adjustmentType = normalizeReceivableAdjustmentType(input.adjustmentType);
     const amount = roundMoney(Number(input.amount));
     if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error('Receivable adjustment amount must be greater than zero.');
+      throw new Error('应收调整金额必须大于 0。');
     }
 
     const order = await prisma.order.findUnique({
@@ -312,6 +312,8 @@ export class ReceivableAdjustmentService {
         },
       });
 
+      await CollectionStateService.syncCustomerOverdueAmountTx(tx, order.customerId);
+
       return {
         changed: true,
         adjustment: posted,
@@ -320,7 +322,6 @@ export class ReceivableAdjustmentService {
       };
     }), { label: 'postReceivableAdjustment' });
 
-    await CollectionStateService.syncCustomerOverdueAmount(result.customerId);
     const current = await prisma.receivableAdjustment.findUnique({
       where: { id: adjustmentId },
       include: this.includeView(),
@@ -405,6 +406,8 @@ export class ReceivableAdjustmentService {
         },
       });
 
+      await CollectionStateService.syncCustomerOverdueAmountTx(tx, order.customerId);
+
       return {
         changed: true,
         adjustment: reversed,
@@ -413,7 +416,6 @@ export class ReceivableAdjustmentService {
       };
     }), { label: 'reverseReceivableAdjustment' });
 
-    await CollectionStateService.syncCustomerOverdueAmount(result.customerId);
     const current = await prisma.receivableAdjustment.findUnique({
       where: { id: adjustmentId },
       include: this.includeView(),

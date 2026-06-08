@@ -48,19 +48,27 @@ export type FrontendPermission =
   | 'rma.resolve'
   | 'team.read'
   | 'team.write'
+  | 'authorization.roles.manage'
   | 'assets.read'
   | 'assets.write'
   | 'production.read'
   | 'production.write'
+  | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
   | 'adjustments.apply'
   | 'adjustments.reverse'
   | 'warehouse.read'
   | 'warehouse.write'
+  | 'warehouse.ledger.read'
+  | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
   | 'procurement.b2b.read'
+  | 'commercial.read'
+  | 'commercial.workflow.manage'
+  | 'commercial.notification.write'
+  | 'commercial.alert.run'
   | 'audit.read';
 
 export const MENU_PERMISSION_BY_MODULE: Record<string, FrontendPermission> = {
@@ -135,19 +143,27 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'rma.resolve',
     'team.read',
     'team.write',
+    'authorization.roles.manage',
     'assets.read',
     'assets.write',
     'production.read',
     'production.write',
+    'production.cost.read',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'warehouse.ledger.read',
+    'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'commercial.read',
+    'commercial.workflow.manage',
+    'commercial.notification.write',
+    'commercial.alert.run',
     'audit.read',
   ],
   manager: [
@@ -200,15 +216,22 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.cost.read',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'warehouse.ledger.read',
+    'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'commercial.read',
+    'commercial.workflow.manage',
+    'commercial.notification.write',
+    'commercial.alert.run',
   ],
   sales: [
     'dashboard.read',
@@ -260,6 +283,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'adjustments.reverse',
     'warehouse.read',
     'warehouse.write',
+    'warehouse.ledger.read',
+    'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
@@ -288,10 +313,12 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'discrepancies.read',
     'assets.read',
     'production.read',
+    'production.cost.read',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
     'adjustments.reverse',
+    'procurement.suppliers.read',
     'procurement.read',
   ],
 };
@@ -309,6 +336,14 @@ function getUserPermissions(userOrRole: CurrentUser | UserRole): readonly string
 
 export function can(userOrRole: CurrentUser | UserRole, permission: FrontendPermission): boolean {
   return getUserPermissions(userOrRole).includes(permission);
+}
+
+export function hasDataScope(userOrRole: CurrentUser | UserRole, scope: string): boolean {
+  if (typeof userOrRole === 'string') {
+    return userOrRole === 'admin' || userOrRole === 'finance' || userOrRole === 'manager';
+  }
+  const scopes = userOrRole.dataScopes || [];
+  return userOrRole.role === 'admin' || scopes.includes('all') || scopes.includes(scope);
 }
 
 export function canOpenModule(userOrRole: CurrentUser | UserRole, moduleId: string): boolean {

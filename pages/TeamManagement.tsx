@@ -1,28 +1,34 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Briefcase, Clock, Coins, PieChart, UserPlus } from 'lucide-react';
-import { BarChart, Bar, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Power, PowerOff, ShieldCheck, UserPlus, UsersRound } from 'lucide-react';
 import DataTable, { Column } from '../components/DataTable';
 import { useAppContext } from '../app/AppContext';
 import { can } from '../app/permissions';
+import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
 import { TeamMember } from '../types';
-import { dashboardService } from '../services/dashboard.service';
 import roleService, { AuthRole } from '../services/role.service';
 import teamService from '../services/team.service';
 import RoleManagementPanel from './team/RoleManagementPanel';
 
-const inputClass = 'rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none dark:bg-slate-950 dark:text-white';
+const inputClass = 'rounded-[12px] border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white';
+
+const fallbackRoles = (t: Record<string, any>): AuthRole[] => [
+  { id: 0, code: 'sales', name: t.roleSales || '销售', description: null, isSystem: true, isActive: true, dataScopes: ['own_customers'], permissions: ['dashboard.read', 'customers.read', 'orders.read'], createdAt: '', updatedAt: '' },
+  { id: 0, code: 'manager', name: t.roleManager || '经理', description: null, isSystem: true, isActive: true, dataScopes: ['team_customers'], permissions: ['dashboard.read', 'customers.read', 'orders.read', 'team.read'], createdAt: '', updatedAt: '' },
+  { id: 0, code: 'finance', name: t.roleFinance || '财务', description: null, isSystem: true, isActive: true, dataScopes: ['finance_visible'], permissions: ['dashboard.read', 'finance.read'], createdAt: '', updatedAt: '' },
+  { id: 0, code: 'warehouse', name: t.roleWarehouse || '仓库', description: null, isSystem: true, isActive: true, dataScopes: ['warehouse_visible'], permissions: ['dashboard.read', 'warehouse.read'], createdAt: '', updatedAt: '' },
+  { id: 0, code: 'admin', name: t.roleAdmin || '管理员', description: null, isSystem: true, isActive: true, dataScopes: ['all'], permissions: ['dashboard.read', 'team.read', 'team.write'], createdAt: '', updatedAt: '' },
+];
 
 const TeamManagement: React.FC = () => {
-  const { t, theme, formatPrice, currentUser, notify } = useAppContext();
+  const { t, currentUser, notify, formatPrice } = useAppContext();
   const [members, setMembers] = useState<TeamMember[]>([]);
-  const [filter, setFilter] = useState<'all' | 'direct' | 'channel' | 'mixed'>('all');
-  const [pendingCommCount, setPendingCommCount] = useState(0);
   const [roles, setRoles] = useState<AuthRole[]>([]);
+  const [loading, setLoading] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(false);
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const chartWrapRef = useRef<HTMLDivElement | null>(null);
-  const [chartBox, setChartBox] = useState({ width: 0, height: 0 });
+  const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [filter, setFilter] = useState<'all' | 'direct' | 'channel' | 'mixed'>('all');
   const [draft, setDraft] = useState({
     username: '',
     password: '',
@@ -32,396 +38,271 @@ const TeamManagement: React.FC = () => {
   });
 
   const canManageTeam = can(currentUser, 'team.write');
-  const canViewFinancials = can(currentUser, 'finance.read') || currentUser.role === 'admin' || currentUser.role === 'manager';
-
-  const fallbackRoleOptions = useMemo<AuthRole[]>(() => [
-    {
-      id: 0,
-      code: 'sales',
-      name: t.roleSales,
-      description: null,
-      isSystem: true,
-      isActive: true,
-      dataScopes: ['own_customers'],
-      permissions: ['dashboard.read', 'customers.read', 'orders.read'],
-      createdAt: '',
-      updatedAt: '',
-    },
-    {
-      id: 0,
-      code: 'manager',
-      name: t.roleManager,
-      description: null,
-      isSystem: true,
-      isActive: true,
-      dataScopes: ['team_customers'],
-      permissions: ['dashboard.read', 'customers.read', 'orders.read', 'team.read'],
-      createdAt: '',
-      updatedAt: '',
-    },
-    {
-      id: 0,
-      code: 'finance',
-      name: t.roleFinance,
-      description: null,
-      isSystem: true,
-      isActive: true,
-      dataScopes: ['finance_visible'],
-      permissions: ['dashboard.read', 'finance.read'],
-      createdAt: '',
-      updatedAt: '',
-    },
-    {
-      id: 0,
-      code: 'warehouse',
-      name: t.roleWarehouse,
-      description: null,
-      isSystem: true,
-      isActive: true,
-      dataScopes: ['warehouse_visible'],
-      permissions: ['dashboard.read', 'warehouse.read'],
-      createdAt: '',
-      updatedAt: '',
-    },
-    {
-      id: 0,
-      code: 'admin',
-      name: t.roleAdmin,
-      description: null,
-      isSystem: true,
-      isActive: true,
-      dataScopes: ['all'],
-      permissions: ['dashboard.read', 'team.read', 'team.write'],
-      createdAt: '',
-      updatedAt: '',
-    },
-  ], [t.roleAdmin, t.roleFinance, t.roleManager, t.roleSales, t.roleWarehouse]);
-
+  const canManageRoles = can(currentUser, 'authorization.roles.manage');
+  const builtInRoles = useMemo(() => fallbackRoles(t), [t]);
   const roleOptions = useMemo(() => {
-    const source = roles.length > 0 ? roles : fallbackRoleOptions;
-    return source.filter(role => role.isActive);
-  }, [roles, fallbackRoleOptions]);
+    const source = canManageRoles && roles.length ? roles : builtInRoles;
+    return source.filter(role => role.isActive && (canManageRoles || role.code === 'sales'));
+  }, [builtInRoles, canManageRoles, roles]);
 
-  const refreshRoles = async () => {
+  const loadMembers = async () => {
+    setLoading(true);
+    try {
+      setMembers(await teamService.getAll());
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : (t.loadDataFail || '团队成员加载失败'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadRoles = async () => {
+    if (!canManageRoles) {
+      setRoles([]);
+      return;
+    }
     setRolesLoading(true);
     try {
       setRoles(await roleService.listRoles());
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : t.loadDataFail);
+      notify('error', error instanceof Error ? error.message : (t.loadDataFail || '角色加载失败'));
     } finally {
       setRolesLoading(false);
     }
   };
 
   useEffect(() => {
-    teamService.getAll().then(setMembers);
-    dashboardService.getStats().then(stats => {
-      setPendingCommCount(stats.overview.pendingCommissions || 0);
-    });
+    void loadMembers();
   }, []);
 
   useEffect(() => {
-    if (!canManageTeam) {
-      setRoles([]);
-      setShowCreateForm(false);
-      return;
-    }
-
-    let mounted = true;
-    setRolesLoading(true);
-    roleService.listRoles()
-      .then(nextRoles => {
-        if (mounted) setRoles(nextRoles);
-      })
-      .catch(error => notify('error', error instanceof Error ? error.message : t.loadDataFail))
-      .finally(() => {
-        if (mounted) setRolesLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, [canManageTeam, notify, t.loadDataFail]);
+    void loadRoles();
+  }, [canManageRoles]);
 
   useEffect(() => {
-    if (roleOptions.length > 0 && !roleOptions.some(role => role.code === draft.role)) {
+    if (roleOptions.length && !roleOptions.some(role => role.code === draft.role)) {
       setDraft(prev => ({ ...prev, role: roleOptions[0].code }));
     }
   }, [draft.role, roleOptions]);
 
-  useEffect(() => {
-    if (currentUser.role === 'manager' && currentUser.segment === 'direct') {
-      setFilter('direct');
-    } else if (currentUser.role === 'manager' && currentUser.segment === 'channel') {
-      setFilter('channel');
-    } else {
-      setFilter('all');
-    }
-  }, [currentUser]);
-
-  useEffect(() => {
-    const el = chartWrapRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return;
-
-    const update = () => {
-      const rect = el.getBoundingClientRect();
-      setChartBox({
-        width: Math.max(0, Math.floor(rect.width)),
-        height: Math.max(0, Math.floor(rect.height)),
-      });
-    };
-
-    update();
-    const observer = new ResizeObserver(() => update());
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, []);
-
-  const filteredMembers = useMemo(() =>
-    members.filter(member => {
-      if (filter === 'all') return true;
-      return member.type === filter;
-    }),
-    [members, filter]
-  );
-
-  const stats = useMemo(() => {
-    const totalPerf = members.reduce((sum, member) => sum + member.performance, 0);
-    const totalComm = members.reduce((sum, member) => sum + member.totalCommission, 0);
-    const directComm = members.filter(member => member.type === 'direct').reduce((sum, member) => sum + member.totalCommission, 0);
-    const channelComm = members.filter(member => member.type === 'channel').reduce((sum, member) => sum + member.totalCommission, 0);
-    const mixedComm = members.filter(member => member.type === 'mixed').reduce((sum, member) => sum + member.totalCommission, 0);
-    return { totalPerf, totalComm, directComm, channelComm, mixedComm };
-  }, [members]);
-
-  const chartData = useMemo(() =>
-    filteredMembers.map(member => ({
-      name: member.name,
-      commission: canViewFinancials ? member.totalCommission : 0,
-      color: member.type === 'direct' ? '#3b82f6' : member.type === 'channel' ? '#10b981' : '#8b5cf6',
-    })),
-    [filteredMembers, canViewFinancials]
-  );
+  const filteredMembers = useMemo(() => members.filter(member => filter === 'all' || member.type === filter), [filter, members]);
+  const totalPerformance = members.reduce((sum, member) => sum + member.performance, 0);
 
   const columns: Column<TeamMember>[] = [
     {
-      header: t.memberEntity, key: 'name', accessor: (row) => (
-        <div className="flex items-center space-x-4">
-          <div className={`w-12 h-12 rounded-2xl flex items-center justify-center font-black text-white shadow-lg ${row.type === 'direct' ? 'bg-blue-600 shadow-blue-100 dark:shadow-none' : row.type === 'channel' ? 'bg-emerald-500 shadow-emerald-100 dark:shadow-none' : 'bg-violet-600 shadow-violet-100 dark:shadow-none'}`}>
-            {row.name.charAt(0)}
+      header: t.memberEntity || '成员',
+      key: 'name',
+      accessor: (row) => (
+        <div className="flex items-center gap-3">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-[12px] font-black text-white ${row.type === 'direct' ? 'bg-blue-600' : row.type === 'channel' ? 'bg-emerald-600' : 'bg-violet-600'}`}>
+            {row.name.charAt(0).toUpperCase()}
           </div>
-          <div className="flex flex-col">
-            <span className="font-bold text-slate-800 dark:text-white text-base">{row.name}</span>
-            <span className="text-xs text-slate-400 font-black tracking-wide">{row.role}</span>
+          <div className="min-w-0">
+            <div className="truncate text-sm font-black text-slate-900 dark:text-white">{row.name}</div>
+            <div className="mt-1 text-xs font-bold text-slate-600 dark:text-slate-300">{row.role}</div>
           </div>
         </div>
       ),
     },
-    { header: t.region, key: 'region', accessor: (row) => row.region },
-    { header: t.commRate, key: 'rate', accessor: (row) => canViewFinancials ? `${(row.commissionRate * 100).toFixed(1)}%` : t.hiddenData },
-    { header: t.totalCommission, key: 'commission', accessor: (row) => canViewFinancials ? formatPrice(row.totalCommission) : t.hiddenData },
-    { header: t.performance, key: 'revenue', accessor: (row) => formatPrice(row.performance) },
+    { header: t.businessLine || '业务线', key: 'region', accessor: row => segmentLabel(row.type, t) },
+    { header: t.performance || '业绩', key: 'performance', accessor: row => formatPrice(row.performance) },
+    { header: t.totalCommission || '佣金', key: 'commission', accessor: row => formatPrice(row.totalCommission) },
+    { header: t.region || '区域', key: 'regionName', accessor: row => row.region },
+    {
+      header: t.status || '状态',
+      key: 'status',
+      accessor: row => (
+        <span className={`inline-flex rounded-lg px-2.5 py-1 text-xs font-black ${row.isActive ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'}`}>
+          {row.isActive ? '已启用' : '已停用'}
+        </span>
+      ),
+    },
   ];
 
+  const handleToggleActive = async (member: TeamMember) => {
+    if (member.id === currentUser.id) {
+      notify('warning', '不能停用当前正在登录的账号');
+      return;
+    }
+    setUpdatingMemberId(member.id);
+    try {
+      const updated = await teamService.setActive(member.id, !member.isActive);
+      setMembers(current => current.map(item => item.id === member.id ? { ...item, isActive: updated.isActive } : item));
+      notify('success', updated.isActive ? '员工账号已启用' : '员工账号已停用');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : '账号状态更新失败');
+    } finally {
+      setUpdatingMemberId(null);
+    }
+  };
+
   const handleCreate = async () => {
-    if (!draft.username.trim()) {
-      notify('warning', t.usernameRequired);
-      return;
-    }
-    if (!draft.password.trim()) {
-      notify('warning', t.passwordRequired);
-      return;
-    }
+    const username = draft.username.trim();
+    const password = draft.password.trim();
+    if (!username) return notify('warning', t.usernameRequired || '请输入登录账号');
+    if (!/^[a-zA-Z0-9_]{2,50}$/.test(username)) return notify('warning', '账号只能使用 2-50 位字母、数字或下划线');
+    if (password.length < 6) return notify('warning', t.passwordRequired || '请输入至少 6 位初始密码');
 
     setSubmitting(true);
     try {
       const member = await teamService.create({
-        username: draft.username.trim(),
-        password: draft.password,
+        username,
+        password,
         email: draft.email.trim() || undefined,
-        role: draft.role,
+        role: canManageRoles ? draft.role : 'sales',
         segment: draft.segment,
       });
       setMembers(prev => [member, ...prev]);
-      setDraft({
-        username: '',
-        password: '',
-        email: '',
-        role: 'sales',
-        segment: 'direct',
-      });
+      setDraft({ username: '', password: '', email: '', role: roleOptions[0]?.code || 'sales', segment: 'direct' });
       setShowCreateForm(false);
-      notify('success', t.memberCreated);
+      notify('success', '账号已创建，员工可以用该账号和初始密码登录');
     } catch (error) {
-      notify('error', error instanceof Error ? error.message : t.memberCreateFail);
+      notify('error', error instanceof Error ? error.message : (t.memberCreateFail || '账号创建失败'));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="space-y-8 pb-12">
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+    <div className="space-y-6 pb-12">
+      <DocumentInputGuide
+        testId="team-permission-input-guide"
+        eyebrow="组织权限 / 员工账号"
+        title="先创建个人登录账号，再分配角色和业务范围"
+        description="给员工使用时，不要共用 admin。管理员在这里创建员工账号，设置初始密码、角色和业务线；员工随后用自己的账号登录。敏感角色由具备授权权限的管理员分配，后续权限变化必须能审计。"
+        tone="blue"
+        steps={[
+          { title: '创建账号', description: '填写登录名、初始密码、邮箱和业务线。', badge: '账号' },
+          { title: '分配角色', description: '销售、仓库、财务、经理等角色决定菜单和 API 权限。', badge: '角色' },
+          { title: '员工登录', description: '员工使用自己的账号和初始密码登录，不再共享管理员账号。', badge: '登录' },
+          { title: '审计追踪', description: '账号创建、角色调整、停用都应进入审计日志。', badge: '审计' },
+        ]}
+        boundaries={[
+          { title: '本页负责', items: ['员工账号', '角色', '权限点', '业务线', '账号启停'] },
+          { title: '本页不负责', items: ['业务单据录入', '绕过审批', '共享管理员密码', 'AI 越权授权'] },
+        ]}
+        evidence={['账号可登录', '菜单按角色显示', '越权 API 被拒绝', '审计可查']}
+      />
+
+      <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
-          <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter leading-none">{t.team}</h1>
-          <p className="text-slate-400 font-bold text-xs tracking-wide mt-3">{t.teamSub}</p>
+          <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{t.team || '用户、角色与权限'}</h1>
+          <p className="mt-2 text-sm font-bold text-slate-600 dark:text-slate-300">用于给员工开设个人登录账号，并控制他们能看、能改、能审批的范围。</p>
         </div>
-        <div className="flex flex-wrap items-center gap-3">
-          {(currentUser.role === 'admin' || (currentUser.role === 'manager' && (!currentUser.segment || currentUser.segment === 'mixed'))) && (
-            <div className="bg-white dark:bg-slate-900 p-1.5 rounded-2xl border border-slate-200 dark:border-slate-800 flex flex-wrap gap-2 shadow-sm">
-              {(['all', 'direct', 'channel', 'mixed'] as const).map(option => (
-                <button
-                  key={option}
-                  onClick={() => setFilter(option)}
-                  className={`px-6 py-3 rounded-xl text-xs font-black tracking-wide transition-all ${
-                    filter === option
-                      ? option === 'all'
-                        ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-xl'
-                        : option === 'direct'
-                          ? 'bg-blue-600 text-white shadow-xl shadow-blue-100 dark:shadow-none'
-                          : option === 'channel'
-                            ? 'bg-emerald-600 text-white shadow-xl shadow-emerald-100 dark:shadow-none'
-                            : 'bg-violet-600 text-white shadow-xl shadow-violet-100 dark:shadow-none'
-                      : 'text-slate-400 hover:text-slate-600'
-                  }`}
-                >
-                  {option === 'all' ? t.all : option === 'direct' ? t.salesTeam : option === 'channel' ? t.channelTeam : t.managerTeam}
-                </button>
-              ))}
-            </div>
-          )}
-          {canManageTeam && (
-            <button data-testid="team-new-member" onClick={() => setShowCreateForm(current => !current)} className="flex items-center px-8 py-4 bg-blue-600 text-white rounded-[28px] font-black text-sm shadow-xl hover:bg-blue-700 transition-all active:scale-95">
-              <UserPlus size={18} className="mr-3" />
-              {t.newMember}
-            </button>
-          )}
-        </div>
+        {canManageTeam ? (
+          <button data-testid="team-new-member" onClick={() => setShowCreateForm(current => !current)} className="inline-flex items-center rounded-[14px] bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-sm hover:bg-blue-700">
+            <UserPlus size={18} className="mr-2" />
+            {showCreateForm ? (t.cancel || '取消') : '新建员工账号'}
+          </button>
+        ) : null}
       </div>
 
-      {showCreateForm && canManageTeam && (
-        <div data-testid="team-create-form" className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[36px] border border-white/50 dark:border-slate-800 shadow-[0_15px_50px_rgba(0,0,0,0.03)] space-y-5">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-black tracking-tighter text-slate-900 dark:text-white">{t.newMember}</h2>
-            </div>
-            <button onClick={() => setShowCreateForm(false)} className="rounded-[18px] border border-slate-200 px-4 py-2 text-xs font-black text-slate-500">{t.cancel}</button>
+      <div className="grid gap-4 md:grid-cols-3">
+        <StatCard icon={<UsersRound size={20} />} label="账号数" value={members.length} />
+        <StatCard icon={<ShieldCheck size={20} />} label="可用角色" value={roleOptions.length} />
+        <StatCard icon={<UsersRound size={20} />} label="团队业绩" value={formatPrice(totalPerformance)} />
+      </div>
+
+      {showCreateForm && canManageTeam ? (
+        <section data-testid="team-create-form" className="rounded-[18px] border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/90">
+          <div className="mb-4 flex items-center justify-between">
+            <h2 className="text-xl font-black text-slate-900 dark:text-white">新建员工账号</h2>
+            <span className="text-xs font-bold text-slate-600 dark:text-slate-300">创建后即可用该账号登录</span>
           </div>
           <div className="grid gap-4 md:grid-cols-2">
-            <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
-              <span>{t.username}</span>
-              <input data-testid="team-username-input" value={draft.username} onChange={(e) => setDraft(prev => ({ ...prev, username: e.target.value }))} className={inputClass} placeholder={t.phUsername} />
-            </label>
-            <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
-              <span>{t.password}</span>
-              <input data-testid="team-password-input" type="password" value={draft.password} onChange={(e) => setDraft(prev => ({ ...prev, password: e.target.value }))} className={inputClass} placeholder={t.phPassword} />
-            </label>
-            <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
-              <span>{t.email}</span>
-              <input data-testid="team-email-input" value={draft.email} onChange={(e) => setDraft(prev => ({ ...prev, email: e.target.value }))} className={inputClass} placeholder={t.phNote} />
-            </label>
-            <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">
-              <span>{t.role}</span>
-              <select data-testid="team-member-role-select" value={draft.role} onChange={(e) => setDraft(prev => ({ ...prev, role: e.target.value }))} className={inputClass} disabled={rolesLoading}>
-                {roleOptions.map(role => (
-                  <option key={role.code} value={role.code}>
-                    {role.name} ({role.code})
-                  </option>
-                ))}
+            <Field label={t.username || '登录账号'}>
+              <input data-testid="team-username-input" value={draft.username} onChange={(event) => setDraft(prev => ({ ...prev, username: event.target.value }))} className={inputClass} placeholder="例如 zhangsan" />
+            </Field>
+            <Field label={t.password || '初始密码'}>
+              <input data-testid="team-password-input" type="password" value={draft.password} onChange={(event) => setDraft(prev => ({ ...prev, password: event.target.value }))} className={inputClass} placeholder="至少 6 位" />
+            </Field>
+            <Field label={t.email || '邮箱'}>
+              <input data-testid="team-email-input" value={draft.email} onChange={(event) => setDraft(prev => ({ ...prev, email: event.target.value }))} className={inputClass} placeholder="可选" />
+            </Field>
+            <Field label={t.role || '角色'}>
+              <select data-testid="team-member-role-select" value={draft.role} onChange={(event) => setDraft(prev => ({ ...prev, role: event.target.value }))} className={inputClass} disabled={rolesLoading || !canManageRoles}>
+                {roleOptions.map(role => <option key={role.code} value={role.code}>{role.name} ({role.code})</option>)}
               </select>
-            </label>
-            <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200 md:col-span-2">
-              <span>{t.businessLine}</span>
-              <select data-testid="team-segment-select" value={draft.segment} onChange={(e) => setDraft(prev => ({ ...prev, segment: e.target.value as typeof draft.segment }))} className={inputClass}>
-                <option value="direct">{t.salesTeam}</option>
-                <option value="channel">{t.channelTeam}</option>
-                <option value="mixed">{t.managerTeam}</option>
+              {!canManageRoles ? <span className="text-xs font-bold text-slate-600 dark:text-slate-300">当前账号只能创建销售账号；经理、财务、仓库、管理员角色需要超级管理员授权。</span> : null}
+            </Field>
+            <Field label={t.businessLine || '业务线'}>
+              <select data-testid="team-segment-select" value={draft.segment} onChange={(event) => setDraft(prev => ({ ...prev, segment: event.target.value as typeof draft.segment }))} className={inputClass}>
+                <option value="direct">{t.salesTeam || '直销'}</option>
+                <option value="channel">{t.channelTeam || '渠道'}</option>
+                <option value="mixed">{t.managerTeam || '混合/管理'}</option>
               </select>
-            </label>
+            </Field>
           </div>
-          <div className="flex justify-end gap-3">
-            <button onClick={() => setShowCreateForm(false)} className="rounded-[18px] border border-slate-200 px-5 py-3 text-sm font-black text-slate-500">{t.cancel}</button>
-            <button data-testid="team-create-submit" onClick={() => void handleCreate()} disabled={submitting} className="rounded-[18px] bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-xl shadow-blue-500/25 disabled:opacity-60">
-              {submitting ? t.submitting : t.newMember}
+          <div className="mt-5 flex justify-end gap-3">
+            <button onClick={() => setShowCreateForm(false)} className="rounded-[12px] border border-slate-200 px-5 py-3 text-sm font-black text-slate-600 dark:border-slate-700 dark:text-slate-200">{t.cancel || '取消'}</button>
+            <button data-testid="team-create-submit" onClick={() => void handleCreate()} disabled={submitting} className="rounded-[12px] bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-60">
+              {submitting ? (t.submitting || '提交中...') : '创建账号'}
             </button>
           </div>
-        </div>
-      )}
+        </section>
+      ) : null}
 
-      {canManageTeam && (
-        <RoleManagementPanel roles={roles.length > 0 ? roles : fallbackRoleOptions} onRolesChanged={refreshRoles} />
-      )}
+      <section className="rounded-[18px] border border-slate-200 bg-white/90 p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/90">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap gap-2">
+            {(['all', 'direct', 'channel', 'mixed'] as const).map(option => (
+              <button key={option} onClick={() => setFilter(option)} className={`rounded-[12px] px-4 py-2 text-xs font-black ${filter === option ? 'bg-slate-900 text-white dark:bg-slate-100 dark:text-slate-900' : 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200'}`}>
+                {option === 'all' ? (t.all || '全部') : segmentLabel(option, t)}
+              </button>
+            ))}
+          </div>
+          <button onClick={() => void loadMembers()} className="rounded-[12px] border border-slate-200 px-4 py-2 text-xs font-black text-slate-600 dark:border-slate-700 dark:text-slate-200">
+            {loading ? (t.loading || '加载中...') : '刷新账号'}
+          </button>
+        </div>
+        <DataTable
+          title={t.teamTitle || '团队成员'}
+          columns={columns}
+          data={filteredMembers}
+          isLoading={loading}
+          actions={canManageTeam ? member => (
+            <button
+              type="button"
+              data-testid={`team-member-status-${member.id}`}
+              onClick={(event) => {
+                event.stopPropagation();
+                void handleToggleActive(member);
+              }}
+              disabled={updatingMemberId === member.id || member.id === currentUser.id}
+              title={member.id === currentUser.id ? '不能停用当前账号' : (member.isActive ? '停用账号' : '启用账号')}
+              className={`inline-flex min-h-9 items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-40 ${member.isActive ? 'bg-rose-50 text-rose-700 hover:bg-rose-100' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'}`}
+            >
+              {member.isActive ? <PowerOff size={14} /> : <Power size={14} />}
+              {updatingMemberId === member.id ? '处理中' : (member.isActive ? '停用' : '启用')}
+            </button>
+          ) : undefined}
+        />
+      </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[40px] border border-slate-200 dark:border-slate-800 shadow-sm relative group overflow-hidden">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 dark:bg-blue-900/10 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-150 duration-700"></div>
-          <div className="relative z-10">
-            <div className="p-4 bg-blue-600 text-white rounded-2xl shadow-xl shadow-blue-100 dark:shadow-none w-fit mb-6"><Coins size={24} /></div>
-            <p className="text-xs font-black text-slate-400 tracking-wide mb-1">{t.totalCommission}</p>
-            <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter italic">{canViewFinancials ? formatPrice(stats.totalComm) : t.hiddenData}</p>
-          </div>
-        </div>
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[40px] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="p-4 bg-amber-500 text-white rounded-2xl shadow-xl shadow-amber-100 dark:shadow-none w-fit mb-6"><Briefcase size={24} /></div>
-          <p className="text-xs font-black text-slate-400 tracking-wide mb-1">{t.performance}</p>
-          <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter italic">{formatPrice(stats.totalPerf)}</p>
-        </div>
-        <div className="bg-white dark:bg-slate-900 p-8 rounded-[40px] border border-slate-200 dark:border-slate-800 shadow-sm flex items-center justify-between lg:col-span-2">
-          <div>
-            <div className="p-4 bg-amber-100 dark:bg-amber-900/30 text-amber-600 rounded-2xl w-fit mb-4"><Clock size={24} /></div>
-            <p className="text-xs font-black text-slate-400 tracking-wide mb-1">{t.commPending}</p>
-            <p className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter italic">{pendingCommCount} <span className="text-sm font-bold opacity-30">{t.records}</span></p>
-          </div>
-          <button onClick={() => { window.location.hash = '#orders'; }} className="px-6 py-3 bg-slate-900 text-white rounded-2xl font-black text-xs tracking-wide hover:bg-black transition-all">{t.reviewAll}</button>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        <div className="lg:col-span-2">
-          <DataTable title={t.teamTitle} columns={columns} data={filteredMembers} />
-        </div>
-        <div className="bg-white dark:bg-slate-900 p-10 rounded-[40px] border border-slate-200 dark:border-slate-800 shadow-sm">
-          <div className="flex items-center justify-between mb-10">
-            <h3 className="font-black text-slate-900 dark:text-white flex items-center tracking-tight">
-              <PieChart size={20} className="mr-3 text-blue-600" />
-              {t.commissionAnalysis}
-            </h3>
-          </div>
-          <div ref={chartWrapRef} className="h-[300px] w-full mb-8 min-w-0">
-            {canViewFinancials ? (
-              chartBox.width > 0 && chartBox.height > 0 ? (
-                <ResponsiveContainer width={chartBox.width} height={chartBox.height} minWidth={0} minHeight={0}>
-                  <BarChart data={chartData} layout="vertical" margin={{ left: 20 }}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke={theme === 'dark' ? '#1e293b' : '#f1f5f9'} />
-                    <XAxis type="number" hide />
-                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} tick={{ fill: '#94a3b8', fontSize: 11, fontWeight: 700 }} width={100} />
-                    <Tooltip
-                      cursor={{ fill: 'transparent' }}
-                      contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: '#0f172a', color: '#fff' }}
-                      formatter={(value: number) => [formatPrice(value), '']}
-                    />
-                    <Bar dataKey="commission" radius={[0, 4, 4, 0]} barSize={20}>
-                      {chartData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.color} />
-                      ))}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              ) : (
-                <div className="flex items-center justify-center h-full rounded-3xl border border-dashed border-slate-200 dark:border-slate-700 text-slate-400 font-bold text-xs">
-                  {t.loading}
-                </div>
-              )
-            ) : (
-              <div className="flex items-center justify-center h-full text-slate-400 font-black text-xs tracking-wide bg-slate-50 dark:bg-slate-800 rounded-3xl">
-                {t.permissionDenied}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+      {canManageRoles ? (
+        <RoleManagementPanel roles={roles.length > 0 ? roles : builtInRoles} onRolesChanged={loadRoles} />
+      ) : null}
     </div>
   );
 };
+
+const segmentLabel = (value: string, t: Record<string, any>) => {
+  if (value === 'direct') return t.salesTeam || '直销';
+  if (value === 'channel') return t.channelTeam || '渠道';
+  if (value === 'mixed') return t.managerTeam || '混合/管理';
+  return value;
+};
+
+const Field = ({ label, children }: { label: string; children: React.ReactNode }) => (
+  <label className="grid gap-2 text-sm font-black text-slate-700 dark:text-slate-200">{label}{children}</label>
+);
+
+const StatCard = ({ icon, label, value }: { icon: React.ReactNode; label: string; value: React.ReactNode }) => (
+  <div className="rounded-[18px] border border-slate-200 bg-white/90 p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/90">
+    <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-[12px] bg-blue-600 text-white">{icon}</div>
+    <div className="text-xs font-bold text-slate-600 dark:text-slate-300">{label}</div>
+    <div className="mt-1 text-2xl font-black text-slate-900 dark:text-white">{value}</div>
+  </div>
+);
 
 export default TeamManagement;

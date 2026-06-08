@@ -76,6 +76,21 @@ const floorQuantity = (value: number, precision = 6) => {
   return Math.floor((value + Number.EPSILON) * factor) / factor;
 };
 
+const resolveEffectiveQuantityPerUnit = (item: {
+  dosageMode?: string | null;
+  percentage?: number | null;
+  quantityPerUnit?: number | null;
+}) => {
+  const dosageMode = String(item.dosageMode || '').trim();
+  const percentage = Number(item.percentage || 0);
+  if (dosageMode === 'percentage' && Number.isFinite(percentage) && percentage > 0) {
+    return percentage / 100;
+  }
+
+  const quantityPerUnit = Number(item.quantityPerUnit || 0);
+  return Number.isFinite(quantityPerUnit) && quantityPerUnit > 0 ? quantityPerUnit : 0;
+};
+
 type BomExtraRow = {
   id: number;
   bom_type: string | null;
@@ -284,7 +299,7 @@ export class ProductionQueryService {
     const suggestions = [];
 
     for (const item of workOrder.bom.items) {
-      const requiredQty = Number(item.quantityPerUnit || 0) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
+      const requiredQty = resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
       if (requiredQty <= 0) continue;
       const lookupTokens = normalizeMaterialLookupTokens((item as any).materialCode, item.materialName);
       const lookupWhere = lookupTokens.length > 0

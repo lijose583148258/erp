@@ -220,6 +220,10 @@ export class WarehouseController {
       const data = await StockMovementService.listRecentEntries(limit, {
         sourceType: req.query.sourceType ? String(req.query.sourceType) : undefined,
         sourceRef: req.query.sourceRef ? String(req.query.sourceRef) : undefined,
+        productName: req.query.productName ? String(req.query.productName) : undefined,
+        batchNo: req.query.batchNo ? String(req.query.batchNo) : undefined,
+        locationId: req.query.locationId ? Number(req.query.locationId) : undefined,
+        warehouseId: req.query.warehouseId ? Number(req.query.warehouseId) : undefined,
       });
       res.json({ success: true, data } as ApiResponse);
     } catch (error) {
@@ -236,7 +240,7 @@ export class WarehouseController {
       }
 
       const prisma = (await import('../config/database')).default;
-      const { locationId, productName, batchNo, quantity, unit = 'kg', note, unitCost, costAmountDelta } = req.body;
+      const { locationId, productName, batchNo, quantity, unit = 'kg', sourceRef, reason, note, unitCost, costAmountDelta } = req.body;
 
       if (!locationId || !productName || !batchNo) {
         return res.status(400).json({ success: false, message: '库位、产品名称、批次号不能为空' } as ApiResponse);
@@ -247,6 +251,16 @@ export class WarehouseController {
         return res.status(400).json({ success: false, message: '入库数量必须大于 0' } as ApiResponse);
       }
 
+      const normalizedSourceRef = String(sourceRef ?? '').trim();
+      const normalizedReason = String(reason ?? '').trim();
+      const normalizedNote = String(note ?? '').trim();
+      if (!normalizedSourceRef || !normalizedReason) {
+        return res.status(400).json({
+          success: false,
+          message: '应急补录 / 盘盈入库必须提供来源单号和明确原因',
+        } as ApiResponse);
+      }
+
       const location = await prisma.location.findUnique({ where: { id: Number(locationId) } });
       if (!location) {
         return res.status(404).json({ success: false, message: '库位不存在' } as ApiResponse);
@@ -254,8 +268,9 @@ export class WarehouseController {
 
       const result = await StockMovementService.postStockEntry({
         sourceType: 'warehouse_manual_inbound',
-        reason: 'manual_inbound',
-        note: note ? String(note) : null,
+        sourceRef: normalizedSourceRef,
+        reason: normalizedReason,
+        note: normalizedNote || null,
         createdBy: req.user?.userId || null,
         lines: [{
           locationId: Number(locationId),
@@ -338,6 +353,114 @@ export class WarehouseController {
     } catch (error) {
       logger.error('调整库存失败', error);
       res.status(500).json({ success: false, message: '调整库存失败' } as ApiResponse);
+    }
+  }
+
+  /** 库位调拨：同一批次从一个库位扣减并入到另一个库位 */
+  async transferStockBalance(req: AuthRequest, res: Response) {
+    try {
+      if (!canUseOperationalDataScope(req, WAREHOUSE_DATA_SCOPE)) {
+        return rejectWarehouseScope(res);
+      }
+
+      const prisma = (await import('../config/database')).default;
+      const stockBalanceId = Number(req.params.id);
+      const toLocationId = Number(req.body.toLocationId);
+      const quantity = Number(req.body.quantity);
+      const requestId = String(req.body.requestId || req.body.transferRef || '').trim();
+
+      if (!Number.isInteger(stockBalanceId) || stockBalanceId <= 0) {
+        return res.status(400).json({ success: false, message: '库存记录参数不正确' } as ApiResponse);
+      }
+      if (!Number.isInteger(toLocationId) || toLocationId <= 0) {
+        return res.status(400).json({ success: false, message: '目标库位不能为空' } as ApiResponse);
+      }
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        return res.status(400).json({ success: false, message: '调拨数量必须大于 0' } as ApiResponse);
+      }
+      if (!requestId) {
+        return res.status(400).json({ success: false, message: '调拨必须提供 requestId，避免网络重试造成重复过账' } as ApiResponse);
+      }
+
+      const stock = await prisma.stockBalance.findUnique({
+        where: { id: stockBalanceId },
+        include: { location: { include: { warehouse: true } } },
+      });
+      if (!stock) {
+        return res.status(404).json({ success: false, message: '库存记录不存在' } as ApiResponse);
+      }
+      if (stock.locationId === toLocationId) {
+        return res.status(400).json({ success: false, message: '目标库位不能与来源库位相同' } as ApiResponse);
+      }
+
+      const destination = await prisma.location.findUnique({
+        where: { id: toLocationId },
+        include: { warehouse: true },
+      });
+      if (!destination) {
+        return res.status(404).json({ success: false, message: '目标库位不存在' } as ApiResponse);
+      }
+      if (Number(stock.quantity || 0) + 0.000001 < quantity) {
+        return res.status(409).json({ success: false, message: '调拨数量超过可用库存' } as ApiResponse);
+      }
+
+      const safeRequestId = requestId.replace(/[^a-zA-Z0-9._:-]/g, '-').slice(0, 80);
+      const sourceRef = `warehouse_transfer:${safeRequestId}`;
+      const result = await StockMovementService.postStockEntry({
+        sourceType: 'warehouse_transfer',
+        sourceRef,
+        reason: 'warehouse_transfer',
+        note: req.body.note ? String(req.body.note) : null,
+        createdBy: req.user?.userId || null,
+        lines: [
+          {
+            locationId: stock.locationId,
+            productName: stock.productName,
+            batchNo: stock.batchNo,
+            quantityDelta: -quantity,
+            unit: stock.unit,
+          },
+          {
+            locationId: toLocationId,
+            productName: stock.productName,
+            batchNo: stock.batchNo,
+            quantityDelta: quantity,
+            unit: stock.unit,
+          },
+        ],
+      });
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          sourceRef,
+          fromLocationId: stock.locationId,
+          toLocationId,
+          productName: stock.productName,
+          batchNo: stock.batchNo,
+          quantity,
+          unit: stock.unit,
+          stockEntry: result.entry,
+          movements: result.movements,
+          balances: result.balances,
+          fromLocation: {
+            code: stock.location.code,
+            name: stock.location.name,
+            warehouseCode: stock.location.warehouse.code,
+            warehouseName: stock.location.warehouse.name,
+          },
+          toLocation: {
+            code: destination.code,
+            name: destination.name,
+            warehouseCode: destination.warehouse.code,
+            warehouseName: destination.warehouse.name,
+          },
+        },
+        message: '库存调拨已通过凭证入账',
+      } as ApiResponse);
+    } catch (error) {
+      logger.error('库存调拨失败', error);
+      res.status(500).json({ success: false, message: '库存调拨失败' } as ApiResponse);
     }
   }
 }

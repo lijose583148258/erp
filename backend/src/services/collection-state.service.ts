@@ -1,5 +1,6 @@
 import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
+import type { Prisma } from '@prisma/client';
 import {
     determineReceivablePaymentStatus,
     getDunningLevel,
@@ -11,6 +12,7 @@ import { withDbRetry } from '../utils/dbRetry';
 
 // 浮点精度修复：将金额转换为整数分进行比较，消除 0.1+0.2 !== 0.3 的问题
 const toCents = (n: number) => Math.round(n * 100);
+type CollectionDb = typeof prisma | Prisma.TransactionClient;
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING = 'PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING';
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE = 'Verified payments would exceed order outstanding balance.';
 export const getPaymentVerificationConflictMessage = (error: unknown) => (
@@ -20,8 +22,21 @@ export const getPaymentVerificationConflictMessage = (error: unknown) => (
 );
 
 export class CollectionStateService {
+    private static syncAllCustomerOverdueAmountsInFlight: Promise<number> | null = null;
+
     static async syncCustomerOverdueAmount(customerId: number): Promise<number> {
-        const orders = await prisma.order.findMany({
+        return withDbRetry(
+            () => prisma.$transaction(tx => this.syncCustomerOverdueAmountTx(tx, customerId)),
+            { label: 'syncCustomerOverdueAmount' },
+        );
+    }
+
+    static async syncCustomerOverdueAmountTx(tx: Prisma.TransactionClient, customerId: number): Promise<number> {
+        return this.syncCustomerOverdueAmountWithClient(tx, customerId);
+    }
+
+    private static async syncCustomerOverdueAmountWithClient(db: CollectionDb, customerId: number): Promise<number> {
+        const orders = await db.order.findMany({
             where: {
                 customerId,
                 status: { not: 'cancelled' },
@@ -56,17 +71,30 @@ export class CollectionStateService {
             );
         }, 0);
 
-        await prisma.customer.update({
+        await db.customer.update({
             where: { id: customerId },
             data: { overdueAmount },
         });
 
-        await this.refreshCustomerCollectionState(customerId);
+        await this.refreshCustomerCollectionStateWithClient(db, customerId);
 
         return overdueAmount;
     }
 
     static async syncAllCustomerOverdueAmounts(): Promise<number> {
+        if (this.syncAllCustomerOverdueAmountsInFlight) {
+            return this.syncAllCustomerOverdueAmountsInFlight;
+        }
+
+        this.syncAllCustomerOverdueAmountsInFlight = this.runSyncAllCustomerOverdueAmounts()
+            .finally(() => {
+                this.syncAllCustomerOverdueAmountsInFlight = null;
+            });
+
+        return this.syncAllCustomerOverdueAmountsInFlight;
+    }
+
+    private static async runSyncAllCustomerOverdueAmounts(): Promise<number> {
         const [customers, orders, openPromises, openDisputes] = await Promise.all([
             prisma.customer.findMany({
                 select: {
@@ -200,22 +228,37 @@ export class CollectionStateService {
                 }
             }
 
-            return prisma.customer.update({
-                where: { id: customer.id },
-                data,
-            });
+            return { customerId: customer.id, data };
         });
 
         const chunkSize = 80;
         for (let index = 0; index < updates.length; index += chunkSize) {
-            await prisma.$transaction(updates.slice(index, index + chunkSize));
+            const chunk = updates.slice(index, index + chunkSize);
+            await withDbRetry(
+                () => prisma.$transaction(chunk.map(update => prisma.customer.update({
+                    where: { id: update.customerId },
+                    data: update.data,
+                }))),
+                {
+                    label: 'syncAllCustomerOverdueAmounts',
+                    attempts: 5,
+                    baseDelayMs: 120,
+                },
+            );
         }
 
         return customers.length;
     }
 
     static async recalculateOrderPaymentState(orderId: number) {
-        const payments = await prisma.paymentRecord.findMany({
+        return withDbRetry(
+            () => prisma.$transaction(tx => this.recalculateOrderPaymentStateTx(tx, orderId)),
+            { label: 'recalculateOrderPaymentState' },
+        );
+    }
+
+    static async recalculateOrderPaymentStateTx(tx: Prisma.TransactionClient, orderId: number) {
+        const payments = await tx.paymentRecord.findMany({
             where: {
                 orderId,
                 status: 'verified',
@@ -225,7 +268,7 @@ export class CollectionStateService {
             },
         });
 
-        const order = await prisma.order.findUnique({
+        const order = await tx.order.findUnique({
             where: { id: orderId },
             select: {
                 id: true,
@@ -246,7 +289,7 @@ export class CollectionStateService {
             Number(order.receivableAdjustmentAmount),
         );
 
-        await prisma.order.update({
+        await tx.order.update({
             where: { id: orderId },
             data: {
                 paidAmount,
@@ -254,8 +297,7 @@ export class CollectionStateService {
             },
         });
 
-        await this.syncCustomerOverdueAmount(order.customerId);
-        await this.refreshCustomerCollectionState(order.customerId);
+        await this.syncCustomerOverdueAmountTx(tx, order.customerId);
 
         return {
             paidAmount,
@@ -380,18 +422,9 @@ export class CollectionStateService {
                     }
                 }
             }
+            await this.syncCustomerOverdueAmountTx(tx, order.customerId);
             return true;
         }), { label: 'verifyPaymentRecord' });
-
-        const order = await prisma.order.findUnique({
-            where: { id: payment.orderId },
-            select: { customerId: true },
-        });
-
-        if (order) {
-            await this.syncCustomerOverdueAmount(order.customerId);
-            await this.refreshCustomerCollectionState(order.customerId);
-        }
 
         return {
             paymentId: payment.id,
@@ -401,8 +434,19 @@ export class CollectionStateService {
     }
 
     static async refreshCustomerCollectionState(customerId: number) {
+        return withDbRetry(
+            () => prisma.$transaction(tx => this.refreshCustomerCollectionStateTx(tx, customerId)),
+            { label: 'refreshCustomerCollectionState' },
+        );
+    }
+
+    static async refreshCustomerCollectionStateTx(tx: Prisma.TransactionClient, customerId: number) {
+        return this.refreshCustomerCollectionStateWithClient(tx, customerId);
+    }
+
+    private static async refreshCustomerCollectionStateWithClient(db: CollectionDb, customerId: number) {
         const [customer, overdueOrders, openPromises, openDisputes] = await Promise.all([
-            prisma.customer.findUnique({
+            db.customer.findUnique({
                 where: { id: customerId },
                 select: {
                     id: true,
@@ -414,7 +458,7 @@ export class CollectionStateService {
                     shipmentHoldSource: true,
                 },
             }),
-            prisma.order.findMany({
+            db.order.findMany({
                 where: {
                     customerId,
                     status: { not: 'cancelled' },
@@ -428,7 +472,7 @@ export class CollectionStateService {
                     receivableAdjustmentAmount: true,
                 },
             }),
-            prisma.collectionPromise.findMany({
+            db.collectionPromise.findMany({
                 where: {
                     customerId,
                     status: 'open',
@@ -438,7 +482,7 @@ export class CollectionStateService {
                     promisedAt: true,
                 },
             }),
-            prisma.collectionDispute.findMany({
+            db.collectionDispute.findMany({
                 where: {
                     customerId,
                     status: { in: ['open', 'reviewing'] },
@@ -529,7 +573,7 @@ export class CollectionStateService {
             }
         }
 
-        await prisma.customer.update({
+        await db.customer.update({
             where: { id: customerId },
             data: updates,
         });

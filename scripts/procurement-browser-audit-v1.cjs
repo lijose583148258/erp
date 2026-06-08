@@ -1,6 +1,11 @@
 ﻿const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const {
+  ensureDir,
+  safeScreenshot: captureScreenshot,
+  withTimebox: runWithTimebox,
+} = require('./lib/audit-utils.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -24,14 +29,7 @@ const DATA = {
 const REQUIRED_ROUTE_COPY = ['\u91c7\u8d2d', '\u4f9b\u5e94\u5546', '\u91c7\u8d2d\u8ba2\u5355'];
 const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
 
-const TIMEOUTS = {
-  login: 15000,
-  route: 20000,
-  fill: 20000,
-  save: 25000,
-  api: 15000,
-  readBack: 15000,
-};
+const TIMEOUTS = { login: 15000, route: 20000, fill: 20000, save: 25000, api: 15000, readBack: 15000 };
 
 const report = {
   appUrl: APP_URL,
@@ -44,45 +42,16 @@ const report = {
 
 let authToken = '';
 
-function ensureDir(target) {
-  fs.mkdirSync(target, { recursive: true });
-}
-
 function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
 }
 
 async function safeScreenshot(page, name) {
-  const filePath = path.join(SHOT_DIR, `${name}.png`);
-  await page.screenshot({ path: filePath, fullPage: true });
-  return filePath;
+  return captureScreenshot(page, SHOT_DIR, name);
 }
 
 async function withTimebox(page, step, timeout, task) {
-  const started = Date.now();
-  try {
-    const result = await Promise.race([
-      task(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`${step} exceeded ${timeout}ms`)), timeout)),
-    ]);
-    recordStep({ step, timeout, result: 'passed', durationMs: Date.now() - started });
-    return result;
-  } catch (error) {
-    const entry = {
-      step,
-      timeout,
-      result: 'failed',
-      durationMs: Date.now() - started,
-      error: String(error.message || error),
-    };
-    if (page) {
-      try {
-        entry.screenshot = await safeScreenshot(page, `fail-${step.replace(/[^a-z0-9-]/gi, '_')}`);
-      } catch {}
-    }
-    recordStep(entry);
-    throw error;
-  }
+  return runWithTimebox(page, recordStep, step, timeout, task, SHOT_DIR);
 }
 
 async function seedLoginState(page) {
@@ -260,16 +229,42 @@ async function openProcurement(page) {
 
 async function createSupplier(page) {
   return withTimebox(page, 'create-procurement-supplier', TIMEOUTS.save, async () => {
-    await page.getByTestId('procurement-tab-suppliers').click();
+    await page.getByTestId('procurement-desk-suppliers').click();
+    await page.getByTestId('save-supplier-button').click();
+    const supplierErrorSummary = page.getByTestId('supplier-form-error-summary');
+    await supplierErrorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const supplierValidationText = await supplierErrorSummary.innerText();
+    assertNoMojibake(supplierValidationText, 'supplier validation');
+    if (!supplierValidationText.includes('供应商名称不能为空')) {
+      throw new Error(`supplier validation did not explain missing name: ${supplierValidationText}`);
+    }
+    recordStep({
+      step: 'supplier-form-validation-blocked',
+      result: 'passed',
+      evidence: supplierValidationText,
+    });
+
     await page.getByTestId('supplier-name-input').fill(DATA.supplierName);
     await page.getByTestId('supplier-category-input').fill(DATA.supplierCategory);
     await page.getByTestId('supplier-contact-input').fill(DATA.supplierContact);
     await page.getByTestId('supplier-phone-input').fill(DATA.supplierPhone);
     await page.getByTestId('supplier-email-input').fill(DATA.supplierEmail);
+    const supplierAdvancedToggle = page.getByTestId('supplier-toggle-advanced');
+    if (await supplierAdvancedToggle.count()) {
+      const toggleText = await supplierAdvancedToggle.innerText();
+      if (/展开/.test(toggleText)) {
+        await supplierAdvancedToggle.click();
+      }
+    }
     await page.getByTestId('supplier-address-label-input').fill('Legal');
     await page.getByTestId('supplier-country-code-input').fill('VN');
     await page.getByTestId('supplier-city-input').fill('Ho Chi Minh');
     await page.getByTestId('supplier-full-address-input').fill('District 7, Ho Chi Minh City');
+    recordStep({
+      step: 'supplier-form-filled-evidence',
+      result: 'passed',
+      evidence: await safeScreenshot(page, 'supplier-form-filled'),
+    });
     await page.getByTestId('save-supplier-button').click();
 
     let supplier = null;
@@ -287,6 +282,13 @@ async function createSupplier(page) {
 
     await page.getByTestId('procurement-supplier-search').fill(DATA.supplierName);
     await page.locator(`[data-testid="supplier-card-${supplier.id}"]`).waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    recordStep({
+      step: 'supplier-list-readback-evidence',
+      result: 'passed',
+      evidence: await safeScreenshot(page, 'supplier-list-readback'),
+      supplierId: String(supplier.id),
+      supplierName: supplier.name,
+    });
   });
 }
 
@@ -295,12 +297,40 @@ async function selectOptionByValue(locator, value) {
   await locator.selectOption(String(value));
 }
 
+async function replaceInputValue(locator, value) {
+  await locator.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+  await locator.click();
+  await locator.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
+  await locator.type(String(value));
+}
+
 async function createPurchaseOrder(page) {
   return withTimebox(page, 'create-procurement-order', TIMEOUTS.save, async () => {
     if (!report.supplier?.id) throw new Error('supplier id missing before purchase creation');
     if (!report.salesOrder?.id) throw new Error('sales order id missing before purchase creation');
 
-    await page.getByTestId('procurement-tab-orders').click();
+    await page.getByTestId('procurement-desk-orders').click();
+    await page.getByTestId('save-purchase-button').click();
+    const purchaseErrorSummary = page.getByTestId('purchase-form-error-summary');
+    await purchaseErrorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const purchaseValidationText = await purchaseErrorSummary.innerText();
+    assertNoMojibake(purchaseValidationText, 'purchase order validation');
+    if (!purchaseValidationText.includes('请选择供应商')) {
+      throw new Error(`purchase validation did not explain missing supplier: ${purchaseValidationText}`);
+    }
+    recordStep({
+      step: 'purchase-form-validation-blocked',
+      result: 'passed',
+      evidence: purchaseValidationText,
+    });
+
+    const orderAdvancedToggle = page.getByTestId('purchase-toggle-advanced');
+    if (await orderAdvancedToggle.count()) {
+      const toggleText = await orderAdvancedToggle.innerText();
+      if (/展开/.test(toggleText)) {
+        await orderAdvancedToggle.click();
+      }
+    }
     await page.getByTestId('b2b-toggle').click();
     await selectOptionByValue(page.getByTestId('linked-sales-order-select'), report.salesOrder.id);
     await selectOptionByValue(page.getByTestId('purchase-supplier-select'), report.supplier.id);
@@ -380,10 +410,28 @@ async function receivePurchaseOrder(page) {
 
     await page.locator(`[data-testid="purchase-order-receipts-${orderId}"]`).click();
     await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
-    await page.getByTestId('purchase-receipt-quantity-input').fill(DATA.purchaseQuantity);
-    await page.getByTestId('purchase-receipt-accepted-input').fill(DATA.purchaseQuantity);
-    await page.getByTestId('purchase-receipt-rejected-input').fill('0');
-    await page.getByTestId('purchase-receipt-batch-input').fill(`PO-BATCH-${RUN_ID}`);
+
+    await replaceInputValue(page.getByTestId('purchase-receipt-quantity-input'), String(Number(DATA.purchaseQuantity) + 1));
+    await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
+    await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
+    await page.getByTestId('purchase-receipt-save-button').click();
+    const receiptErrorSummary = page.getByTestId('purchase-receipt-error-summary');
+    await receiptErrorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const receiptValidationText = await receiptErrorSummary.innerText();
+    assertNoMojibake(receiptValidationText, 'purchase receipt validation');
+    if (!receiptValidationText.includes('不能超过剩余') && !receiptValidationText.includes('必须等于')) {
+      throw new Error(`receipt validation did not explain invalid quantity: ${receiptValidationText}`);
+    }
+    recordStep({
+      step: 'purchase-receipt-validation-blocked',
+      result: 'passed',
+      evidence: receiptValidationText,
+    });
+
+    await replaceInputValue(page.getByTestId('purchase-receipt-quantity-input'), DATA.purchaseQuantity);
+    await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
+    await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
+    await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `PO-BATCH-${RUN_ID}`);
     await page.getByTestId('purchase-receipt-save-button').click();
 
     let bundle = null;

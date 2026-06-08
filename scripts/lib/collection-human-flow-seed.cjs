@@ -51,6 +51,9 @@ async function seedBusinessChain(runtime, {
 }) {
   return runtime.withTimeout('seed-collection-business-chain', stepTimeoutMs * 3, async () => {
     const alternateCreator = await ensureAlternateCreator(runtime, { token, prisma, runId });
+    // Keep the seeded audit order inside the workbench's first high-risk slice even
+    // when the long-running local DB already contains many historical overdue rows.
+    const auditCreatedAt = new Date(Date.now() - 730 * 24 * 3600 * 1000);
     const customerResponse = await runtime.apiFetch('/customers', {
       method: 'POST',
       data: {
@@ -95,7 +98,7 @@ async function seedBusinessChain(runtime, {
       where: { id: Number(order.id) },
       data: {
         createdBy: alternateCreator.id,
-        createdAt: new Date(Date.now() - 65 * 24 * 3600 * 1000),
+        createdAt: auditCreatedAt,
         updatedAt: new Date(),
       },
     });

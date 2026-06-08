@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 
-const APP_URL = 'http://127.0.0.1:5001/';
+const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'collections-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'collections-audit-report-v1.json');

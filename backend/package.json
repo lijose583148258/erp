@@ -1,7 +1,7 @@
 {
   "name": "pro-sales-backend",
   "version": "1.0.0",
-  "description": "Pro客户销售系统 - 后端API服务",
+  "description": "爱劳达 ERP+CRM - 后端 API 服务",
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",

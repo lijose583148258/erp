@@ -1,8 +1,30 @@
 import { Request, Response } from 'express';
-import { BackupService } from '../services/backup.service';
+import { BackupService, getBackupOperationConflictMessage } from '../services/backup.service';
 import { logger } from '../utils/logger';
 import prisma from '../config/database';
 import { runtime } from '../config/runtime';
+
+async function writeSystemAuditLog(req: Request, input: {
+    action: string;
+    details: string;
+}) {
+    const userId = (req as any).user?.userId;
+    if (!userId) return;
+    try {
+        await prisma.auditLog.create({
+            data: {
+                userId,
+                action: input.action,
+                resource: 'database',
+                details: input.details,
+                ipAddress: req.ip,
+                userAgent: req.get('user-agent'),
+            }
+        });
+    } catch (error) {
+        logger.warn('系统备份/恢复审计日志写入失败，业务操作已保留', error);
+    }
+}
 
 export class SystemController {
     /**
@@ -36,15 +58,9 @@ export class SystemController {
         try {
             const fileName = await BackupService.performBackup();
 
-            await prisma.auditLog.create({
-                data: {
-                    userId: (req as any).user.userId,
-                    action: 'SYSTEM_BACKUP',
-                    resource: 'database',
-                    details: `Manual backup executed: ${fileName}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                }
+            await writeSystemAuditLog(req, {
+                action: 'SYSTEM_BACKUP',
+                details: `Manual backup executed: ${fileName}`,
             });
 
             res.status(201).json({
@@ -54,7 +70,11 @@ export class SystemController {
             });
         } catch (error) {
             logger.error('Create backup controller error', error);
-            res.status(500).json({ success: false, message: 'Backup failed, please check server logs' });
+            const conflictMessage = getBackupOperationConflictMessage(error);
+            res.status(conflictMessage ? 409 : 500).json({
+                success: false,
+                message: conflictMessage || 'Backup failed, please check server logs',
+            });
         }
     }
 
@@ -91,15 +111,9 @@ export class SystemController {
 
             const restoreResult = await BackupService.restoreBackup(fileName);
 
-            await prisma.auditLog.create({
-                data: {
-                    userId: (req as any).user.userId,
-                    action: 'SYSTEM_RESTORE',
-                    resource: 'database',
-                    details: `Database restored from backup: ${restoreResult.fileName}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                }
+            await writeSystemAuditLog(req, {
+                action: 'SYSTEM_RESTORE',
+                details: `Database restored from backup: ${restoreResult.fileName}`,
             });
 
             res.json({
@@ -109,8 +123,9 @@ export class SystemController {
             });
         } catch (error) {
             logger.error('Restore backup controller error', error);
-            const message = error instanceof Error ? error.message : 'Restore failed';
-            res.status(500).json({ success: false, message });
+            const conflictMessage = getBackupOperationConflictMessage(error);
+            const message = conflictMessage || (error instanceof Error ? error.message : 'Restore failed');
+            res.status(conflictMessage ? 409 : 500).json({ success: false, message });
         }
     }
 }

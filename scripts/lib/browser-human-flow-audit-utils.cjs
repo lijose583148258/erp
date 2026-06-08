@@ -22,7 +22,7 @@ function createBrowserHumanFlowData(runId) {
       city: '胡志明市',
       countryCode: 'VN',
       fullAddress: `No. ${suffix}, Industrial Zone, Ho Chi Minh City`,
-      contactName: `阮${suffix}`,
+      contactName: `Nguyen ${suffix}`,
       contactRole: 'Purchasing Manager',
       contactPhone: `09${suffix}`,
       contactEmail: `crm${suffix}@ailao.test`,
@@ -34,7 +34,7 @@ function createBrowserHumanFlowData(runId) {
     },
     order: {
       productName: `HF-ORDER-${runId}`,
-      packaging: `25kg/桶-${suffix}`,
+      packaging: `25kg/桶 ${suffix}`,
       quantity: 12,
       unit: 'kg',
       unitPrice: 188.8,
@@ -73,6 +73,8 @@ function createBrowserHumanFlowData(runId) {
       batchNo: `BATCH-${runId}`,
       inboundQuantity: 30,
       inboundUnit: 'kg',
+      inboundSourceRef: `HF-INBOUND-${runId}`,
+      inboundReason: 'inventory_surplus',
     },
     adjustment: {
       targetRef: `HF-ADJ-${runId}`,
@@ -161,8 +163,30 @@ function createBrowserHumanFlowAuditContext({
     return page.locator('body').innerText().catch(() => '');
   }
 
+  const mojibakeTokens = [
+    '\u93b6',
+    '\u5a34',
+    '\u934f',
+    '\u9416',
+    '\u7481',
+    '\u7eef',
+    '\u7039',
+    '\u9358',
+    '\u93c2',
+    '\u95b2',
+    '\u6d60\u6493',
+    '\u6434\u6493',
+    '\u6748',
+    '\u7b5b',
+    '\u6fb6\u8f81\u89e6',
+    '\u4e36\u74c5',
+    '\u5cb7',
+  ];
+
   function hasCorruption(text) {
-    return /undefined\s+undefined/i.test(text) || /\ufffd+/u.test(text);
+    return /undefined\s+undefined/i.test(text)
+      || /\ufffd+/u.test(text)
+      || mojibakeTokens.some((token) => text.includes(token));
   }
 
   async function assertRouteText(page, moduleName, expectedTexts) {
@@ -180,15 +204,21 @@ function createBrowserHumanFlowAuditContext({
   async function waitForRouteReady(page, moduleName, expectedTexts) {
     const started = Date.now();
     let lastText = '';
+    let lastState = 'not checked';
     while (Date.now() - started < timeouts.route) {
-      lastText = await assertRouteText(page, moduleName, expectedTexts);
-      const isStillLoading = /LOADING\.\.\.|加载中|載入中|Đang tải/i.test(lastText);
-      if (!isStillLoading) {
+      lastText = await getBodyText(page);
+      if (hasCorruption(lastText)) {
+        throw new Error(`${moduleName} visible text has corruption signal`);
+      }
+      const matched = expectedTexts.find((item) => lastText.includes(item));
+      const isStillLoading = /LOADING\.\.\.|加载中|正在加载|Đang tải/i.test(lastText);
+      if (matched && !isStillLoading) {
         return lastText;
       }
+      lastState = matched ? 'matched expected text but content stayed loading' : `missing expected text: ${expectedTexts.join(' | ')}`;
       await page.waitForTimeout(300);
     }
-    throw new Error(`${moduleName} route matched navigation text but content stayed loading`);
+    throw new Error(`${moduleName} ${lastState}; last text: ${lastText.slice(0, 500)}`);
   }
 
   async function openHash(page, hash, moduleName, expectedTexts) {

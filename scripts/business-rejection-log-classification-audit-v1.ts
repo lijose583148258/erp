@@ -41,6 +41,21 @@ const cases: Case[] = [
     expected: true,
   },
   {
+    label: 'finance-adjustment-below-zero',
+    args: ['Failed to create adjustment', new Error('FINANCE_ADJUSTMENT_BELOW_ZERO_PAID_AMOUNT')],
+    expected: true,
+  },
+  {
+    label: 'collection-promise-illegal-transition',
+    args: ['Failed to update promise status', new Error('Promise status cannot transition from kept to cancelled')],
+    expected: true,
+  },
+  {
+    label: 'collection-dispute-illegal-transition',
+    args: ['Failed to update dispute status', new Error('Dispute status cannot transition from rejected to resolved')],
+    expected: true,
+  },
+  {
     label: 'prisma-system-error',
     args: ['获取客户列表错误:', Object.assign(new Error('Query parameter limit exceeded'), { name: 'PrismaClientKnownRequestError' })],
     expected: false,

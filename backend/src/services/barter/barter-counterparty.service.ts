@@ -25,7 +25,7 @@ export async function validateCounterpartyAndOrderLinks(input: {
     });
 
     if (!customer) {
-      throw new Error('Customer not found for barter settlement');
+      throw new Error('未找到货抵客户，请刷新后重新选择。');
     }
   }
 
@@ -36,7 +36,7 @@ export async function validateCounterpartyAndOrderLinks(input: {
     });
 
     if (!supplier) {
-      throw new Error('Supplier not found for barter settlement');
+      throw new Error('未找到货抵供应商，请刷新后重新选择。');
     }
   }
 
@@ -51,7 +51,7 @@ export async function validateCounterpartyAndOrderLinks(input: {
     });
 
     if (!linkedOrder) {
-      throw new Error('Linked order not found');
+      throw new Error('关联订单不存在，请刷新后重新选择。');
     }
 
     if (linkedOrder.status === 'cancelled') {
@@ -59,7 +59,7 @@ export async function validateCounterpartyAndOrderLinks(input: {
     }
 
     if (customerId && linkedOrder.customerId !== customerId) {
-      throw new Error('Linked order does not belong to the selected customer');
+      throw new Error('关联订单不属于所选客户。');
     }
   }
 

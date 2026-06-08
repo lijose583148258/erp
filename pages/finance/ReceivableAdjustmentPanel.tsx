@@ -2,7 +2,8 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { CheckCircle2, RefreshCcw, RotateCcw, Scale, Send } from 'lucide-react';
 import { useAppContext } from '../../app/AppContext';
 import { can } from '../../app/permissions';
-import { EnterpriseColumn, EnterpriseDataGrid, FormField, StatusBadge } from '../../components/ui';
+import { EnterpriseColumn, EnterpriseDataGrid, FormField, ReasonDialog, StatusBadge } from '../../components/ui';
+import { WorkspaceTaskNavigator } from '../../components/ui/WorkspaceTaskNavigator';
 import { orderService } from '../../services/order.service';
 import {
   receivableAdjustmentService,
@@ -15,6 +16,8 @@ import { getCustomerDisplayName } from '../../utils/customerName';
 type Props = {
   onChanged?: () => void | Promise<void>;
 };
+
+type AdjustmentDeskTab = 'voucher' | 'ledger' | 'principle';
 
 type FormState = {
   orderLookup: string;
@@ -98,6 +101,8 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
   const canCreate = can(currentUser, 'adjustments.write');
   const canPost = can(currentUser, 'adjustments.apply');
   const canReverse = can(currentUser, 'adjustments.reverse');
+  const [activeAdjustmentDesk, setActiveAdjustmentDesk] = useState<AdjustmentDeskTab>('voucher');
+  const [reverseRecord, setReverseRecord] = useState<ReceivableAdjustmentRecord | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -176,6 +181,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
       setForm(emptyForm);
       await loadData();
       await onChanged?.();
+      setActiveAdjustmentDesk('ledger');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '应收调整单创建失败');
     } finally {
@@ -200,11 +206,16 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
 
   const handleReverse = async (record: ReceivableAdjustmentRecord) => {
     if (!canReverse) return notify('warning', '当前角色没有冲回权限');
-    const note = window.prompt('请输入冲回原因', '业务复核后冲回') || '';
+    setReverseRecord(record);
+  };
+
+  const confirmReverse = async (note: string) => {
+    if (!reverseRecord) return;
     setSubmitting(true);
     try {
-      await receivableAdjustmentService.reverse(record.id, note);
-      notify('success', `${record.adjustmentNo} 已冲回，有效应收已恢复`);
+      await receivableAdjustmentService.reverse(reverseRecord.id, note);
+      notify('success', `${reverseRecord.adjustmentNo} 已冲回，有效应收已恢复`);
+      setReverseRecord(null);
       await loadData();
       await onChanged?.();
     } catch (error) {
@@ -284,6 +295,32 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
       searchText: (record) => record.createdAt,
     },
   ], [formatPrice, language]);
+  const adjustmentDeskItems = [
+    {
+      id: 'voucher' as AdjustmentDeskTab,
+      title: '调整凭证',
+      subtitle: '选择订单、填写类型、金额和原因',
+      purpose: '只创建应收调整单，不代表客户已经付款。',
+      icon: Send,
+      count: openOrders.length,
+    },
+    {
+      id: 'ledger' as AdjustmentDeskTab,
+      title: '台账回读',
+      subtitle: '查看调整单、过账和冲回',
+      purpose: '只有过账后的调整才会影响有效应收。',
+      icon: Scale,
+      count: records.length,
+    },
+    {
+      id: 'principle' as AdjustmentDeskTab,
+      title: '规则说明',
+      subtitle: '明确调整和回款的边界',
+      purpose: '防止把折让、坏账、短款误当成真实收款。',
+      icon: CheckCircle2,
+      count: 3,
+    },
+  ];
 
   return (
     <section data-testid="receivable-adjustment-panel" className="rounded-[44px] border border-white/60 bg-white/70 p-6 shadow-[0_20px_50px_rgba(15,23,42,0.04)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/70">
@@ -309,8 +346,24 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
         </button>
       </div>
 
-      <div className="mt-6 grid gap-5 xl:grid-cols-[420px,minmax(0,1fr)]">
-        <div className="rounded-[32px] border border-slate-100 bg-slate-50/70 p-5 dark:border-slate-800 dark:bg-slate-950/30">
+      <div className="mt-6">
+        <WorkspaceTaskNavigator
+          eyebrow="应收调整职责导航"
+          title="先建调整凭证，再过账回读"
+          description="应收调整不是回款。它只处理贷项、折让、坏账、短款和汇差，必须过账后才改变有效应收，冲回会恢复订单口径。"
+          items={adjustmentDeskItems}
+          activeId={activeAdjustmentDesk}
+          onChange={(id) => {
+            if (id === 'voucher' || id === 'ledger' || id === 'principle') {
+              setActiveAdjustmentDesk(id);
+            }
+          }}
+          variant="blue"
+        />
+      </div>
+
+      <div className={`${activeAdjustmentDesk === 'principle' ? 'hidden' : 'grid'} mt-6 gap-5 ${activeAdjustmentDesk === 'voucher' ? 'xl:grid-cols-[420px,minmax(0,1fr)]' : ''}`}>
+        <div className={`${activeAdjustmentDesk === 'voucher' ? '' : 'hidden'} rounded-[32px] border border-slate-100 bg-slate-50/70 p-5 dark:border-slate-800 dark:bg-slate-950/30`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
               <p className="text-xs font-black tracking-[0.16em] text-slate-400">新建调整单</p>
@@ -411,6 +464,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
           </div>
         </div>
 
+        <div className={activeAdjustmentDesk === 'voucher' || activeAdjustmentDesk === 'ledger' ? '' : 'hidden'}>
         <EnterpriseDataGrid<ReceivableAdjustmentRecord>
           title="应收调整台账"
           description="只展示应收调整凭证，不混入库存/生产差异调整。"
@@ -451,7 +505,36 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
             </div>
           )}
         />
+        </div>
       </div>
+
+      <div className={`${activeAdjustmentDesk === 'principle' ? 'grid' : 'hidden'} mt-6 gap-4 md:grid-cols-3`}>
+        <div className="rounded-[28px] border border-blue-100 bg-blue-50/70 p-5 text-sm font-bold leading-6 text-blue-900 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-100">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-blue-600 dark:text-blue-200">不是回款</div>
+          应收调整不会产生现金流，只改变订单有效应收口径；真实到账仍必须走回款核销。
+        </div>
+        <div className="rounded-[28px] border border-amber-100 bg-amber-50/70 p-5 text-sm font-bold leading-6 text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/20 dark:text-amber-100">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-amber-600 dark:text-amber-200">必须过账</div>
+          新建调整单只是草稿凭证，过账后才会影响有效应收；未过账不能用于管理报表判断。
+        </div>
+        <div className="rounded-[28px] border border-rose-100 bg-rose-50/70 p-5 text-sm font-bold leading-6 text-rose-900 dark:border-rose-900/40 dark:bg-rose-950/20 dark:text-rose-100">
+          <div className="mb-2 text-xs font-black tracking-[0.16em] text-rose-600 dark:text-rose-200">冲回留痕</div>
+          冲回不是删除，必须保留原调整单、冲回原因和操作时间，保证后续对账可追溯。
+        </div>
+      </div>
+
+      <ReasonDialog
+        testId="receivable-adjustment-reverse-dialog"
+        open={Boolean(reverseRecord)}
+        title={reverseRecord ? `冲回应收调整单 ${reverseRecord.adjustmentNo}` : '冲回应收调整单'}
+        description="冲回会恢复订单有效应收口径，请填写业务复核原因，避免后续财务对账无法追溯。"
+        defaultReason="业务复核后冲回"
+        confirmLabel="确认冲回"
+        tone="danger"
+        loading={submitting}
+        onCancel={() => setReverseRecord(null)}
+        onConfirm={confirmReverse}
+      />
     </section>
   );
 };
