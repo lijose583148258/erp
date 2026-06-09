@@ -171,7 +171,7 @@ export function ProductionBomSection({
             先填最少必填项就能建档：产品名称、版本、配方类型、配方模式、输出单位、标准批量。密度、固含、工艺、质检等化工细节放在“高级字段”，避免一开始就把录入人员淹没。
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
-            <Field label="产品名称" value={bomProductName} onChange={setBomProductName} placeholder="例如：环氧树脂底胶" />
+            <Field dataTestId="production-bom-product-name" label="产品名称" value={bomProductName} onChange={setBomProductName} placeholder="例如：环氧树脂底胶" />
             <Field label="版本" value={bomVersion} onChange={setBomVersion} placeholder="v1" />
             <SelectField label="配方类型" value={bomType} onChange={setBomType} options={BOM_TYPE_OPTIONS} />
             <SelectField label="配方状态" value={bomStatus} onChange={setBomStatus} options={BOM_STATUS_OPTIONS} />
@@ -229,7 +229,7 @@ export function ProductionBomSection({
               <div className="text-sm font-black text-slate-900 dark:text-white">保存为一个配方版本</div>
               <div className="text-xs font-bold text-slate-400">保存前确认左侧主数据 + 右侧原料明细；保存后请在下方只读列表回读，确认原料行没有丢失。</div>
             </div>
-            <button onClick={handleCreateBom} disabled={loading} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">保存配方版本（主数据 + 明细）</button>
+            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">保存配方版本（主数据 + 明细）</button>
           </div>
         </div>
       </div>

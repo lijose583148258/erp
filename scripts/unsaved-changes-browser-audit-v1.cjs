@@ -119,6 +119,37 @@ async function verifyCrmCreate(page) {
   recordStep('crm-create-confirm-close');
 }
 
+async function openModule(page, moduleId, readyTestId) {
+  await page.goto(`${APP_URL}#${moduleId}`, { waitUntil: 'domcontentloaded' });
+  await page.evaluate((nextModuleId) => localStorage.setItem('ailao.activeTab', nextModuleId), moduleId);
+  await page.reload({ waitUntil: 'domcontentloaded' });
+  await page.locator(`[data-testid="${readyTestId}"]`).waitFor({ state: 'visible', timeout: 20000 });
+}
+
+async function verifyProductionBom(page) {
+  await openModule(page, 'production', 'production-desk-bom');
+  await page.locator('[data-testid="production-bom-save"]').waitFor({ state: 'visible', timeout: 20000 });
+  await page.waitForFunction(() => !document.querySelector('[data-testid="production-bom-save"]')?.hasAttribute('disabled'), null, { timeout: 20000 });
+  await page.locator('[data-testid="production-bom-product-name"]').fill('UNSAVED-BOM-AUDIT');
+
+  const dismissDialog = answerNextDialog(page, false);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  const dismissMessage = await dismissDialog;
+  expect(dismissMessage.includes('未保存'), 'production BOM navigation warning is unclear');
+  expect(await page.locator('[data-testid="production-bom-product-name"]').inputValue() === 'UNSAVED-BOM-AUDIT', 'production BOM draft disappeared after navigation was dismissed');
+  recordStep('production-bom-navigation-warning');
+
+  const acceptDialog = answerNextDialog(page, true);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  await acceptDialog;
+  await page.waitForFunction(() => window.location.hash === '#dashboard', null, { timeout: 10000 });
+  recordStep('production-bom-confirm-leave');
+}
+
 async function main() {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   let browser;
@@ -135,6 +166,12 @@ async function main() {
     await seedLogin(crmPage);
     await verifyCrmCreate(crmPage);
     await crmPage.close();
+
+    const productionPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await seedLogin(productionPage);
+    await verifyProductionBom(productionPage);
+    await productionPage.close();
+
     report.status = 'passed';
   } catch (error) {
     report.error = String(error?.message || error);

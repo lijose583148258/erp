@@ -46,6 +46,30 @@ function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
 }
 
+async function answerNextDialog(page, accept) {
+  return new Promise((resolve) => {
+    page.once('dialog', async (dialog) => {
+      const message = dialog.message();
+      if (accept) await dialog.accept();
+      else await dialog.dismiss();
+      resolve(message);
+    });
+  });
+}
+
+async function verifyNavigationWarning(page, expectedValue, step) {
+  await page.waitForTimeout(100);
+  const dialogPromise = answerNextDialog(page, false);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  const message = await dialogPromise;
+  if (!message.includes('未保存')) throw new Error(`${step} warning is unclear: ${message}`);
+  const currentHash = await page.evaluate(() => window.location.hash);
+  if (currentHash === '#dashboard') throw new Error(`${step} navigation was not cancelled`);
+  recordStep({ step, result: 'passed', evidence: expectedValue });
+}
+
 async function safeScreenshot(page, name) {
   return captureScreenshot(page, SHOT_DIR, name);
 }
@@ -249,6 +273,7 @@ async function createSupplier(page) {
     await page.getByTestId('supplier-contact-input').fill(DATA.supplierContact);
     await page.getByTestId('supplier-phone-input').fill(DATA.supplierPhone);
     await page.getByTestId('supplier-email-input').fill(DATA.supplierEmail);
+    await verifyNavigationWarning(page, DATA.supplierName, 'supplier-unsaved-navigation-warning');
     const supplierAdvancedToggle = page.getByTestId('supplier-toggle-advanced');
     if (await supplierAdvancedToggle.count()) {
       const toggleText = await supplierAdvancedToggle.innerText();
@@ -337,6 +362,7 @@ async function createPurchaseOrder(page) {
     await page.getByTestId('purchase-item-input').fill(DATA.purchaseItem);
     await page.getByTestId('purchase-quantity-input').fill(DATA.purchaseQuantity);
     await page.getByTestId('purchase-price-input').fill(DATA.purchasePrice);
+    await verifyNavigationWarning(page, DATA.purchaseItem, 'purchase-order-unsaved-navigation-warning');
     await page.getByTestId('purchase-eta-input').fill('2026-04-30');
     await page.getByTestId('save-purchase-button').click();
 
@@ -407,6 +433,23 @@ async function receivePurchaseOrder(page) {
   return withTimebox(page, 'receive-procurement-order', TIMEOUTS.save, async () => {
     const orderId = report.purchaseOrder?.id;
     if (!orderId) throw new Error('purchase order id missing before receive');
+
+    await page.locator(`[data-testid="purchase-order-receipts-${orderId}"]`).click();
+    await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `UNSAVED-${RUN_ID}`);
+
+    const dismissDialog = answerNextDialog(page, false);
+    await page.getByTestId('purchase-receipt-close').click();
+    const dismissMessage = await dismissDialog;
+    if (!dismissMessage.includes('未保存')) throw new Error(`receipt close warning is unclear: ${dismissMessage}`);
+    await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    recordStep({ step: 'purchase-receipt-unsaved-warning', result: 'passed' });
+
+    const acceptDialog = answerNextDialog(page, true);
+    await page.getByTestId('purchase-receipt-close').click();
+    await acceptDialog;
+    await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'hidden', timeout: TIMEOUTS.readBack });
+    recordStep({ step: 'purchase-receipt-confirm-close', result: 'passed' });
 
     await page.locator(`[data-testid="purchase-order-receipts-${orderId}"]`).click();
     await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });

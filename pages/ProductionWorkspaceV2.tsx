@@ -28,6 +28,7 @@ import {
   useProductionQualityForm,
   useProductionWorkOrderForm,
 } from './production/useProductionWorkspaceForms';
+import { useUnsavedForm } from '../app/useUnsavedForm';
 
 type ProductionDeskTab = 'bom' | 'workOrders' | 'batches';
 
@@ -79,6 +80,7 @@ const ProductionWorkspaceV2 = () => {
   const [activeDeskTab, setActiveDeskTab] = useState<ProductionDeskTab>('bom');
   const [reverseAdjustment, setReverseAdjustment] = useState<AdjustmentRecord | null>(null);
   const [reverseSubmitting, setReverseSubmitting] = useState(false);
+  const [bomSaveVersion, setBomSaveVersion] = useState(0);
 
   const createInitialWorkOrderSteps = useCallback(
     () => [newStep('备料'), newStep('生产'), newStep('质检')],
@@ -92,6 +94,30 @@ const ProductionWorkspaceV2 = () => {
   const { woProductName, setWoProductName, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
   const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
+  useUnsavedForm({
+    sourceId: 'production-bom-form',
+    label: '生产 BOM 配方',
+    open: !loading,
+    resetKey: bomSaveVersion,
+    value: {
+      bomProductName,
+      bomVersion,
+      bomType,
+      bomStatus,
+      bomFormulationMode,
+      bomOutputUnit,
+      bomStandardBatchSize,
+      bomBatchSizeUnit,
+      bomDensity,
+      bomSolidContent,
+      bomEffectiveFrom,
+      bomEffectiveTo,
+      bomProcessText,
+      bomQualitySpecText,
+      bomNotes,
+      bomItems,
+    },
+  });
   const selectedBom = useMemo(() => boms.find(item => item.id === selectedBomId) || null, [boms, selectedBomId]);
   const selectedWorkOrder = useMemo(() => workOrders.find(item => item.id === selectedWorkOrderId) || null, [workOrders, selectedWorkOrderId]);
   const completingWorkOrder = useMemo(
@@ -133,7 +159,7 @@ const ProductionWorkspaceV2 = () => {
     void loadData(controller.signal);
     return () => controller.abort();
   }, [loadData]);
-  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); if (selectedBom) setBomOutputUnit(selectedBom.outputUnit || 'kg'); }, [selectedBom, setBomOutputUnit, setWoProductName, woProductName]);
+  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); }, [selectedBom, setWoProductName, woProductName]);
   useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductName(selectedBatch.productName); }, [selectedBatch, setWoProductName, woProductName]);
 
   const displayedBoms = useMemo(() => {
@@ -253,6 +279,7 @@ const ProductionWorkspaceV2 = () => {
       });
       notify('success', 'BOM 已创建');
       resetBomForm();
+      setBomSaveVersion(version => version + 1);
       await loadData();
       setSelectedBomId(createdBom.id);
       setWoProductName(createdBom.productName);

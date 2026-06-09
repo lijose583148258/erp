@@ -139,6 +139,16 @@ async function expectTransferMessage(page, expectedText) {
   return text;
 }
 
+function answerNextDialog(page, accept) {
+  page.once('dialog', async dialog => {
+    if (!dialog.message().includes('未保存')) {
+      throw new Error(`unexpected dialog message: ${dialog.message()}`);
+    }
+    if (accept) await dialog.accept();
+    else await dialog.dismiss();
+  });
+}
+
 async function run() {
   let browser = null;
   try {
@@ -185,6 +195,21 @@ async function run() {
     await page.locator('[data-testid="warehouse-inventory-query-button"]').click();
     await page.locator(`[data-testid="warehouse-transfer-open-button-${sourceBalance.id}"]`).waitFor({ state: 'visible', timeout: 15000 });
     recordStep({ step: 'browser-search-source-stock', result: 'passed' });
+
+    await page.locator(`[data-testid="warehouse-transfer-open-button-${sourceBalance.id}"]`).click();
+    await page.locator('[data-testid="warehouse-transfer-modal"]').waitFor({ state: 'visible', timeout: 10000 });
+    await selectLocation(page, 'warehouse-transfer-destination-select', wip.name);
+
+    await page.locator('[data-testid="warehouse-transfer-note-input"]').fill(`未保存关闭验证 ${RUN_ID}`);
+    answerNextDialog(page, false);
+    await page.locator('[data-testid="warehouse-transfer-close"]').click();
+    await page.locator('[data-testid="warehouse-transfer-modal"]').waitFor({ state: 'visible', timeout: 10000 });
+    recordStep({ step: 'browser-keep-unsaved-transfer-after-dismiss', result: 'passed' });
+
+    answerNextDialog(page, true);
+    await page.locator('[data-testid="warehouse-transfer-close"]').click();
+    await page.locator('[data-testid="warehouse-transfer-modal"]').waitFor({ state: 'detached', timeout: 10000 });
+    recordStep({ step: 'browser-confirm-discard-transfer', result: 'passed' });
 
     await page.locator(`[data-testid="warehouse-transfer-open-button-${sourceBalance.id}"]`).click();
     await page.locator('[data-testid="warehouse-transfer-modal"]').waitFor({ state: 'visible', timeout: 10000 });

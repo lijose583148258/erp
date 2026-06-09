@@ -2,6 +2,7 @@ import React, { type Dispatch, type SetStateAction } from 'react';
 import { FormField, StatusBadge } from '../../components/ui';
 import type { PurchaseOrder, PurchaseReceiptBundle } from '../../services/procurement.service';
 import type { ProcurementFormErrors, PurchaseReceiptForm } from './procurementForms';
+import { useUnsavedForm } from '../../app/useUnsavedForm';
 
 type PurchaseReceiptDrawerProps = {
   receiptDrawerOrder: PurchaseOrder;
@@ -28,6 +29,14 @@ export const PurchaseReceiptDrawer = ({
   onClose,
   canWrite,
 }: PurchaseReceiptDrawerProps) => {
+  const { requestClose } = useUnsavedForm({
+    sourceId: 'purchase-receipt-drawer',
+    label: '采购收货批次',
+    open: true,
+    resetKey: receiptBundle?.receipts.length ?? 0,
+    value: receiptForm,
+  });
+  const handleClose = () => requestClose(onClose);
   const updateReceiptField = (field: keyof PurchaseReceiptForm, value: string) => {
     clearReceiptError(field);
     setReceiptForm(prev => ({ ...prev, [field]: value }));
@@ -40,7 +49,7 @@ export const PurchaseReceiptDrawer = ({
       type="button"
       aria-label="关闭收货批次"
       className="flex-1 cursor-default"
-      onClick={onClose}
+      onClick={handleClose}
     />
     <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-4">
@@ -51,7 +60,8 @@ export const PurchaseReceiptDrawer = ({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          data-testid="purchase-receipt-close"
+          onClick={handleClose}
           className="rounded-2xl border border-slate-200 px-4 py-2 text-xs font-black text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-900"
         >关闭</button>
       </div>

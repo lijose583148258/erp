@@ -1,5 +1,6 @@
 import { ArrowRightLeft, X } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
+import { useUnsavedForm } from '../../app/useUnsavedForm';
 import type { StockBalanceRecord } from '../../services/warehouse.service';
 import type { TransferFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
 
@@ -26,17 +27,28 @@ export function WarehouseTransferDialog({
   onSubmit,
   canWrite,
 }: WarehouseTransferDialogProps) {
+  const { requestClose } = useUnsavedForm({
+    sourceId: 'warehouse-transfer-dialog',
+    label: '库存调拨',
+    open: Boolean(balance),
+    value: transferForm,
+    resetKey: balance?.id ?? null,
+  });
+
   if (!balance) return null;
 
   const sourceLocationId = Number(balance.locationId);
   const availableQuantity = Number(balance.quantity || 0);
   const targetLocations = allLocations.filter(location => Number(location.id) !== sourceLocationId);
+  const handleClose = () => {
+    if (!transferSaving) requestClose(onClose);
+  };
 
   return (
     <div
       data-testid="warehouse-transfer-modal"
       className="fixed inset-0 z-[210] flex items-center justify-center bg-slate-950/60 px-4 backdrop-blur-md"
-      onClick={onClose}
+      onClick={handleClose}
     >
       <div
         className="w-full max-w-xl rounded-[28px] border border-white/40 bg-white p-7 shadow-2xl dark:border-slate-800 dark:bg-slate-900"
@@ -54,7 +66,8 @@ export function WarehouseTransferDialog({
           </div>
           <button
             type="button"
-            onClick={onClose}
+            data-testid="warehouse-transfer-close"
+            onClick={handleClose}
             className="rounded-2xl bg-slate-100 p-2 text-slate-400 transition-all hover:bg-slate-200 hover:text-slate-700 active:scale-95 dark:bg-slate-800 dark:hover:text-white"
             aria-label="关闭库存调拨弹窗"
           >
@@ -162,7 +175,8 @@ export function WarehouseTransferDialog({
         <div className="mt-6 flex gap-3">
           <button
             type="button"
-            onClick={onClose}
+            data-testid="warehouse-transfer-cancel"
+            onClick={handleClose}
             disabled={transferSaving}
             className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-black text-slate-600 transition-all hover:bg-slate-200 active:scale-95 disabled:opacity-50 dark:bg-slate-800"
           >

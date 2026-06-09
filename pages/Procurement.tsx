@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, ClipboardList, Truck } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
+import { useUnsavedForm } from '../app/useUnsavedForm';
 import { can } from '../app/permissions';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
 import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
@@ -52,7 +53,24 @@ const Procurement = () => {
   const [receiptBundle, setReceiptBundle] = useState<PurchaseReceiptBundle | null>(null);
   const [isReceiptLoading, setIsReceiptLoading] = useState(false);
   const [receiptForm, setReceiptForm] = useState(createEmptyReceiptForm);
+  const [supplierSaveVersion, setSupplierSaveVersion] = useState(0);
+  const [orderSaveVersion, setOrderSaveVersion] = useState(0);
   const localWriteVersionRef = useRef(0);
+
+  useUnsavedForm({
+    sourceId: 'procurement-supplier-form',
+    label: '供应商主数据',
+    open: true,
+    resetKey: supplierSaveVersion,
+    value: newSupplier,
+  });
+  useUnsavedForm({
+    sourceId: 'procurement-order-form',
+    label: '采购订单',
+    open: true,
+    resetKey: orderSaveVersion,
+    value: { ...newOrder, isB2B },
+  });
 
   const loadData = useCallback(async () => {
     const loadStartedAtVersion = localWriteVersionRef.current;
@@ -401,6 +419,7 @@ const Procurement = () => {
       localWriteVersionRef.current += 1;
       setSuppliers(prev => upsertById(createdSupplier, prev));
       setNewSupplier(createEmptySupplierForm());
+      setSupplierSaveVersion(version => version + 1);
       setSupplierErrors({});
       switchProcurementDesk('suppliers');
       notify('success', t.supplierCreated);
@@ -459,6 +478,7 @@ const Procurement = () => {
       localWriteVersionRef.current += 1;
       setOrders(prev => upsertById(createdOrder, prev));
       setNewOrder(createEmptyPurchaseOrderForm());
+      setOrderSaveVersion(version => version + 1);
       setPurchaseErrors({});
       switchProcurementDesk('orders');
       notify('success', t.purchaseCreated);

@@ -6,16 +6,17 @@ type Options<T> = {
   label: string;
   open: boolean;
   value: T;
+  resetKey?: string | number | null;
 };
 
-export const useUnsavedForm = <T,>({ sourceId, label, open, value }: Options<T>) => {
+export const useUnsavedForm = <T,>({ sourceId, label, open, value, resetKey = null }: Options<T>) => {
   const { registerUnsavedChanges, confirmDiscardChanges } = useAppContext();
   const snapshot = useMemo(() => JSON.stringify(value), [value]);
   const [baseline, setBaseline] = useState<string | null>(null);
 
   useEffect(() => {
     setBaseline(open ? snapshot : null);
-  }, [open]);
+  }, [open, resetKey]);
 
   const dirty = open && baseline !== null && snapshot !== baseline;
 
