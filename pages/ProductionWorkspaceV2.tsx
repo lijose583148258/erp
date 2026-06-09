@@ -81,6 +81,9 @@ const ProductionWorkspaceV2 = () => {
   const [reverseAdjustment, setReverseAdjustment] = useState<AdjustmentRecord | null>(null);
   const [reverseSubmitting, setReverseSubmitting] = useState(false);
   const [bomSaveVersion, setBomSaveVersion] = useState(0);
+  const [workOrderSaveVersion, setWorkOrderSaveVersion] = useState(0);
+  const [qualitySaveVersion, setQualitySaveVersion] = useState(0);
+  const [adjustmentSaveVersion, setAdjustmentSaveVersion] = useState(0);
 
   const createInitialWorkOrderSteps = useCallback(
     () => [newStep('备料'), newStep('生产'), newStep('质检')],
@@ -97,7 +100,7 @@ const ProductionWorkspaceV2 = () => {
   useUnsavedForm({
     sourceId: 'production-bom-form',
     label: '生产 BOM 配方',
-    open: !loading,
+    open: true,
     resetKey: bomSaveVersion,
     value: {
       bomProductName,
@@ -125,6 +128,37 @@ const ProductionWorkspaceV2 = () => {
     [workOrders, completingWorkOrderId],
   );
   const selectedBatch = useMemo(() => batches.find(item => item.id === selectedBatchId) || null, [batches, selectedBatchId]);
+  const autoFilledWorkOrderProduct = selectedBom?.productName || selectedBatch?.productName || '';
+  useUnsavedForm({
+    sourceId: 'production-work-order-form',
+    label: '生产工单',
+    open: true,
+    resetKey: workOrderSaveVersion,
+    value: {
+      productName: woProductName === autoFilledWorkOrderProduct ? '' : woProductName,
+      woTargetQuantity,
+      woProducedQuantity,
+      woLossQuantity,
+      woPlannedStartAt,
+      woPlannedEndAt,
+      woNote,
+      woSteps,
+    },
+  });
+  useUnsavedForm({
+    sourceId: 'production-quality-form',
+    label: '生产质检记录',
+    open: true,
+    resetKey: qualitySaveVersion,
+    value: { qcResult, qcDefectRate, qcNote, qcCheckedBy },
+  });
+  useUnsavedForm({
+    sourceId: 'production-batch-adjustment-form',
+    label: '生产批次异常调整',
+    open: true,
+    resetKey: adjustmentSaveVersion,
+    value: { templateId, adjustmentQuantity, adjustmentReason, adjustmentNote },
+  });
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -283,7 +317,6 @@ const ProductionWorkspaceV2 = () => {
       await loadData();
       setSelectedBomId(createdBom.id);
       setWoProductName(createdBom.productName);
-      setBomOutputUnit(createdBom.outputUnit || 'kg');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建 BOM 失败');
     }
@@ -319,6 +352,7 @@ const ProductionWorkspaceV2 = () => {
       });
       notify('success', '工单已创建');
       resetWoForm();
+      setWorkOrderSaveVersion(version => version + 1);
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建工单失败');
@@ -386,6 +420,7 @@ const ProductionWorkspaceV2 = () => {
       });
       notify('success', '质检记录已保存');
       resetQualityForm();
+      setQualitySaveVersion(version => version + 1);
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '保存质检记录失败');
@@ -415,6 +450,7 @@ const ProductionWorkspaceV2 = () => {
         notify('success', '生产调账已登记');
       setAdjustmentQuantity('');
       setAdjustmentNote('');
+      setAdjustmentSaveVersion(version => version + 1);
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '登记生产调账失败');

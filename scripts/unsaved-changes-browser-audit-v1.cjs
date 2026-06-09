@@ -156,6 +156,31 @@ async function verifyProductionBom(page) {
   recordStep('production-bom-confirm-leave');
 }
 
+async function verifyProductionWorkOrder(page) {
+  await openModule(page, 'production', 'production-desk-work-orders');
+  await page.locator('[data-testid="production-desk-work-orders"]').click();
+  await page.locator('[data-testid="production-work-order-target-quantity"]').waitFor({ state: 'visible', timeout: 20000 });
+  await page.locator('[data-testid="production-work-order-target-quantity"]').fill('25');
+  await page.waitForTimeout(200);
+
+  const dismissDialog = answerNextDialog(page, false);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  const message = await dismissDialog;
+  expect(message.includes('未保存'), 'production work order navigation warning is unclear');
+  expect(await page.locator('[data-testid="production-work-order-target-quantity"]').inputValue() === '25', 'production work order draft disappeared after navigation was dismissed');
+  recordStep('production-work-order-navigation-warning');
+
+  const acceptDialog = answerNextDialog(page, true);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  await acceptDialog;
+  await page.waitForFunction(() => window.location.hash === '#dashboard', null, { timeout: 10000 });
+  recordStep('production-work-order-confirm-leave');
+}
+
 async function verifyAdjustment(page) {
   await openModule(page, 'adjustment', 'adjustment-create-form');
   await page.locator('[data-testid="adjustment-reason"]').fill('UNSAVED-ADJUSTMENT-AUDIT');
@@ -257,6 +282,11 @@ async function main() {
     await seedLogin(productionPage);
     await verifyProductionBom(productionPage);
     await productionPage.close();
+
+    const workOrderPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await seedLogin(workOrderPage);
+    await verifyProductionWorkOrder(workOrderPage);
+    await workOrderPage.close();
 
     const adjustmentPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     await seedLogin(adjustmentPage);

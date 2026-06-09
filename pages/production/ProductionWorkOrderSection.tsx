@@ -108,8 +108,8 @@ export function ProductionWorkOrderSection({
       <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-8">
         <SectionHeader title="工单工作台" subtitle="排产 / 工序 / 质检 / 完工" />
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <Field label="产品名称" value={woProductName} onChange={setWoProductName} placeholder="从 BOM 或批次带入" />
-          <Field label="目标数量" value={woTargetQuantity} onChange={setWoTargetQuantity} placeholder="0" />
+          <Field dataTestId="production-work-order-product-name" label="产品名称" value={woProductName} onChange={setWoProductName} placeholder="从 BOM 或批次带入" />
+          <Field dataTestId="production-work-order-target-quantity" label="目标数量" value={woTargetQuantity} onChange={setWoTargetQuantity} placeholder="0" />
           <Field label="已产数量" value={woProducedQuantity} onChange={setWoProducedQuantity} placeholder="0" />
           <Field label="损耗数量" value={woLossQuantity} onChange={setWoLossQuantity} placeholder="0" />
         </div>
@@ -138,7 +138,7 @@ export function ProductionWorkOrderSection({
           ))}
         </div>
         <div className="flex flex-wrap gap-3">
-          <button onClick={handleCreateWorkOrder} disabled={loading} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">创建工单</button>
+          <button data-testid="production-work-order-create" onClick={handleCreateWorkOrder} disabled={loading} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">创建工单</button>
           <button onClick={() => void loadData()} className="px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 rounded-[24px] font-black text-xs uppercase tracking-widest active-shrink flex items-center gap-2"><RefreshCcw size={14} />刷新</button>
         </div>
       </div>
@@ -247,10 +247,10 @@ export function ProductionWorkOrderSection({
                   </select>
                   <input value={qcDefectRate} onChange={e => setQcDefectRate(e.target.value)} placeholder="缺陷率 %" className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
                 </div>
-                <input value={qcCheckedBy} onChange={e => setQcCheckedBy(e.target.value)} placeholder="质检人" className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
+                  <input data-testid="production-quality-checked-by" value={qcCheckedBy} onChange={e => setQcCheckedBy(e.target.value)} placeholder="质检人" className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
                 <TextareaField label="" value={qcNote} onChange={setQcNote} placeholder="质检备注" />
                 <div className="flex flex-wrap gap-3">
-                  <button onClick={handleCreateQc} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">保存质检</button>
+                  <button data-testid="production-quality-save" onClick={handleCreateQc} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">保存质检</button>
                   <button onClick={() => void handleWorkOrderStatus('qc_pending')} className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">标记待质检</button>
                   <button onClick={() => void handleWorkOrderStatus('completed')} className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest">直接完工</button>
                 </div>
