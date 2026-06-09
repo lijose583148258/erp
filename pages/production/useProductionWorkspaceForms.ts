@@ -131,6 +131,7 @@ export const useProductionQualityForm = () => {
   const [qcCheckedBy, setQcCheckedBy] = useState('');
 
   const resetQualityForm = () => {
+    setQcResult('pass');
     setQcDefectRate('');
     setQcNote('');
     setQcCheckedBy('');

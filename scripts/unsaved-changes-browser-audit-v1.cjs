@@ -132,6 +132,22 @@ async function openModule(page, moduleId, readyTestId) {
   await page.locator(`[data-testid="${readyTestId}"]`).waitFor({ state: 'visible', timeout: 20000 });
 }
 
+async function verifyCleanNavigation(page, moduleId, readyTestId) {
+  await openModule(page, moduleId, readyTestId);
+  await page.waitForTimeout(500);
+  let unexpectedDialog = '';
+  page.once('dialog', async (dialog) => {
+    unexpectedDialog = dialog.message();
+    await dialog.accept();
+  });
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  await page.waitForFunction(() => window.location.hash === '#dashboard', null, { timeout: 10000 });
+  expect(!unexpectedDialog, `${moduleId} clean navigation showed an unsaved warning: ${unexpectedDialog}`);
+  recordStep(`${moduleId}-clean-navigation`);
+}
+
 async function verifyProductionBom(page) {
   await openModule(page, 'production', 'production-desk-bom');
   await page.locator('[data-testid="production-bom-save"]').waitFor({ state: 'visible', timeout: 20000 });
@@ -297,6 +313,18 @@ async function main() {
     await seedLogin(warehousePage);
     await verifyWarehouseForms(warehousePage);
     await warehousePage.close();
+
+    for (const [moduleId, readyTestId] of [
+      ['production', 'production-desk-bom'],
+      ['procurement', 'procurement-input-guide'],
+      ['adjustment', 'adjustment-create-form'],
+      ['warehouse', 'warehouse-tab-overview'],
+    ]) {
+      const cleanPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+      await seedLogin(cleanPage);
+      await verifyCleanNavigation(cleanPage, moduleId, readyTestId);
+      await cleanPage.close();
+    }
 
     report.status = 'passed';
   } catch (error) {
