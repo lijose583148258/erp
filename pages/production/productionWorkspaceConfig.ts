@@ -1,6 +1,8 @@
 import type { ProductionWorkOrderStatus } from '../../services/production.service';
+import type { WorkspaceTaskNavigatorItem } from '../../components/ui/WorkspaceTaskNavigator';
 import type { BomItemDraft } from './ProductionBomLineGrid';
 
+export type ProductionDeskTab = 'bom' | 'workOrders' | 'batches';
 export type BatchStatusFilter = 'all' | 'healthy' | 'expiring' | 'expired';
 export type AdjustmentStatusFilter = 'all' | 'posted' | 'pending' | 'reversed';
 export type WorkOrderFilter = 'all' | ProductionWorkOrderStatus;
@@ -18,6 +20,30 @@ export type ProductionAdjustmentTemplate = {
 export type BomType = 'standard' | 'chemical_formula';
 export type BomLifecycleStatus = 'draft' | 'approved' | 'active' | 'retired';
 export type StepDraft = { title: string; operatorName: string; note: string };
+
+export const PRODUCTION_DESK_TABS: WorkspaceTaskNavigatorItem<ProductionDeskTab>[] = [
+  {
+    id: 'bom',
+    title: '配方主档',
+    subtitle: '维护产品配方版本和原料明细',
+    purpose: '先定义“做什么、按什么版本做、需要哪些原料”；实际耗用必须到工单完工时确认。',
+    testId: 'production-desk-bom',
+  },
+  {
+    id: 'workOrders',
+    title: '工单 / 质检',
+    subtitle: '排产、工序流转、质检和完工扣料',
+    purpose: '把已确认的配方变成可执行工单，并在完工时回写库存。',
+    testId: 'production-desk-work-orders',
+  },
+  {
+    id: 'batches',
+    title: '批次追踪 / 异常调整',
+    subtitle: '批次追踪、现场异常登记和冲销回放',
+    purpose: '只处理已经形成库存事实的批次异常；配方维护、工单完工和正常入库必须回到前两个工作区或仓储主入口。',
+    testId: 'production-desk-batches',
+  },
+];
 
 export const BOM_TYPE_OPTIONS: Array<{ value: BomType; label: string }> = [
   { value: 'standard', label: '标准BOM' },

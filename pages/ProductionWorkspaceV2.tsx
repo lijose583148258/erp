@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
-import { WorkspaceTaskNavigator, type WorkspaceTaskNavigatorItem } from '../components/ui/WorkspaceTaskNavigator';
+import { WorkspaceTaskNavigator } from '../components/ui/WorkspaceTaskNavigator';
 import { assetService, ProductBatch } from '../services/asset.service';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
 import { productionService, ProductionBom, ProductionSummary, ProductionWorkOrder, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
@@ -15,8 +15,10 @@ import { getEffectiveBomQuantityPerUnit, isEffectiveBomItemDraft } from './produ
 import {
   getJsonSummary,
   newStep,
+  PRODUCTION_DESK_TABS,
   type AdjustmentStatusFilter,
   type BatchStatusFilter,
+  type ProductionDeskTab,
   type WorkOrderFilter,
 } from './production/productionWorkspaceConfig';
 import {
@@ -29,32 +31,6 @@ import {
   useProductionWorkOrderForm,
 } from './production/useProductionWorkspaceForms';
 import { useUnsavedForm } from '../app/useUnsavedForm';
-
-type ProductionDeskTab = 'bom' | 'workOrders' | 'batches';
-
-const PRODUCTION_DESK_TABS: WorkspaceTaskNavigatorItem<ProductionDeskTab>[] = [
-  {
-    id: 'bom',
-    title: '配方主档',
-    subtitle: '维护产品配方版本和原料明细',
-    purpose: '先定义“做什么、按什么版本做、需要哪些原料”；实际耗用必须到工单完工时确认。',
-    testId: 'production-desk-bom',
-  },
-  {
-    id: 'workOrders',
-    title: '工单 / 质检',
-    subtitle: '排产、工序流转、质检和完工扣料',
-    purpose: '把已确认的配方变成可执行工单，并在完工时回写库存。',
-    testId: 'production-desk-work-orders',
-  },
-  {
-    id: 'batches',
-    title: '批次追踪 / 异常调整',
-    subtitle: '批次追踪、现场异常登记和冲销回放',
-    purpose: '只处理已经形成库存事实的批次异常；配方维护、工单完工和正常入库必须回到前两个工作区或仓储主入口。',
-    testId: 'production-desk-batches',
-  },
-];
 
 const ProductionWorkspaceV2 = () => {
   const { notify, language } = useAppContext();
