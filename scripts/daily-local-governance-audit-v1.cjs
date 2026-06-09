@@ -18,6 +18,7 @@ const BROWSER_SMOKE_TASKS = [
   { name: 'browser-ui-language-switch', command: 'npm run audit:ui:language-switch', timeoutMs: 90_000 },
   { name: 'browser-ui-theme-switch', command: 'npm run audit:ui:theme-switch', timeoutMs: 90_000 },
   { name: 'browser-ui-human-boundary', command: 'npm run audit:ui:human-boundary', timeoutMs: 90_000 },
+  { name: 'browser-ui-unsaved-changes', command: 'npm run audit:ui:unsaved-changes', timeoutMs: 120_000 },
   { name: 'browser-crm-human-flow', command: 'npm run audit:human-flow:crm', timeoutMs: 90_000 },
   { name: 'browser-production-background', command: 'npm run audit:production:background', timeoutMs: 120_000 },
   { name: 'browser-collection-human-flow', command: 'npm run audit:collection:human-flow', timeoutMs: 120_000 },

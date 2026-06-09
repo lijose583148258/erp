@@ -128,6 +128,7 @@ Copy-File -Source (Join-Path $source 'backend\package.json') -Destination (Join-
 Copy-File -Source (Join-Path $source 'backend\package-lock.json') -Destination (Join-Path $target 'backend\package-lock.json')
 Copy-File -Source (Join-Path $source 'AilaoDa-ERP-CRM.exe') -Destination (Join-Path $target 'AilaoDa-ERP-CRM.exe') -AllowLockedExisting
 Copy-File -Source (Join-Path $source 'PACKAGE_CONTENTS.txt') -Destination (Join-Path $target 'PACKAGE_CONTENTS.txt')
+Copy-File -Source (Join-Path $source 'SOURCE_MANIFEST.json') -Destination (Join-Path $target 'SOURCE_MANIFEST.json')
 Copy-File -Source (Join-Path $source '.env.production.example') -Destination (Join-Path $target '.env.production.example')
 
 Get-ChildItem -LiteralPath $source -File -Filter '*.bat' | ForEach-Object {
@@ -181,6 +182,7 @@ $manifest = [ordered]@{
   policy = 'Program files live under target. Business data, uploads, backups, and logs live under D:\AilaoDaRuntime.'
   copiedScopes = @('dist', 'backend/dist', 'backend/prisma', 'backend/node_modules', 'scripts', 'launchers', 'desktop-shell-exe')
   excludedScopes = @('old output reports', 'old logs', 'old backups', 'old runtime uploads', 'source pages/components/services')
+  sourceManifest = 'SOURCE_MANIFEST.json'
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $target 'PURE_RUNTIME_PACKAGE.json') -Encoding UTF8
 

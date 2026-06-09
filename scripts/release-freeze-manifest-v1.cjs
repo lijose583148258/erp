@@ -68,6 +68,7 @@ function getGitStatus() {
   return {
     branch: runGit(['branch', '--show-current']) || null,
     head: runGit(['rev-parse', '--short', 'HEAD']) || null,
+    fullHead: runGit(['rev-parse', 'HEAD']) || null,
     counts,
     sample: lines.slice(0, 80),
   };
@@ -97,6 +98,7 @@ function requiredRuntimeFiles(runtimeDir, entryExe) {
     'backend/dist/server.js',
     '.env.production',
     'PURE_RUNTIME_PACKAGE.json',
+    'SOURCE_MANIFEST.json',
   ].map((item) => {
     const fullPath = path.join(runtimeDir, item);
     return { path: fullPath, relativePath: item, exists: fs.existsSync(fullPath) };
@@ -154,6 +156,8 @@ function main() {
   const releaseZip = fileFingerprint(ZIP_PATH);
   const runtimeManifestPath = path.join(RUNTIME_DIR, 'PURE_RUNTIME_PACKAGE.json');
   const runtimeManifest = readJson(runtimeManifestPath);
+  const sourceManifestPath = path.join(RUNTIME_DIR, 'SOURCE_MANIFEST.json');
+  const sourceManifest = readJson(sourceManifestPath);
   const entryExe = findEntryExe(RUNTIME_DIR, runtimeManifest);
   const runtimeFiles = requiredRuntimeFiles(RUNTIME_DIR, entryExe);
   const git = getGitStatus();
@@ -164,7 +168,19 @@ function main() {
     if (!item.exists) blockers.push(`runtime file missing: ${item.relativePath}`);
   }
   if (runtimeManifest?.parseError) blockers.push(`runtime manifest parse error: ${runtimeManifest.parseError}`);
+  if (sourceManifest?.parseError) blockers.push(`source manifest parse error: ${sourceManifest.parseError}`);
   if (git.counts.total > 0) blockers.push(`source workspace is not frozen: ${git.counts.total} git status entries`);
+  if (!sourceManifest) blockers.push('source manifest missing');
+  if (sourceManifest && sourceManifest.sourceDirtyCount !== 0) {
+    blockers.push(`stable package was built from a dirty workspace: ${sourceManifest.sourceDirtyCount}`);
+  }
+  if (sourceManifest?.sourceCommit && git.fullHead && sourceManifest.sourceCommit !== git.fullHead) {
+    blockers.push(`runtime source commit ${sourceManifest.sourceCommit} does not match current source ${git.fullHead}`);
+  }
+  const sourceManifestFingerprint = fileFingerprint(sourceManifestPath);
+  if (releaseZip.exists && sourceManifestFingerprint.exists && releaseZip.lastWriteTime < sourceManifestFingerprint.lastWriteTime) {
+    blockers.push('release zip is older than runtime SOURCE_MANIFEST.json');
+  }
 
   const report = {
     name: 'Release Freeze Manifest',
@@ -178,6 +194,14 @@ function main() {
       generatedAt: runtimeManifest.generatedAt || null,
       packageRoot: runtimeManifest.packageRoot || runtimeManifest.targetRoot || null,
       sourceRoot: runtimeManifest.sourceRoot || null,
+    } : null,
+    sourceManifestSummary: sourceManifest ? {
+      generatedAt: sourceManifest.generatedAt || null,
+      sourceCommit: sourceManifest.sourceCommit || null,
+      sourceBranch: sourceManifest.sourceBranch || null,
+      sourceDirtyCount: sourceManifest.sourceDirtyCount ?? null,
+      frontendIndexSha256: sourceManifest.frontendIndex?.sha256 || null,
+      backendEntrySha256: sourceManifest.backendEntry?.sha256 || null,
     } : null,
     git,
     blockers,

@@ -29,6 +29,7 @@ const requiredFiles = [
   { id: 'barter-stock-closure-audit', path: 'scripts/verify-barter-stock-closure.cjs', layer: 'audit' },
   { id: 'warehouse-ledger-audit', path: 'scripts/warehouse-ledger-api-audit-v1.cjs', layer: 'audit' },
   { id: 'stock-ledger-audit', path: 'scripts/stock-ledger-reconcile-audit-v1.cjs', layer: 'audit' },
+  { id: 'unsaved-changes-browser-audit', path: 'scripts/unsaved-changes-browser-audit-v1.cjs', layer: 'audit' },
   { id: 'mojibake-gate', path: 'scripts/effective-source-mojibake-gate-v1.cjs', layer: 'audit' },
 ];
 
@@ -42,6 +43,7 @@ const requiredPackageScripts = [
   'audit:payment:verification-concurrency',
   'audit:warehouse:ledger',
   'audit:stock:ledger',
+  'audit:ui:unsaved-changes',
   'audit:test-data:whitelist',
 ];
 

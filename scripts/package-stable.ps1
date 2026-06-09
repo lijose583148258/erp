@@ -332,6 +332,7 @@ $packageManifest = @(
   '- scripts/check-runtime.ps1',
   '- AilaoDa-ERP-CRM.exe',
   '- .env.production.example',
+  '- SOURCE_MANIFEST.json',
   '',
   'Excluded by design:',
   '- source pages/components/services',
@@ -341,6 +342,26 @@ $packageManifest = @(
   'Writable runtime data must stay outside this package, for example D:\AilaoDaRuntime\stable.db.'
 )
 $packageManifest | Set-Content -LiteralPath (Join-Path $dest 'PACKAGE_CONTENTS.txt') -Encoding UTF8
+
+$gitCommit = (& git -C $root rev-parse HEAD).Trim()
+$gitBranch = (& git -C $root branch --show-current).Trim()
+$gitStatus = @(& git -C $root status --porcelain)
+$sourceManifest = [ordered]@{
+  generatedAt = (Get-Date).ToUniversalTime().ToString('o')
+  sourceRoot = $root
+  sourceCommit = $gitCommit
+  sourceBranch = $gitBranch
+  sourceDirtyCount = $gitStatus.Count
+  frontendIndex = [ordered]@{
+    path = 'dist/index.html'
+    sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dest 'dist\index.html')).Hash
+  }
+  backendEntry = [ordered]@{
+    path = 'backend/dist/server.js'
+    sha256 = (Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $dest 'backend\dist\server.js')).Hash
+  }
+}
+$sourceManifest | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath (Join-Path $dest 'SOURCE_MANIFEST.json') -Encoding UTF8
 
 Write-Host ''
 Write-Host "Package complete: $dest"

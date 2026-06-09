@@ -402,6 +402,7 @@ function getRuntimeTasks(options) {
       task('cdp-core-pages-smoke', 'node', ['scripts/cdp-core-pages-smoke-audit-v1.cjs']),
       task('ui-module-title-browser-gate', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:ui:module-titles'] : ['run', 'audit:ui:module-titles']),
       task('ui-language-switch-browser-gate', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:ui:language-switch'] : ['run', 'audit:ui:language-switch']),
+      task('ui-unsaved-changes-browser-gate', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:ui:unsaved-changes'] : ['run', 'audit:ui:unsaved-changes']),
       task('crm-human-flow-browser-chain', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:human-flow:crm'] : ['run', 'audit:human-flow:crm']),
       task('production-browser-background', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:production:background'] : ['run', 'audit:production:background']),
       task('collection-center-human-flow-browser-chain', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm run audit:collection:human-flow'] : ['run', 'audit:collection:human-flow']),
