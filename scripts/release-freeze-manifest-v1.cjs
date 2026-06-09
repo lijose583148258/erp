@@ -177,6 +177,14 @@ function main() {
   if (sourceManifest?.sourceCommit && git.fullHead && sourceManifest.sourceCommit !== git.fullHead) {
     blockers.push(`runtime source commit ${sourceManifest.sourceCommit} does not match current source ${git.fullHead}`);
   }
+  const runtimeFrontend = fileFingerprint(path.join(RUNTIME_DIR, 'dist', 'index.html'));
+  const runtimeBackend = fileFingerprint(path.join(RUNTIME_DIR, 'backend', 'dist', 'server.js'));
+  if (sourceManifest?.frontendIndex?.sha256 && runtimeFrontend.sha256 !== sourceManifest.frontendIndex.sha256) {
+    blockers.push('runtime frontend hash does not match SOURCE_MANIFEST.json');
+  }
+  if (sourceManifest?.backendEntry?.sha256 && runtimeBackend.sha256 !== sourceManifest.backendEntry.sha256) {
+    blockers.push('runtime backend hash does not match SOURCE_MANIFEST.json');
+  }
   const sourceManifestFingerprint = fileFingerprint(sourceManifestPath);
   if (releaseZip.exists && sourceManifestFingerprint.exists && releaseZip.lastWriteTime < sourceManifestFingerprint.lastWriteTime) {
     blockers.push('release zip is older than runtime SOURCE_MANIFEST.json');
@@ -203,6 +211,10 @@ function main() {
       frontendIndexSha256: sourceManifest.frontendIndex?.sha256 || null,
       backendEntrySha256: sourceManifest.backendEntry?.sha256 || null,
     } : null,
+    runtimeArtifactFingerprints: {
+      frontendIndex: runtimeFrontend,
+      backendEntry: runtimeBackend,
+    },
     git,
     blockers,
     outputs: {
