@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../../app/AppContext';
+import { useUnsavedForm } from '../../app/useUnsavedForm';
 import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
 import {
   adjustmentDomainMeta,
@@ -32,6 +33,13 @@ const AdjustmentCenterView = () => {
   const [pageSize] = useState(12);
   const [reverseNote, setReverseNote] = useState('\u4eba\u5de5\u51b2\u9500');
   const [form, setForm] = useState<AdjustmentFormState>({ ...emptyAdjustmentForm });
+
+  useUnsavedForm({
+    sourceId: 'adjustment-create-form',
+    label: '异常调账单',
+    open: true,
+    value: form,
+  });
 
   const loadSummary = useCallback(async (signal?: AbortSignal) => {
     try {

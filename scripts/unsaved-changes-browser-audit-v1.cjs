@@ -43,13 +43,19 @@ async function seedLogin(page) {
 }
 
 async function answerNextDialog(page, accept) {
-  return new Promise((resolve) => {
-    page.once('dialog', async (dialog) => {
+  return new Promise((resolve, reject) => {
+    const onDialog = async (dialog) => {
+      clearTimeout(timeout);
       const message = dialog.message();
       if (accept) await dialog.accept();
       else await dialog.dismiss();
       resolve(message);
-    });
+    };
+    const timeout = setTimeout(() => {
+      page.off('dialog', onDialog);
+      reject(new Error('expected unsaved-changes dialog did not appear within 10000ms'));
+    }, 10000);
+    page.once('dialog', onDialog);
   });
 }
 
@@ -150,6 +156,86 @@ async function verifyProductionBom(page) {
   recordStep('production-bom-confirm-leave');
 }
 
+async function verifyAdjustment(page) {
+  await openModule(page, 'adjustment', 'adjustment-create-form');
+  await page.locator('[data-testid="adjustment-reason"]').fill('UNSAVED-ADJUSTMENT-AUDIT');
+
+  const dismissDialog = answerNextDialog(page, false);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  const message = await dismissDialog;
+  expect(message.includes('未保存'), 'adjustment navigation warning is unclear');
+  expect(await page.locator('[data-testid="adjustment-reason"]').inputValue() === 'UNSAVED-ADJUSTMENT-AUDIT', 'adjustment draft disappeared after navigation was dismissed');
+  recordStep('adjustment-navigation-warning');
+
+  const acceptDialog = answerNextDialog(page, true);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  await acceptDialog;
+  await page.waitForFunction(() => window.location.hash === '#dashboard', null, { timeout: 10000 });
+  recordStep('adjustment-confirm-leave');
+}
+
+async function verifyWarehouseForms(page) {
+  await openModule(page, 'warehouse', 'warehouse-tab-overview');
+  await page.locator('[data-testid="warehouse-create-open"]').click();
+  const warehouseModal = page.locator('[data-testid="warehouse-create-modal"]');
+  await warehouseModal.waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('[data-testid="warehouse-create-name-input"]').fill('UNSAVED-WAREHOUSE-AUDIT');
+
+  const dismissDialog = answerNextDialog(page, false);
+  await page.locator('[data-testid="warehouse-create-cancel"]').click();
+  const dismissMessage = await dismissDialog;
+  expect(dismissMessage.includes('未保存'), 'warehouse create warning is unclear');
+  expect(await warehouseModal.isVisible(), 'warehouse create modal closed after warning was dismissed');
+  recordStep('warehouse-create-warning');
+
+  const acceptDialog = answerNextDialog(page, true);
+  await page.locator('[data-testid="warehouse-create-cancel"]').click();
+  await acceptDialog;
+  await warehouseModal.waitFor({ state: 'hidden', timeout: 10000 });
+  recordStep('warehouse-create-confirm-close');
+
+  await page.locator('[data-testid="warehouse-location-create-open"]').click();
+  const locationModal = page.locator('[data-testid="warehouse-location-create-modal"]');
+  await locationModal.waitFor({ state: 'visible', timeout: 10000 });
+  await page.locator('[data-testid="warehouse-location-create-name-input"]').fill('UNSAVED-LOCATION-AUDIT');
+  const locationDismissDialog = answerNextDialog(page, false);
+  await page.locator('[data-testid="warehouse-location-create-cancel"]').click();
+  const locationMessage = await locationDismissDialog;
+  expect(locationMessage.includes('未保存'), 'warehouse location warning is unclear');
+  expect(await locationModal.isVisible(), 'warehouse location modal closed after warning was dismissed');
+  recordStep('warehouse-location-create-warning');
+
+  const locationAcceptDialog = answerNextDialog(page, true);
+  await page.locator('[data-testid="warehouse-location-create-cancel"]').click();
+  await locationAcceptDialog;
+  await locationModal.waitFor({ state: 'hidden', timeout: 10000 });
+  recordStep('warehouse-location-create-confirm-close');
+
+  await page.locator('[data-testid="warehouse-tab-inbound"]').click();
+  await page.locator('[data-testid="warehouse-inbound-product-input"]').fill('UNSAVED-INBOUND-AUDIT');
+  await page.waitForTimeout(200);
+  const inboundDismissDialog = answerNextDialog(page, false);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  const inboundMessage = await inboundDismissDialog;
+  expect(inboundMessage.includes('未保存'), 'warehouse inbound navigation warning is unclear');
+  expect(await page.locator('[data-testid="warehouse-inbound-product-input"]').inputValue() === 'UNSAVED-INBOUND-AUDIT', 'warehouse inbound draft disappeared after navigation was dismissed');
+  recordStep('warehouse-inbound-navigation-warning');
+
+  const inboundAcceptDialog = answerNextDialog(page, true);
+  await page.evaluate(() => {
+    window.location.hash = '#dashboard';
+  });
+  await inboundAcceptDialog;
+  await page.waitForFunction(() => window.location.hash === '#dashboard', null, { timeout: 10000 });
+  recordStep('warehouse-inbound-confirm-leave');
+}
+
 async function main() {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   let browser;
@@ -171,6 +257,16 @@ async function main() {
     await seedLogin(productionPage);
     await verifyProductionBom(productionPage);
     await productionPage.close();
+
+    const adjustmentPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await seedLogin(adjustmentPage);
+    await verifyAdjustment(adjustmentPage);
+    await adjustmentPage.close();
+
+    const warehousePage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await seedLogin(warehousePage);
+    await verifyWarehouseForms(warehousePage);
+    await warehousePage.close();
 
     report.status = 'passed';
   } catch (error) {

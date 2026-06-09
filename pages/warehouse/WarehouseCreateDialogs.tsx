@@ -1,4 +1,5 @@
 import type { Dispatch, SetStateAction } from 'react';
+import { useUnsavedForm } from '../../app/useUnsavedForm';
 import type { Warehouse } from '../../services/warehouse.service';
 import type { LocationDraft, WarehouseDraft } from './warehouseWorkspaceTypes';
 
@@ -31,10 +32,25 @@ export function WarehouseCreateDialogs({
   handleCreateLocation,
   canWrite,
 }: WarehouseCreateDialogsProps) {
+  const warehouseForm = useUnsavedForm({
+    sourceId: 'warehouse-create-dialog',
+    label: '新建仓库',
+    open: showCreateWarehouse,
+    value: newWarehouse,
+  });
+  const locationForm = useUnsavedForm({
+    sourceId: 'warehouse-location-create-dialog',
+    label: '新建库位',
+    open: showCreateLocation,
+    value: newLocation,
+  });
+  const closeWarehouse = () => warehouseForm.requestClose(() => setShowCreateWarehouse(false));
+  const closeLocation = () => locationForm.requestClose(() => setShowCreateLocation(false));
+
   return (
     <>
       {showCreateWarehouse && (
-        <div data-testid="warehouse-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={() => setShowCreateWarehouse(false)}>
+        <div data-testid="warehouse-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={closeWarehouse}>
           <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">新建仓库</h3>
             {!canWrite && (
@@ -65,7 +81,7 @@ export function WarehouseCreateDialogs({
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowCreateWarehouse(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
+              <button data-testid="warehouse-create-cancel" onClick={closeWarehouse} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
               <button data-testid="warehouse-create-confirm" onClick={handleCreateWarehouse} disabled={!canWrite} className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">创建</button>
             </div>
           </div>
@@ -73,7 +89,7 @@ export function WarehouseCreateDialogs({
       )}
 
       {showCreateLocation && (
-        <div data-testid="warehouse-location-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={() => setShowCreateLocation(false)}>
+        <div data-testid="warehouse-location-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={closeLocation}>
           <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">新建库位</h3>
             <p className="text-sm text-slate-400 font-bold mb-6">在「{selectedWarehouse?.name}」下创建</p>
@@ -108,7 +124,7 @@ export function WarehouseCreateDialogs({
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button onClick={() => setShowCreateLocation(false)} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
+              <button data-testid="warehouse-location-create-cancel" onClick={closeLocation} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
               <button data-testid="warehouse-location-create-confirm" onClick={handleCreateLocation} disabled={!canWrite} className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">创建</button>
             </div>
           </div>

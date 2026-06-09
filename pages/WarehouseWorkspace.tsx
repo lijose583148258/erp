@@ -4,6 +4,7 @@ import {
   Building2, BarChart3
 } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
+import { useUnsavedForm } from '../app/useUnsavedForm';
 import { can } from '../app/permissions';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
 import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
@@ -91,6 +92,13 @@ const WarehouseWorkspace = () => {
   const [newWarehouse, setNewWarehouse] = useState<WarehouseDraft>({ code: '', name: '', type: 'physical' });
   const [showCreateLocation, setShowCreateLocation] = useState(false);
   const [newLocation, setNewLocation] = useState<LocationDraft>({ code: '', name: '', type: 'internal' });
+
+  useUnsavedForm({
+    sourceId: 'warehouse-inbound-form',
+    label: '应急补录 / 盘盈入库',
+    open: true,
+    value: inboundForm,
+  });
 
   // ── 数据加载 ──
   const loadWarehouses = useCallback(async () => {
