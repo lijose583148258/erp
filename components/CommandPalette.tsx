@@ -26,7 +26,7 @@ interface CommandItem {
     aliases?: readonly string[];
 }
 
-const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActiveTab: (tab: string) => void }> = ({
+const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActiveTab: (tab: string) => boolean }> = ({
     isOpen,
     onClose,
     setActiveTab
@@ -57,9 +57,9 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
         ...navigationCommands,
 
         // --- Actions ---
-        { id: 'act-new-order', title: t.actNewOrder, description: t.actNewOrderDesc, icon: <Plus className="w-5 h-5 text-blue-500" />, category: 'actions', action: () => { setActiveTab('orders'); window.dispatchEvent(new CustomEvent('command:create-order')); } },
-        { id: 'act-ocr-invoice', title: t.actOcrInvoice, description: t.actOcrInvoiceDesc, icon: <Zap className="w-5 h-5 text-amber-500" />, category: 'actions', action: () => { setActiveTab('orders'); window.dispatchEvent(new CustomEvent('command:ocr-invoice')); } },
-        { id: 'act-analyst', title: t.actAiAnalyst, description: t.actAiAnalystDesc, icon: <BarChart3 className="w-5 h-5 text-emerald-500" />, category: 'actions', action: () => { setActiveTab('dashboard'); notify('info', 'AI 正在准备深度分析报告...'); } },
+        { id: 'act-new-order', title: t.actNewOrder, description: t.actNewOrderDesc, icon: <Plus className="w-5 h-5 text-blue-500" />, category: 'actions', action: () => { if (setActiveTab('orders')) window.dispatchEvent(new CustomEvent('command:create-order')); } },
+        { id: 'act-ocr-invoice', title: t.actOcrInvoice, description: t.actOcrInvoiceDesc, icon: <Zap className="w-5 h-5 text-amber-500" />, category: 'actions', action: () => { if (setActiveTab('orders')) window.dispatchEvent(new CustomEvent('command:ocr-invoice')); } },
+        { id: 'act-analyst', title: t.actAiAnalyst, description: t.actAiAnalystDesc, icon: <BarChart3 className="w-5 h-5 text-emerald-500" />, category: 'actions', action: () => { if (setActiveTab('dashboard')) notify('info', 'AI 正在准备深度分析报告...'); } },
 
         // --- System ---
         { id: 'sys-theme', title: t.sysThemeSwitch, description: t.sysThemeSwitch, icon: theme === 'light' ? <Moon className="w-5 h-5" /> : <Sun className="w-5 h-5" />, category: 'system', action: toggleTheme },

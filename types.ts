@@ -475,4 +475,6 @@ export interface AppContextType {
   notify: (type: 'success' | 'error' | 'info' | 'warning', message: string) => void;
   t: any;
   setIsCommandPaletteOpen: (open: boolean) => void;
+  registerUnsavedChanges: (sourceId: string, label: string, dirty: boolean) => void;
+  confirmDiscardChanges: () => boolean;
 }

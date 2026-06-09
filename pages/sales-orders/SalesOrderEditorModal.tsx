@@ -8,6 +8,7 @@ import SalesOrderHeaderForm from './SalesOrderHeaderForm';
 import SalesOrderLineGrid from './SalesOrderLineGrid';
 import type { SalesOrderFormData } from './useSalesOrders';
 import type { SalesOrderLineErrors } from './salesOrderFormHelpers';
+import { useUnsavedForm } from '../../app/useUnsavedForm';
 
 type Props = {
     isOpen: boolean;
@@ -122,6 +123,13 @@ const SalesOrderEditorModal: React.FC<Props> = ({
     orderLineErrors,
 }) => {
     const [isAssistOpen, setIsAssistOpen] = React.useState(false);
+    const { requestClose } = useUnsavedForm({
+        sourceId: 'sales-order-editor',
+        label: isEditMode ? '销售订单编辑' : '新建销售订单',
+        open: isOpen,
+        value: formData,
+    });
+    const handleClose = () => requestClose(onClose);
 
     React.useEffect(() => {
         if (isOpen) {
@@ -205,7 +213,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                         </h2>
                         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{t.salesOrderDualTrackHint || '订单头走表单，订单明细走网格，减少混输和回读脱钩。'}</p>
                     </div>
-                    <button onClick={onClose} className="rounded-full bg-slate-100 p-4 text-slate-500 transition hover:rotate-90 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
+                    <button data-testid="sales-order-editor-close" onClick={handleClose} className="rounded-full bg-slate-100 p-4 text-slate-500 transition hover:rotate-90 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
                         <X size={24} />
                     </button>
                 </div>
@@ -395,7 +403,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                         </div>
 
                         <div className="flex justify-end gap-3">
-                            <button onClick={onClose} className="rounded-[18px] bg-slate-200 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+                            <button data-testid="sales-order-editor-cancel" onClick={handleClose} className="rounded-[18px] bg-slate-200 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
                                 {t.cancel || '取消'}
                             </button>
                             <button data-testid="sales-order-save-button" onClick={onSave} className="rounded-[18px] bg-blue-600 px-6 py-3 text-xs font-black uppercase tracking-[0.16em] text-white shadow-lg transition hover:bg-blue-700">

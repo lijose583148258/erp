@@ -8,7 +8,7 @@ import { renderAppContent } from './appContent';
 type AppShellResult = {
     isLoggedIn: boolean;
     activeTab: string;
-    setActiveTab: ReturnType<typeof useState<string>>[1];
+    setActiveTab: (tab: string) => boolean;
     language: Language;
     setLanguage: ReturnType<typeof useState<Language>>[1];
     theme: Theme;
@@ -44,7 +44,8 @@ export const useAppShell = (): AppShellResult => {
             return 'dashboard';
         }
     }, [normalizeActiveTab]);
-    const [activeTab, setActiveTab] = useState(readTabFromLocation);
+    const [activeTab, setActiveTabState] = useState(readTabFromLocation);
+    const [unsavedChanges, setUnsavedChanges] = useState<Record<string, string>>({});
     const [language, setLanguage] = useState<Language>(() => {
         try {
             const stored = window.localStorage.getItem('ailao.language');
@@ -86,6 +87,34 @@ export const useAppShell = (): AppShellResult => {
         }, 4000);
     }, []);
 
+    const registerUnsavedChanges = useCallback((sourceId: string, label: string, dirty: boolean) => {
+        setUnsavedChanges(prev => {
+            if (dirty) {
+                if (prev[sourceId] === label) return prev;
+                return { ...prev, [sourceId]: label };
+            }
+            if (!(sourceId in prev)) return prev;
+            const next = { ...prev };
+            delete next[sourceId];
+            return next;
+        });
+    }, []);
+
+    const confirmDiscardChanges = useCallback(() => {
+        const labels = Object.values(unsavedChanges);
+        if (!labels.length) return true;
+        return window.confirm(`${labels[0]}有未保存的更改，确定离开当前页面吗？`);
+    }, [unsavedChanges]);
+
+    const setActiveTab = useCallback((tab: string) => {
+        const normalizedTab = normalizeActiveTab(tab);
+        if (normalizedTab === activeTab) return true;
+        if (!confirmDiscardChanges()) return false;
+        setUnsavedChanges({});
+        setActiveTabState(normalizedTab);
+        return true;
+    }, [activeTab, confirmDiscardChanges, normalizeActiveTab]);
+
     useEffect(() => {
         const user = authService.getCurrentUser();
         if (user) {
@@ -113,11 +142,27 @@ export const useAppShell = (): AppShellResult => {
     useEffect(() => {
         const syncFromHash = () => {
             const nextTab = readTabFromLocation();
-            setActiveTab(prev => (prev === nextTab ? prev : nextTab));
+            if (nextTab === activeTab) return;
+            if (!confirmDiscardChanges()) {
+                window.history.replaceState(null, '', `#${activeTab}`);
+                return;
+            }
+            setUnsavedChanges({});
+            setActiveTabState(nextTab);
         };
         window.addEventListener('hashchange', syncFromHash);
         return () => window.removeEventListener('hashchange', syncFromHash);
-    }, [readTabFromLocation]);
+    }, [activeTab, confirmDiscardChanges, readTabFromLocation]);
+
+    useEffect(() => {
+        if (!Object.keys(unsavedChanges).length) return;
+        const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+            event.preventDefault();
+            event.returnValue = '';
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [unsavedChanges]);
 
     useEffect(() => {
         try {
@@ -163,6 +208,8 @@ export const useAppShell = (): AppShellResult => {
     };
 
     const handleLogout = () => {
+        if (!confirmDiscardChanges()) return;
+        setUnsavedChanges({});
         authService.logout();
         setIsLoggedIn(false);
         setCurrentUser({
@@ -258,7 +305,9 @@ export const useAppShell = (): AppShellResult => {
         notify,
         t,
         setIsCommandPaletteOpen,
-    }), [language, setLanguage, theme, toggleTheme, currency, setCurrency, currentUser, switchUser, formatPrice, notify, t]);
+        registerUnsavedChanges,
+        confirmDiscardChanges,
+    }), [language, setLanguage, theme, toggleTheme, currency, setCurrency, currentUser, switchUser, formatPrice, notify, t, registerUnsavedChanges, confirmDiscardChanges]);
 
     const content = useMemo(() => renderAppContent(activeTab), [activeTab]);
 

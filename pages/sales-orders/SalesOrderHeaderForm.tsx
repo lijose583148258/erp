@@ -153,6 +153,7 @@ const SalesOrderHeaderForm: React.FC<Props> = ({
                             hint={t.orderHeaderNotesHint || '跟客户约定、发运提醒、结算备注都放在订单头。'}
                         />
                         <textarea
+                            data-testid="sales-order-notes"
                             value={formData.notes}
                             onChange={(event) => updateOrderHeader('notes', event.target.value)}
                             placeholder={t.orderNotesPlaceholder || '填写这张订单的业务说明、交付要求、结算备注...'}

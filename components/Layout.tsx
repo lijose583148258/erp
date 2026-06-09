@@ -89,7 +89,7 @@ const ModuleBadge: React.FC<{ id: string; active?: boolean; size?: 'sm' | 'md' |
 interface LayoutProps {
   children: React.ReactNode;
   activeTab: string;
-  setActiveTab: (tab: string) => void;
+  setActiveTab: (tab: string) => boolean;
   onLogout?: () => void;
 }
 
@@ -221,14 +221,14 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
                 </div>
 
                 <div className="grid grid-cols-1 gap-2">
-                  <button onClick={() => { switchUser('manager', 'direct'); setShowPicker(null); setActiveTab('dashboard'); }} className="group relative w-full text-left p-3 rounded-2xl text-sm font-black border border-slate-50 dark:border-slate-800 hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/30 dark:hover:bg-blue-900/20 transition-all flex items-center">
+                  <button onClick={() => { if (!setActiveTab('dashboard')) return; switchUser('manager', 'direct'); setShowPicker(null); }} className="group relative w-full text-left p-3 rounded-2xl text-sm font-black border border-slate-50 dark:border-slate-800 hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/30 dark:hover:bg-blue-900/20 transition-all flex items-center">
                     <div className="p-2 bg-blue-100 dark:bg-blue-900/50 text-blue-600 rounded-xl mr-3 group-hover:scale-110 transition-transform"><Briefcase size={14} /></div>
                     <div>
                       <span>{t.roleManagerDirect}</span>
                       <p className="text-xs text-slate-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity">{t.directSalesDept}</p>
                     </div>
                   </button>
-                  <button onClick={() => { switchUser('manager', 'channel'); setShowPicker(null); setActiveTab('dashboard'); }} className="group relative w-full text-left p-3 rounded-2xl text-sm font-black border border-slate-50 dark:border-slate-800 hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/30 dark:hover:bg-blue-900/20 transition-all flex items-center">
+                  <button onClick={() => { if (!setActiveTab('dashboard')) return; switchUser('manager', 'channel'); setShowPicker(null); }} className="group relative w-full text-left p-3 rounded-2xl text-sm font-black border border-slate-50 dark:border-slate-800 hover:border-blue-200 dark:hover:border-blue-800 hover:bg-blue-50/30 dark:hover:bg-blue-900/20 transition-all flex items-center">
                     <div className="p-2 bg-indigo-100 dark:bg-indigo-900/50 text-indigo-600 rounded-xl mr-3 group-hover:scale-110 transition-transform"><Network size={14} /></div>
                     <div>
                       <span>{t.roleManagerChannel}</span>
@@ -243,7 +243,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
                   {(['admin', 'sales', 'warehouse', 'finance'] as UserRole[]).map(r => (
                     <button
                       key={r}
-                      onClick={() => { switchUser(r); setShowPicker(null); setActiveTab('dashboard'); }}
+                      onClick={() => { if (!setActiveTab('dashboard')) return; switchUser(r); setShowPicker(null); }}
                       className={`text-left p-3 rounded-2xl text-xs font-black transition-all ${currentUser.role === r ? 'bg-blue-600 text-white shadow-lg' : 'bg-slate-50 dark:bg-slate-800 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
                     >
                       <div className={`w-1.5 h-1.5 rounded-full mb-2 ${currentUser.role === r ? 'bg-white' : getRoleColor(r)}`}></div>

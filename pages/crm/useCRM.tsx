@@ -12,7 +12,7 @@ import { buildCRMColumns } from './CRMColumns';
 import { formatImportedCustomers, type ImportedCustomerRow } from './useCRMImport';
 
 export function useCRM() {
-  const { t, formatPrice, notify, currentUser, language } = useAppContext();
+  const { t, formatPrice, notify, currentUser, language, registerUnsavedChanges } = useAppContext();
   const managerSegmentScope =
     currentUser.role === 'manager' && currentUser.segment && currentUser.segment !== 'mixed'
       ? currentUser.segment
@@ -134,8 +134,9 @@ export function useCRM() {
     return () => {
       Object.values(customerSaveTimersRef.current).forEach((timer) => clearTimeout(timer as ReturnType<typeof setTimeout>));
       customerSaveTimersRef.current = {};
+      registerUnsavedChanges('crm-customer-autosave', '客户资料', false);
     };
-  }, []);
+  }, [registerUnsavedChanges]);
 
   const scheduleCustomerPersist = (nextCustomer: Customer, successMessage?: string) => {
     if (!canEditCustomer(nextCustomer)) {
@@ -146,6 +147,7 @@ export function useCRM() {
     const timerKey = nextCustomer.id;
     const existingTimer = customerSaveTimersRef.current[timerKey];
     if (existingTimer) clearTimeout(existingTimer);
+    registerUnsavedChanges('crm-customer-autosave', '客户资料正在保存', true);
 
     customerSaveTimersRef.current[timerKey] = setTimeout(() => {
       customerService
@@ -162,6 +164,9 @@ export function useCRM() {
         })
         .finally(() => {
           delete customerSaveTimersRef.current[timerKey];
+          if (Object.keys(customerSaveTimersRef.current).length === 0) {
+            registerUnsavedChanges('crm-customer-autosave', '客户资料正在保存', false);
+          }
         });
     }, 350);
   };

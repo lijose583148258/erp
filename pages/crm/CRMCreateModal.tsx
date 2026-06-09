@@ -15,6 +15,7 @@ import { splitCustomerTextList } from '../../utils/customerAlias';
 import { CRMCreatePreviewPanel } from './CRMCreatePreviewPanel';
 import { createEmptyAddress, createEmptyContact } from './CRMCustomerFormFactories';
 import { AddressCard, ContactCard } from './CRMCustomerFormCards';
+import { useUnsavedForm } from '../../app/useUnsavedForm';
 
 type Props = {
   t: any;
@@ -28,6 +29,13 @@ type Props = {
 
 export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, onCreate, onClose, lockedSegment = null }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const { requestClose } = useUnsavedForm({
+    sourceId: 'crm-create-customer',
+    label: '新建客户',
+    open: true,
+    value: newCustomer,
+  });
+  const handleClose = () => requestClose(onClose);
   const segmentMeta = {
     direct: { label: t.crmSegmentDirect || '内销直销', tone: 'bg-blue-50 text-blue-600 border-blue-200' },
     channel: { label: t.crmSegmentChannel || '分销渠道', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -105,7 +113,7 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
             <h2 className="mt-2 text-3xl font-black italic tracking-tight text-slate-900 dark:text-white">{t.crmCreateCustomerMaster || '新建客户主数据'}</h2>
             <p className="mt-2 text-sm font-medium text-slate-500">{t.crmCreateCustomerMasterHint || '先完成主档，再逐步补充站点、联系人、客户池与风控信息。'}</p>
           </div>
-          <button onClick={onClose} className="rounded-full bg-slate-100 p-3 text-slate-500 transition hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300">
+          <button data-testid="crm-create-close" onClick={handleClose} className="rounded-full bg-slate-100 p-3 text-slate-500 transition hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300">
             <X size={18} />
           </button>
         </div>

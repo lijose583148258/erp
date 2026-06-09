@@ -12,10 +12,11 @@ import type { NotifyFn } from './useSalesOrderWorkspaceData';
 
 type UseSalesOrderDraftOptions = {
     isCreateOpen: boolean;
+    isEditMode: boolean;
     notify: NotifyFn;
 };
 
-export const useSalesOrderDraft = ({ isCreateOpen, notify }: UseSalesOrderDraftOptions) => {
+export const useSalesOrderDraft = ({ isCreateOpen, isEditMode, notify }: UseSalesOrderDraftOptions) => {
     const [draftAvailable, setDraftAvailable] = useState(false);
     const [formData, setFormData] = useState<SalesOrderFormData>(initialOrderForm);
     const totals = useMemo(() => calculateOrderTotals(formData), [formData]);
@@ -25,6 +26,13 @@ export const useSalesOrderDraft = ({ isCreateOpen, notify }: UseSalesOrderDraftO
         const saved = localStorage.getItem('orderDraft');
         setDraftAvailable(Boolean(saved));
     }, [isCreateOpen]);
+
+    useEffect(() => {
+        if (!isCreateOpen || isEditMode) return;
+        if (JSON.stringify(formData) === JSON.stringify(initialOrderForm)) return;
+        localStorage.setItem('orderDraft', JSON.stringify(formData));
+        setDraftAvailable(true);
+    }, [formData, isCreateOpen, isEditMode]);
 
     const updateOrderHeader = <K extends keyof SalesOrderFormData>(field: K, value: SalesOrderFormData[K]) => {
         setFormData(prev => ({ ...prev, [field]: value }));

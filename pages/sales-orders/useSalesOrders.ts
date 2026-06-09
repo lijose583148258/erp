@@ -72,7 +72,7 @@ export const useSalesOrders = () => {
         importOrderItemsFromGrid,
         loadDraft,
         clearDraft,
-    } = useSalesOrderDraft({ isCreateOpen, notify });
+    } = useSalesOrderDraft({ isCreateOpen, isEditMode, notify });
 
     const canAuditCommission = canAuditCommissionForUser(currentUser);
     const canRecordPayment = canRecordPaymentForUser(currentUser);

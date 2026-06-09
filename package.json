@@ -30,6 +30,7 @@
                     "audit:ui:human-boundary":  "node .\\scripts\\human-layout-boundary-audit-v1.cjs",
                     "audit:documents:responsibility":  "node .\\scripts\\document-responsibility-gate-v1.cjs",
                     "audit:ui:complex-input-governance":  "node .\\scripts\\complex-input-ux-governance-audit-v1.cjs",
+                    "audit:ui:unsaved-changes":  "node .\\scripts\\unsaved-changes-browser-audit-v1.cjs",
                     "audit:masterdata:search-readback":  "node .\\scripts\\masterdata-search-readback-api-audit-v1.cjs",
                     "audit:ui:samples-rma":  "node .\\scripts\\samples-rma-browser-audit-v1.cjs",
                     "audit:ui:receipt-discrepancy-rma":  "node .\\scripts\\receipt-discrepancy-rma-link-browser-audit-v1.cjs",
