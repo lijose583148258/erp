@@ -93,7 +93,12 @@ export async function collectRuntimeResourceChecks(
   checks.push(health, home);
   checks.push(await fetchRuntimeText(appUrl, '/manifest.json', requestTimeoutMs));
   checks.push(await fetchRuntimeText(appUrl, '/icon.svg', requestTimeoutMs));
-  checks.push(await fetchRuntimeText(appUrl, '/sw.js', requestTimeoutMs));
+  const serviceWorker = await fetchRuntimeText(appUrl, '/sw.js', requestTimeoutMs);
+  checks.push({
+    ...serviceWorker,
+    name: 'service-worker-disabled',
+    ok: serviceWorker.status === 404,
+  });
 
   const assetPaths = Array.from(home.text.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g))
     .map(match => match[1])
