@@ -37,6 +37,23 @@ function Copy-Directory {
   }
 }
 
+function Remove-PackagedDatabaseFiles {
+  param([Parameter(Mandatory = $true)][string]$Directory)
+
+  $full = [System.IO.Path]::GetFullPath($Directory)
+  $targetRoot = [System.IO.Path]::GetFullPath($target)
+  if (-not $full.StartsWith($targetRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refuse to clean database files outside clean runtime package: $full"
+  }
+  if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+    return
+  }
+
+  Get-ChildItem -LiteralPath $full -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '\.db($|-journal$|-wal$|-shm$)' } |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+}
+
 function Write-ArchiveMarker {
   param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
@@ -120,7 +137,9 @@ New-Item -ItemType Directory -Path $target -Force | Out-Null
 
 Copy-Directory -Source (Join-Path $source 'dist') -Destination (Join-Path $target 'dist')
 Copy-Directory -Source (Join-Path $source 'backend\dist') -Destination (Join-Path $target 'backend\dist')
-Copy-Directory -Source (Join-Path $source 'backend\prisma') -Destination (Join-Path $target 'backend\prisma')
+$targetPrisma = Join-Path $target 'backend\prisma'
+Copy-Directory -Source (Join-Path $source 'backend\prisma') -Destination $targetPrisma
+Remove-PackagedDatabaseFiles -Directory $targetPrisma
 Copy-Directory -Source (Join-Path $source 'backend\node_modules') -Destination (Join-Path $target 'backend\node_modules')
 Copy-Directory -Source (Join-Path $source 'scripts') -Destination (Join-Path $target 'scripts')
 
@@ -164,7 +183,8 @@ $envProduction = @(
   'BACKUP_DIR=D:\AilaoDaRuntime\backups',
   'UPLOAD_DIR=D:\AilaoDaRuntime\uploads',
   'LOG_DIR=D:\AilaoDaRuntime\logs',
-  'CORS_ORIGIN=http://127.0.0.1:5001,http://localhost:5001'
+  'CORS_ORIGIN=http://127.0.0.1:5001,http://localhost:5001',
+  'AILAODA_BLOCK_DEMO_CREDENTIALS=1'
 )
 $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText((Join-Path $target '.env.production'), (($envProduction -join "`n") + "`n"), $utf8NoBom)

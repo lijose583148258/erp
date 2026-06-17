@@ -72,7 +72,13 @@ export const useSalesOrders = () => {
         importOrderItemsFromGrid,
         loadDraft,
         clearDraft,
-    } = useSalesOrderDraft({ isCreateOpen, isEditMode, notify });
+    } = useSalesOrderDraft({
+        isCreateOpen,
+        isEditMode,
+        orderId: selectedOrder?.id,
+        userId: currentUser.id,
+        notify,
+    });
 
     const canAuditCommission = canAuditCommissionForUser(currentUser);
     const canRecordPayment = canRecordPaymentForUser(currentUser);
@@ -172,6 +178,10 @@ export const useSalesOrders = () => {
             notify('warning', t.ocrMissingText);
             return;
         }
+        if (ocrText.length > 10000) {
+            notify('error', `OCR 文本已超出 ${ocrText.length - 10000} 个字符，请精简后再解析。`);
+            return;
+        }
         const parsed = parseOcrDocument(ocrText, ocrDocType);
         setOcrResult(parsed);
     };
@@ -191,7 +201,7 @@ export const useSalesOrders = () => {
         try {
             if (!navigator.onLine) {
                 notify('warning', t.offlineMode || '当前为离线模式，已记录文件名；请联网后重新上传图片完成识别。');
-                saveOfflineProductScan(file.name);
+                saveOfflineProductScan(file.name, currentUser.id);
                 return;
             }
             const result = await freeAIService.analyzeProductLabel(file);
@@ -206,7 +216,7 @@ export const useSalesOrders = () => {
     };
 
     const syncOfflineData = () => {
-        const offlineScanCount = getOfflineProductScanCount();
+        const offlineScanCount = getOfflineProductScanCount(currentUser.id);
         if (offlineScanCount === 0) {
             notify('info', t.noOfflineData || '没有可同步的离线数据');
             return;
@@ -233,6 +243,10 @@ export const useSalesOrders = () => {
     const handleSaveOrder = async () => {
         if (!formData.customerId) {
             notify('error', '请选择客户。');
+            return;
+        }
+        if (formData.notes.length > 1000) {
+            notify('error', `订单备注已超出 ${formData.notes.length - 1000} 个字符，请精简后再保存。`);
             return;
         }
         const nextLineErrors = validateSalesOrderItems(formData.items);

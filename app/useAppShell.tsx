@@ -22,6 +22,7 @@ type AppShellResult = {
     currentUser: CurrentUser;
     handleLogin: (username: string, password: string) => Promise<void>;
     handleLogout: () => void;
+    handlePasswordChanged: (oldPassword: string, newPassword: string) => Promise<void>;
     switchUser: (role: UserRole, segment?: 'direct' | 'channel' | 'mixed') => void;
     formatPrice: (amount: number, fromCurrency?: Currency) => string;
     t: Record<string, string>;
@@ -222,6 +223,16 @@ export const useAppShell = (): AppShellResult => {
         notify('info', t.logoutSuccess);
     };
 
+    const handlePasswordChanged = async (oldPassword: string, newPassword: string) => {
+        await authService.changePassword(oldPassword, newPassword);
+        setCurrentUser(prev => {
+            const next = { ...prev, mustChangePassword: false };
+            localStorage.setItem('user', JSON.stringify(next));
+            return next;
+        });
+        notify('success', '密码已更新');
+    };
+
     const switchUser = useCallback((role: UserRole, segment: 'direct' | 'channel' | 'mixed' = 'mixed') => {
         const rolesData: Record<string, Partial<CurrentUser>> = {
             admin: { name: '超级管理员', avatar: '' },
@@ -328,6 +339,7 @@ export const useAppShell = (): AppShellResult => {
         currentUser,
         handleLogin,
         handleLogout,
+        handlePasswordChanged,
         switchUser,
         formatPrice,
         t,

@@ -8,6 +8,8 @@ model User {
   segment       String?   @map("segment")
   avatar        String?
   isActive      Boolean   @default(true) @map("is_active")
+  mustChangePassword Boolean @default(false) @map("must_change_password")
+  passwordChangedAt DateTime? @map("password_changed_at")
   lastLoginAt   DateTime? @map("last_login_at")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")

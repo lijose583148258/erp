@@ -38,7 +38,9 @@ async function seedLogin(page) {
     localStorage.setItem('token', token);
     localStorage.setItem('user', JSON.stringify(appUser));
     localStorage.setItem('ailao.language', 'zh');
-    localStorage.removeItem('orderDraft');
+    Object.keys(localStorage)
+      .filter((key) => key.startsWith('ailao.salesOrderDraft.'))
+      .forEach((key) => localStorage.removeItem(key));
   }, { token, user });
 }
 
@@ -71,7 +73,7 @@ async function verifySalesOrder(page) {
   const modal = page.locator('[data-testid="sales-order-editor-modal"]');
   await modal.waitFor({ state: 'visible', timeout: 10000 });
   await modal.locator('[data-testid="sales-order-notes"]').fill('UNSAVED-AUDIT');
-  await page.waitForTimeout(300);
+  await page.waitForTimeout(1000);
 
   const dismissDialog = answerNextDialog(page, false);
   await modal.locator('[data-testid="sales-order-editor-close"]').click();
@@ -79,15 +81,28 @@ async function verifySalesOrder(page) {
   expect(dismissMessage.includes('未保存'), 'sales order close warning is unclear');
   expect(await modal.isVisible(), 'sales order modal closed after warning was dismissed');
 
-  const draft = await page.evaluate(() => localStorage.getItem('orderDraft'));
-  expect(Boolean(draft), 'sales order draft was not persisted');
+  const draftState = await page.evaluate(() => {
+    const user = JSON.parse(localStorage.getItem('user') || '{}');
+    const expectedKey = user.id ? `ailao.salesOrderDraft.${user.id}.create` : '';
+    return {
+      userId: user.id,
+      expectedKey,
+      draft: expectedKey ? localStorage.getItem(expectedKey) : null,
+      legacyDraft: localStorage.getItem('orderDraft'),
+    };
+  });
+  expect(Boolean(draftState.userId), 'logged-in user id is missing');
+  expect(Boolean(draftState.draft), 'user-scoped sales order draft was not persisted');
+  expect(draftState.legacyDraft === null, 'legacy global orderDraft key should not be used');
   recordStep('sales-order-warning-and-draft');
 
   const acceptDialog = answerNextDialog(page, true);
   await modal.locator('[data-testid="sales-order-editor-close"]').click();
   await acceptDialog;
   await modal.waitFor({ state: 'hidden', timeout: 10000 });
-  expect(Boolean(await page.evaluate(() => localStorage.getItem('orderDraft'))), 'sales order draft disappeared after close');
+  expect(Boolean(await page.evaluate(() => Object.keys(localStorage)
+    .filter((key) => key.startsWith('ailao.salesOrderDraft.'))
+    .some((key) => Boolean(localStorage.getItem(key))))), 'sales order draft disappeared after close');
   recordStep('sales-order-confirm-close');
 }
 

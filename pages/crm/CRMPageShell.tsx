@@ -14,7 +14,7 @@ export function CRMPageShell({ title, subtitle, children }: Props) {
           <h1 className="text-3xl font-black text-slate-900 dark:text-white tracking-tighter leading-none italic uppercase">
             {title}
           </h1>
-          <p className="text-slate-500 dark:text-slate-400 font-bold text-[10px] uppercase tracking-[0.2em] mt-3 opacity-60">
+          <p className="mt-2 text-sm font-medium text-slate-600 dark:text-slate-300">
             {subtitle}
           </p>
         </div>

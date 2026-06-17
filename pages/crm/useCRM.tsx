@@ -7,9 +7,31 @@ import { useAppContext } from '../../app/AppContext';
 import { getCustomerDisplayName } from '../../utils/customerName';
 import { getCustomerPoolState } from '../../utils/customerPool';
 import { normalizeCustomerAddresses } from '../../utils/customerAddressV2';
-import { matchesScopedSearch } from '../../utils/scopedSearch';
 import { buildCRMColumns } from './CRMColumns';
 import { formatImportedCustomers, type ImportedCustomerRow } from './useCRMImport';
+
+type CRMUrlState = {
+  viewMode: 'my' | 'public';
+  segmentFilter: 'all' | 'direct' | 'channel' | 'mixed';
+  searchKeyword: string;
+  currentPage: number;
+};
+
+const readCRMUrlState = (): CRMUrlState => {
+  const params = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
+  const view = params.get('crmView');
+  const segment = params.get('crmSegment');
+  const page = Number(params.get('crmPage'));
+  return {
+    viewMode: view === 'public' ? 'public' as const : 'my' as const,
+    segmentFilter:
+      segment === 'direct' || segment === 'channel' || segment === 'mixed'
+        ? segment
+        : 'all' as const,
+    searchKeyword: params.get('crmSearch') || '',
+    currentPage: Number.isInteger(page) && page > 0 ? page : 1,
+  };
+};
 
 export function useCRM() {
   const { t, formatPrice, notify, currentUser, language, registerUnsavedChanges } = useAppContext();
@@ -19,14 +41,23 @@ export function useCRM() {
       : null;
   const canCreateCustomer = currentUser.role === 'admin' || currentUser.role === 'manager' || currentUser.role === 'sales';
   const canImportCustomer = currentUser.role === 'admin' || currentUser.role === 'manager';
+  const [initialUrlState] = useState(readCRMUrlState);
 
   const [data, setData] = useState<Customer[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+  const [currentPage, setCurrentPage] = useState(initialUrlState.currentPage);
+  const [pageSize] = useState(30);
+  const [totalCustomers, setTotalCustomers] = useState(0);
+  const [totalPages, setTotalPages] = useState(1);
+  const [reloadVersion, setReloadVersion] = useState(0);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [aiInsight, setAiInsight] = useState<string | null>(null);
   const [loadingAi, setLoadingAi] = useState(false);
-  const [viewMode, setViewMode] = useState<'my' | 'public'>('my');
-  const [segmentFilter, setSegmentFilter] = useState<'all' | 'direct' | 'channel' | 'mixed'>('all');
-  const [searchKeyword, setSearchKeyword] = useState('');
+  const [viewMode, setViewMode] = useState<'my' | 'public'>(initialUrlState.viewMode);
+  const [segmentFilter, setSegmentFilter] = useState<'all' | 'direct' | 'channel' | 'mixed'>(
+    managerSegmentScope || initialUrlState.segmentFilter,
+  );
+  const [searchKeyword, setSearchKeyword] = useState(initialUrlState.searchKeyword);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [poolReason, setPoolReason] = useState('');
@@ -44,9 +75,25 @@ export function useCRM() {
   const [loadingPoolHistory, setLoadingPoolHistory] = useState(false);
   const [salesAssignees, setSalesAssignees] = useState<TeamMember[]>([]);
   const licenseInputRef = useRef<HTMLInputElement>(null);
+  const hasMountedFiltersRef = useRef(false);
   const customerSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
   const selectedCustomerRef = useRef<Customer | null>(null);
   const selectedCustomerId = selectedCustomer?.id ?? null;
+  const emptyScopeStats = {
+    total: 0,
+    publicPool: 0,
+    internalPool: 0,
+    privatePool: 0,
+    overdueAmount: 0,
+    creditHoldCount: 0,
+    shipmentHoldCount: 0,
+  };
+  const [scopeStats, setScopeStats] = useState(emptyScopeStats);
+  const [segmentBreakdown, setSegmentBreakdown] = useState<Array<typeof emptyScopeStats & { segment: 'direct' | 'channel' | 'mixed' }>>([
+    { ...emptyScopeStats, segment: 'direct' },
+    { ...emptyScopeStats, segment: 'channel' },
+    { ...emptyScopeStats, segment: 'mixed' },
+  ]);
 
   const canEditCustomer = (customer: Customer | null | undefined) => {
     if (!customer) return false;
@@ -104,15 +151,89 @@ export function useCRM() {
   }, [selectedCustomerId, notify]);
 
   useEffect(() => {
-    customerService.getAll().then((rows) => {
-      setData(
-        rows.map((row) => ({
-          ...row,
-          displayName: getCustomerDisplayName(row, language),
-        })),
-      );
-    });
-  }, [language]);
+    if (!hasMountedFiltersRef.current) {
+      hasMountedFiltersRef.current = true;
+      return;
+    }
+    setCurrentPage(1);
+  }, [searchKeyword, segmentFilter, viewMode]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const url = new URL(window.location.href);
+      if (viewMode === 'my') url.searchParams.delete('crmView');
+      else url.searchParams.set('crmView', viewMode);
+      if (segmentFilter === 'all') url.searchParams.delete('crmSegment');
+      else url.searchParams.set('crmSegment', segmentFilter);
+      if (searchKeyword.trim()) url.searchParams.set('crmSearch', searchKeyword.trim());
+      else url.searchParams.delete('crmSearch');
+      if (currentPage === 1) url.searchParams.delete('crmPage');
+      else url.searchParams.set('crmPage', String(currentPage));
+      window.history.replaceState(window.history.state, '', url);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [currentPage, searchKeyword, segmentFilter, viewMode]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      setIsLoading(true);
+      customerService
+        .getPage({
+          page: currentPage,
+          pageSize,
+          search: searchKeyword,
+          segment: segmentFilter === 'all' ? undefined : segmentFilter,
+          viewMode,
+        }, { signal: controller.signal })
+        .then((result) => {
+          setData(result.rows.map((row) => ({
+            ...row,
+            displayName: getCustomerDisplayName(row, language),
+          })));
+          setTotalCustomers(result.total);
+          setTotalPages(result.totalPages);
+          if (currentPage > result.totalPages) setCurrentPage(result.totalPages);
+        })
+        .catch((error) => {
+          if (error?.name !== 'CanceledError' && error?.name !== 'AbortError') {
+            notify('error', '客户列表加载失败');
+          }
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setIsLoading(false);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [currentPage, language, notify, pageSize, reloadVersion, searchKeyword, segmentFilter, viewMode]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    customerService
+      .getStats({ signal: controller.signal })
+      .then((stats) => {
+        setScopeStats({
+          total: stats.total,
+          publicPool: stats.publicPool,
+          internalPool: stats.internalPool,
+          privatePool: stats.privatePool,
+          overdueAmount: stats.overdueAmount,
+          creditHoldCount: stats.creditHoldCount,
+          shipmentHoldCount: stats.shipmentHoldCount,
+        });
+        setSegmentBreakdown(stats.segmentBreakdown);
+      })
+      .catch((error) => {
+        if (error?.name !== 'CanceledError' && error?.name !== 'AbortError') {
+          notify('error', '客户统计加载失败');
+        }
+      });
+    return () => controller.abort();
+  }, [notify, reloadVersion]);
 
   useEffect(() => {
     if (currentUser.role !== 'admin' && currentUser.role !== 'manager') {
@@ -215,87 +336,7 @@ export function useCRM() {
     }
   }, [data, selectedCustomer]);
 
-  const visibleScopeData = useMemo(() => {
-    return data.filter((customer) => {
-      const normalizedSegment = customer.segment || 'mixed';
-      return !managerSegmentScope || normalizedSegment === managerSegmentScope || normalizedSegment === 'mixed';
-    });
-  }, [data, managerSegmentScope]);
-
-  const filteredData = useMemo(() => {
-    return visibleScopeData.filter((c) => {
-      const normalizedSegment = c.segment || 'mixed';
-      const normalizedPool = getCustomerPoolState(c);
-      const matchesPool = viewMode === 'public' ? normalizedPool === 'public' : normalizedPool !== 'public';
-      const matchesSegment = segmentFilter === 'all' ? true : normalizedSegment === segmentFilter;
-      const matchesKeyword = matchesScopedSearch(
-        [
-          c.id,
-          c.name,
-          c.nameZh,
-          c.nameEn,
-          c.nameVi,
-          c.displayName,
-          c.salespersonName,
-          ...(c.nameAliases || []),
-          ...(c.contacts || []).flatMap((contact) => [
-            contact.name,
-            contact.role,
-            contact.position,
-            contact.phone,
-            contact.email,
-            contact.mobile,
-            contact.whatsapp,
-            contact.wechat,
-            contact.department,
-            contact.siteLabel,
-          ]),
-          ...(c.addresses || []).flatMap((address) => [
-            address.label,
-            address.fullAddress,
-            address.city,
-            address.region,
-            address.countryCode,
-            address.registeredName,
-            address.registrationNo,
-            address.taxNo,
-          ]),
-        ],
-        searchKeyword,
-      );
-      return matchesPool && matchesSegment && matchesKeyword;
-    });
-  }, [visibleScopeData, viewMode, segmentFilter, searchKeyword]);
-
-  const scopeStats = useMemo(() => {
-    return {
-      total: visibleScopeData.length,
-      publicPool: visibleScopeData.filter((customer) => getCustomerPoolState(customer) === 'public').length,
-      internalPool: visibleScopeData.filter((customer) => getCustomerPoolState(customer) === 'internal').length,
-      privatePool: visibleScopeData.filter((customer) => getCustomerPoolState(customer) === 'private').length,
-      overdueAmount: visibleScopeData.reduce((sum, customer) => sum + Number(customer.overdueAmount || 0), 0),
-      creditHoldCount: visibleScopeData.filter((customer) => Boolean(customer.creditHold)).length,
-      shipmentHoldCount: visibleScopeData.filter((customer) => Boolean(customer.shipmentHold)).length,
-    };
-  }, [visibleScopeData]);
-
-  const segmentBreakdown = useMemo(() => {
-    const segments: Array<'direct' | 'channel' | 'mixed'> = ['direct', 'channel', 'mixed'];
-
-    return segments.map((segment) => {
-      const rows = visibleScopeData.filter((customer) => (customer.segment || 'mixed') === segment);
-      return {
-        segment,
-        total: rows.length,
-        publicPool: rows.filter((customer) => getCustomerPoolState(customer) === 'public').length,
-        internalPool: rows.filter((customer) => getCustomerPoolState(customer) === 'internal').length,
-        privatePool: rows.filter((customer) => getCustomerPoolState(customer) === 'private').length,
-        overdueAmount: rows.reduce((sum, customer) => sum + Number(customer.overdueAmount || 0), 0),
-        creditHoldCount: rows.filter((customer) => Boolean(customer.creditHold)).length,
-        shipmentHoldCount: rows.filter((customer) => Boolean(customer.shipmentHold)).length,
-      };
-    });
-  }, [visibleScopeData]);
+  const filteredData = data;
 
   const [newCustomer, setNewCustomer] = useState<Partial<Customer>>({
     name: '',
@@ -332,6 +373,21 @@ export function useCRM() {
       notify('error', t.custRequired);
       return;
     }
+    const aliases = newCustomer.nameAliases || [];
+    const invalidAlias = aliases.find((alias) => String(alias).length > 160);
+    if (aliases.length > 50 || invalidAlias) {
+      notify('error', '别名最多 50 个，每个最多 160 个字符，请精简后再创建。');
+      return;
+    }
+    const invalidAddress = (newCustomer.addresses || []).find((address) => String(address.fullAddress || '').length > 500);
+    if (invalidAddress) {
+      notify('error', '完整地址最多 500 个字符，请精简后再创建。');
+      return;
+    }
+    if (String(newCustomer.notes || '').length > 1000) {
+      notify('error', '客户备注最多 1000 个字符，请精简后再创建。');
+      return;
+    }
 
     setIsSubmitting(true);
     try {
@@ -346,6 +402,8 @@ export function useCRM() {
       } as Customer);
 
       setData((prev) => [{ ...created, displayName: getCustomerDisplayName(created, language) }, ...prev]);
+      setCurrentPage(1);
+      setReloadVersion((version) => version + 1);
       setIsCreateOpen(false);
       setNewCustomer({
         name: '',
@@ -372,12 +430,22 @@ export function useCRM() {
   const handleImport = async (newData: ImportedCustomerRow[]) => {
     try {
       const formattedData = formatImportedCustomers(newData, managerSegmentScope);
-      const created = await customerService.import(formattedData);
-      setData(created.map((row) => ({ ...row, displayName: getCustomerDisplayName(row, language) })));
-      notify('success', `${t.custImportSuccess}: ${created.length}`);
+      await customerService.import(formattedData);
+      setCurrentPage(1);
+      setReloadVersion((version) => version + 1);
+      notify('success', `${t.custImportSuccess}: ${formattedData.length}`);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : t.custImportFail);
     }
+  };
+
+  const handleExport = async () => {
+    await customerService.downloadExport({
+      search: searchKeyword,
+      segment: segmentFilter === 'all' ? undefined : segmentFilter,
+      viewMode,
+    });
+    notify('success', '客户数据已导出');
   };
 
   const fetchAiInsight = async (customer: Customer) => {
@@ -457,6 +525,7 @@ export function useCRM() {
       });
       setData((prev) => prev.map((c) => (c.id === updated.id ? { ...updated, displayName: getCustomerDisplayName(updated, language) } : c)));
       setSelectedCustomer(updated);
+      setReloadVersion((version) => version + 1);
       notify('success', '客户池已更新');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '客户池更新失败');
@@ -472,6 +541,7 @@ export function useCRM() {
     formatPrice,
     notify,
     data,
+    isLoading,
     filteredData,
     selectedCustomer,
     setSelectedCustomer,
@@ -484,6 +554,11 @@ export function useCRM() {
     managerSegmentScope,
     scopeStats,
     segmentBreakdown,
+    currentPage,
+    pageSize,
+    totalCustomers,
+    totalPages,
+    setCurrentPage,
     viewMode,
     setViewMode,
     segmentFilter,
@@ -500,6 +575,7 @@ export function useCRM() {
     handleCreateCustomer,
     handleUpdateCustomerMeta,
     handleImport,
+    handleExport,
     fetchAiInsight,
     handleAddContact,
     updateContact,

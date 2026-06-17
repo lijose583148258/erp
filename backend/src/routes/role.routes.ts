@@ -9,6 +9,7 @@ import {
   updateRole,
 } from '../services/authorization-policy.service';
 import { ALL_PERMISSION_CODES } from '../permissions/permissionRegistry';
+import { validateRolePolicyGrant } from '../services/role-assignment-policy.service';
 
 const router = Router();
 
@@ -47,6 +48,15 @@ router.post(
   validateRequest,
   authRoute(async (req, res) => {
     try {
+      const policyError = await validateRolePolicyGrant(
+        req,
+        req.body.code,
+        req.body.permissions || [],
+        req.body.dataScopes || [],
+      );
+      if (policyError) {
+        return res.status(403).json({ success: false, message: policyError });
+      }
       const role = await createRole(req.body, req.user?.userId);
       res.status(201).json({ success: true, data: role, message: '角色创建成功' });
     } catch (error) {
@@ -67,7 +77,16 @@ router.put(
   validateRequest,
   authRoute(async (req, res) => {
     try {
-      const role = await updateRole(req.params.code, req.body);
+      const policyError = await validateRolePolicyGrant(
+        req,
+        req.params.code,
+        req.body.permissions || [],
+        req.body.dataScopes || [],
+      );
+      if (policyError) {
+        return res.status(403).json({ success: false, message: policyError });
+      }
+      const role = await updateRole(req.params.code, req.body, req.user?.userId);
       res.json({ success: true, data: role, message: '角色更新成功' });
     } catch (error) {
       res.status(400).json({

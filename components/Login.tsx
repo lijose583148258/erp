@@ -14,6 +14,8 @@ const copy = {
     subtitle: '化工贸易管理平台',
     welcome: '欢迎回来',
     description: '请输入账号信息登录系统',
+    accountGuideTitle: '正式使用请登录员工个人账号',
+    accountGuide: '管理员在“用户、角色与权限”中为员工创建账号。默认演示账号仅用于初始化与验收，发布安全模式下不会直接进入业务区。',
     username: '用户名 / 邮箱',
     password: '密码',
     usernamePlaceholder: '请输入用户名',
@@ -36,6 +38,8 @@ const copy = {
     subtitle: 'Chemical Trade Management Platform',
     welcome: 'Welcome Back',
     description: 'Sign in to continue',
+    accountGuideTitle: 'Use an employee account for daily work',
+    accountGuide: 'Admins create employee accounts in Users, Roles, and Permissions. Default demo credentials are only for setup and checks, and cannot enter business pages in release security mode.',
     username: 'Username / Email',
     password: 'Password',
     usernamePlaceholder: 'Enter username',
@@ -58,6 +62,8 @@ const copy = {
     subtitle: 'Nền tảng quản lý thương mại hóa chất',
     welcome: 'Chào mừng trở lại',
     description: 'Đăng nhập để tiếp tục',
+    accountGuideTitle: 'Dung tai khoan nhan vien de lam viec',
+    accountGuide: 'Quan tri tao tai khoan nhan vien trong Nguoi dung, vai tro va quyen. Tai khoan demo mac dinh chi dung de khoi tao va kiem tra, khong vao khu nghiep vu o che do phat hanh.',
     username: 'Tên đăng nhập / Email',
     password: 'Mật khẩu',
     usernamePlaceholder: 'Nhập tên đăng nhập',
@@ -193,6 +199,11 @@ const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) =>
               <div className="text-center space-y-2">
                 <h2 className="text-2xl font-black text-slate-800 dark:text-white">{text.welcome}</h2>
                 <p className="text-sm text-slate-600 dark:text-slate-400">{text.description}</p>
+              </div>
+
+              <div className="rounded-2xl border border-blue-200 bg-blue-50 px-4 py-3 text-left dark:border-blue-900 dark:bg-blue-950/30">
+                <div className="text-sm font-black text-blue-900 dark:text-blue-100">{text.accountGuideTitle}</div>
+                <p className="mt-1 text-xs font-bold leading-5 text-blue-800 dark:text-blue-200">{text.accountGuide}</p>
               </div>
 
               <form onSubmit={handleSubmit} className="space-y-4">

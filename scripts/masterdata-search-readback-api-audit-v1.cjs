@@ -209,6 +209,15 @@ async function searchCustomers(token, keyword) {
   return unwrapList(response);
 }
 
+async function verifyCustomerPagination(token) {
+  const response = await apiFetch('/customers?page=1&pageSize=5&viewMode=my', {}, token);
+  must(response.ok, `customer pagination failed: ${response.status}`, response.json);
+  must(Number(response.json?.meta?.page) === 1, 'customer pagination page meta mismatch', response.json);
+  must(Number(response.json?.meta?.pageSize) === 5, 'customer pagination pageSize meta mismatch', response.json);
+  must(Number(response.json?.meta?.total) >= 0, 'customer pagination total meta missing', response.json);
+  must(Array.isArray(response.json?.data) && response.json.data.length <= 5, 'customer pagination returned too many rows', response.json);
+}
+
 async function searchSuppliers(token, keyword) {
   const response = await apiFetch(`/procurement/suppliers?pageSize=50&search=${encodeURIComponent(keyword)}`, {}, token);
   must(response.ok, `supplier search failed for ${keyword}: ${response.status}`, response.json);
@@ -250,11 +259,13 @@ async function main() {
       DATA.customer.contact,
       DATA.customer.phone,
       DATA.customer.email,
+      DATA.customer.legalAddress,
     ];
     for (const key of customerSearchKeys) {
       const rows = await withTimeout(`customer-search-${key.slice(0, 24)}`, 15000, () => searchCustomers(token, key));
       must(Boolean(findByNames(rows, [DATA.customer.nameZh, DATA.customer.nameEn, DATA.customer.nameVi])), `customer not found by ${key}`, { key, rows: rows.slice(0, 3) });
     }
+    await withTimeout('customer-pagination-meta', 15000, () => verifyCustomerPagination(token));
 
     const supplierSearchKeys = [
       DATA.supplier.nameZh,

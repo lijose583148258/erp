@@ -17,6 +17,7 @@ const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
 const ADMIN = { username: 'admin', password: 'admin123' };
 const ROLE_CODE = `team_writer_no_auth_${RUN_ID}`;
+const DELEGATED_ROLE_CODE = `delegated_role_admin_${RUN_ID}`;
 const OPERATOR = {
   username: `team_writer_${RUN_ID}`,
   password: 'Audit12345',
@@ -137,6 +138,22 @@ async function createRole(adminToken) {
   return role;
 }
 
+async function createDelegatedRoleAdmin(adminToken) {
+  const response = await apiFetch('/roles', {
+    method: 'POST',
+    data: {
+      code: DELEGATED_ROLE_CODE,
+      name: `受限角色管理员 ${RUN_ID}`,
+      description: 'Must not grant permissions or scopes beyond its own ceiling',
+      isActive: true,
+      dataScopes: ['team_customers'],
+      permissions: ['dashboard.read', 'team.read', 'authorization.roles.manage'],
+    },
+  }, adminToken);
+  expectStatus(response, [201], 'create delegated role administrator');
+  return dataOf(response);
+}
+
 async function createMember(token, payload, expectedStatuses, label) {
   const response = await apiFetch('/team', {
     method: 'POST',
@@ -189,6 +206,7 @@ async function main() {
   try {
     const admin = await login(ADMIN, 'admin');
     await createRole(admin.token);
+    const delegatedRole = await createDelegatedRoleAdmin(admin.token);
 
     const operatorResponse = await createMember(admin.token, {
       username: OPERATOR.username,
@@ -237,6 +255,56 @@ async function main() {
     }, operator.token);
     expectStatus(registerAttempt, [403], 'team-writer-cannot-register-finance-user');
     recordStep({ step: 'team-writer-cannot-register-finance-user', result: 'passed', actualStatus: registerAttempt.status });
+
+    const delegatedUserResponse = await createMember(admin.token, {
+      username: `delegated_role_admin_${RUN_ID}`,
+      password: OPERATOR.password,
+      role: DELEGATED_ROLE_CODE,
+      segment: 'mixed',
+    }, [201], 'admin-create-delegated-role-administrator');
+    expect(dataOf(delegatedUserResponse)?.role === DELEGATED_ROLE_CODE, 'delegated role administrator role mismatch');
+    const delegated = await login({
+      username: `delegated_role_admin_${RUN_ID}`,
+      password: OPERATOR.password,
+    }, 'delegated-role-administrator');
+
+    const selfEscalation = await apiFetch(`/roles/${DELEGATED_ROLE_CODE}`, {
+      method: 'PUT',
+      data: {
+        name: delegatedRole.name,
+        description: delegatedRole.description,
+        isActive: true,
+        dataScopes: delegatedRole.dataScopes,
+        permissions: [...delegatedRole.permissions, 'warehouse.ledger.read'],
+      },
+    }, delegated.token);
+    expectStatus(selfEscalation, [403], 'delegated-role-admin-cannot-self-grant-ledger');
+    recordStep({ step: 'delegated-role-admin-cannot-self-grant-ledger', result: 'passed', actualStatus: selfEscalation.status });
+
+    const scopeEscalation = await apiFetch(`/roles/${DELEGATED_ROLE_CODE}`, {
+      method: 'PUT',
+      data: {
+        name: delegatedRole.name,
+        description: delegatedRole.description,
+        isActive: true,
+        dataScopes: ['all'],
+        permissions: delegatedRole.permissions,
+      },
+    }, delegated.token);
+    expectStatus(scopeEscalation, [403], 'delegated-role-admin-cannot-self-grant-all-scope');
+    recordStep({ step: 'delegated-role-admin-cannot-self-grant-all-scope', result: 'passed', actualStatus: scopeEscalation.status });
+
+    const adminRoleEscalation = await apiFetch('/roles/admin', {
+      method: 'PUT',
+      data: {
+        name: 'admin',
+        isActive: true,
+        dataScopes: delegatedRole.dataScopes,
+        permissions: delegatedRole.permissions,
+      },
+    }, delegated.token);
+    expectStatus(adminRoleEscalation, [403], 'delegated-role-admin-cannot-modify-admin-role');
+    recordStep({ step: 'delegated-role-admin-cannot-modify-admin-role', result: 'passed', actualStatus: adminRoleEscalation.status });
 
     report.status = 'passed';
   } catch (error) {

@@ -2,6 +2,22 @@
 import { Calendar, CreditCard, User, Wallet, X } from 'lucide-react';
 import { SalesOrder } from '../../types';
 import { getCustomerDisplayName } from '../../utils/customerName';
+import { useDialogFocus } from '../../app/useDialogFocus';
+
+const paymentMethodLabel = (method: string) => {
+    const labels: Record<string, string> = {
+        bank_transfer: '银行转账',
+        'Bank Transfer': '银行转账',
+        cash: '现金',
+        Cash: '现金',
+        check: '支票',
+        Check: '支票',
+        alipay_wechat: '支付宝/微信',
+        'Alipay/WeChat': '支付宝/微信',
+        wire_transfer: '电汇',
+    };
+    return labels[method] || method;
+};
 
 type CollectionView = {
     label: string;
@@ -47,6 +63,9 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
     onOpenDispute,
     onVerifyPayment,
 }) => {
+    const dialogRef = React.useRef<HTMLDivElement>(null);
+    useDialogFocus(isOpen && Boolean(selectedOrder), dialogRef, onClose);
+
     if (!isOpen || !selectedOrder) return null;
     const promiseRecords = [...(selectedOrder.collectionPromises || [])].sort((a, b) =>
         new Date(b.createdAt || b.promisedAt || 0).getTime() - new Date(a.createdAt || a.promisedAt || 0).getTime()
@@ -54,10 +73,17 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
 
     return (
         <div data-testid="sales-order-history-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95 border border-slate-100 dark:border-slate-800">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sales-order-history-title"
+                tabIndex={-1}
+                className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95 border border-slate-100 dark:border-slate-800"
+            >
                 <div className="flex justify-between items-center mb-6">
                     <div>
-                        <h3 className="text-xl font-black italic text-slate-900 dark:text-white uppercase">{t.activityLog}</h3>
+                        <h3 id="sales-order-history-title" className="text-xl font-black italic text-slate-900 dark:text-white uppercase">{t.activityLog}</h3>
                         <p className="text-xs text-slate-400 font-bold">{getCustomerDisplayName({
                             name: selectedOrder.customerName,
                             nameZh: selectedOrder.customerNameZh,
@@ -66,11 +92,11 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                             displayName: selectedOrder.customerDisplayName,
                         }, language)}</p>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><X size={20} /></button>
+                    <button aria-label={t.close || '关闭'} onClick={onClose} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><X size={20} /></button>
                 </div>
 
                 <div className="flex mb-4 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                    <button onClick={() => setHistoryTab('payments')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'payments' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.historyTab}</button>
+                    <button data-autofocus onClick={() => setHistoryTab('payments')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'payments' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.historyTab}</button>
                     <button onClick={() => setHistoryTab('audit')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'audit' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.auditTab}</button>
                 </div>
 
@@ -125,7 +151,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                     {historyTab === 'payments' ? (
                         (!selectedOrder.paymentRecords || selectedOrder.paymentRecords.length === 0) ? (
                             <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase tracking-widest bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                                No payments recorded.
+                                {language === 'en' ? 'No payment records' : language === 'vi' ? 'Chưa có bản ghi thanh toán' : '暂无回款记录'}
                             </div>
                         ) : (
                             selectedOrder.paymentRecords
@@ -138,7 +164,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                                                 <div className="flex items-center text-[10px] font-bold text-slate-400 uppercase mt-1">
                                                     <Calendar size={10} className="mr-1" /> {rec.date}
                                                     <span className="mx-2">/</span>
-                                                    {rec.method === 'Cash' ? <Wallet size={10} className="mr-1" /> : <CreditCard size={10} className="mr-1" />} {rec.method}
+                                                    {['cash', 'Cash'].includes(rec.method) ? <Wallet size={10} className="mr-1" /> : <CreditCard size={10} className="mr-1" />} {paymentMethodLabel(rec.method)}
                                                 </div>
                                             </div>
                                             <div className="flex flex-col items-end gap-1">
@@ -166,7 +192,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                     ) : (
                         (!selectedOrder.historyLogs || selectedOrder.historyLogs.length === 0) ? (
                             <div className="text-center py-10 text-slate-400 text-xs font-bold uppercase tracking-widest bg-slate-50 dark:bg-slate-800/50 rounded-2xl">
-                                No history available.
+                                {language === 'en' ? 'No operation history' : language === 'vi' ? 'Chưa có lịch sử thao tác' : '暂无操作历史'}
                             </div>
                         ) : (
                             selectedOrder.historyLogs

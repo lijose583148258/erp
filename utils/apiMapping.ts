@@ -3,6 +3,12 @@ export type ApiRecord = Record<string, unknown>;
 export type ApiDataResponse<T> = {
   success?: boolean;
   data: T;
+  meta?: {
+    page?: number;
+    pageSize?: number;
+    total?: number;
+    totalPages?: number;
+  };
 };
 
 export const isApiRecord = (value: unknown): value is ApiRecord =>
@@ -30,4 +36,3 @@ export const toNumberValue = (value: unknown, fallback = 0): number => {
   const numberValue = Number(value ?? fallback);
   return Number.isFinite(numberValue) ? numberValue : fallback;
 };
-

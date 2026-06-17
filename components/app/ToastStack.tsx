@@ -39,9 +39,14 @@ const ToastStack: React.FC<ToastStackProps> = ({ notifications, onDismiss }) => 
                         {n.type === 'warning' && <AlertTriangle size={16} />}
                         {n.type === 'info' && <Info size={16} />}
                     </div>
-                    <span className="text-sm font-bold flex-1">{n.message}</span>
-                    <button onClick={() => onDismiss(n.id)}>
-                        <X size={14} className="opacity-50 hover:opacity-100" />
+                    <span className="min-w-0 flex-1 break-words text-sm font-bold">{n.message}</span>
+                    <button
+                        type="button"
+                        onClick={() => onDismiss(n.id)}
+                        aria-label="关闭通知"
+                        className="ml-2 flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-xl opacity-70 transition hover:bg-white/60 hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-current/30"
+                    >
+                        <X size={16} />
                     </button>
                 </div>
             ))}

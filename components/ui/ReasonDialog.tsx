@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText } from 'lucide-react';
+import { useDialogFocus } from '../../app/useDialogFocus';
 
 type ReasonDialogTone = 'danger' | 'primary' | 'success';
 
@@ -40,8 +41,10 @@ export const ReasonDialog: React.FC<ReasonDialogProps> = ({
   onConfirm,
   onCancel,
 }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
   const [reason, setReason] = useState(defaultReason);
   const [error, setError] = useState('');
+  useDialogFocus(open, dialogRef, onCancel);
 
   useEffect(() => {
     if (open) {
@@ -66,7 +69,13 @@ export const ReasonDialog: React.FC<ReasonDialogProps> = ({
 
   return (
     <div data-testid={testId} className="fixed inset-0 z-[160] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-sm">
-      <div className="w-full max-w-lg rounded-[30px] border border-slate-200 bg-white p-6 shadow-appSoft dark:border-slate-700 dark:bg-slate-900">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        tabIndex={-1}
+        className="w-full max-w-lg rounded-[30px] border border-slate-200 bg-white p-6 shadow-appSoft outline-none dark:border-slate-700 dark:bg-slate-900"
+      >
         <div className="flex items-start gap-4">
           <div className={`rounded-2xl p-3 ${isDanger ? 'bg-rose-50 text-rose-600 dark:bg-rose-950/30' : 'bg-blue-50 text-blue-600 dark:bg-blue-950/30'}`}>
             <Icon size={22} />
@@ -82,6 +91,7 @@ export const ReasonDialog: React.FC<ReasonDialogProps> = ({
             原因说明
           </label>
           <textarea
+            data-autofocus
             data-testid={`${testId}-input`}
             value={reason}
             onChange={(event) => {

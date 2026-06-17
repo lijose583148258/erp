@@ -292,7 +292,7 @@ const SalesOrders = () => {
                                     </button>
                                 )}
                                 {row.fulfillmentStatus === 'delivered' && row.financialStatus === 'paid' && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
-                                    <button onClick={(e) => { e.stopPropagation(); state.handleManualComplete(row.id); }} className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 shadow-xl animate-pulse" title="Complete Order">
+                                    <button onClick={(e) => { e.stopPropagation(); state.handleManualComplete(row.id); }} className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title="Complete Order">
                                         <CheckCircle2 size={16} />
                                     </button>
                                 )}
@@ -340,6 +340,7 @@ const SalesOrders = () => {
                 isEditMode={state.isEditMode}
                 isOffline={state.isOffline}
                 draftAvailable={state.draftAvailable}
+                userId={state.currentUser.id}
                 language={state.language}
                 t={t}
                 customers={state.customers}

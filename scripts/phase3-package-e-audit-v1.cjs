@@ -43,6 +43,7 @@ function psTask(name, args, expectedEvidence) {
 const TASKS = [
   nodeTask('stable-package-launcher', 'scripts/stable-launcher-health-audit-v1.cjs', 'packaged launcher starts production runtime with stable DB and JWT secret, preferring E clean runtime'),
   nodeTask('stable-package-origin', 'scripts/stable-package-origin-audit-v1.cjs', '5001 runtime origin report proves it was launched from E clean runtime or governed stable package'),
+  nodeTask('default-credential-release-gate', 'scripts/default-credential-release-gate-v1.cjs', 'packaged release runtime rejects seeded demo credentials such as admin/admin123'),
   psTask('runtime-check', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1'], 'stable runtime 5001 health/assets all 200'),
   nodeTask('active-source-inventory', 'scripts/active-source-inventory-v1.cjs', 'obsolete active paths and package references are zero'),
   nodeTask('stable-entrypoint-policy', 'scripts/stable-entrypoint-policy-audit-v1.cjs', 'root launchers and npm start default to the stable 5001 entry'),

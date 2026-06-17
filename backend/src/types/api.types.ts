@@ -37,6 +37,7 @@ export interface LoginResponse {
         role: string;
         segment?: string | null;
         avatar: string | null;
+        mustChangePassword?: boolean;
         permissions?: string[];
         dataScopes?: string[];
     };

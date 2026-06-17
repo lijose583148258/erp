@@ -167,7 +167,7 @@ async function run() {
         method: 'POST',
         data: {
           amount: index === 0 ? 100 : 200,
-          method: 'bank',
+          method: 'bank_transfer',
           payerName: `payer-${RUN_ID}`,
           note,
           isProxy: false,

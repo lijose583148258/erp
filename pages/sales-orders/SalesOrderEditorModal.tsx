@@ -1,6 +1,5 @@
 ﻿import React from 'react';
 import { Box, Calculator, ChevronDown, FileCheck, RefreshCw, Scan, X } from 'lucide-react';
-import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
 import SmartFormFill from '../../components/SmartFormFill';
 import { DocumentType, OcrDocumentData } from '../../services/smartFormService';
 import { Customer } from '../../types';
@@ -9,12 +8,14 @@ import SalesOrderLineGrid from './SalesOrderLineGrid';
 import type { SalesOrderFormData } from './useSalesOrders';
 import type { SalesOrderLineErrors } from './salesOrderFormHelpers';
 import { useUnsavedForm } from '../../app/useUnsavedForm';
+import { useDialogFocus } from '../../app/useDialogFocus';
 
 type Props = {
     isOpen: boolean;
     isEditMode: boolean;
     isOffline: boolean;
     draftAvailable: boolean;
+    userId: string;
     language: 'zh' | 'en' | 'vi';
     t: Record<string, string>;
     customers: Customer[];
@@ -58,23 +59,23 @@ const MetricPanel: React.FC<{
     const icon = tone === 'indigo' ? <Calculator size={18} className="text-indigo-500" /> : <Box size={18} className="text-emerald-500" />;
 
     return (
-        <div className="rounded-[28px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
+        <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
             <div className="mb-4 flex items-center justify-between">
                 <div>
                     <h3 className={`text-sm font-black uppercase tracking-[0.18em] ${toneClass}`}>{title}</h3>
-                    <p className="mt-2 text-[11px] font-medium text-slate-400">{hint}</p>
+                    <p className="mt-1.5 text-xs font-medium text-slate-500">{hint}</p>
                 </div>
                 {icon}
             </div>
             <div className="space-y-3">
                 {items.map((item, index) => (
-                    <div key={`${item.title}-${index}`} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
-                        <div>
-                            <div className="text-sm font-black text-slate-800 dark:text-slate-100">{item.title}</div>
-                            <div className="mt-1 text-[10px] font-bold text-slate-400">{item.subtitle}</div>
+                    <div key={`${item.title}-${index}`} className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-4 py-3 dark:bg-slate-800/60">
+                        <div className="min-w-0">
+                            <div className="truncate text-sm font-black text-slate-800 dark:text-slate-100" title={item.title}>{item.title}</div>
+                            <div className="mt-1 truncate text-xs font-bold text-slate-500" title={item.subtitle}>{item.subtitle}</div>
                         </div>
                         {item.action ? (
-                            <button onClick={item.action} className="rounded-xl bg-slate-900 px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em] text-white dark:bg-white dark:text-slate-900">
+                            <button onClick={item.action} className="min-h-11 shrink-0 rounded-lg bg-slate-900 px-3 py-2 text-xs font-black text-white dark:bg-white dark:text-slate-900">
                                 {item.actionLabel || '应用'}
                             </button>
                         ) : null}
@@ -90,6 +91,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
     isEditMode,
     isOffline,
     draftAvailable,
+    userId,
     language,
     t,
     customers,
@@ -123,25 +125,27 @@ const SalesOrderEditorModal: React.FC<Props> = ({
     orderLineErrors,
 }) => {
     const [isAssistOpen, setIsAssistOpen] = React.useState(false);
+    const dialogRef = React.useRef<HTMLDivElement>(null);
     const { requestClose } = useUnsavedForm({
         sourceId: 'sales-order-editor',
         label: isEditMode ? '销售订单编辑' : '新建销售订单',
         open: isOpen,
         value: formData,
     });
-    const handleClose = () => requestClose(onClose);
+    const handleClose = React.useCallback(() => requestClose(onClose), [onClose, requestClose]);
+    useDialogFocus(isOpen, dialogRef, handleClose);
 
     React.useEffect(() => {
         if (isOpen) {
-            setIsAssistOpen(false);
+            setIsAssistOpen(isOffline || draftAvailable);
         }
-    }, [isOpen]);
+    }, [draftAvailable, isOffline, isOpen]);
 
     if (!isOpen) return null;
 
     const offlineScanCount = (() => {
         try {
-            return JSON.parse(localStorage.getItem('offline_scans') || '[]').length;
+            return JSON.parse(localStorage.getItem(`ailao.offlineScans.${userId || 'anonymous'}`) || '[]').length;
         } catch {
             return 0;
         }
@@ -151,87 +155,32 @@ const SalesOrderEditorModal: React.FC<Props> = ({
         draftAvailable ? (t.draftDetected || '检测到草稿') : null,
         offlineScanCount > 0 ? `${t.offlineScans || '离线扫描'} ${offlineScanCount}` : null,
     ].filter((badge): badge is string => Boolean(badge));
-    const guideCopy = language === 'en'
-        ? {
-            eyebrow: 'SALES ORDER ENTRY',
-            title: 'Create the order header first, then enter item lines like a spreadsheet',
-            description: 'Sales orders are parent documents. Customer, terms, contract and notes stay in the header; products, quantity, price, tax and discount stay in the line grid. Payments and shipments are follow-up actions, not mixed into order creation.',
-            steps: [
-                { title: 'Select customer', description: 'Pick one customer and confirm terms, tax mode, contract and notes.', badge: 'Header' },
-                { title: 'Enter lines', description: 'Add or paste product lines with quantity, unit, price, discount and tax.', badge: 'Grid' },
-                { title: 'Review impact', description: 'Check totals, price suggestions and inventory insights before saving.', badge: 'Preview' },
-                { title: 'Read back', description: 'After saving, return to the order ledger and verify customer, amount and payment status.', badge: 'Evidence' },
-            ],
-            boundaries: [
-                { title: 'This window handles', items: ['Order header', 'Item lines', 'Draft/offline entry', 'OCR assisted fill'] },
-                { title: 'Handled elsewhere', items: ['Payment verification', 'Shipment execution', 'Inventory transfer', 'Customer ownership'] },
-            ],
-            evidence: ['Order number', 'Customer name', 'Line count', 'Grand total', 'Payment status'],
-        }
-        : language === 'vi'
-            ? {
-                eyebrow: 'NHAP DON BAN HANG',
-                title: 'Tao dau don truoc, sau do nhap chi tiet hang hoa nhu bang tinh',
-                description: 'Don ban hang la chung tu cha. Khach hang, dieu khoan, hop dong va ghi chu nam o dau don; hang hoa, so luong, don gia, thue va chiet khau nam o bang chi tiet. Thu tien va giao hang la thao tac tiep theo, khong tron vao luc tao don.',
-                steps: [
-                    { title: 'Chon khach hang', description: 'Chon mot khach hang va xac nhan cong no, thue, hop dong, ghi chu.', badge: 'Dau don' },
-                    { title: 'Nhap chi tiet', description: 'Them hoac dan nhieu dong hang hoa voi so luong, don vi, gia, chiet khau, thue.', badge: 'Bang' },
-                    { title: 'Kiem tra tac dong', description: 'Xem tong tien, goi y gia va ton kho truoc khi luu.', badge: 'Xem truoc' },
-                    { title: 'Doc lai ket qua', description: 'Sau khi luu, quay ve so don hang de doi chieu khach hang, so tien va trang thai thanh toan.', badge: 'Bang chung' },
-                ],
-                boundaries: [
-                    { title: 'Cua so nay phu trach', items: ['Dau don', 'Dong hang hoa', 'Ban nhap/offline', 'OCR ho tro'] },
-                    { title: 'De module khac xu ly', items: ['Xac minh thu tien', 'Giao hang', 'Dieu chuyen ton kho', 'Quyen so huu khach'] },
-                ],
-                evidence: ['So don', 'Ten khach', 'So dong', 'Tong tien', 'Trang thai thu tien'],
-            }
-            : {
-                eyebrow: '销售开单顺序',
-                title: '先建订单头，再像 Excel 一样录商品明细',
-                description: '销售订单是父单据。客户、账期、合同、备注放订单头；商品、数量、单位、单价、折扣、税额放明细网格。回款核验和发货执行是后续动作，不混进开单录入区。',
-                steps: [
-                    { title: '选择客户', description: '只在订单头选择一次客户，并确认账期、税务模式、合同和备注。', badge: '单头' },
-                    { title: '录入明细', description: '逐行新增或粘贴商品、数量、单位、单价、折扣、税额。', badge: '网格' },
-                    { title: '检查影响', description: '保存前看金额汇总、价格建议和库存洞察，避免漏填或超卖。', badge: '预览' },
-                    { title: '保存回读', description: '保存后回到订单台账，核对客户、金额、明细行数和回款状态。', badge: '证据' },
-                ],
-                boundaries: [
-                    { title: '本窗口负责', items: ['订单头', '商品明细', '草稿/离线录入', 'OCR 辅助填单'] },
-                    { title: '不要在这里处理', items: ['财务核验', '发货执行', '库存调拨', '客户归属调整'] },
-                ],
-                evidence: ['订单号', '客户名', '明细行数', '订单总额', '回款状态'],
-            };
-
     return (
         <div data-testid="sales-order-editor-modal" className="fixed inset-0 z-[120] flex justify-end bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
-            <div className="flex h-full w-full max-w-[96vw] flex-col bg-slate-50 shadow-2xl animate-in slide-in-from-right duration-500 dark:bg-slate-950">
-                <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-8 py-6 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sales-order-editor-title"
+                tabIndex={-1}
+                className="flex h-full w-full max-w-[98vw] flex-col bg-slate-50 shadow-2xl animate-in slide-in-from-right duration-500 dark:bg-slate-950"
+            >
+                <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/95">
                     <div>
                         <div className="text-[11px] font-black text-blue-600">{language === 'en' ? 'Sales Order Workspace' : language === 'vi' ? 'Không gian đơn bán hàng' : '销售订单工作台'}</div>
-                        <h2 className="mt-2 text-3xl font-black tracking-tight text-slate-900 dark:text-white">
+                        <h2 id="sales-order-editor-title" className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">
                             {isEditMode ? (t.editOrder || '编辑订单') : (t.newOrder || '新建订单')}
                         </h2>
                         <p className="mt-2 text-sm text-slate-600 dark:text-slate-300">{t.salesOrderDualTrackHint || '订单头走表单，订单明细走网格，减少混输和回读脱钩。'}</p>
                     </div>
-                    <button data-testid="sales-order-editor-close" onClick={handleClose} className="rounded-full bg-slate-100 p-4 text-slate-500 transition hover:rotate-90 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
+                    <button aria-label={t.close || '关闭'} data-testid="sales-order-editor-close" onClick={handleClose} className="min-h-11 min-w-11 rounded-xl bg-slate-100 p-2.5 text-slate-600 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-200">
                         <X size={24} />
                     </button>
                 </div>
 
-                <div className="flex-1 overflow-y-auto px-8 py-8 custom-scrollbar">
+                <div className="flex-1 overflow-y-auto px-3 py-4 custom-scrollbar sm:px-5 sm:py-5">
                     <div className="space-y-6">
-                        <DocumentInputGuide
-                            testId="sales-order-input-guide"
-                            eyebrow={guideCopy.eyebrow}
-                            title={guideCopy.title}
-                            description={guideCopy.description}
-                            steps={guideCopy.steps}
-                            boundaries={guideCopy.boundaries}
-                            evidence={guideCopy.evidence}
-                            tone="blue"
-                        />
-
-                        <div className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
+                        <div className="space-y-6">
                             <div className="space-y-6">
                                 <SalesOrderHeaderForm
                                     language={language}
@@ -338,9 +287,18 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                             <textarea
                                                 value={ocrText}
                                                 onChange={(event) => setOcrText(event.target.value)}
+                                                aria-invalid={ocrText.length > 10000}
+                                                aria-describedby="sales-order-ocr-count"
                                                 placeholder={t.ocrPlaceholder || '粘贴识别文本或手工录入 OCR 内容'}
-                                                className="mt-4 h-28 w-full rounded-[22px] border border-slate-200 bg-slate-50 px-4 py-4 text-sm font-medium outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800"
+                                                className={`mt-4 h-28 w-full resize-y rounded-xl border bg-slate-50 px-4 py-3 text-sm font-medium outline-none transition dark:bg-slate-800 ${
+                                                    ocrText.length > 10000
+                                                        ? 'border-red-500 focus:border-red-600 focus:ring-2 focus:ring-red-100 dark:border-red-500'
+                                                        : 'border-slate-200 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700'
+                                                }`}
                                             />
+                                            <div id="sales-order-ocr-count" className={`mt-1 text-right text-xs font-medium ${ocrText.length > 10000 ? 'text-red-600' : 'text-slate-500'}`}>
+                                                {ocrText.length > 10000 ? `已超出 ${ocrText.length - 10000} 个字符` : `${ocrText.length}/10000`}
+                                            </div>
                                             <div className="mt-4 flex flex-wrap gap-2">
                                                 <button onClick={handleOcrParse} className="rounded-[18px] bg-blue-600 px-4 py-2 text-[11px] font-black uppercase tracking-[0.16em] text-white">
                                                     {t.ocrParse || '解析'}

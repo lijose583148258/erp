@@ -122,6 +122,12 @@ async function ensureChecked(page, testId) {
   }
 }
 
+async function reviewAndConfirmRoleSave(page) {
+  await page.locator('[data-testid="role-save"]').click();
+  await page.locator('[data-testid="role-change-review"]').waitFor({ state: 'visible', timeout: TIMEOUTS.save });
+  await page.locator('[data-testid="role-save"]').click();
+}
+
 async function createRoleFromUi(page) {
   await withTimebox(page, 'create-role-from-ui', TIMEOUTS.save, async () => {
     await page.locator('[data-testid="role-create-start"]').click();
@@ -131,7 +137,7 @@ async function createRoleFromUi(page) {
     await ensureChecked(page, 'role-permission-dashboard.read');
     await ensureChecked(page, 'role-permission-customers.read');
     await ensureChecked(page, 'role-permission-orders.read');
-    await page.locator('[data-testid="role-save"]').click();
+    await reviewAndConfirmRoleSave(page);
     await page.locator(`[data-testid="role-card-${ROLE_CODE}"]`).waitFor({ state: 'visible', timeout: TIMEOUTS.save });
   });
   await screenshot(page, 'role-created-readback-in-ui');

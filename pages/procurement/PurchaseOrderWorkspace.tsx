@@ -139,10 +139,10 @@ export const PurchaseOrderWorkspace = ({
           required
           error={purchaseErrors.supplierId}
         />
-        <FormField dataTestId="purchase-item-input" value={newOrder.item} onChange={(value) => updateOrderField('item', value)} placeholder={t.productName} required error={purchaseErrors.item} />
+        <FormField dataTestId="purchase-item-input" value={newOrder.item} onChange={(value) => updateOrderField('item', value)} placeholder={t.productName} required error={purchaseErrors.item} maxLength={120} />
         <div className="grid grid-cols-3 gap-3">
           <FormField dataTestId="purchase-quantity-input" value={newOrder.quantity} onChange={(value) => updateOrderField('quantity', value)} placeholder={t.quantity} error={purchaseErrors.quantity} />
-          <FormField dataTestId="purchase-unit-input" value={newOrder.unit} onChange={(value) => updateOrderField('unit', value)} placeholder={t.unit} error={purchaseErrors.unit} />
+          <FormField dataTestId="purchase-unit-input" value={newOrder.unit} onChange={(value) => updateOrderField('unit', value)} placeholder={t.unit} error={purchaseErrors.unit} maxLength={20} />
           <FormField dataTestId="purchase-price-input" value={newOrder.price} onChange={(value) => updateOrderField('price', value)} placeholder={t.price} error={purchaseErrors.price} />
         </div>
         <FormField dataTestId="purchase-eta-input" type="date" value={newOrder.eta} onChange={(value) => updateOrderField('eta', value)} label="预计到货" error={purchaseErrors.eta} />

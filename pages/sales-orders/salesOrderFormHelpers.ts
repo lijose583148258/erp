@@ -59,7 +59,7 @@ export type PaymentForm = {
 export const createInitialPaymentForm = (): PaymentForm => ({
     amount: 0,
     date: new Date().toISOString().split('T')[0],
-    method: 'Bank Transfer',
+    method: 'bank_transfer',
     isProxy: false,
     payerName: '',
     note: '',
@@ -441,15 +441,19 @@ type ProductLabelScanResult = {
     batchNo?: string;
 };
 
-export const saveOfflineProductScan = (fileName: string) => {
-    const raw = localStorage.getItem('offline_scans') || '[]';
-    const offlineScans = Array.isArray(JSON.parse(raw)) ? JSON.parse(raw) : [];
+const offlineScanKeyFor = (userId: string) => `ailao.offlineScans.${userId || 'anonymous'}`;
+
+export const saveOfflineProductScan = (fileName: string, userId: string) => {
+    const key = offlineScanKeyFor(userId);
+    const raw = localStorage.getItem(key) || '[]';
+    const parsed = JSON.parse(raw);
+    const offlineScans = Array.isArray(parsed) ? parsed : [];
     offlineScans.push({ fileName, timestamp: new Date().toISOString(), needsManualReupload: true });
-    localStorage.setItem('offline_scans', JSON.stringify(offlineScans));
+    localStorage.setItem(key, JSON.stringify(offlineScans));
 };
 
-export const getOfflineProductScanCount = () => {
-    const raw = localStorage.getItem('offline_scans') || '[]';
+export const getOfflineProductScanCount = (userId: string) => {
+    const raw = localStorage.getItem(offlineScanKeyFor(userId)) || '[]';
     const offlineScans = JSON.parse(raw);
     return Array.isArray(offlineScans) ? offlineScans.length : 0;
 };

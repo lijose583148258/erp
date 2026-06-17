@@ -1,3 +1,5 @@
+import bcrypt from 'bcryptjs';
+import prisma from '../config/database';
 import {
   addColumnIfMissing,
   createIndexIfMissing,
@@ -5,7 +7,41 @@ import {
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
 
+const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+const demoCredentials = [
+  { username: 'admin', password: 'admin123' },
+  { username: 'manager', password: 'manager123' },
+  { username: 'sales', password: 'sales123' },
+  { username: 'warehouse', password: 'warehouse123' },
+  { username: 'finance', password: 'finance123' },
+];
+
+const requirePasswordChangeForDefaultDemoUsers = async (report: SchemaRepairReport) => {
+  if (!truthy(process.env.AILAODA_BLOCK_DEMO_CREDENTIALS)) return;
+
+  for (const account of demoCredentials) {
+    const rows = await prisma.$queryRawUnsafe<Array<{ id: number; password_hash: string; must_change_password: number }>>(
+      'SELECT id, password_hash, must_change_password FROM users WHERE username = ? LIMIT 1',
+      account.username,
+    );
+    const user = rows[0];
+    if (!user || user.must_change_password) continue;
+    if (await bcrypt.compare(account.password, user.password_hash)) {
+      await prisma.$executeRawUnsafe(
+        'UPDATE users SET must_change_password = 1 WHERE id = ?',
+        user.id,
+      );
+      report.entries.push({ kind: 'seed', target: `users.${account.username}.must_change_password`, action: 'updated' });
+    }
+  }
+};
+
 export const repairAuthSchema = async (report: SchemaRepairReport) => {
+  await addColumnIfMissing(report, 'users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+  await addColumnIfMissing(report, 'users', 'password_changed_at', 'DATETIME');
+  await requirePasswordChangeForDefaultDemoUsers(report);
+
   await createTableIfMissing(report, 'auth_roles', `
     CREATE TABLE "auth_roles" (
       "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,

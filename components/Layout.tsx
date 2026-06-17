@@ -1,7 +1,7 @@
 import React, { Suspense, lazy, useEffect, useState } from 'react';
 import {
   Settings, Search, Command, Languages, Sun, Moon,
-  DollarSign, Menu, X, UserCircle, LogOut, Briefcase, Network,
+  DollarSign, Menu, X, UserCircle, LogOut, Briefcase, Network, Type,
 } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { canOpenModule } from '../app/permissions';
@@ -104,6 +104,14 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
       return false;
     }
   });
+  const [textScale, setTextScale] = useState(() => {
+    try {
+      const stored = Number(window.localStorage.getItem('ailao.textScale') || 100);
+      return [100, 110, 120].includes(stored) ? stored : 100;
+    } catch {
+      return 100;
+    }
+  });
   const { language, setLanguage, theme, toggleTheme, currency, setCurrency, currentUser, switchUser, t, setIsCommandPaletteOpen } = useAppContext();
 
   const activeModule = getModuleDefinition(activeTab);
@@ -149,6 +157,20 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
       // ignore storage errors
     }
   }, [compactMode]);
+
+  useEffect(() => {
+    const root = window.document.documentElement;
+    root.style.setProperty('--app-text-zoom', `${textScale}%`);
+    try {
+      window.localStorage.setItem('ailao.textScale', String(textScale));
+    } catch {
+      // ignore storage errors
+    }
+  }, [textScale]);
+
+  const cycleTextScale = () => {
+    setTextScale(current => (current === 100 ? 110 : current === 110 ? 120 : 100));
+  };
 
   return (
     <div className="flex h-screen bg-[#F8FAFC] dark:bg-slate-950 text-slate-800 dark:text-slate-100 overflow-hidden font-sans selection:bg-blue-200 dark:selection:bg-blue-900">
@@ -275,6 +297,19 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               <h2 className="text-3xl font-black italic tracking-tighter uppercase text-slate-900 dark:text-white">{t.navQuickJump}</h2>
               <button onClick={() => setMobileMenuOpen(false)} className="p-4 bg-slate-100 dark:bg-slate-800 rounded-full text-slate-500 active-shrink"><X size={24} /></button>
             </div>
+            <button
+              type="button"
+              onClick={cycleTextScale}
+              data-testid="mobile-text-scale-toggle"
+              aria-label={`文字缩放 ${textScale}%`}
+              className="mb-5 flex min-h-12 w-full items-center justify-between rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-sm font-black text-slate-700 active-shrink dark:border-slate-800 dark:bg-slate-800 dark:text-slate-100"
+            >
+              <span className="flex items-center gap-2">
+                <Type size={18} />
+                文字缩放
+              </span>
+              <span className="rounded-lg bg-white px-2.5 py-1 text-xs tabular-nums text-blue-700 dark:bg-slate-900 dark:text-blue-300">{textScale}%</span>
+            </button>
             <div className="grid grid-cols-2 gap-4 overflow-y-auto pb-12 px-1">
               {menuItems.map((item) => (
                 <button
@@ -335,6 +370,17 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               }`}
             >
               <Settings size={22} className="group-hover:rotate-90 transition-transform duration-500" />
+            </button>
+
+            <button
+              onClick={cycleTextScale}
+              data-testid="text-scale-toggle"
+              aria-label={`文字缩放 ${textScale}%`}
+              title={`文字缩放 ${textScale}%`}
+              className="flex min-w-16 items-center justify-center gap-1 p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[22px] text-slate-500 hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 transition-all shadow-sm border border-white/40 dark:border-slate-800 active-shrink"
+            >
+              <Type size={21} />
+              <span className="text-[10px] font-black tabular-nums">{textScale}%</span>
             </button>
 
             <button
@@ -404,7 +450,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 lg:px-12 py-4 lg:py-8 no-scrollbar transition-all duration-300">
+        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-32 lg:px-12 lg:py-8 no-scrollbar transition-all duration-300">
           <div className="max-w-[1400px] mx-auto">
             {children}
           </div>
@@ -417,7 +463,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               {activeTab === item.id && <span className="absolute -bottom-5 max-w-[72px] truncate text-xs font-black text-blue-600">{item.label}</span>}
             </button>
           ))}
-          <button className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] text-slate-600 bg-slate-100/90 dark:bg-slate-800/90 dark:text-slate-200 active-shrink" onClick={() => setMobileMenuOpen(true)}>
+          <button data-testid="mobile-menu-open" className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] text-slate-600 bg-slate-100/90 dark:bg-slate-800/90 dark:text-slate-200 active-shrink" onClick={() => setMobileMenuOpen(true)}>
             <Menu size={26} />
           </button>
         </div>

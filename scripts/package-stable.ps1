@@ -33,6 +33,23 @@ function Copy-Directory {
   }
 }
 
+function Remove-PackagedDatabaseFiles {
+  param([Parameter(Mandatory = $true)][string]$Directory)
+
+  $full = [System.IO.Path]::GetFullPath($Directory)
+  $packageRoot = [System.IO.Path]::GetFullPath($dest)
+  if (-not $full.StartsWith($packageRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refuse to clean database files outside package directory: $full"
+  }
+  if (-not (Test-Path -LiteralPath $full -PathType Container)) {
+    return
+  }
+
+  Get-ChildItem -LiteralPath $full -Recurse -File -ErrorAction SilentlyContinue |
+    Where-Object { $_.Name -match '\.db($|-journal$|-wal$|-shm$)' } |
+    ForEach-Object { Remove-Item -LiteralPath $_.FullName -Force }
+}
+
 function Write-ArchiveMarker {
   param(
     [Parameter(Mandatory = $true)][string]$PackagePath,
@@ -174,12 +191,14 @@ function Assert-PackageFreshness {
         (Join-Path $dest $stableLauncherName),
         (Join-Path $dest 'scripts\start-stable-v2.ps1'),
         (Join-Path $dest 'scripts\stop-runtime.ps1'),
-        (Join-Path $dest 'scripts\check-runtime.ps1')
+        (Join-Path $dest 'scripts\check-runtime.ps1'),
+        (Join-Path $dest 'scripts\default-credential-release-gate-v1.cjs')
       ) `
       -SourcePaths @(
         (Join-Path $root 'scripts\start-stable-v2.ps1'),
         (Join-Path $root 'scripts\stop-runtime.ps1'),
         (Join-Path $root 'scripts\check-runtime.ps1'),
+        (Join-Path $root 'scripts\default-credential-release-gate-v1.cjs'),
         (Join-Path $root 'scripts\package-stable.ps1'),
         (Join-Path $root '.env.production.example')
       ) `
@@ -249,6 +268,7 @@ Write-Host 'Copying backend runtime files...'
 Copy-Item -LiteralPath (Join-Path $root 'backend\package.json') -Destination (Join-Path $dest 'backend\package.json') -Force
 Copy-Item -LiteralPath (Join-Path $root 'backend\package-lock.json') -Destination (Join-Path $dest 'backend\package-lock.json') -Force
 Copy-Directory -Source (Join-Path $root 'backend\prisma') -Destination (Join-Path $dest 'backend\prisma')
+Remove-PackagedDatabaseFiles -Directory (Join-Path $dest 'backend\prisma')
 
 Write-Host 'Copying backend node_modules. This may take a while...'
 $robocopyArgs = @(
@@ -301,6 +321,7 @@ $packageStableLauncher | Set-Content -LiteralPath (Join-Path $dest $stableLaunch
 Copy-Item -LiteralPath (Join-Path $root 'scripts\start-stable-v2.ps1') -Destination (Join-Path $dest 'scripts\start-stable-v2.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $root 'scripts\stop-runtime.ps1') -Destination (Join-Path $dest 'scripts\stop-runtime.ps1') -Force
 Copy-Item -LiteralPath (Join-Path $root 'scripts\check-runtime.ps1') -Destination (Join-Path $dest 'scripts\check-runtime.ps1') -Force
+Copy-Item -LiteralPath (Join-Path $root 'scripts\default-credential-release-gate-v1.cjs') -Destination (Join-Path $dest 'scripts\default-credential-release-gate-v1.cjs') -Force
 
 $desktopShellBuilder = Join-Path $root 'scripts\build-desktop-shell-v1.ps1'
 $desktopShellSource = Join-Path $root 'desktop-shell\AilaoDaLauncher.cs'
@@ -330,6 +351,7 @@ $packageManifest = @(
   '- scripts/start-stable-v2.ps1',
   '- scripts/stop-runtime.ps1',
   '- scripts/check-runtime.ps1',
+  '- scripts/default-credential-release-gate-v1.cjs',
   '- AilaoDa-ERP-CRM.exe',
   '- .env.production.example',
   '- SOURCE_MANIFEST.json',
@@ -338,6 +360,7 @@ $packageManifest = @(
   '- source pages/components/services',
   '- output/logs/backups/user runtime database',
   '- historical packages and governance archives',
+  '- SQLite runtime/demo database files under backend/prisma',
   '',
   'Writable runtime data must stay outside this package, for example D:\AilaoDaRuntime\stable.db.'
 )

@@ -37,32 +37,32 @@ export function CRMViewSwitcher({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center gap-3">
-        <div className="bg-white dark:bg-slate-900 p-1.5 rounded-[20px] flex flex-wrap gap-2 border border-slate-100 dark:border-slate-800 shadow-sm">
-          <button onClick={() => onViewChange('my')} className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${viewMode === 'my' ? 'bg-slate-900 dark:bg-slate-700 text-white shadow-lg' : 'text-slate-400'}`}>
+        <div className="flex flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
+          <button onClick={() => onViewChange('my')} className={`min-h-11 rounded-lg px-5 py-2.5 text-xs font-black transition ${viewMode === 'my' ? 'bg-slate-900 text-white dark:bg-slate-700' : 'text-slate-600 dark:text-slate-300'}`}>
             {t.myCustomers}
           </button>
-          <button onClick={() => onViewChange('public')} className={`px-6 py-3 rounded-2xl text-[10px] font-black uppercase tracking-wider transition-all active:scale-95 ${viewMode === 'public' ? 'bg-rose-500 text-white shadow-lg' : 'text-slate-400'}`}>
+          <button onClick={() => onViewChange('public')} className={`min-h-11 rounded-lg px-5 py-2.5 text-xs font-black transition ${viewMode === 'public' ? 'bg-rose-600 text-white' : 'text-slate-600 dark:text-slate-300'}`}>
             <Globe size={12} className="inline mr-2" />
             {t.publicPool}
           </button>
         </div>
 
         {canCreate && (
-          <button data-testid="crm-add-customer" onClick={onCreate} className="flex items-center px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-2xl hover:bg-blue-700 transition-all active:scale-95">
+          <button data-testid="crm-add-customer" onClick={onCreate} className="flex min-h-11 items-center rounded-xl bg-blue-600 px-5 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-700">
             <Plus size={16} className="mr-2" />
             {t.addCustomer}
           </button>
         )}
 
         {scopeSegment && (
-          <div className="px-4 py-3 rounded-[20px] border border-emerald-200 bg-emerald-50 text-emerald-700 text-xs font-bold tracking-[0.12em]">
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold text-emerald-800">
             {scopeLabel} {t.crmWorkbenchLabel || '工作台'}
           </div>
         )}
       </div>
 
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        <div className="bg-white dark:bg-slate-900 p-1.5 rounded-[20px] flex flex-wrap gap-2 border border-slate-100 dark:border-slate-800 shadow-sm w-fit">
+        <div className="flex w-fit flex-wrap gap-1 rounded-xl border border-slate-200 bg-white p-1 dark:border-slate-800 dark:bg-slate-900">
           {[
             { key: 'all', label: segmentLabelMap.all },
             { key: 'direct', label: segmentLabelMap.direct },
@@ -72,8 +72,8 @@ export function CRMViewSwitcher({
             <button
               key={item.key}
               onClick={() => onSegmentChange(item.key as 'all' | 'direct' | 'channel' | 'mixed')}
-              className={`px-5 py-2.5 rounded-2xl text-xs font-bold tracking-[0.12em] transition-all active:scale-95 ${
-                segmentFilter === item.key ? 'bg-emerald-500 text-white shadow-lg' : 'text-slate-400'
+              className={`min-h-10 rounded-lg px-4 py-2 text-xs font-bold transition ${
+                segmentFilter === item.key ? 'bg-emerald-600 text-white' : 'text-slate-600 dark:text-slate-300'
               }`}
             >
               {item.label}
@@ -87,8 +87,9 @@ export function CRMViewSwitcher({
             data-testid="crm-search"
             value={searchKeyword}
             onChange={(event) => onSearchKeywordChange(event.target.value)}
+            maxLength={120}
             placeholder={t.search || "Search..."}
-            className="w-full rounded-[22px] border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm font-bold text-slate-700 outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+            className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-11 pr-4 text-sm font-bold text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
           />
         </div>
       </div>

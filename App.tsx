@@ -1,6 +1,7 @@
 import React, { Suspense } from 'react';
 import Layout from './components/Layout';
 import Login from './components/Login';
+import ForcePasswordChange from './components/ForcePasswordChange';
 import ToastStack from './components/app/ToastStack';
 import ClickSpark from './components/app/ClickSpark';
 import CommandPalette from './components/CommandPalette';
@@ -19,6 +20,16 @@ const App: React.FC = () => {
                     language={shell.language}
                     onLanguageChange={shell.setLanguage}
                 />
+                ) : shell.currentUser.mustChangePassword ? (
+                <>
+                    <ToastStack notifications={shell.notifications} onDismiss={shell.dismissNotification} />
+                    <ForcePasswordChange
+                        language={shell.language}
+                        username={shell.currentUser.name}
+                        onSubmit={shell.handlePasswordChanged}
+                        onLogout={shell.handleLogout}
+                    />
+                </>
                 ) : (
                 <>
                     <ClickSpark />

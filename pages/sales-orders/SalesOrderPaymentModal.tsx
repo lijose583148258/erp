@@ -7,6 +7,7 @@ import {
     getOutstandingAmount,
     getReceivableAdjustmentAmount,
 } from './salesOrderFormHelpers';
+import { useDialogFocus } from '../../app/useDialogFocus';
 
 type Props = {
     isOpen: boolean;
@@ -34,6 +35,9 @@ const parseFiniteAmountInput = (value: string) => {
 };
 
 const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, language, t, formatPrice, paymentForm, setPaymentForm, onClose, onConfirm }) => {
+    const dialogRef = React.useRef<HTMLDivElement>(null);
+    useDialogFocus(isOpen && Boolean(selectedOrder), dialogRef, onClose);
+
     if (!isOpen || !selectedOrder) return null;
     const finalAmount = Number(selectedOrder.finalAmount || selectedOrder.totalAmount || 0);
     const receivableAdjustmentAmount = getReceivableAdjustmentAmount(selectedOrder);
@@ -43,13 +47,20 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
 
     return (
         <div data-testid="sales-order-payment-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-            <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95">
+            <div
+                ref={dialogRef}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sales-order-payment-title"
+                tabIndex={-1}
+                className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95"
+            >
                 <div className="flex justify-between items-center mb-6">
                     <div>
                         <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-500">回款登记</p>
-                        <h3 className="text-xl font-black italic text-slate-900 dark:text-white">登记回款</h3>
+                        <h3 id="sales-order-payment-title" className="text-xl font-black italic text-slate-900 dark:text-white">登记回款</h3>
                     </div>
-                    <button onClick={onClose} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><X size={20} /></button>
+                    <button aria-label={t.close || '关闭'} onClick={onClose} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><X size={20} /></button>
                 </div>
                 <div className="space-y-4">
                     <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-[10px] font-bold text-indigo-600 dark:text-indigo-300 flex items-center">
@@ -81,7 +92,7 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                     </div>
                     <div>
                         <label className="text-[10px] font-black uppercase text-slate-400 ml-2">本次登记金额（部分或全额）</label>
-                        <input data-testid="sales-order-payment-amount" type="number" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-blue-100" value={Number.isFinite(paymentForm.amount) ? paymentForm.amount : ''} onChange={e => setPaymentForm({ ...paymentForm, amount: parseFiniteAmountInput(e.target.value) })} />
+                        <input data-autofocus data-testid="sales-order-payment-amount" type="number" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-blue-100" value={Number.isFinite(paymentForm.amount) ? paymentForm.amount : ''} onChange={e => setPaymentForm({ ...paymentForm, amount: parseFiniteAmountInput(e.target.value) })} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
@@ -91,10 +102,10 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                         <div>
                             <label className="text-[10px] font-black uppercase text-slate-400 ml-2">回款方式</label>
                             <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none appearance-none" value={paymentForm.method} onChange={e => setPaymentForm({ ...paymentForm, method: e.target.value })}>
-                                <option value="Bank Transfer">银行转账</option>
-                                <option value="Cash">现金</option>
-                                <option value="Check">支票</option>
-                                <option value="Alipay/WeChat">支付宝/微信</option>
+                                <option value="bank_transfer">银行转账</option>
+                                <option value="cash">现金</option>
+                                <option value="check">支票</option>
+                                <option value="alipay_wechat">支付宝/微信</option>
                             </select>
                         </div>
                     </div>

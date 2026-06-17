@@ -100,6 +100,9 @@ export async function exportCustomers(req: AuthRequest, res: Response) {
     const { workbook, customers } = await buildCustomerExportWorkbook(req, {
       status: req.query.status,
       riskLevel: req.query.riskLevel,
+      search: req.query.search,
+      segment: req.query.segment,
+      viewMode: req.query.viewMode,
     }, buildCustomerExportWhere(req));
 
     const fileName = `customers_${new Date().toISOString().split('T')[0]}.xlsx`;

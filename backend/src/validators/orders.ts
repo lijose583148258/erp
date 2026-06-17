@@ -2,31 +2,52 @@ import { z } from 'zod';
 
 const promiseStatusSchema = z.enum(['kept', 'missed', 'cancelled']);
 const disputeStatusSchema = z.enum(['reviewing', 'resolved', 'rejected', 'withdrawn']);
+const paymentMethodSchema = z.enum([
+  'bank_transfer',
+  'cash',
+  'check',
+  'alipay_wechat',
+  'wire_transfer',
+  'Bank Transfer',
+  'Cash',
+  'Check',
+  'Alipay/WeChat',
+]).transform(method => {
+  switch (method) {
+    case 'Bank Transfer': return 'bank_transfer';
+    case 'Cash': return 'cash';
+    case 'Check': return 'check';
+    case 'Alipay/WeChat': return 'alipay_wechat';
+    default: return method;
+  }
+});
 
 const orderItemSchema = z.object({
-  productName: z.string().trim().min(1),
+  productName: z.string().trim().min(1).max(120),
   quantity: z.coerce.number().positive(),
   unitPrice: z.coerce.number().nonnegative(),
-  unit: z.string().trim().optional(),
-  specification: z.string().trim().optional(),
-  itemType: z.string().trim().optional(),
-  notes: z.string().trim().optional(),
+  unit: z.string().trim().max(20).optional(),
+  specification: z.string().trim().max(120).optional(),
+  packagingSpec: z.string().trim().max(120).optional(),
+  itemType: z.string().trim().max(40).optional(),
+  notes: z.string().trim().max(500).optional(),
 }).passthrough();
 
 export const createOrderSchema = z.object({
   customerId: z.coerce.number().int().positive(),
   items: z.array(orderItemSchema).min(1),
-  paymentTerms: z.coerce.number().int().positive().optional(),
+  paymentTerms: z.coerce.number().int().min(1).max(365).optional(),
   discountAmount: z.coerce.number().nonnegative().optional(),
-  notes: z.string().trim().optional(),
+  notes: z.string().trim().max(1000).optional(),
   contractId: z.coerce.number().int().positive().optional().nullable(),
   currency: z.string().trim().optional(),
   status: z.string().trim().optional(),
 }).passthrough();
 
 export const updateOrderSchema = z.object({
-  notes: z.string().trim().optional(),
-  paymentTerms: z.coerce.number().int().positive().optional(),
+  notes: z.string().trim().max(1000).optional(),
+  items: z.array(orderItemSchema).min(1).optional(),
+  paymentTerms: z.coerce.number().int().min(1).max(365).optional(),
   contractId: z.coerce.number().int().positive().optional().nullable(),
 }).passthrough().refine(
   value => Object.keys(value).length > 0,
@@ -47,7 +68,7 @@ export const orderQuerySchema = z.object({
 
 export const paymentSchema = z.object({
   amount: z.coerce.number().positive(),
-  method: z.string().trim().min(1),
+  method: paymentMethodSchema,
   payerName: z.string().trim().optional(),
   note: z.string().trim().optional(),
   isProxy: z.coerce.boolean().optional(),

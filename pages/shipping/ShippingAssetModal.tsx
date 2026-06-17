@@ -26,11 +26,11 @@ const ShippingAssetModal: React.FC<Props> = ({ t, isOpen, customers, assetForm, 
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 backdrop-blur-md">
-            <div className="bg-white dark:bg-slate-950 w-[400px] p-8 rounded-[40px] shadow-2xl border border-slate-100 dark:border-slate-800">
+        <div className="fixed inset-0 z-[200] flex items-center justify-center bg-slate-900/40 px-4 backdrop-blur-md">
+            <div className="w-full max-w-[400px] rounded-[40px] border border-slate-100 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950 sm:p-8">
                 <div className="flex justify-between items-center mb-6">
                     <h3 className="font-black uppercase italic tracking-tighter text-xl text-slate-900 dark:text-white">{t.recordMove || '资产录入'}</h3>
-                    <button onClick={onClose} className="p-2 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-full"><X size={20} /></button>
+                    <button type="button" onClick={onClose} aria-label="关闭资产录入弹窗" className="flex min-h-10 min-w-10 items-center justify-center rounded-full hover:bg-slate-100 dark:hover:bg-slate-800"><X size={20} /></button>
                 </div>
                 <div className="space-y-4">
                     <select className="w-full p-4 bg-slate-100 dark:bg-slate-900 rounded-2xl font-bold border-none outline-none appearance-none" value={assetForm.customerId} onChange={(e) => setAssetForm({ ...assetForm, customerId: e.target.value })}>

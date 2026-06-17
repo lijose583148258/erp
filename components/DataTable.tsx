@@ -27,8 +27,17 @@ interface DataTableProps<T> {
   rowTestId?: (row: T, index: number) => string | undefined;
   actions?: (row: T) => React.ReactNode;
   onImport?: (newData: T[]) => void | Promise<void>;
+  onExport?: () => void | Promise<void>;
   /** Optional export currency selector. */
   exportCurrencies?: string[];
+  hideSearch?: boolean;
+  pagination?: {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+    onPageChange: (page: number) => void;
+  };
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -92,6 +101,7 @@ const getCellTitle = (value: unknown): string | undefined => {
 };
 
 const DataTable = <T extends Record<string, any>>({
+  tableId,
   title,
   columns,
   data,
@@ -100,12 +110,16 @@ const DataTable = <T extends Record<string, any>>({
   rowTestId,
   actions,
   onImport,
+  onExport,
   exportCurrencies,
+  hideSearch = false,
+  pagination,
 }: DataTableProps<T>) => {
   const { t, notify } = useAppContext();
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [exportCurrency, setExportCurrency] = useState<string>(exportCurrencies?.[0] ?? 'CNY');
+  const [isExporting, setIsExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const itemsPerPage = 15;
 
@@ -124,13 +138,15 @@ const DataTable = <T extends Record<string, any>>({
     });
   }, [data, searchTerm, columns]);
 
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+  const totalPages = pagination?.totalPages ?? Math.max(1, Math.ceil(filteredData.length / itemsPerPage));
+  const effectivePage = pagination?.page ?? currentPage;
   React.useEffect(() => {
+    if (pagination) return;
     setCurrentPage((page) => Math.min(page, totalPages));
-  }, [totalPages]);
+  }, [pagination, totalPages]);
   const displayedData = useMemo(
-    () => filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage),
-    [filteredData, currentPage]
+    () => pagination ? data : filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage),
+    [data, filteredData, currentPage, pagination]
   );
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -184,7 +200,18 @@ const DataTable = <T extends Record<string, any>>({
     reader.readAsBinaryString(file);
   };
 
-  const handleExport = useCallback(() => {
+  const handleExport = useCallback(async () => {
+    if (onExport) {
+      setIsExporting(true);
+      try {
+        await onExport();
+      } catch (error) {
+        notify('error', error instanceof Error ? error.message : '导出失败，请稍后重试');
+      } finally {
+        setIsExporting(false);
+      }
+      return;
+    }
     if (!data.length) return;
     const headers = columns.map((c) => c.header);
     const rows = data.map((row) =>
@@ -197,7 +224,7 @@ const DataTable = <T extends Record<string, any>>({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, title);
     XLSX.writeFile(wb, `${title}_${exportCurrency}_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  }, [data, columns, title, exportCurrency]);
+  }, [data, columns, title, exportCurrency, notify, onExport]);
 
   const renderCell = (row: T, col: Column<T>) => {
     const raw = typeof col.accessor === 'function' ? col.accessor(row) : row[col.accessor as keyof T];
@@ -212,10 +239,10 @@ const DataTable = <T extends Record<string, any>>({
 
   const pageNumbers = useMemo(() => {
     const delta = 2;
-    const left = Math.max(1, currentPage - delta);
-    const right = Math.min(totalPages, currentPage + delta);
+    const left = Math.max(1, effectivePage - delta);
+    const right = Math.min(totalPages, effectivePage + delta);
     return Array.from({ length: right - left + 1 }, (_, i) => left + i);
-  }, [currentPage, totalPages]);
+  }, [effectivePage, totalPages]);
 
   return (
     <div className="app-density-surface rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
@@ -224,7 +251,7 @@ const DataTable = <T extends Record<string, any>>({
           <h2 className="text-base font-black tracking-tight text-slate-800 dark:text-white">{title}</h2>
           <div className="mt-1 flex items-center gap-2">
             <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-blue-500 dark:bg-blue-900/30 dark:text-blue-300">
-              {filteredData.length} {t.records || '条记录'}
+              {pagination?.total ?? filteredData.length} {t.records || '条记录'}
             </span>
             {searchTerm && (
               <span className="text-xs font-bold text-slate-600 dark:text-slate-300">已筛选 / 共 {data.length} 条</span>
@@ -233,7 +260,7 @@ const DataTable = <T extends Record<string, any>>({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[200px] flex-1">
+          {!hideSearch && <div className="relative min-w-[200px] flex-1">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
@@ -247,7 +274,7 @@ const DataTable = <T extends Record<string, any>>({
                 <X size={13} />
               </button>
             )}
-          </div>
+          </div>}
 
           <div className="flex items-center gap-1 rounded-xl bg-slate-100 px-1 py-1 dark:bg-slate-800">
             {exportCurrencies && exportCurrencies.length > 1 && (
@@ -264,11 +291,13 @@ const DataTable = <T extends Record<string, any>>({
             )}
             <button
               type="button"
-              onClick={handleExport}
+              onClick={() => { void handleExport(); }}
+              disabled={isExporting || (!onExport && !data.length)}
+              data-testid={tableId ? `${tableId}-export` : undefined}
               title="导出 Excel"
-              className="flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 dark:bg-slate-700 dark:text-slate-200"
+              className="flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-200"
             >
-              <FileSpreadsheet size={13} />导出
+              <FileSpreadsheet size={13} />{isExporting ? '导出中...' : '导出'}
             </button>
           </div>
 
@@ -367,13 +396,13 @@ const DataTable = <T extends Record<string, any>>({
       {totalPages > 1 && (
         <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5 dark:border-slate-800">
           <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-            第 {(currentPage - 1) * itemsPerPage + 1}-{Math.min(currentPage * itemsPerPage, filteredData.length)} 条，共 {filteredData.length} 条
+            第 {(effectivePage - 1) * (pagination?.pageSize || itemsPerPage) + 1}-{Math.min(effectivePage * (pagination?.pageSize || itemsPerPage), pagination?.total ?? filteredData.length)} 条，共 {pagination?.total ?? filteredData.length} 条
           </span>
           <div className="flex items-center gap-1">
             <button
               type="button"
-              disabled={currentPage === 1}
-              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={effectivePage === 1}
+              onClick={() => pagination ? pagination.onPageChange(Math.max(1, effectivePage - 1)) : setCurrentPage((p) => Math.max(1, p - 1))}
               className="rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-800"
             >
               <ChevronLeft size={16} />
@@ -382,9 +411,9 @@ const DataTable = <T extends Record<string, any>>({
               <button
                 key={n}
                 type="button"
-                onClick={() => setCurrentPage(n)}
+                onClick={() => pagination ? pagination.onPageChange(n) : setCurrentPage(n)}
                 className={`min-w-[32px] rounded-xl px-2 py-1 text-xs font-bold transition-all ${
-                  n === currentPage
+                  n === effectivePage
                     ? 'bg-blue-500 text-white shadow-sm'
                     : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
                 }`}
@@ -394,8 +423,8 @@ const DataTable = <T extends Record<string, any>>({
             ))}
             <button
               type="button"
-              disabled={currentPage === totalPages}
-              onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+              disabled={effectivePage === totalPages}
+              onClick={() => pagination ? pagination.onPageChange(Math.min(totalPages, effectivePage + 1)) : setCurrentPage((p) => Math.min(totalPages, p + 1))}
               className="rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-800"
             >
               <ChevronRight size={16} />

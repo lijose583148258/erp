@@ -1,18 +1,29 @@
 const fs = require('fs');
 const path = require('path');
+const bcrypt = require('../backend/node_modules/bcryptjs');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'role-system-permission-ui-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'role-system-permission-ui-browser-audit-report-v1.json');
+const ORIGIN_REPORT = path.resolve(process.cwd(), 'output', 'audit', 'stable-runtime-origin-v1.json');
 const PERMISSION = 'warehouse.ledger.read';
-const TIMEOUTS = {
-  script: 290_000,
-  page: 20_000,
-  save: 20_000,
-};
+const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const ADMIN = { username: `role_ui_admin_${RUN_ID}`, password: 'AuditAdmin12345' };
+const TIMEOUTS = { script: 290_000, page: 20_000, save: 20_000 };
 
+if (!process.env.DATABASE_URL) {
+  try {
+    const origin = JSON.parse(fs.readFileSync(ORIGIN_REPORT, 'utf8').replace(/^\uFEFF/, ''));
+    if (origin?.runtimeDbPath) {
+      process.env.DATABASE_URL = `file:${String(origin.runtimeDbPath).replace(/\\/g, '/')}`;
+    }
+  } catch {}
+}
+
+const { PrismaClient } = require('../backend/node_modules/@prisma/client');
+const prisma = new PrismaClient();
 const report = {
   appUrl: APP_URL,
   startedAt: new Date().toISOString(),
@@ -63,15 +74,42 @@ async function withTimebox(page, step, timeout, action) {
   }
 }
 
+async function ensureAuditAdmin() {
+  const passwordHash = await bcrypt.hash(ADMIN.password, 12);
+  await prisma.user.upsert({
+    where: { username: ADMIN.username },
+    update: {
+      passwordHash,
+      role: 'admin',
+      segment: 'mixed',
+      email: `${ADMIN.username}@example.com`,
+      isActive: true,
+      mustChangePassword: false,
+    },
+    create: {
+      username: ADMIN.username,
+      passwordHash,
+      role: 'admin',
+      segment: 'mixed',
+      email: `${ADMIN.username}@example.com`,
+      isActive: true,
+      mustChangePassword: false,
+    },
+  });
+}
+
 async function login(page) {
+  await ensureAuditAdmin();
   await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
   await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
   const username = page.locator('input[name="username"]');
   if (await username.count()) {
-    await username.fill('admin');
-    await page.locator('input[name="password"]').fill('admin123');
+    await username.fill(ADMIN.username);
+    await page.locator('input[name="password"]').fill(ADMIN.password);
     await page.locator('button[type="submit"]').click();
     await page.waitForLoadState('networkidle', { timeout: 8_000 }).catch(() => {});
+    await page.locator('input[name="username"]').waitFor({ state: 'detached', timeout: TIMEOUTS.page }).catch(() => {});
+    expect(await page.locator('input[name="username"]').count() === 0, 'audit admin login did not leave login page');
   }
 }
 
@@ -104,15 +142,21 @@ async function waitForSalesPermission(page, expected) {
 
 async function setPermissionViaUi(page, checked) {
   await page.locator('[data-testid="role-card-sales"]').click();
-  await page.locator('input[placeholder*="权限"], input[placeholder*="permission"], input[placeholder*="quyền"]').last().fill(PERMISSION);
+  await page.locator('[data-testid="role-permission-search"]').fill(PERMISSION);
   const checkbox = page.locator(`[data-testid="role-permission-${PERMISSION}"]`);
   await checkbox.waitFor({ state: 'attached', timeout: TIMEOUTS.page });
-  if ((await checkbox.isChecked()) !== checked) {
+  const before = await checkbox.isChecked();
+  if (before !== checked) {
     if (checked) await checkbox.check({ force: true });
     else await checkbox.uncheck({ force: true });
+  } else {
+    return { changed: false };
   }
   await page.locator('[data-testid="role-save"]').click();
+  await page.locator('[data-testid="role-change-review"]').waitFor({ state: 'visible', timeout: TIMEOUTS.save });
+  await page.locator('[data-testid="role-save"]').click();
   await waitForSalesPermission(page, checked);
+  return { changed: true };
 }
 
 async function saveReport() {
@@ -138,9 +182,32 @@ async function main() {
     report.browserLauncher = launch.launcher;
     const page = await browser.newPage({ viewport: { width: 1440, height: 980 } });
 
-    await withTimebox(page, 'admin-login', TIMEOUTS.page, () => login(page));
-    await withTimebox(page, 'open-team-role-management', TIMEOUTS.page, async () => {
+    await withTimebox(page, 'audit-admin-login', TIMEOUTS.page, () => login(page));
+    await withTimebox(page, 'roles-loading-fails-closed', TIMEOUTS.page, async () => {
+      await page.route('**/api/roles', async (route) => {
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await route.continue();
+      });
       await page.evaluate(() => { window.location.hash = '#team'; });
+      await page.locator('[data-testid="role-management-unavailable"]').waitFor({ state: 'visible', timeout: TIMEOUTS.page });
+      expect(await page.locator('[data-testid="role-save"]').count() === 0, 'role save must be unavailable while roles are loading');
+      await page.locator('[data-testid="role-management-panel"]').waitFor({ state: 'visible', timeout: TIMEOUTS.page });
+      await page.unroute('**/api/roles');
+    });
+    await withTimebox(page, 'roles-error-fails-closed', TIMEOUTS.page, async () => {
+      await page.route('**/api/roles', async (route) => {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ success: false, message: 'forced role load failure' }),
+        });
+      });
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.locator('[data-testid="role-management-unavailable"]').waitFor({ state: 'visible', timeout: TIMEOUTS.page });
+      await page.locator('[data-testid="role-load-retry"]').waitFor({ state: 'visible', timeout: TIMEOUTS.page });
+      expect(await page.locator('[data-testid="role-save"]').count() === 0, 'role save must be unavailable after role load failure');
+      await page.unroute('**/api/roles');
+      await page.locator('[data-testid="role-load-retry"]').click();
       await page.locator('[data-testid="role-management-panel"]').waitFor({ state: 'visible', timeout: TIMEOUTS.page });
     });
 
@@ -150,21 +217,15 @@ async function main() {
     originalHasPermission = Boolean(initial.role.permissions?.includes(PERMISSION));
     recordStep({ step: 'read-original-sales-permission', result: 'passed', originalHasPermission });
 
-    await withTimebox(page, 'ui-grant-sales-warehouse-ledger', TIMEOUTS.save, async () => {
-      await setPermissionViaUi(page, true);
-    });
+    await withTimebox(page, 'ui-grant-sales-warehouse-ledger', TIMEOUTS.save, () => setPermissionViaUi(page, true));
     await screenshot(page, 'sales-ledger-granted');
-
-    await withTimebox(page, 'ui-revoke-sales-warehouse-ledger', TIMEOUTS.save, async () => {
-      await setPermissionViaUi(page, false);
-    });
+    await withTimebox(page, 'ui-revoke-sales-warehouse-ledger', TIMEOUTS.save, () => setPermissionViaUi(page, false));
     await screenshot(page, 'sales-ledger-revoked');
 
     report.status = 'passed';
   } catch (error) {
-    if (error?.auditKind) {
-      markReportFromLaunchError(report, error);
-    } else {
+    if (error?.auditKind) markReportFromLaunchError(report, error);
+    else {
       report.status = 'failed';
       report.failure = {
         message: String(error?.message || error),
@@ -189,12 +250,17 @@ async function main() {
     }
     if (scriptTimer) clearTimeout(scriptTimer);
     if (browser) await browser.close();
+    await prisma.$disconnect();
     await saveReport();
   }
 }
 
 main()
   .then(() => {
+    if (report.status !== 'passed') {
+      console.error(`Role system permission UI browser audit failed: ${report.failure?.message || report.status}`);
+      process.exit(1);
+    }
     console.log(`Role system permission UI browser audit passed. Report: ${REPORT_PATH}`);
   })
   .catch((error) => {

@@ -100,15 +100,15 @@ export const SupplierWorkspace = ({
             还有 {supplierErrorCount} 项供应商信息需要修正：{Object.values(supplierErrors)[0]}
           </div>
         )}
-        <FormField dataTestId="supplier-name-input" label={t.supplierName} value={newSupplier.name} onChange={(value) => updateSupplierField('name', value)} placeholder={t.supplierName} required error={supplierErrors.name} />
-        <FormField dataTestId="supplier-category-input" label={t.category} value={newSupplier.category} onChange={(value) => updateSupplierField('category', value)} placeholder={t.category} required error={supplierErrors.category} />
+        <FormField dataTestId="supplier-name-input" label={t.supplierName} value={newSupplier.name} onChange={(value) => updateSupplierField('name', value)} placeholder={t.supplierName} required error={supplierErrors.name} maxLength={120} />
+        <FormField dataTestId="supplier-category-input" label={t.category} value={newSupplier.category} onChange={(value) => updateSupplierField('category', value)} placeholder={t.category} required error={supplierErrors.category} maxLength={60} />
         <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
           <div className="mb-3 text-xs font-bold text-slate-400">{t.mainContact}</div>
           <div className="space-y-3">
-            <FormField dataTestId="supplier-contact-input" value={newSupplier.contact} onChange={(value) => updateSupplierField('contact', value)} placeholder={t.contactName} inputClassName="bg-white dark:bg-slate-900" />
+            <FormField dataTestId="supplier-contact-input" value={newSupplier.contact} onChange={(value) => updateSupplierField('contact', value)} placeholder={t.contactName} inputClassName="bg-white dark:bg-slate-900" maxLength={80} />
             <div className="grid grid-cols-2 gap-3">
-              <FormField dataTestId="supplier-phone-input" value={newSupplier.contactPhone} onChange={(value) => updateSupplierField('contactPhone', value)} placeholder={t.phone} inputClassName="bg-white dark:bg-slate-900" />
-              <FormField dataTestId="supplier-email-input" value={newSupplier.contactEmail} onChange={(value) => updateSupplierField('contactEmail', value)} placeholder={t.email} error={supplierErrors.contactEmail} inputClassName="bg-white dark:bg-slate-900" />
+              <FormField dataTestId="supplier-phone-input" value={newSupplier.contactPhone} onChange={(value) => updateSupplierField('contactPhone', value)} placeholder={t.phone} inputClassName="bg-white dark:bg-slate-900" maxLength={40} />
+              <FormField dataTestId="supplier-email-input" value={newSupplier.contactEmail} onChange={(value) => updateSupplierField('contactEmail', value)} placeholder={t.email} error={supplierErrors.contactEmail} inputClassName="bg-white dark:bg-slate-900" maxLength={120} />
             </div>
           </div>
         </div>
@@ -123,19 +123,19 @@ export const SupplierWorkspace = ({
         {showAdvancedSupplierFields ? (
           <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
             <div className="text-xs font-black text-slate-500 dark:text-slate-300">多语言名称 / 地址 / 风险</div>
-            <FormField label={`${t.supplierName}（中文）`} value={newSupplier.nameZh} onChange={(value) => updateSupplierField('nameZh', value)} placeholder={`${t.supplierName}（中文）`} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField label={`${t.supplierName} (English)`} value={newSupplier.nameEn} onChange={(value) => updateSupplierField('nameEn', value)} placeholder={`${t.supplierName} (English)`} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField label={`${t.supplierName} (Tiếng Việt)`} value={newSupplier.nameVi} onChange={(value) => updateSupplierField('nameVi', value)} placeholder={`${t.supplierName} (Tiếng Việt)`} inputClassName="bg-white dark:bg-slate-900" />
-            <FormField label="别名 / 曾用名" as="textarea" value={newSupplier.nameAliases} onChange={(value) => updateSupplierField('nameAliases', value)} placeholder={t.supplierAliasPlaceholder} rows={3} inputClassName="bg-white dark:bg-slate-900" />
+            <FormField label={`${t.supplierName}（中文）`} value={newSupplier.nameZh} onChange={(value) => updateSupplierField('nameZh', value)} placeholder={`${t.supplierName}（中文）`} inputClassName="bg-white dark:bg-slate-900" maxLength={120} />
+            <FormField label={`${t.supplierName} (English)`} value={newSupplier.nameEn} onChange={(value) => updateSupplierField('nameEn', value)} placeholder={`${t.supplierName} (English)`} inputClassName="bg-white dark:bg-slate-900" maxLength={120} />
+            <FormField label={`${t.supplierName} (Tiếng Việt)`} value={newSupplier.nameVi} onChange={(value) => updateSupplierField('nameVi', value)} placeholder={`${t.supplierName} (Tiếng Việt)`} inputClassName="bg-white dark:bg-slate-900" maxLength={120} />
+            <FormField label="别名 / 曾用名" as="textarea" value={newSupplier.nameAliases} onChange={(value) => updateSupplierField('nameAliases', value)} placeholder={t.supplierAliasPlaceholder} rows={3} inputClassName="bg-white dark:bg-slate-900" maxLength={500} />
             <div className="rounded-2xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900">
               <div className="mb-3 text-xs font-bold text-slate-400">{t.mainAddress}</div>
               <div className="space-y-3">
-                <FormField dataTestId="supplier-address-label-input" value={newSupplier.addressLabel} onChange={(value) => updateSupplierField('addressLabel', value)} placeholder={t.addressLabel} inputClassName="bg-white dark:bg-slate-900" />
+                <FormField dataTestId="supplier-address-label-input" value={newSupplier.addressLabel} onChange={(value) => updateSupplierField('addressLabel', value)} placeholder={t.addressLabel} inputClassName="bg-white dark:bg-slate-900" maxLength={80} />
                 <div className="grid grid-cols-2 gap-3">
-                  <FormField dataTestId="supplier-country-code-input" value={newSupplier.addressCountryCode} onChange={(value) => updateSupplierField('addressCountryCode', value)} transformValue={(value) => value.toUpperCase()} placeholder={t.countryCode} inputClassName="bg-white uppercase dark:bg-slate-900" />
-                  <FormField dataTestId="supplier-city-input" value={newSupplier.addressCity} onChange={(value) => updateSupplierField('addressCity', value)} placeholder={t.city} inputClassName="bg-white dark:bg-slate-900" />
+                  <FormField dataTestId="supplier-country-code-input" value={newSupplier.addressCountryCode} onChange={(value) => updateSupplierField('addressCountryCode', value)} transformValue={(value) => value.toUpperCase()} placeholder={t.countryCode} inputClassName="bg-white uppercase dark:bg-slate-900" maxLength={3} />
+                  <FormField dataTestId="supplier-city-input" value={newSupplier.addressCity} onChange={(value) => updateSupplierField('addressCity', value)} placeholder={t.city} inputClassName="bg-white dark:bg-slate-900" maxLength={80} />
                 </div>
-                <FormField dataTestId="supplier-full-address-input" as="textarea" value={newSupplier.addressFullAddress} onChange={(value) => updateSupplierField('addressFullAddress', value)} placeholder={t.fullAddress} rows={3} inputClassName="bg-white dark:bg-slate-900" />
+                <FormField dataTestId="supplier-full-address-input" as="textarea" value={newSupplier.addressFullAddress} onChange={(value) => updateSupplierField('addressFullAddress', value)} placeholder={t.fullAddress} rows={3} inputClassName="bg-white dark:bg-slate-900" maxLength={500} />
               </div>
             </div>
             <div className="grid grid-cols-2 gap-3">

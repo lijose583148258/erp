@@ -12,7 +12,7 @@ type Props = {
 const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordMove, onQuickReturn }) => {
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between p-6 bg-indigo-50 dark:bg-indigo-900/20 rounded-[32px] border border-indigo-100 dark:border-indigo-800">
+            <div className="flex flex-col gap-4 rounded-[32px] border border-indigo-100 bg-indigo-50 p-6 dark:border-indigo-800 dark:bg-indigo-900/20 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
                     <div className="p-4 bg-indigo-500 text-white rounded-2xl shadow-lg">
                         <Recycle size={32} />
@@ -23,8 +23,9 @@ const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordM
                     </div>
                 </div>
                 <button
+                    type="button"
                     onClick={onOpenRecordMove}
-                    className="flex items-center px-8 py-4 bg-indigo-600 text-white rounded-[24px] font-black shadow-xl hover:scale-105 active:scale-95 transition-all text-xs uppercase tracking-widest"
+                    className="flex min-h-11 items-center justify-center rounded-[24px] bg-indigo-600 px-8 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl transition-all hover:scale-105 active:scale-95"
                 >
                     {t.recordMove || 'Record Move'}
                 </button>
@@ -46,10 +47,11 @@ const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordM
                                 )
                             ))}
                         </div>
-                        <div className="absolute inset-0 bg-white/95 dark:bg-slate-900/95 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity z-10 backdrop-blur-sm">
+                        <div className="touch-actions-visible absolute inset-0 z-10 flex items-center justify-center bg-white/95 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 dark:bg-slate-900/95">
                             <button
+                                type="button"
                                 onClick={() => onQuickReturn(summary.customerId)}
-                                className="px-6 py-3 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase shadow-xl hover:scale-110 transition-transform"
+                                className="min-h-11 rounded-2xl bg-emerald-500 px-6 py-3 text-xs font-black uppercase text-white shadow-xl transition-transform hover:scale-110"
                             >
                                 {t.receiveBack || 'Return'}
                             </button>

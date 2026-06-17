@@ -189,6 +189,28 @@ async function openOrders(page) {
 }
 
 async function selectFirstRealOption(selectLocator) {
+  if (await selectLocator.getAttribute('role') === 'combobox') {
+    await selectLocator.click();
+    await selectLocator.press('Home');
+    const activeOptionId = await selectLocator.getAttribute('aria-activedescendant');
+    if (!activeOptionId) throw new Error('customer combobox did not expose an active option');
+    const option = selectLocator.page().locator(`#${activeOptionId}`);
+    await option.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    const value = (await option.getAttribute('data-testid') || '').replace('sales-order-customer-option-', '');
+    const label = (await option.innerText()).trim();
+    await selectLocator.press('ArrowDown');
+    const nextActiveOptionId = await selectLocator.getAttribute('aria-activedescendant');
+    if (!nextActiveOptionId) throw new Error('customer combobox lost active option after ArrowDown');
+    const selectedOption = selectLocator.page().locator(`#${nextActiveOptionId}`);
+    const selectedValue = (await selectedOption.getAttribute('data-testid') || '').replace('sales-order-customer-option-', '');
+    const selectedLabel = (await selectedOption.innerText()).trim();
+    await selectLocator.press('Enter');
+    if (await selectLocator.getAttribute('aria-expanded') !== 'false') {
+      throw new Error('customer combobox did not close after keyboard selection');
+    }
+    return { value: selectedValue || value, label: selectedLabel || label };
+  }
+
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const option = await selectLocator.evaluate((element) => {
       const options = Array.from(element.options || []);
@@ -238,6 +260,10 @@ async function createOrder(page) {
 
     const modal = page.locator('[data-testid="sales-order-editor-modal"]').first();
     await modal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    const dialog = modal.locator('[role="dialog"]').first();
+    if (await dialog.getAttribute('aria-modal') !== 'true') {
+      throw new Error('sales order editor is missing modal dialog semantics');
+    }
 
     const customerSelect = modal.locator('[data-testid="sales-order-customer-select"]').first();
     const selectedCustomer = await selectFirstRealOption(customerSelect);
@@ -245,6 +271,20 @@ async function createOrder(page) {
 
     const saveButton = modal.locator('[data-testid="sales-order-save-button"]').first();
     if (!(await saveButton.count())) throw new Error('order save button not found');
+
+    const notes = modal.locator('[data-testid="sales-order-notes"]').first();
+    await notes.fill('超'.repeat(1001));
+    if (await notes.getAttribute('aria-invalid') !== 'true') {
+      throw new Error('order notes did not expose the over-limit state');
+    }
+    await saveButton.click();
+    if (!(await modal.isVisible())) throw new Error('over-limit order notes did not block save');
+    await notes.fill('');
+    recordStep({
+      step: 'sales-order-notes-over-limit-blocked',
+      result: 'passed',
+      evidence: '1001/1000 characters blocked before save',
+    });
 
     await saveButton.click();
     const errorSummary = modal.locator('[data-testid="sales-order-line-error-summary"]').first();
@@ -379,6 +419,15 @@ async function recordPaymentForRow(page, orderId) {
 
     const payModal = page.locator('[data-testid="sales-order-payment-modal"]').first();
     await payModal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    const paymentDialog = payModal.locator('[role="dialog"]').first();
+    if (await paymentDialog.getAttribute('aria-modal') !== 'true') {
+      throw new Error('sales order payment modal is missing dialog semantics');
+    }
+    await page.waitForTimeout(100);
+    const paymentFocus = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    if (paymentFocus !== 'sales-order-payment-amount') {
+      throw new Error(`sales order payment initial focus is incorrect: ${paymentFocus || 'none'}`);
+    }
     await payModal.locator('[data-testid="sales-order-payment-amount"]').fill(String(TEST_DATA.paymentAmount));
     await payModal.locator('input[type="text"]').last().fill(TEST_DATA.paymentNote);
     const confirmButton = payModal.locator('[data-testid="sales-order-payment-confirm"]').first();
@@ -424,6 +473,13 @@ async function openHistoryAndVerify(page) {
 
     const modal = page.locator('[data-testid="sales-order-history-modal"]').first();
     await modal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    const historyDialog = modal.locator('[role="dialog"]').first();
+    if (await historyDialog.getAttribute('aria-modal') !== 'true') {
+      throw new Error('sales order history modal is missing dialog semantics');
+    }
+    await page.waitForTimeout(100);
+    const historyFocusText = await page.evaluate(() => document.activeElement?.textContent?.trim() || '');
+    if (!historyFocusText) throw new Error('sales order history modal did not set initial focus');
     for (let index = 0; index < 30; index += 1) {
       const modalText = await modal.innerText();
       if (modalText.includes(TEST_DATA.paymentNote)) {
@@ -437,6 +493,69 @@ async function openHistoryAndVerify(page) {
 
   const shot = await safeScreenshot(page, 'sales-order-history-readback');
   recordStep({ step: 'sales-order-history-readback-evidence', result: 'passed', evidence: shot, paymentNote: TEST_DATA.paymentNote });
+}
+
+async function verifyAccessibilityLayout(page) {
+  await withTimebox(page, 'verify-accessibility-layout', TIMEOUTS.route, async () => {
+    await page.reload({ waitUntil: 'domcontentloaded' });
+    await page.setViewportSize({ width: 640, height: 720 });
+    await page.emulateMedia({ forcedColors: 'active', reducedMotion: 'reduce' });
+
+    const createButton = page.locator('[data-testid="sales-order-create-button"]').first();
+    await createButton.waitFor({ state: 'visible', timeout: TIMEOUTS.route });
+    await createButton.focus();
+    await createButton.click();
+
+    const modal = page.locator('[data-testid="sales-order-editor-modal"]').first();
+    await modal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+    await page.waitForTimeout(100);
+
+    const activeTestId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    if (activeTestId !== 'sales-order-customer-select') {
+      throw new Error(`sales order dialog initial focus is incorrect: ${activeTestId || 'none'}`);
+    }
+
+    const bodyOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    if (bodyOverflow > 2) {
+      throw new Error(`sales order dialog causes ${bodyOverflow}px page-level horizontal overflow at narrow viewport`);
+    }
+
+    const saveButton = modal.locator('[data-testid="sales-order-save-button"]').first();
+    await saveButton.focus();
+    await saveButton.press('Tab');
+    const focusStayedInDialog = await modal.locator('[role="dialog"]').evaluate(
+      (dialog) => dialog.contains(document.activeElement),
+    );
+    if (!focusStayedInDialog) throw new Error('Tab escaped the sales order dialog');
+
+    const motionDurations = await modal.locator('[role="dialog"]').evaluate((dialog) => {
+      const style = getComputedStyle(dialog);
+      return {
+        animationDuration: style.animationDuration,
+        transitionDuration: style.transitionDuration,
+      };
+    });
+    if (Number.parseFloat(motionDurations.animationDuration) > 0.00002) {
+      throw new Error(`reduced motion did not suppress dialog animation: ${motionDurations.animationDuration}`);
+    }
+
+    const screenshot = await safeScreenshot(page, 'sales-order-accessibility-640-forced-colors');
+    recordStep({
+      step: 'sales-order-accessibility-evidence',
+      result: 'passed',
+      evidence: screenshot,
+      viewport: '640x720',
+      forcedColors: 'active',
+      reducedMotion: 'reduce',
+    });
+
+    await modal.locator('[data-testid="sales-order-editor-close"]').click();
+    await modal.waitFor({ state: 'hidden', timeout: TIMEOUTS.modal });
+    const returnedTestId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    if (returnedTestId !== 'sales-order-create-button') {
+      throw new Error(`sales order dialog did not return focus to its trigger: ${returnedTestId || 'none'}`);
+    }
+  });
 }
 
 async function main() {
@@ -462,6 +581,7 @@ async function main() {
     await recordPaymentForRow(page, created.id);
     await verifyPaymentByApi(page, created.id);
     await openHistoryAndVerify(page);
+    await verifyAccessibilityLayout(page);
     report.status = 'passed';
   } catch (error) {
     markReportFromLaunchError(report, error);

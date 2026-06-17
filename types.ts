@@ -16,6 +16,7 @@ export interface CurrentUser {
   role: UserRole;
   segment?: 'direct' | 'channel' | 'mixed';
   avatar: string;
+  mustChangePassword?: boolean;
   permissions?: string[];
   dataScopes?: string[];
 }

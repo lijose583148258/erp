@@ -40,7 +40,11 @@ export async function changeOwnPassword(input: ChangePasswordInput) {
   const passwordHash = await bcrypt.hash(input.newPassword, 12);
   await prisma.user.update({
     where: { id: input.userId },
-    data: { passwordHash },
+    data: {
+      passwordHash,
+      mustChangePassword: false,
+      passwordChangedAt: new Date(),
+    },
   });
   const deletedRefreshTokens = deleteRefreshTokensForUser(input.userId);
 

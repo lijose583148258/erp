@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Power, PowerOff, ShieldCheck, UserPlus, UsersRound } from 'lucide-react';
 import DataTable, { Column } from '../components/DataTable';
 import { useAppContext } from '../app/AppContext';
@@ -23,11 +23,13 @@ const TeamManagement: React.FC = () => {
   const { t, currentUser, notify, formatPrice } = useAppContext();
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [roles, setRoles] = useState<AuthRole[]>([]);
+  const [roleLoadStatus, setRoleLoadStatus] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
   const [loading, setLoading] = useState(false);
   const [rolesLoading, setRolesLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [updatingMemberId, setUpdatingMemberId] = useState<string | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);
+  const [createdAccount, setCreatedAccount] = useState<{ username: string; role: string; segment: string } | null>(null);
   const [filter, setFilter] = useState<'all' | 'direct' | 'channel' | 'mixed'>('all');
   const [draft, setDraft] = useState({
     username: '',
@@ -41,11 +43,11 @@ const TeamManagement: React.FC = () => {
   const canManageRoles = can(currentUser, 'authorization.roles.manage');
   const builtInRoles = useMemo(() => fallbackRoles(t), [t]);
   const roleOptions = useMemo(() => {
-    const source = canManageRoles && roles.length ? roles : builtInRoles;
+    const source = canManageRoles ? roles : builtInRoles;
     return source.filter(role => role.isActive && (canManageRoles || role.code === 'sales'));
   }, [builtInRoles, canManageRoles, roles]);
 
-  const loadMembers = async () => {
+  const loadMembers = useCallback(async () => {
     setLoading(true);
     try {
       setMembers(await teamService.getAll());
@@ -54,30 +56,37 @@ const TeamManagement: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [notify, t.loadDataFail]);
 
-  const loadRoles = async () => {
+  const loadRoles = useCallback(async () => {
     if (!canManageRoles) {
       setRoles([]);
+      setRoleLoadStatus('idle');
       return;
     }
+    setRoleLoadStatus('loading');
     setRolesLoading(true);
     try {
-      setRoles(await roleService.listRoles());
+      const loadedRoles = await roleService.listRoles();
+      if (loadedRoles.length === 0) throw new Error('角色列表为空，请重试');
+      setRoles(loadedRoles);
+      setRoleLoadStatus('ready');
     } catch (error) {
+      setRoles([]);
+      setRoleLoadStatus('error');
       notify('error', error instanceof Error ? error.message : (t.loadDataFail || '角色加载失败'));
     } finally {
       setRolesLoading(false);
     }
-  };
+  }, [canManageRoles, notify, t.loadDataFail]);
 
   useEffect(() => {
     void loadMembers();
-  }, []);
+  }, [loadMembers]);
 
   useEffect(() => {
     void loadRoles();
-  }, [canManageRoles]);
+  }, [loadRoles]);
 
   useEffect(() => {
     if (roleOptions.length && !roleOptions.some(role => role.code === draft.role)) {
@@ -142,6 +151,7 @@ const TeamManagement: React.FC = () => {
     if (!username) return notify('warning', t.usernameRequired || '请输入登录账号');
     if (!/^[a-zA-Z0-9_]{2,50}$/.test(username)) return notify('warning', '账号只能使用 2-50 位字母、数字或下划线');
     if (password.length < 6) return notify('warning', t.passwordRequired || '请输入至少 6 位初始密码');
+    if (roleOptions.length === 0) return notify('warning', '角色尚未加载完成，请重试后再创建账号');
 
     setSubmitting(true);
     try {
@@ -153,9 +163,11 @@ const TeamManagement: React.FC = () => {
         segment: draft.segment,
       });
       setMembers(prev => [member, ...prev]);
+      const roleName = roleOptions.find(role => role.code === (canManageRoles ? draft.role : 'sales'))?.name || (canManageRoles ? draft.role : 'sales');
+      setCreatedAccount({ username, role: roleName, segment: segmentLabel(draft.segment, t) });
       setDraft({ username: '', password: '', email: '', role: roleOptions[0]?.code || 'sales', segment: 'direct' });
       setShowCreateForm(false);
-      notify('success', '账号已创建，员工可以用该账号和初始密码登录');
+      notify('success', '账号已创建，请把登录账号和初始密码单独交付给员工');
     } catch (error) {
       notify('error', error instanceof Error ? error.message : (t.memberCreateFail || '账号创建失败'));
     } finally {
@@ -235,8 +247,31 @@ const TeamManagement: React.FC = () => {
           </div>
           <div className="mt-5 flex justify-end gap-3">
             <button onClick={() => setShowCreateForm(false)} className="rounded-[12px] border border-slate-200 px-5 py-3 text-sm font-black text-slate-600 dark:border-slate-700 dark:text-slate-200">{t.cancel || '取消'}</button>
-            <button data-testid="team-create-submit" onClick={() => void handleCreate()} disabled={submitting} className="rounded-[12px] bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-60">
+            <button data-testid="team-create-submit" onClick={() => void handleCreate()} disabled={submitting || roleOptions.length === 0} className="rounded-[12px] bg-blue-600 px-5 py-3 text-sm font-black text-white disabled:opacity-60">
               {submitting ? (t.submitting || '提交中...') : '创建账号'}
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {createdAccount ? (
+        <section data-testid="team-account-handoff" className="rounded-[18px] border border-emerald-200 bg-emerald-50 p-5 text-sm shadow-sm dark:border-emerald-900 dark:bg-emerald-950/30">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <h2 className="text-lg font-black text-emerald-950 dark:text-emerald-100">账号已创建，等待交付给员工</h2>
+              <p className="mt-1 font-bold leading-6 text-emerald-900 dark:text-emerald-100">
+                登录账号：<span className="font-black">{createdAccount.username}</span>；角色：{createdAccount.role}；业务线：{createdAccount.segment}。
+              </p>
+              <p className="mt-2 font-bold leading-6 text-emerald-900 dark:text-emerald-100">
+                请通过公司内部安全渠道交付初始密码。员工首次登录后必须修改个人密码，不要把管理员账号或演示账号交给员工共用。
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setCreatedAccount(null)}
+              className="rounded-[12px] border border-emerald-300 bg-white px-4 py-2 text-xs font-black text-emerald-800 hover:bg-emerald-100 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100"
+            >
+              已交付
             </button>
           </div>
         </section>
@@ -279,8 +314,25 @@ const TeamManagement: React.FC = () => {
         />
       </section>
 
-      {canManageRoles ? (
-        <RoleManagementPanel roles={roles.length > 0 ? roles : builtInRoles} onRolesChanged={loadRoles} />
+      {canManageRoles && roleLoadStatus === 'ready' && roles.length > 0 ? (
+        <RoleManagementPanel roles={roles} onRolesChanged={loadRoles} />
+      ) : canManageRoles ? (
+        <section data-testid="role-management-unavailable" className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+          <h2 className="text-lg font-black text-slate-900 dark:text-white">角色权限管理</h2>
+          <p className="mt-2 text-sm font-bold text-slate-600 dark:text-slate-300">
+            {roleLoadStatus === 'error' ? '角色数据加载失败。为避免误覆盖权限，编辑和保存已停用。' : '正在加载真实角色权限，完成前不能编辑或保存。'}
+          </p>
+          {roleLoadStatus === 'error' ? (
+            <button
+              type="button"
+              data-testid="role-load-retry"
+              onClick={() => void loadRoles()}
+              className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-black text-white hover:bg-blue-700"
+            >
+              重新加载
+            </button>
+          ) : null}
+        </section>
       ) : null}
     </div>
   );

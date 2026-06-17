@@ -1,3 +1,6 @@
+const fs = require('fs');
+const path = require('path');
+const XLSX = require('xlsx');
 const { createProductionSmokeModule } = require('./browser-human-flow-production-module.cjs');
 const {
   assertNoNewConsoleErrors,
@@ -29,6 +32,15 @@ function createBrowserHumanFlowModules({
 
     const modal = page.locator('[data-testid="crm-create-modal"]');
     await withTimeout('crm-fill-create', TIMEOUTS.save, async () => {
+      const dialog = modal.locator('[role="dialog"]').first();
+      if (await dialog.getAttribute('aria-modal') !== 'true') {
+        throw new Error('CRM create modal is missing modal dialog semantics');
+      }
+      await page.waitForTimeout(100);
+      const activeTestId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+      if (activeTestId !== 'crm-name') {
+        throw new Error(`CRM create dialog initial focus is incorrect: ${activeTestId || 'none'}`);
+      }
       await modal.locator('[data-testid="crm-name"]').fill(DATA.crm.name);
       await modal.locator('[data-testid="crm-name-zh"]').fill(DATA.crm.nameZh);
       await modal.locator('[data-testid="crm-name-en"]').fill(DATA.crm.nameEn);
@@ -62,16 +74,52 @@ function createBrowserHumanFlowModules({
       await page.waitForTimeout(200);
       await modal.locator('[data-testid="crm-contact-1-name"]').fill(DATA.crm.extraContactName);
       await modal.locator('[data-testid="crm-contact-1-phone"]').fill(DATA.crm.extraContactPhone);
-      await modal.locator('[data-testid="crm-notes"]').fill(DATA.crm.notes);
+      const notes = modal.locator('[data-testid="crm-notes"]');
+      await notes.fill('超'.repeat(1001));
+      if (await notes.getAttribute('aria-invalid') !== 'true') {
+        throw new Error('CRM notes did not expose the over-limit state');
+      }
+      await modal.locator('[data-testid="crm-create-submit"]').click();
+      if (!(await modal.isVisible())) throw new Error('over-limit CRM notes did not block create');
+      await notes.fill(DATA.crm.notes);
       await modal.locator('[data-testid="crm-create-submit"]').click();
     });
 
+    await modal.waitFor({ state: 'hidden', timeout: TIMEOUTS.save });
+    const returnedTestId = await page.evaluate(() => document.activeElement?.getAttribute('data-testid'));
+    if (returnedTestId !== 'crm-add-customer') {
+      throw new Error(`CRM create dialog did not return focus to its trigger: ${returnedTestId || 'none'}`);
+    }
     await waitForVisibleText(page, DATA.crm.nameZh);
     const createdShot = await safeScreenshot(page, 'crm-created');
 
     await withTimeout('crm-readback-row', TIMEOUTS.readBack, async () => {
       await page.locator('[data-testid="crm-search"]').fill(DATA.crm.nameZh);
       await page.waitForTimeout(500);
+      const [download] = await Promise.all([
+        page.waitForEvent('download', { timeout: TIMEOUTS.readBack }),
+        page.locator('[data-testid="crm-customers-export"]').click(),
+      ]);
+      const exportPath = path.join(process.cwd(), 'output', 'playwright', `crm-customers-${RUN_ID}.xlsx`);
+      await download.saveAs(exportPath);
+      const exportSize = fs.statSync(exportPath).size;
+      if (exportSize < 1000) throw new Error(`CRM export file is unexpectedly small: ${exportSize} bytes`);
+      const workbook = XLSX.readFile(exportPath);
+      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+      const exportedRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+      if (!exportedRows.some((row) => Object.values(row).some((value) => String(value).includes(DATA.crm.nameZh)))) {
+        throw new Error('CRM filtered server export does not contain the searched customer');
+      }
+      await page.waitForTimeout(300);
+      const urlBeforeReload = new URL(page.url());
+      if (urlBeforeReload.searchParams.get('crmSearch') !== DATA.crm.nameZh) {
+        throw new Error('CRM search state was not synchronized to the URL');
+      }
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      await page.locator('[data-testid="crm-search"]').waitFor({ state: 'visible', timeout: TIMEOUTS.pageLoad });
+      if (await page.locator('[data-testid="crm-search"]').inputValue() !== DATA.crm.nameZh) {
+        throw new Error('CRM search state was not restored after reload');
+      }
       const row = page.locator('[data-testid^="crm-customer-row-"]').filter({ hasText: DATA.crm.nameZh }).first();
       await row.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
       await row.click();
@@ -89,8 +137,12 @@ function createBrowserHumanFlowModules({
 
     return {
       status: 'passed',
-      evidence: [createdShot, readbackShot].filter(Boolean),
-      notes: '已验证客户主档、三语名称、主地址、主联系人、别名与刷新后回读。',
+      evidence: [
+        createdShot,
+        readbackShot,
+        path.join(process.cwd(), 'output', 'playwright', `crm-customers-${RUN_ID}.xlsx`),
+      ].filter(Boolean),
+      notes: '已验证客户主档、三语名称、主地址、主联系人、别名、筛选后服务端导出与刷新后回读。',
     };
   }
 
@@ -106,22 +158,10 @@ function createBrowserHumanFlowModules({
     await withTimeout('orders-fill-save', TIMEOUTS.save, async () => {
       const customerSelect = modal.locator('[data-testid="sales-order-customer-select"]');
       await customerSelect.waitFor({ state: 'visible', timeout: TIMEOUTS.action });
-      let customerValue = '';
-      const customerOptionStarted = Date.now();
-      while (Date.now() - customerOptionStarted < TIMEOUTS.readBack) {
-        customerValue = await customerSelect.evaluate((element, expectedText) => {
-          const options = Array.from(element.options || []);
-          const preferred = options.find((item) => String(item.textContent || '').includes(String(expectedText)));
-          const fallback = options.find((item) => item.value);
-          return (preferred || fallback)?.value || '';
-        }, DATA.crm.nameZh);
-        if (customerValue) break;
-        await page.waitForTimeout(250);
-      }
-      if (!customerValue) {
-        throw new Error('sales order customer option not found');
-      }
-      await customerSelect.selectOption(customerValue);
+      await customerSelect.fill(DATA.crm.nameZh);
+      const customerOption = modal.locator('[data-testid^="sales-order-customer-option-"]').first();
+      await customerOption.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+      await customerOption.click();
       const contractSelect = modal.locator('[data-testid="sales-order-contract-select"]');
       if (await contractSelect.count()) {
         await contractSelect.selectOption('');

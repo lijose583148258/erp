@@ -16,6 +16,7 @@ import { CRMCreatePreviewPanel } from './CRMCreatePreviewPanel';
 import { createEmptyAddress, createEmptyContact } from './CRMCustomerFormFactories';
 import { AddressCard, ContactCard } from './CRMCustomerFormCards';
 import { useUnsavedForm } from '../../app/useUnsavedForm';
+import { useDialogFocus } from '../../app/useDialogFocus';
 
 type Props = {
   t: any;
@@ -29,13 +30,15 @@ type Props = {
 
 export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, onCreate, onClose, lockedSegment = null }: Props) {
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const dialogRef = React.useRef<HTMLDivElement>(null);
   const { requestClose } = useUnsavedForm({
     sourceId: 'crm-create-customer',
     label: '新建客户',
     open: true,
     value: newCustomer,
   });
-  const handleClose = () => requestClose(onClose);
+  const handleClose = React.useCallback(() => requestClose(onClose), [onClose, requestClose]);
+  useDialogFocus(true, dialogRef, handleClose);
   const segmentMeta = {
     direct: { label: t.crmSegmentDirect || '内销直销', tone: 'bg-blue-50 text-blue-600 border-blue-200' },
     channel: { label: t.crmSegmentChannel || '分销渠道', tone: 'bg-amber-50 text-amber-700 border-amber-200' },
@@ -103,26 +106,38 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
     Boolean(primaryContact.phone || primaryContact.email),
   ];
   const readyCount = checklist.filter(Boolean).length;
+  const aliases = newCustomer.nameAliases || [];
+  const longestAliasLength = aliases.reduce((max, alias) => Math.max(max, String(alias).length), 0);
+  const aliasesOverLimit = aliases.length > 50 || longestAliasLength > 160;
+  const notesLength = String(newCustomer.notes || '').length;
+  const notesOverLimit = notesLength > 1000;
 
   return (
     <div data-testid="crm-create-modal" className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/45 px-4 backdrop-blur-md animate-in fade-in">
-      <div className="max-h-[92vh] w-full max-w-6xl overflow-hidden rounded-[40px] border border-white/40 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950">
-          <div className="flex items-center justify-between border-b border-slate-100 px-8 py-6 dark:border-slate-800">
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="crm-create-title"
+        tabIndex={-1}
+        className="max-h-[96vh] w-full max-w-6xl overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+      >
+          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 sm:px-6 dark:border-slate-800">
             <div>
-            <div className="text-[11px] font-black uppercase tracking-[0.32em] text-blue-500">{t.crmCustomerOnboarding || 'Customer Onboarding'}</div>
-            <h2 className="mt-2 text-3xl font-black italic tracking-tight text-slate-900 dark:text-white">{t.crmCreateCustomerMaster || '新建客户主数据'}</h2>
-            <p className="mt-2 text-sm font-medium text-slate-500">{t.crmCreateCustomerMasterHint || '先完成主档，再逐步补充站点、联系人、客户池与风控信息。'}</p>
+            <div className="text-xs font-black text-blue-600">{t.crmCustomerOnboarding || '客户建档'}</div>
+            <h2 id="crm-create-title" className="mt-1 text-2xl font-black tracking-tight text-slate-900 dark:text-white">{t.crmCreateCustomerMaster || '新建客户主数据'}</h2>
+            <p className="mt-1 text-sm font-medium text-slate-600 dark:text-slate-300">{t.crmCreateCustomerMasterHint || '先完成主档，再逐步补充站点、联系人、客户池与风控信息。'}</p>
           </div>
-          <button data-testid="crm-create-close" onClick={handleClose} className="rounded-full bg-slate-100 p-3 text-slate-500 transition hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300">
+          <button aria-label={t.close || '关闭'} data-testid="crm-create-close" onClick={handleClose} className="min-h-11 min-w-11 rounded-xl bg-slate-100 p-3 text-slate-600 transition hover:text-slate-900 dark:bg-slate-800 dark:text-slate-300">
             <X size={18} />
           </button>
         </div>
 
-        <div className="grid max-h-[calc(92vh-96px)] grid-cols-1 overflow-y-auto lg:grid-cols-[1.15fr_0.85fr]">
-          <div className="space-y-8 px-8 py-8">
-            <section className="rounded-[30px] border border-slate-100 bg-slate-50/80 p-6 dark:border-slate-800 dark:bg-slate-900/40">
+        <div className="grid max-h-[calc(96vh-88px)] grid-cols-1 overflow-y-auto lg:grid-cols-[1.15fr_0.85fr]">
+          <div className="space-y-5 px-4 py-5 sm:px-6">
+            <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/40">
                 <div className="mb-5 flex items-center gap-3">
-                  <div className="rounded-2xl bg-blue-600 p-3 text-white"><Building2 size={18} /></div>
+                  <div className="rounded-xl bg-blue-600 p-3 text-white"><Building2 size={18} /></div>
                   <div>
                   <h3 className="text-lg font-black text-slate-900 dark:text-white">{t.crmCompanyMaster || '公司主档'}</h3>
                   <p className="text-xs font-medium text-slate-500">{t.crmCompanyMasterHint || '一家公司一条主数据，支持中文、英文、越南文并存。'}</p>
@@ -130,42 +145,47 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                 </div>
               <div className="space-y-4">
                 <div>
-                  <label className="mb-2 block text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">{t.crmPrimaryName || 'Primary Name'}</label>
+                  <label className="mb-2 block text-xs font-black text-slate-600 dark:text-slate-300">{t.crmPrimaryName || '主名称'}</label>
                   <input
+                    data-autofocus
                     data-testid="crm-name"
-                    className="w-full rounded-[20px] border border-slate-200 bg-white px-5 py-4 font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
+                    className="w-full rounded-xl border border-slate-200 bg-white px-5 py-4 font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
                     value={newCustomer.name || ''}
                     onChange={(event) => setNewCustomer({ ...newCustomer, name: event.target.value })}
+                    maxLength={160}
                     placeholder={t.crmPrimaryNamePlaceholder || '例如：爱劳达集团 / AiLaoda Group'}
                   />
                 </div>
                 <div className="grid gap-3 md:grid-cols-3">
                   <input
                     data-testid="crm-name-zh"
-                    className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
                     value={newCustomer.nameZh || ''}
                     onChange={(event) => setNewCustomer({ ...newCustomer, nameZh: event.target.value })}
+                    maxLength={160}
                     placeholder={t.crmNameZhPlaceholder || '中文名称'}
                   />
                   <input
                     data-testid="crm-name-en"
-                    className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
                     value={newCustomer.nameEn || ''}
                     onChange={(event) => setNewCustomer({ ...newCustomer, nameEn: event.target.value })}
+                    maxLength={160}
                     placeholder={t.crmNameEnPlaceholder || 'English name'}
                   />
                   <input
                     data-testid="crm-name-vi"
-                    className="rounded-[18px] border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
+                    className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
                     value={newCustomer.nameVi || ''}
                     onChange={(event) => setNewCustomer({ ...newCustomer, nameVi: event.target.value })}
+                    maxLength={160}
                     placeholder={t.crmNameViPlaceholder || 'Tên tiếng Việt'}
                   />
                 </div>
               </div>
             </section>
 
-            <section className="rounded-[30px] border border-slate-100 bg-slate-50/80 p-6 dark:border-slate-800 dark:bg-slate-900/40">
+            <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/40">
                   <div className="mb-5 flex items-center gap-3">
                 <div className="rounded-2xl bg-emerald-500 p-3 text-white"><MapPin size={18} /></div>
                 <div>
@@ -176,7 +196,7 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                 <AddressCard t={t} address={primaryAddress} testIdPrefix="crm-primary-address" onChange={(patch) => updateAddress(0, { ...patch, isPrimary: true })} />
             </section>
 
-            <section className="rounded-[30px] border border-slate-100 bg-slate-50/80 p-6 dark:border-slate-800 dark:bg-slate-900/40">
+            <section className="rounded-2xl border border-slate-200 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-900/40">
                   <div className="mb-5 flex items-center gap-3">
                 <div className="rounded-2xl bg-violet-500 p-3 text-white"><UserRound size={18} /></div>
                 <div>
@@ -187,7 +207,7 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
               <ContactCard t={t} contact={primaryContact} testIdPrefix="crm-primary-contact" onChange={(patch) => updateContact(0, { ...patch, isPrimary: true })} />
             </section>
 
-            <section className="rounded-[30px] border border-slate-100 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
               <button data-testid="crm-advanced-toggle" type="button" onClick={() => setShowAdvanced((value) => !value)} className="flex w-full items-center justify-between text-left">
                 <div className="flex items-center gap-3">
                   <div className="rounded-2xl bg-slate-900 p-3 text-white dark:bg-white dark:text-slate-900"><ShieldCheck size={18} /></div>
@@ -202,14 +222,21 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
               {showAdvanced && (
                 <div className="mt-6 space-y-6 border-t border-slate-100 pt-6 dark:border-slate-800">
                   <div>
-                    <label className="mb-2 block text-[11px] font-black uppercase tracking-[0.22em] text-slate-400">{t.crmAliasesLabel || 'Aliases / 历史名 / 交易名'}</label>
+                    <label className="mb-2 block text-xs font-black text-slate-600 dark:text-slate-300">{t.crmAliasesLabel || '别名 / 历史名 / 交易名'}</label>
                     <textarea
                       data-testid="crm-aliases"
-                      className="min-h-[96px] w-full rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
+                      className="min-h-[96px] w-full rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                       value={(newCustomer.nameAliases || []).join('\n')}
                       onChange={(event) => setNewCustomer({ ...newCustomer, nameAliases: splitCustomerTextList(event.target.value) })}
+                      aria-invalid={aliasesOverLimit}
+                      aria-describedby="crm-aliases-count"
                       placeholder={t.crmAliasesPlaceholder || '每行一个别名或历史名'}
                     />
+                    <div id="crm-aliases-count" className={`mt-1 text-right text-xs font-medium ${aliasesOverLimit ? 'text-red-600' : 'text-slate-500'}`}>
+                      {aliasesOverLimit
+                        ? `别名最多 50 个，每个最多 160 字符；当前 ${aliases.length} 个，最长 ${longestAliasLength} 字符。`
+                        : `${aliases.length}/50 个别名，最长 ${longestAliasLength}/160 字符`}
+                    </div>
                   </div>
 
                   <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -217,18 +244,21 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                       className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                       value={primaryAddress.registeredName || ''}
                       onChange={(event) => updateAddress(0, { registeredName: event.target.value })}
+                      maxLength={160}
                       placeholder={t.crmRegisteredNamePlaceholder || '注册名称'}
                     />
                     <input
                       className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                       value={primaryAddress.registrationNo || ''}
                       onChange={(event) => updateAddress(0, { registrationNo: event.target.value })}
+                      maxLength={80}
                       placeholder={t.crmRegistrationNoPlaceholder || '注册号'}
                     />
                     <input
                       className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                       value={primaryAddress.taxNo || ''}
                       onChange={(event) => updateAddress(0, { taxNo: event.target.value })}
+                      maxLength={80}
                       placeholder={t.crmTaxNoPlaceholder || '税号 / VAT'}
                     />
                     <input
@@ -236,6 +266,7 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                       className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                       value={newCustomer.licenseNumber || ''}
                       onChange={(event) => setNewCustomer({ ...newCustomer, licenseNumber: event.target.value })}
+                      maxLength={80}
                       placeholder={t.crmLicenseNumberPlaceholder || '内部证照编号'}
                     />
                   </div>
@@ -254,7 +285,9 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                       type="number"
                       className="rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                       value={newCustomer.termsDays ?? 30}
-                      onChange={(event) => setNewCustomer({ ...newCustomer, termsDays: Number(event.target.value) })}
+                      min={1}
+                      max={365}
+                      onChange={(event) => setNewCustomer({ ...newCustomer, termsDays: Math.min(365, Math.max(1, Number(event.target.value) || 1)) })}
                       placeholder={t.crmTermsDaysPlaceholder || '账期天数'}
                     />
                     <select
@@ -285,7 +318,7 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                     )}
                   </div>
 
-                  <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
                     <div className="mb-3 flex items-center justify-between">
                       <div>
                         <div className="text-sm font-black text-slate-900 dark:text-white">{t.crmMoreAddresses || '更多地址'}</div>
@@ -304,7 +337,7 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
                     </div>
                   </div>
 
-                  <div className="rounded-[24px] border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
+                  <div className="rounded-xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900/60">
                     <div className="mb-3 flex items-center justify-between">
                       <div>
                         <div className="text-sm font-black text-slate-900 dark:text-white">{t.crmMoreContacts || '更多联系人'}</div>
@@ -325,11 +358,16 @@ export function CRMCreateModal({ t, isSubmitting, newCustomer, setNewCustomer, o
 
                   <textarea
                     data-testid="crm-notes"
-                    className="min-h-[96px] w-full rounded-[22px] border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
+                    className="min-h-[96px] w-full rounded-xl border border-slate-200 bg-slate-50 px-5 py-4 text-sm font-bold outline-none transition focus:border-slate-300 focus:ring-4 focus:ring-slate-100 dark:border-slate-700 dark:bg-slate-900"
                     value={newCustomer.notes || ''}
                     onChange={(event) => setNewCustomer({ ...newCustomer, notes: event.target.value })}
+                    aria-invalid={notesOverLimit}
+                    aria-describedby="crm-notes-count"
                     placeholder={t.crmNotesPlaceholder || '档案备注 / 风控提醒 / 客户背景'}
                   />
+                  <div id="crm-notes-count" className={`-mt-4 text-right text-xs font-medium ${notesOverLimit ? 'text-red-600' : 'text-slate-500'}`}>
+                    {notesOverLimit ? `已超出 ${notesLength - 1000} 个字符` : `${notesLength}/1000`}
+                  </div>
                 </div>
               )}
             </section>

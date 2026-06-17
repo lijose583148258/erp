@@ -16,6 +16,7 @@ const ensureUser = async (username: string, role: string, password: string, segm
         email: `${username}@ailaoda.local`,
         isActive: true,
         passwordHash,
+        mustChangePassword: true,
       },
     });
   }
@@ -28,6 +29,7 @@ const ensureUser = async (username: string, role: string, password: string, segm
       role,
       segment: segment || null,
       isActive: true,
+      mustChangePassword: true,
     },
   });
 };

@@ -12,6 +12,7 @@ export interface LoginResponse {
             role: string;
             segment?: string | null;
             avatar?: string;
+            mustChangePassword?: boolean;
             permissions?: string[];
             dataScopes?: string[];
         };
@@ -49,6 +50,7 @@ export const authService = {
             role: user.role as UserRole,
             segment: resolveSegment(user.role as UserRole, user.segment, user.username),
             avatar: user.avatar || '',
+            mustChangePassword: Boolean(user.mustChangePassword),
             permissions: user.permissions || [],
             dataScopes: user.dataScopes || [],
         };
@@ -59,6 +61,10 @@ export const authService = {
 
     async register(username: string, password: string, email: string, role: string) {
         return api.post('/auth/register', { username, password, email, role });
+    },
+
+    async changePassword(oldPassword: string, newPassword: string) {
+        return api.put('/auth/password', { oldPassword, newPassword });
     },
 
     /**

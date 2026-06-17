@@ -9,6 +9,7 @@ import {
   isBuiltInRole,
 } from '../permissions/permissionRegistry';
 import { resetAuthorizationEnforcer } from '../permissions/casbinAuthorization';
+import { writeRoleAuditLog } from './role-audit.service';
 
 export interface AuthRoleView {
   id: number;
@@ -413,13 +414,21 @@ export async function createRole(input: SaveRoleInput, operatorId?: number): Pro
   resetAuthorizationEnforcer();
   const role = (await listRoles()).find((item) => item.code === input.code);
   if (!role) throw new Error('Role was created but could not be read back.');
+  await writeRoleAuditLog({
+    userId: operatorId,
+    action: 'CREATE_ROLE',
+    role,
+    before: null,
+    after: role,
+  });
   return role;
 }
 
-export async function updateRole(roleCode: string, input: SaveRoleInput): Promise<AuthRoleView> {
+export async function updateRole(roleCode: string, input: SaveRoleInput, operatorId?: number): Promise<AuthRoleView> {
   await ensureAuthorizationPolicySeed();
   assertRoleCode(roleCode);
   assertPermissionCodes(input.permissions);
+  const before = (await listRoles()).find((item) => item.code === roleCode) || null;
 
   const existing = await prisma.$queryRawUnsafe<Array<{
     name: string;
@@ -474,5 +483,12 @@ export async function updateRole(roleCode: string, input: SaveRoleInput): Promis
   resetAuthorizationEnforcer();
   const role = (await listRoles()).find((item) => item.code === roleCode);
   if (!role) throw new Error('Role was updated but could not be read back.');
+  await writeRoleAuditLog({
+    userId: operatorId,
+    action: 'UPDATE_ROLE',
+    role,
+    before,
+    after: role,
+  });
   return role;
 }

@@ -17,6 +17,18 @@ import { tryWriteAuthAuditLog, writeAuthAuditLog } from '../services/auth-audit.
 import { AuthPasswordError, changeOwnPassword } from '../services/auth-password.service';
 
 const serverError = { success: false, message: '服务器内部错误' } as ApiResponse;
+const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+const blockedDemoCredentials = new Map([
+    ['admin', 'admin123'],
+    ['manager', 'manager123'],
+    ['sales', 'sales123'],
+    ['warehouse', 'warehouse123'],
+    ['finance', 'finance123'],
+]);
+
+const isReleaseDemoCredential = (username: string, password: string) =>
+    truthy(process.env.AILAODA_BLOCK_DEMO_CREDENTIALS)
+    && blockedDemoCredentials.get(username) === password;
 
 export class AuthController {
     async login(req: AuthRequest, res: Response) {
@@ -33,6 +45,7 @@ export class AuthController {
                     segment: true,
                     avatar: true,
                     isActive: true,
+                    mustChangePassword: true,
                 },
             });
 
@@ -53,6 +66,14 @@ export class AuthController {
             if (!isPasswordValid) {
                 logger.warn(`登录失败: 用户 ${username} 密码错误`);
                 return res.status(401).json({ success: false, message: '用户名或密码错误' } as ApiResponse);
+            }
+
+            if (isReleaseDemoCredential(username, password) && !user.mustChangePassword) {
+                logger.warn(`Release safety mode rejected default demo credential after password verification: ${username}`);
+                return res.status(403).json({
+                    success: false,
+                    message: '发布安全模式已禁止默认演示账号直接登录，请使用已改密的正式账号',
+                } as ApiResponse);
             }
 
             const segment = resolveUserSegment(user.role, user.segment);
@@ -96,6 +117,7 @@ export class AuthController {
                         role: user.role,
                         segment,
                         avatar: user.avatar,
+                        mustChangePassword: user.mustChangePassword,
                         permissions,
                         dataScopes,
                     },
@@ -142,6 +164,7 @@ export class AuthController {
                     role,
                     segment: resolveUserSegment(role, segment),
                     isActive: true,
+                    mustChangePassword: true,
                 },
                 select: {
                     id: true,
@@ -149,6 +172,7 @@ export class AuthController {
                     email: true,
                     role: true,
                     segment: true,
+                    mustChangePassword: true,
                     createdAt: true,
                 },
             });
@@ -243,6 +267,7 @@ export class AuthController {
                     segment: true,
                     avatar: true,
                     isActive: true,
+                    mustChangePassword: true,
                     lastLoginAt: true,
                     createdAt: true,
                 },

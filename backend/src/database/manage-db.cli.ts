@@ -63,6 +63,7 @@ const seedDatabase = async () => {
     email: `${user.username}@ailaoda.local`,
     isActive: true,
     passwordHash: await bcrypt.hash(user.password, 12),
+    mustChangePassword: true,
   })));
 
   for (const user of hashedUsers) {
@@ -74,6 +75,7 @@ const seedDatabase = async () => {
         email: user.email,
         isActive: true,
         passwordHash: user.passwordHash,
+        mustChangePassword: true,
       },
       create: user,
     });

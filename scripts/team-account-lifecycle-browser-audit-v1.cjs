@@ -1,21 +1,37 @@
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const bcrypt = require('../backend/node_modules/bcryptjs');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'team-account-lifecycle-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'team-account-lifecycle-browser-audit-report-v1.json');
+const ORIGIN_REPORT = path.resolve(process.cwd(), 'output', 'audit', 'stable-runtime-origin-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const ADMIN = { username: `team_life_admin_${RUN_ID}`, password: 'AuditAdmin12345' };
 const USERNAME = `team_life_${RUN_ID}`;
 const PASSWORD = 'Audit12345';
+const REQUIRE_PACKAGE_ORIGIN = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.AILAODA_REQUIRE_PACKAGE_ORIGIN || '').toLowerCase(),
+);
 
 const TIMEOUTS = {
   script: 290_000,
   page: 20_000,
   save: 25_000,
 };
+
+if (!process.env.DATABASE_URL) {
+  try {
+    const origin = JSON.parse(fs.readFileSync(ORIGIN_REPORT, 'utf8').replace(/^\uFEFF/, ''));
+    if (origin?.runtimeDbPath) process.env.DATABASE_URL = `file:${String(origin.runtimeDbPath).replace(/\\/g, '/')}`;
+  } catch {}
+}
+
+const { PrismaClient } = require('../backend/node_modules/@prisma/client');
+const prisma = new PrismaClient();
 
 const report = {
   appUrl: APP_URL,
@@ -46,11 +62,46 @@ function expect(condition, message, details) {
   }
 }
 
-function verifyStableRuntimeOrigin() {
+async function ensureAuditAdmin() {
+  const passwordHash = await bcrypt.hash(ADMIN.password, 12);
+  await prisma.user.upsert({
+    where: { username: ADMIN.username },
+    update: {
+      passwordHash,
+      role: 'admin',
+      segment: 'mixed',
+      email: `${ADMIN.username}@example.com`,
+      isActive: true,
+      mustChangePassword: false,
+    },
+    create: {
+      username: ADMIN.username,
+      passwordHash,
+      role: 'admin',
+      segment: 'mixed',
+      email: `${ADMIN.username}@example.com`,
+      isActive: true,
+      mustChangePassword: false,
+    },
+  });
+}
+
+function verifyCurrentRuntime() {
   const started = Date.now();
+  const command = REQUIRE_PACKAGE_ORIGIN
+    ? {
+        file: process.execPath,
+        args: [path.join(process.cwd(), 'scripts', 'stable-package-origin-audit-v1.cjs')],
+        step: 'stable-package-origin-preflight',
+      }
+    : {
+        file: 'powershell.exe',
+        args: ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', path.join(process.cwd(), 'scripts', 'check-runtime.ps1')],
+        step: 'current-runtime-preflight',
+      };
   const result = spawnSync(
-    process.execPath,
-    [path.join(process.cwd(), 'scripts', 'stable-package-origin-audit-v1.cjs')],
+    command.file,
+    command.args,
     {
       cwd: process.cwd(),
       encoding: 'utf8',
@@ -60,7 +111,7 @@ function verifyStableRuntimeOrigin() {
   );
   const passed = result.status === 0;
   recordStep({
-    step: 'stable-runtime-origin-preflight',
+    step: command.step,
     result: passed ? 'passed' : 'failed',
     timeout: TIMEOUTS.page,
     durationMs: Date.now() - started,
@@ -68,7 +119,9 @@ function verifyStableRuntimeOrigin() {
   });
   expect(
     passed,
-    'stable runtime origin preflight failed; rebuild and restart the governed package before browser auditing',
+    REQUIRE_PACKAGE_ORIGIN
+      ? 'stable package origin preflight failed; launch the governed package before package browser auditing'
+      : 'current runtime preflight failed; rebuild and restart port 5001 before browser auditing',
     {
       stdout: String(result.stdout || '').slice(-1000),
       stderr: String(result.stderr || '').slice(-1000),
@@ -165,23 +218,28 @@ async function main() {
 
   let browser;
   try {
-    verifyStableRuntimeOrigin();
+    verifyCurrentRuntime();
     const launch = await launchBrowserWithGuard({ recordStep, retryLimit: 1 });
     browser = launch.browser;
     report.browserLauncher = launch.launcher;
 
     const adminPage = await browser.newPage({ viewport: { width: 1440, height: 980 } });
-    await withTimebox(adminPage, 'admin-login-ui', TIMEOUTS.page, () => loginViaUi(adminPage, 'admin', 'admin123', true));
+    await ensureAuditAdmin();
+    await withTimebox(adminPage, 'admin-login-ui', TIMEOUTS.page, () => loginViaUi(adminPage, ADMIN.username, ADMIN.password, true));
     await withTimebox(adminPage, 'admin-create-sales-user-ui', TIMEOUTS.save, () => createMemberViaUi(adminPage));
     await screenshot(adminPage, 'admin-created-team-user');
 
     const readback = await withTimebox(adminPage, 'admin-readback-created-user-api', TIMEOUTS.page, () => readMemberFromApi(adminPage));
     expect(readback.status === 200, 'team readback failed', readback);
     expect(readback.member?.id, 'created member missing from team readback', readback);
+    expect(readback.member?.mustChangePassword === true, 'created member should require first password change', readback.member);
     report.createdUserId = readback.member.id;
 
     const employeePage = await browser.newPage({ viewport: { width: 1366, height: 768 } });
     await withTimebox(employeePage, 'employee-login-ui-before-disable', TIMEOUTS.page, () => loginViaUi(employeePage, USERNAME, PASSWORD, true));
+    await withTimebox(employeePage, 'employee-first-login-force-password-change-ui', TIMEOUTS.page, async () => {
+      await employeePage.locator('[data-testid="force-password-change"]').waitFor({ state: 'visible', timeout: TIMEOUTS.page });
+    });
     await screenshot(employeePage, 'employee-login-success-before-disable');
 
     await withTimebox(adminPage, 'admin-disable-user-ui', TIMEOUTS.save, async () => {
@@ -214,6 +272,8 @@ async function main() {
   } finally {
     clearTimeout(scriptTimer);
     if (browser) await browser.close();
+    await prisma.user.deleteMany({ where: { username: { in: [ADMIN.username, USERNAME] } } }).catch(() => {});
+    await prisma.$disconnect().catch(() => {});
     await saveReport();
   }
 }

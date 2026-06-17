@@ -49,6 +49,7 @@ export const indexExists = async (indexName: string) => {
 
 const KNOWN_TABLES = new Set([
   'orders', 'customers', 'suppliers', 'payment_records', 'shipments', 'purchase_orders',
+  'users',
   'purchase_receipts', 'shipment_receipts', 'receipt_discrepancy_cases',
   'receipt_discrepancy_actions', 'receipt_tolerance_rules',
   'barter_settlements', 'barter_items', 'barter_valuation_snapshots',

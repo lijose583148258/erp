@@ -24,6 +24,7 @@ export async function getCustomers(req: AuthRequest, res: Response) {
         riskLevel,
         segment,
         poolState,
+        viewMode,
         salespersonId,
         sortBy = 'createdAt',
         sortOrder = 'desc',
@@ -56,6 +57,9 @@ export async function getCustomers(req: AuthRequest, res: Response) {
           { contactName: { contains: String(search) } },
           { contactPhone: { contains: String(search) } },
           { contactEmail: { contains: String(search) } },
+          { address: { contains: String(search) } },
+          { addressesJson: { contains: String(search) } },
+          { contactsJson: { contains: String(search) } },
         ];
       }
 
@@ -63,6 +67,8 @@ export async function getCustomers(req: AuthRequest, res: Response) {
       if (riskLevel) filters.riskLevel = String(riskLevel);
       if (segment) filters.segment = String(segment);
       if (poolState) filters.poolState = String(poolState);
+      if (viewMode === 'public') filters.poolState = 'public';
+      if (viewMode === 'my') filters.NOT = { poolState: 'public' };
       if (salespersonId) filters.salespersonId = Number(salespersonId);
 
       const where = buildCustomerWhere(req, filters);
@@ -143,6 +149,19 @@ export async function getCustomerStats(req: AuthRequest, res: Response) {
       const creditHoldCustomers = customers.filter(customer => customer.creditHold).length;
       const shipmentHoldCustomers = customers.filter(customer => customer.shipmentHold).length;
       const overdueAmount = customers.reduce((sum, customer) => sum + Number(customer.overdueAmount || 0), 0);
+      const segmentBreakdown = (['direct', 'channel', 'mixed'] as const).map(segment => {
+        const rows = customers.filter(customer => (customer.segment || 'mixed') === segment);
+        return {
+          segment,
+          total: rows.length,
+          publicPool: rows.filter(customer => normalizePoolState(customer) === 'public').length,
+          internalPool: rows.filter(customer => normalizePoolState(customer) === 'internal').length,
+          privatePool: rows.filter(customer => normalizePoolState(customer) === 'private').length,
+          overdueAmount: rows.reduce((sum, customer) => sum + Number(customer.overdueAmount || 0), 0),
+          creditHoldCount: rows.filter(customer => customer.creditHold).length,
+          shipmentHoldCount: rows.filter(customer => customer.shipmentHold).length,
+        };
+      });
 
       return res.json({
         success: true,
@@ -158,6 +177,7 @@ export async function getCustomerStats(req: AuthRequest, res: Response) {
           creditHoldCustomers,
           shipmentHoldCustomers,
           overdueAmount,
+          segmentBreakdown,
         },
       } as ApiResponse);
     } catch (error) {

@@ -117,7 +117,7 @@ async function auditOrderDuplicatePayments(tokens) {
 
   const paymentPayload = {
     amount: DATA.order.amount,
-    method: 'bank',
+    method: 'bank_transfer',
     payerName: `Payer ${RUN_ID}`,
     note: DATA.order.note,
     isProxy: false,

@@ -486,6 +486,13 @@ $stableBackupMaxTotalMb = if ($env:BACKUP_MAX_TOTAL_MB -and $env:BACKUP_MAX_TOTA
 } else {
   '8192'
 }
+$stableBlockDemoCredentials = if ($env:AILAODA_BLOCK_DEMO_CREDENTIALS -and $env:AILAODA_BLOCK_DEMO_CREDENTIALS.Trim()) {
+  $env:AILAODA_BLOCK_DEMO_CREDENTIALS
+} elseif ($isPackagedMode) {
+  '1'
+} else {
+  '1'
+}
 $previousNodeEnv = $env:NODE_ENV
 $previousCorsOrigin = $env:CORS_ORIGIN
 $previousDatabaseUrl = $env:DATABASE_URL
@@ -493,6 +500,7 @@ $previousJwtSecret = $env:JWT_SECRET
 $previousBackupRetentionMode = $env:BACKUP_RETENTION_MODE
 $previousBackupMaxFiles = $env:BACKUP_MAX_FILES
 $previousBackupMaxTotalMb = $env:BACKUP_MAX_TOTAL_MB
+$previousBlockDemoCredentials = $env:AILAODA_BLOCK_DEMO_CREDENTIALS
 $previousServeFrontend = $env:SERVE_FRONTEND
 $previousPort = $env:PORT
 try {
@@ -503,6 +511,7 @@ try {
   $env:BACKUP_RETENTION_MODE = $stableBackupRetentionMode
   $env:BACKUP_MAX_FILES = $stableBackupMaxFiles
   $env:BACKUP_MAX_TOTAL_MB = $stableBackupMaxTotalMb
+  $env:AILAODA_BLOCK_DEMO_CREDENTIALS = $stableBlockDemoCredentials
   $env:SERVE_FRONTEND = 'true'
   $env:PORT = '5001'
 
@@ -521,6 +530,7 @@ try {
   $env:BACKUP_RETENTION_MODE = $previousBackupRetentionMode
   $env:BACKUP_MAX_FILES = $previousBackupMaxFiles
   $env:BACKUP_MAX_TOTAL_MB = $previousBackupMaxTotalMb
+  $env:AILAODA_BLOCK_DEMO_CREDENTIALS = $previousBlockDemoCredentials
   $env:SERVE_FRONTEND = $previousServeFrontend
   $env:PORT = $previousPort
 }

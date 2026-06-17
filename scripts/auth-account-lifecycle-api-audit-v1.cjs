@@ -149,9 +149,12 @@ async function main() {
     const created = dataOf(registerResponse);
     expect(created?.username === USER.username, 'registered username mismatch', registerResponse.json);
     expect(created?.role === 'sales', 'registered user role mismatch', registerResponse.json);
+    expect(created?.mustChangePassword === true, 'registered user should require first password change', registerResponse.json);
     recordStep({ step: 'register-sales-user', result: 'passed', userId: created.id });
 
     const userLogin = await login({ username: USER.username, password: USER.password }, 'new-sales-user');
+    expect(userLogin.user?.mustChangePassword === true, 'new user login should require first password change', userLogin.user);
+    recordStep({ step: 'first-login-requires-password-change', result: 'passed' });
 
     const wrongOldPasswordResponse = await apiFetch('/auth/password', {
       method: 'PUT',
@@ -184,6 +187,7 @@ async function main() {
     const meResponse = await apiFetch('/auth/me', {}, newLogin.token);
     expectStatus(meResponse, [200], 'me-after-password-change');
     expect(dataOf(meResponse)?.username === USER.username, 'me-after-password-change user mismatch', meResponse.json);
+    expect(dataOf(meResponse)?.mustChangePassword === false, 'me-after-password-change should clear first password change requirement', meResponse.json);
     recordStep({ step: 'me-after-password-change', result: 'passed' });
 
     const logoutResponse = await apiFetch('/auth/logout', {

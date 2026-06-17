@@ -28,6 +28,8 @@ type Props = {
 const baseInputClass =
     'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900';
 
+const rowsPerPage = 50;
+
 const SalesOrderLineGrid: React.FC<Props> = ({
     t,
     formData,
@@ -42,6 +44,18 @@ const SalesOrderLineGrid: React.FC<Props> = ({
 }) => {
     const [pasteText, setPasteText] = useState('');
     const [showPastePanel, setShowPastePanel] = useState(false);
+    const [page, setPage] = useState(0);
+    const pageCount = Math.max(1, Math.ceil(formData.items.length / rowsPerPage));
+    const safePage = Math.min(page, pageCount - 1);
+    const pageStart = safePage * rowsPerPage;
+    const visibleItems = formData.items.slice(pageStart, pageStart + rowsPerPage).map((item, offset) => ({
+        item,
+        index: pageStart + offset,
+    }));
+
+    React.useEffect(() => {
+        if (page !== safePage) setPage(safePage);
+    }, [page, safePage]);
 
     const summaryItems = useMemo(
         () => [
@@ -59,17 +73,18 @@ const SalesOrderLineGrid: React.FC<Props> = ({
         importOrderItemsFromGrid(pasteText);
         setPasteText('');
         setShowPastePanel(false);
+        setPage(0);
     };
     const errorCount = Object.keys(lineErrors).length;
 
     return (
-        <div className="rounded-[32px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
-            <div className="mb-6 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900/70">
+            <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
                     <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
                         {t.orderLineGridTitle || '订单明细 Excel 网格'}
                     </h3>
-                    <p className="mt-2 text-sm text-slate-400">
+                    <p className="mt-1.5 text-sm text-slate-500">
                         {t.orderLineGridHint || '这里专门录明细行，按行连续输入、复制、粘贴，不再把订单头字段混进来。'}
                     </p>
                     {errorCount > 0 && (
@@ -82,7 +97,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     <button
                         type="button"
                         onClick={() => addOrderItem()}
-                        className="inline-flex items-center rounded-[18px] bg-blue-600 px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-white shadow-lg transition hover:bg-blue-700"
+                        className="inline-flex min-h-11 items-center rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-700"
                     >
                         <Plus size={14} className="mr-2" />
                         {t.addLine || '新增行'}
@@ -90,7 +105,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     <button
                         type="button"
                         onClick={() => setShowPastePanel((current) => !current)}
-                        className="inline-flex items-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black uppercase tracking-[0.16em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+                        className="inline-flex min-h-11 items-center rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-xs font-black text-slate-700 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
                     >
                         <ClipboardPaste size={14} className="mr-2" />
                         {t.pasteExcel || '粘贴 Excel'}
@@ -110,9 +125,11 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     <textarea
                         value={pasteText}
                         onChange={(event) => setPasteText(event.target.value)}
+                        maxLength={20000}
                         placeholder={'产品A\t25kg/桶\t20\t桶\t180\t0\t23\n产品B\t2440x1220x18mm\t60\t张\t210\t10\t120'}
                         className="mt-3 h-28 w-full rounded-[20px] border border-blue-100 bg-white px-4 py-3 font-mono text-xs outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
                     />
+                    <div className="mt-1 text-right text-xs font-medium text-slate-500">{pasteText.length}/20000</div>
                     <div className="mt-3 flex justify-end gap-2">
                         <button
                             type="button"
@@ -135,19 +152,32 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                 </div>
             )}
 
-            <div className="overflow-x-auto rounded-[24px] border border-slate-100 dark:border-slate-800">
-                <table className="min-w-[1080px] w-full border-collapse">
+            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                <table className="w-full min-w-[960px] table-fixed border-collapse">
+                    <colgroup>
+                        <col className="w-10" />
+                        <col className="w-44" />
+                        <col className="w-48" />
+                        <col className="w-24" />
+                        <col className="w-20" />
+                        <col className="w-28" />
+                        <col className="w-24" />
+                        <col className="w-24" />
+                        <col className="w-32" />
+                        <col className="w-24" />
+                        <col className="w-24" />
+                    </colgroup>
                     <thead className="bg-slate-50/90 dark:bg-slate-800/60">
                         <tr>
                             {['#', t.productName || '品名', t.specification || '规格/尺寸', t.phQty || '数量', t.phUnit || '单位', t.phPrice || '单价', t.discount || '折扣', t.tax || '税额', t.amount || '金额', t.mode || '模式', t.actions || '操作'].map((label) => (
-                                <th key={label} className="whitespace-nowrap border-b border-slate-100 px-3 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-800 dark:text-slate-500">
+                                <th key={label} className="whitespace-nowrap border-b border-slate-100 px-2.5 py-2.5 text-left text-xs font-black text-slate-600 dark:border-slate-800 dark:text-slate-300">
                                     {label}
                                 </th>
                             ))}
                         </tr>
                     </thead>
                     <tbody>
-                        {formData.items.map((item, index) => {
+                        {visibleItems.map(({ item, index }) => {
                             const lineAmount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)) - Number(item.discount || 0) + Number(item.taxAmount || 0);
                             const currentLineErrors = lineErrors[index] || [];
 
@@ -158,6 +188,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                         <input
                                             value={item.productName}
                                             onChange={(event) => updateOrderItem(index, { productName: event.target.value })}
+                                            maxLength={120}
                                             placeholder={t.productName || '产品名称'}
                                             data-testid={`sales-order-line-${index}-product`}
                                             className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('商品名称')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
@@ -202,6 +233,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             <input
                                                 value={item.packagingSpec}
                                                 onChange={(event) => updateOrderItem(index, { packagingSpec: event.target.value })}
+                                                maxLength={120}
                                                 placeholder={t.phPackaging || '包装规格'}
                                                 data-testid={`sales-order-line-${index}-packaging`}
                                                 className={baseInputClass}
@@ -228,6 +260,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                         <input
                                             value={item.unit}
                                             onChange={(event) => updateOrderItem(index, { unit: event.target.value })}
+                                            maxLength={20}
                                             data-testid={`sales-order-line-${index}-unit`}
                                             className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('单位')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
@@ -285,7 +318,8 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => duplicateOrderItem(index)}
-                                                className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                                                aria-label={t.duplicateRow || '复制一行'}
+                                                className="min-h-11 min-w-11 rounded-xl border border-slate-200 p-2 text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
                                                 title={t.duplicateRow || '复制一行'}
                                             >
                                                 <CopyPlus size={14} />
@@ -293,7 +327,8 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => removeOrderItem(index)}
-                                                className="rounded-xl border border-rose-200 p-2 text-rose-500 transition hover:bg-rose-50 dark:border-rose-900/40 dark:hover:bg-rose-950/20"
+                                                aria-label={t.deleteLine || '删除行'}
+                                                className="min-h-11 min-w-11 rounded-xl border border-rose-300 p-2 text-rose-600 transition hover:bg-rose-50 dark:border-rose-900/40 dark:hover:bg-rose-950/20"
                                                 title={t.deleteLine || '删除行'}
                                             >
                                                 <Trash2 size={14} />
@@ -306,6 +341,34 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     </tbody>
                 </table>
             </div>
+
+            {pageCount > 1 ? (
+                <div className="mt-4 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-xs font-bold text-slate-600 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300 sm:flex-row sm:items-center sm:justify-between">
+                    <span>
+                        {t.orderLinePaging || '明细较多，已分页显示'}：
+                        {pageStart + 1}-{Math.min(pageStart + rowsPerPage, formData.items.length)} / {formData.items.length}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        <button
+                            type="button"
+                            onClick={() => setPage((current) => Math.max(0, current - 1))}
+                            disabled={safePage === 0}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-black disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
+                        >
+                            {t.previousPage || '上一页'}
+                        </button>
+                        <span className="min-w-16 text-center font-black">{safePage + 1} / {pageCount}</span>
+                        <button
+                            type="button"
+                            onClick={() => setPage((current) => Math.min(pageCount - 1, current + 1))}
+                            disabled={safePage >= pageCount - 1}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-black disabled:cursor-not-allowed disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
+                        >
+                            {t.nextPage || '下一页'}
+                        </button>
+                    </div>
+                </div>
+            ) : null}
 
             <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                 {summaryItems.map((item) => (

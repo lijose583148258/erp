@@ -20,6 +20,7 @@ type Props = {
   disabled?: boolean;
   readOnly?: boolean;
   list?: string;
+  maxLength?: number;
   dataTestId?: string;
   className?: string;
   inputClassName?: string;
@@ -41,6 +42,7 @@ export const FormField: React.FC<Props> = ({
   disabled = false,
   readOnly = false,
   list,
+  maxLength,
   dataTestId,
   className = '',
   inputClassName = '',
@@ -49,6 +51,13 @@ export const FormField: React.FC<Props> = ({
   const baseClass = `app-control w-full ${error ? 'border-rose-300 focus:border-rose-300 focus:ring-rose-100 dark:focus:ring-rose-900/30' : ''} ${inputClassName}`;
   const handleChange = (nextValue: string) => onChange(transformValue ? transformValue(nextValue) : nextValue);
   const valueTitle = value.length > 18 ? value : undefined;
+  const showCount = typeof maxLength === 'number' && maxLength > 0 && (as === 'input' || as === 'textarea');
+  const remaining = showCount ? maxLength - value.length : 0;
+  const countClass = remaining <= 0
+    ? 'text-rose-600 dark:text-rose-300'
+    : remaining <= Math.min(10, Math.ceil((maxLength || 0) * 0.12))
+      ? 'text-amber-600 dark:text-amber-300'
+      : 'text-slate-400 dark:text-slate-500';
 
   return (
     <label className={`block space-y-1.5 ${className}`}>
@@ -69,6 +78,7 @@ export const FormField: React.FC<Props> = ({
           rows={rows}
           disabled={disabled}
           readOnly={readOnly}
+          maxLength={maxLength}
           className={`${baseClass} min-h-[96px] resize-y app-long-text`}
         />
       ) : as === 'select' ? (
@@ -97,11 +107,23 @@ export const FormField: React.FC<Props> = ({
           disabled={disabled}
           readOnly={readOnly}
           list={list}
+          maxLength={maxLength}
           className={baseClass}
         />
       )}
 
-      {error ? <p className="text-[11px] font-bold text-rose-500">{error}</p> : hint ? <p className="text-[11px] font-medium text-slate-400">{hint}</p> : null}
+      {(error || hint || showCount) ? (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            {error ? <p className="text-[11px] font-bold text-rose-500">{error}</p> : hint ? <p className="text-[11px] font-medium text-slate-400">{hint}</p> : null}
+          </div>
+          {showCount ? (
+            <span className={`shrink-0 text-[11px] font-black tabular-nums ${countClass}`}>
+              {value.length}/{maxLength}
+            </span>
+          ) : null}
+        </div>
+      ) : null}
     </label>
   );
 };

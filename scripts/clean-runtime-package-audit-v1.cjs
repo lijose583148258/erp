@@ -267,6 +267,24 @@ function checkShape() {
     if (fs.existsSync(fullPath)) addFinding('P1', 'purity', `source/governance directory should not be in clean runtime package: ${relativePath}`);
   }
 
+  const prismaDir = path.join(TARGET, 'backend', 'prisma');
+  if (fs.existsSync(prismaDir)) {
+    const stack = [prismaDir];
+    while (stack.length) {
+      const current = stack.pop();
+      for (const entry of fs.readdirSync(current, { withFileTypes: true })) {
+        const fullPath = path.join(current, entry.name);
+        if (entry.isDirectory()) {
+          stack.push(fullPath);
+          continue;
+        }
+        if (/\.db($|-journal$|-wal$|-shm$)/i.test(entry.name)) {
+          addFinding('P0', 'runtime-data-purity', `SQLite database file must not be packaged under backend/prisma: ${path.relative(TARGET, fullPath)}`);
+        }
+      }
+    }
+  }
+
   const envPath = path.join(TARGET, '.env.production');
   if (fs.existsSync(envPath)) {
     const envText = fs.readFileSync(envPath, 'utf8');
@@ -275,6 +293,7 @@ function checkShape() {
       'BACKUP_DIR=D:\\AilaoDaRuntime\\backups',
       'UPLOAD_DIR=D:\\AilaoDaRuntime\\uploads',
       'LOG_DIR=D:\\AilaoDaRuntime\\logs',
+      'AILAODA_BLOCK_DEMO_CREDENTIALS=1',
     ]) {
       if (!envText.includes(required)) addFinding('P1', 'runtime-data-policy', `.env.production missing ${required}`);
     }

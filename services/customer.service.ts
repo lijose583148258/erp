@@ -106,7 +106,91 @@ const mapCustomerResponse = (value: unknown): Customer => {
     };
 };
 
+export type CustomerListParams = {
+    page?: number;
+    pageSize?: number;
+    search?: string;
+    segment?: 'direct' | 'channel' | 'mixed';
+    viewMode?: 'my' | 'public';
+};
+
+export type CustomerPage = {
+    rows: Customer[];
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+};
+
+export type CustomerStats = {
+    total: number;
+    publicPool: number;
+    internalPool: number;
+    privatePool: number;
+    overdueAmount: number;
+    creditHoldCount: number;
+    shipmentHoldCount: number;
+    segmentBreakdown: Array<{
+        segment: 'direct' | 'channel' | 'mixed';
+        total: number;
+        publicPool: number;
+        internalPool: number;
+        privatePool: number;
+        overdueAmount: number;
+        creditHoldCount: number;
+        shipmentHoldCount: number;
+    }>;
+};
+
 export const customerService = {
+    async getPage(params: CustomerListParams, options: ApiRequestOptions = {}): Promise<CustomerPage> {
+        const query = new URLSearchParams();
+        query.set('page', String(params.page || 1));
+        query.set('pageSize', String(params.pageSize || 30));
+        if (params.search?.trim()) query.set('search', params.search.trim());
+        if (params.segment) query.set('segment', params.segment);
+        if (params.viewMode) query.set('viewMode', params.viewMode);
+
+        const response = await api.get<unknown, ApiDataResponse<unknown[]>>(`/customers?${query.toString()}`, { signal: options.signal });
+        return {
+            rows: toUnknownArray(response.data).map(mapCustomerResponse),
+            page: Number(response.meta?.page || params.page || 1),
+            pageSize: Number(response.meta?.pageSize || params.pageSize || 30),
+            total: Number(response.meta?.total || 0),
+            totalPages: Math.max(1, Number(response.meta?.totalPages || 1)),
+        };
+    },
+
+    async getStats(options: ApiRequestOptions = {}): Promise<CustomerStats> {
+        const response = await api.get<unknown, ApiDataResponse<unknown>>('/customers/stats', { signal: options.signal });
+        const stats = toApiRecord(response.data);
+        const breakdown = toUnknownArray(stats.segmentBreakdown).map((value) => {
+            const item = toApiRecord(value);
+            const segment: 'direct' | 'channel' | 'mixed' =
+                item.segment === 'direct' || item.segment === 'channel' ? item.segment : 'mixed';
+            return {
+                segment,
+                total: toNumberValue(item.total),
+                publicPool: toNumberValue(item.publicPool),
+                internalPool: toNumberValue(item.internalPool),
+                privatePool: toNumberValue(item.privatePool),
+                overdueAmount: toNumberValue(item.overdueAmount),
+                creditHoldCount: toNumberValue(item.creditHoldCount),
+                shipmentHoldCount: toNumberValue(item.shipmentHoldCount),
+            };
+        });
+        return {
+            total: toNumberValue(stats.totalCustomers),
+            publicPool: toNumberValue(stats.publicPoolCustomers),
+            internalPool: toNumberValue(stats.internalPoolCustomers),
+            privatePool: toNumberValue(stats.privatePoolCustomers),
+            overdueAmount: toNumberValue(stats.overdueAmount),
+            creditHoldCount: toNumberValue(stats.creditHoldCustomers),
+            shipmentHoldCount: toNumberValue(stats.shipmentHoldCustomers),
+            segmentBreakdown: breakdown,
+        };
+    },
+
     /**
      * 获取全部客户。
      * 当前为了兼容存量前端逻辑，一次性拉取较大的分页窗口；
@@ -208,15 +292,23 @@ export const customerService = {
         return this.getAll();
     },
 
-    /**
-     * 导出客户
-     */
-    async exportUrl(): Promise<string> {
-        const token = localStorage.getItem('token');
-        if (!token) {
-            throw new Error('未找到登录令牌');
-        }
-        return `${api.defaults.baseURL}/customers/export?token=${encodeURIComponent(token)}`;
+    async downloadExport(params: Omit<CustomerListParams, 'page' | 'pageSize'> = {}): Promise<void> {
+        const query = new URLSearchParams();
+        if (params.search?.trim()) query.set('search', params.search.trim());
+        if (params.segment) query.set('segment', params.segment);
+        if (params.viewMode) query.set('viewMode', params.viewMode);
+        const suffix = query.size ? `?${query.toString()}` : '';
+        const response = await api.get<unknown, { data: Blob }>(`/customers/export${suffix}`, {
+            responseType: 'blob',
+        });
+        const url = URL.createObjectURL(response.data);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = `customers_${new Date().toISOString().slice(0, 10)}.xlsx`;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        URL.revokeObjectURL(url);
     }
 };
 const parseAliasesSafe = (value: unknown): string[] => {

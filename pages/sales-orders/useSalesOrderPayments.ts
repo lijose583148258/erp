@@ -38,7 +38,7 @@ export const useSalesOrderPayments = ({
         setPaymentForm({
             amount: getOutstandingAmount(detailedOrder),
             date: new Date().toISOString().split('T')[0],
-            method: 'Bank Transfer',
+            method: 'bank_transfer',
             isProxy: false,
             payerName: getSalesOrderCustomerLabelFromOrder(detailedOrder),
             note: '',

@@ -19,6 +19,9 @@ type ImportRow = Record<string, unknown>;
 type ExportFilters = {
   status?: unknown;
   riskLevel?: unknown;
+  search?: unknown;
+  segment?: unknown;
+  viewMode?: unknown;
 };
 
 export type CustomerImportData = {
@@ -248,9 +251,32 @@ export async function buildCustomerExportWorkbook(
   filters: ExportFilters,
   accessWhere: Prisma.CustomerWhereInput = {},
 ) {
-  const where: Prisma.CustomerWhereInput = { ...accessWhere };
-  if (filters.status) where.status = String(filters.status);
-  if (filters.riskLevel) where.riskLevel = String(filters.riskLevel);
+  const filterWhere: Prisma.CustomerWhereInput = {};
+  if (filters.status) filterWhere.status = String(filters.status);
+  if (filters.riskLevel) filterWhere.riskLevel = String(filters.riskLevel);
+  if (filters.segment) filterWhere.segment = String(filters.segment);
+  if (filters.viewMode === 'public') filterWhere.poolState = 'public';
+  if (filters.viewMode === 'my') filterWhere.NOT = { poolState: 'public' };
+  if (filters.search) {
+    const search = String(filters.search);
+    filterWhere.OR = [
+      { name: { contains: search } },
+      { nameZh: { contains: search } },
+      { nameEn: { contains: search } },
+      { nameVi: { contains: search } },
+      { nameAliases: { contains: search } },
+      { licenseNumber: { contains: search } },
+      { contactName: { contains: search } },
+      { contactPhone: { contains: search } },
+      { contactEmail: { contains: search } },
+      { address: { contains: search } },
+      { addressesJson: { contains: search } },
+      { contactsJson: { contains: search } },
+    ];
+  }
+  const where: Prisma.CustomerWhereInput = Object.keys(filterWhere).length > 0
+    ? { AND: [accessWhere, filterWhere] }
+    : accessWhere;
 
   const customers = await prisma.customer.findMany({
     where,

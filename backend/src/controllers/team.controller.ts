@@ -117,6 +117,7 @@ export class TeamController {
                     role,
                     segment: resolvedSegment,
                     isActive: true,
+                    mustChangePassword: true,
                 },
                 select: {
                     id: true,
@@ -124,6 +125,7 @@ export class TeamController {
                     email: true,
                     role: true,
                     segment: true,
+                    mustChangePassword: true,
                     createdAt: true,
                 },
             });
@@ -172,6 +174,7 @@ export class TeamController {
                     segment: true,
                     avatar: true,
                     isActive: true,
+                    mustChangePassword: true,
                     lastLoginAt: true,
                     createdAt: true,
                     _count: {
@@ -312,6 +315,7 @@ export class TeamController {
                     role: true,
                     segment: true,
                     isActive: true,
+                    mustChangePassword: true,
                 },
             });
 

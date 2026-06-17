@@ -12,14 +12,23 @@ const MD_REPORT = path.join(OUTPUT_DIR, 'release-freeze-manifest-v1.md');
 
 function findLatestReleaseZip() {
   if (process.env.AILAODA_RELEASE_ZIP) return process.env.AILAODA_RELEASE_ZIP;
-  const root = path.parse(DEFAULT_RUNTIME).root;
   const prefix = `${path.basename(DEFAULT_RUNTIME)}_`;
-  if (!fs.existsSync(root)) return path.join(root, `${prefix}missing.zip`);
-  const candidates = fs.readdirSync(root, { withFileTypes: true })
-    .filter((entry) => entry.isFile() && entry.name.startsWith(prefix) && entry.name.endsWith('.zip'))
-    .map((entry) => path.join(root, entry.name))
-    .sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
-  return candidates[0] || path.join(root, `${prefix}missing.zip`);
+  const searchDirs = [
+    path.join(ROOT, 'output', 'packages'),
+    path.parse(DEFAULT_RUNTIME).root,
+  ];
+
+  const candidates = [];
+  for (const dir of searchDirs) {
+    if (!fs.existsSync(dir)) continue;
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.startsWith(prefix) || !entry.name.endsWith('.zip')) continue;
+      candidates.push(path.join(dir, entry.name));
+    }
+  }
+
+  candidates.sort((left, right) => fs.statSync(right).mtimeMs - fs.statSync(left).mtimeMs);
+  return candidates[0] || path.join(searchDirs[0], `${prefix}missing.zip`);
 }
 
 const ZIP_PATH = findLatestReleaseZip();
