@@ -27,7 +27,10 @@ const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'check-timeboxed-health.ps1',
   'scripts/clean-dist-v1.ps1',
   'scripts/daily-local-governance-audit-v1.cjs',
+  'scripts/deploy-clean-runtime-package-v1.ps1',
   'scripts/lib/win32-audit-process-guard.cjs',
+  'scripts/package-clean-runtime-zip-v1.ps1',
+  'scripts/package-stable.ps1',
   'scripts/start-cdp-browser.ps1',
   'scripts/start-stable-v2.ps1',
   'scripts/stop-runtime.ps1',
@@ -40,6 +43,7 @@ const GOVERNED_NAMED_ACTIVE_FILES = new Set([
   'scripts/clean-dist-v1.ps1',
   'scripts/clean-runtime-package-audit-v1.cjs',
   'scripts/deploy-clean-runtime-package-v1.ps1',
+  'scripts/package-clean-runtime-zip-v1.ps1',
   'scripts/legacy-interface-disconnect-audit-v1.cjs',
 ]);
 
@@ -261,7 +265,7 @@ function isAuditOrTestAsset(item) {
   if (file.startsWith('backend/scripts/')) return true;
   if (!file.startsWith('scripts/')) return false;
 
-  return /(audit|smoke|test|probe|verify|regression|debug|performance|consistency|reconcile|permission|scope|role|browser|api|chain|screenshot|dual-port|e2e|collection|procurement|orders|shipping|barter|production|receipt|customer|contract|supplier|dashboard|asset|money|backup|concurrency|cdp|ui)/i.test(name);
+  return /(audit|gate|smoke|test|probe|verify|regression|debug|performance|consistency|reconcile|permission|scope|role|browser|api|chain|screenshot|dual-port|e2e|collection|procurement|orders|shipping|barter|production|receipt|customer|contract|supplier|dashboard|asset|money|backup|concurrency|cdp|ui)/i.test(name);
 }
 
 function isConsoleHeavyUtilityAsset(item) {

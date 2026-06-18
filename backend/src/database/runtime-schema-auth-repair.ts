@@ -6,21 +6,14 @@ import {
   createTableIfMissing,
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
+import { demoUsers } from './seed-fixtures';
 
 const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-
-const demoCredentials = [
-  { username: 'admin', password: 'admin123' },
-  { username: 'manager', password: 'manager123' },
-  { username: 'sales', password: 'sales123' },
-  { username: 'warehouse', password: 'warehouse123' },
-  { username: 'finance', password: 'finance123' },
-];
 
 const requirePasswordChangeForDefaultDemoUsers = async (report: SchemaRepairReport) => {
   if (!truthy(process.env.AILAODA_BLOCK_DEMO_CREDENTIALS)) return;
 
-  for (const account of demoCredentials) {
+  for (const account of demoUsers) {
     const rows = await prisma.$queryRawUnsafe<Array<{ id: number; password_hash: string; must_change_password: number }>>(
       'SELECT id, password_hash, must_change_password FROM users WHERE username = ? LIMIT 1',
       account.username,

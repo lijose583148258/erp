@@ -15,16 +15,11 @@ import {
 } from '../services/auth-token-store.service';
 import { tryWriteAuthAuditLog, writeAuthAuditLog } from '../services/auth-audit.service';
 import { AuthPasswordError, changeOwnPassword } from '../services/auth-password.service';
+import { demoUsers } from '../database/seed-fixtures';
 
 const serverError = { success: false, message: '服务器内部错误' } as ApiResponse;
 const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-const blockedDemoCredentials = new Map([
-    ['admin', 'admin123'],
-    ['manager', 'manager123'],
-    ['sales', 'sales123'],
-    ['warehouse', 'warehouse123'],
-    ['finance', 'finance123'],
-]);
+const blockedDemoCredentials: Map<string, string> = new Map(demoUsers.map(user => [user.username, user.password]));
 
 const isReleaseDemoCredential = (username: string, password: string) =>
     truthy(process.env.AILAODA_BLOCK_DEMO_CREDENTIALS)

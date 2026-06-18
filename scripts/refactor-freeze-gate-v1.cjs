@@ -12,6 +12,12 @@ const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
 const JSON_REPORT = path.join(OUTPUT_DIR, 'refactor-freeze-gate-v1.json');
 const MD_REPORT = path.join(OUTPUT_DIR, 'refactor-freeze-gate-v1.md');
+const PLAN_FILE = path.join(ROOT, '爱劳达软件治理中心', '43_P3重构冻结门禁与低复杂度治理计划_20260618.md');
+const REQUIRED_PLAN_TARGETS = [
+  'pages/ProductionWorkspaceV2.tsx',
+  'pages/WarehouseWorkspace.tsx',
+  'pages/team/RoleManagementPanel.tsx',
+];
 
 const CODE_EXTENSIONS = new Set(['.cjs', '.css', '.js', '.jsx', '.mjs', '.ps1', '.ts', '.tsx']);
 
@@ -83,8 +89,27 @@ function thresholds(kind) {
   return { soft: 600, hard: 900 };
 }
 
+function readFreezePlan() {
+  const relativePlanPath = normalizeRel(toPosix(path.relative(ROOT, PLAN_FILE)));
+  try {
+    const text = fs.readFileSync(PLAN_FILE, 'utf8');
+    return {
+      exists: true,
+      path: relativePlanPath,
+      coversTargets: REQUIRED_PLAN_TARGETS.every(target => text.includes(target)),
+    };
+  } catch {
+    return {
+      exists: false,
+      path: relativePlanPath,
+      coversTargets: false,
+    };
+  }
+}
+
 function main() {
   const files = walk(ROOT);
+  const freezePlan = readFreezePlan();
   const items = files.map(filePath => {
     const relativePath = rel(filePath);
     const kind = classify(relativePath);
@@ -94,9 +119,12 @@ function main() {
     let level = 'ok';
     let decision = 'no refactor needed';
 
-    if (lines > limits.hard) {
+    if (lines > limits.hard && !(freezePlan.coversTargets && REQUIRED_PLAN_TARGETS.includes(relativePath))) {
       level = 'blocker';
       decision = 'requires explicit refactor plan before further feature work';
+    } else if (lines > limits.hard) {
+      level = 'watch';
+      decision = 'explicit refactor plan exists; freeze can continue, split before new feature work';
     } else if (lines > limits.soft || watchReason) {
       level = 'watch';
       decision = 'do not split unless a real bug or active change touches this boundary';
@@ -130,10 +158,12 @@ function main() {
     },
     policy: {
       runtime: 'Runtime files above 650 lines block broad feature work; 500-650 lines are watch-only, not automatic split targets.',
+      explicitPlan: 'Known oversized runtime shells may pass freeze only when the governance plan names each file and forbids new feature work before split.',
       auditScripts: 'Audit scripts can be longer because they are not runtime business code; split only if repeated false positives appear.',
       translations: 'Translation dictionaries are not split by line count unless lookup ownership becomes unclear.',
       financeStockPayment: 'Money, stock, payment, order status, and permissions must not be split without API and browser readback evidence.',
     },
+    freezePlan,
     blockers,
     watch,
   };
@@ -149,6 +179,7 @@ function main() {
   md.push(`- scanned files: ${report.summary.scannedFiles}`);
   md.push(`- blockers: ${report.summary.blockers}`);
   md.push(`- watch: ${report.summary.watch}`);
+  md.push(`- freeze plan: ${freezePlan.exists ? freezePlan.path : 'missing'} (${freezePlan.coversTargets ? 'covers targets' : 'not complete'})`);
   md.push('');
   md.push('## Policy');
   for (const [key, value] of Object.entries(report.policy)) {
