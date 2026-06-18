@@ -2,20 +2,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, CheckCircle2, LockKeyhole, Plus, Save, Search, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../../app/AppContext';
 import roleService, { AuthPermission, AuthRole, DataScopeCode } from '../../services/role.service';
-
-type RoleDraft = {
-  code: string;
-  name: string;
-  description: string;
-  isActive: boolean;
-  dataScopes: DataScopeCode[];
-  permissions: string[];
-};
-
-type ChangeReview = {
-  title: string;
-  lines: string[];
-};
+import { dataScopeOptions, groupLabels } from './roleManagementConfig';
+import {
+  ChangeReview,
+  createEmptyDraft,
+  diffList,
+  isHighRiskPermission,
+  RoleDraft,
+  roleToDraft,
+  sameSet,
+} from './roleManagementHelpers';
 
 interface RoleManagementPanelProps {
   roles: AuthRole[];
@@ -23,15 +19,6 @@ interface RoleManagementPanelProps {
 }
 
 const panelInputClass = 'rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 disabled:bg-slate-100 disabled:text-slate-500 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:focus:ring-blue-950/50 dark:disabled:bg-slate-900';
-
-const dataScopeOptions: Array<{ code: DataScopeCode; zh: string; en: string; vi: string }> = [
-  { code: 'all', zh: '全公司数据', en: 'All company data', vi: 'Toan bo du lieu cong ty' },
-  { code: 'own_customers', zh: '仅本人客户', en: 'Own customers only', vi: 'Chi khach hang cua toi' },
-  { code: 'team_customers', zh: '团队客户', en: 'Team customers', vi: 'Khach hang nhom' },
-  { code: 'finance_visible', zh: '可见财务数据', en: 'Finance visible', vi: 'Xem du lieu tai chinh' },
-  { code: 'warehouse_visible', zh: '可见仓储数据', en: 'Warehouse visible', vi: 'Xem du lieu kho' },
-  { code: 'procurement_visible', zh: '可见采购数据', en: 'Procurement visible', vi: 'Xem du lieu mua hang' },
-];
 
 const copy = {
   zh: {
@@ -136,65 +123,6 @@ const copy = {
     loadFail: 'Khong tai duoc quyen vai tro',
     loading: 'Dang tai...',
   },
-};
-
-const groupLabels: Record<string, { zh: string; en: string; vi: string }> = {
-  dashboard: { zh: '工作台', en: 'Dashboard', vi: 'Bang dieu khien' },
-  customers: { zh: '客户与主数据', en: 'Customers & master data', vi: 'Khach hang va du lieu goc' },
-  orders: { zh: '销售订单', en: 'Sales orders', vi: 'Don ban hang' },
-  collections: { zh: '回款与催收', en: 'Collections', vi: 'Thu tien' },
-  finance: { zh: '财务经营', en: 'Finance', vi: 'Tai chinh' },
-  contracts: { zh: '合同', en: 'Contracts', vi: 'Hop dong' },
-  barter: { zh: '货抵/换货', en: 'Barter settlement', vi: 'Doi tru hang hoa' },
-  risk: { zh: '风控', en: 'Risk control', vi: 'Kiem soat rui ro' },
-  samples: { zh: '样品', en: 'Samples', vi: 'Mau' },
-  shipping: { zh: '出货物流', en: 'Shipping', vi: 'Van chuyen' },
-  team: { zh: '组织与权限', en: 'Team & access', vi: 'Nhom va quyen' },
-  assets: { zh: '资产', en: 'Assets', vi: 'Tai san' },
-  production: { zh: '生产', en: 'Production', vi: 'San xuat' },
-  warehouse: { zh: '仓储', en: 'Warehouse', vi: 'Kho' },
-  procurement: { zh: '采购', en: 'Procurement', vi: 'Mua hang' },
-  audit: { zh: '审计', en: 'Audit', vi: 'Kiem toan' },
-};
-
-const highRiskPermissionPattern = /(authorization|admin|manage|write|delete|approve|post|reverse|export|finance|cost|audit)/i;
-
-const isHighRiskPermission = (permission?: AuthPermission | null) => {
-  if (!permission) return false;
-  return highRiskPermissionPattern.test(`${permission.code} ${permission.resource} ${permission.action}`);
-};
-
-const createEmptyDraft = (): RoleDraft => ({
-  code: '',
-  name: '',
-  description: '',
-  isActive: true,
-  dataScopes: ['own_customers'],
-  permissions: ['dashboard.read'],
-});
-
-const roleToDraft = (role: AuthRole): RoleDraft => ({
-  code: role.code,
-  name: role.name,
-  description: role.description || '',
-  isActive: role.isActive,
-  dataScopes: role.dataScopes || [],
-  permissions: role.permissions || [],
-});
-
-const sameSet = (left: string[], right: string[]) => {
-  if (left.length !== right.length) return false;
-  const set = new Set(left);
-  return right.every((item) => set.has(item));
-};
-
-const diffList = (before: string[], after: string[]) => {
-  const beforeSet = new Set(before);
-  const afterSet = new Set(after);
-  return {
-    added: after.filter((item) => !beforeSet.has(item)).sort(),
-    removed: before.filter((item) => !afterSet.has(item)).sort(),
-  };
 };
 
 const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRolesChanged }) => {
