@@ -3,6 +3,11 @@ const path = require('path');
 const { connectOrLaunchBrowser } = require('./lib/browser-connect-or-launch.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
+const ADMIN_USERNAME = process.env.AUDIT_ADMIN_USERNAME || 'admin';
+const ADMIN_PASSWORD = process.env.AUDIT_ADMIN_PASSWORD || 'admin123';
+const AUDIT_USERNAME = process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin';
+const AUDIT_TEMP_PASSWORD = process.env.AUDIT_UI_TEMP_PASSWORD || 'AuditTemp12345!';
+const AUDIT_PASSWORD = process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'cdp-core-pages-smoke-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'cdp-core-pages-smoke-audit-report-v1.json');
@@ -137,6 +142,81 @@ function isRecoverableConsoleEntry(entry) {
       && (/^API Error:/i.test(text) || /^Failed to load .+?:?/i.test(text)));
 }
 
+function apiUrl(pathname) {
+  return new URL(pathname.replace(/^\//, ''), new URL('api/', APP_URL)).toString();
+}
+
+async function postJson(request, pathname, data, token) {
+  const response = await request.post(apiUrl(pathname), {
+    data,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  const json = await response.json().catch(() => null);
+  return { response, json };
+}
+
+async function putJson(request, pathname, data, token) {
+  const response = await request.put(apiUrl(pathname), {
+    data,
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+  const json = await response.json().catch(() => null);
+  return { response, json };
+}
+
+function loginData(result) {
+  return result?.json?.data || {};
+}
+
+async function loginByApi(request, username, password) {
+  return postJson(request, '/auth/login', { username, password });
+}
+
+async function ensureAuditUser(request) {
+  const finalLogin = await loginByApi(request, AUDIT_USERNAME, AUDIT_PASSWORD);
+  if (finalLogin.response.ok() && loginData(finalLogin).user?.mustChangePassword === false) {
+    recordStep({ step: 'audit-user-ready', result: 'passed', mode: 'existing' });
+    return;
+  }
+
+  const adminLogin = await loginByApi(request, ADMIN_USERNAME, ADMIN_PASSWORD);
+  if (!adminLogin.response.ok()) {
+    throw new Error(`admin login for audit user setup failed: ${adminLogin.response.status()}`);
+  }
+  const adminToken = loginData(adminLogin).token;
+  if (!adminToken) throw new Error('admin login did not return token for audit user setup');
+
+  const register = await postJson(request, '/auth/register', {
+    username: AUDIT_USERNAME,
+    password: AUDIT_TEMP_PASSWORD,
+    email: `${AUDIT_USERNAME}@local.test`,
+    role: 'admin',
+    segment: 'mixed',
+  }, adminToken);
+  if (![201, 400].includes(register.response.status())) {
+    throw new Error(`audit user register failed: ${register.response.status()}`);
+  }
+
+  const tempLogin = await loginByApi(request, AUDIT_USERNAME, AUDIT_TEMP_PASSWORD);
+  if (tempLogin.response.ok()) {
+    const tempToken = loginData(tempLogin).token;
+    if (!tempToken) throw new Error('temporary audit user login did not return token');
+    const change = await putJson(request, '/auth/password', {
+      oldPassword: AUDIT_TEMP_PASSWORD,
+      newPassword: AUDIT_PASSWORD,
+    }, tempToken);
+    if (!change.response.ok()) {
+      throw new Error(`audit user password change failed: ${change.response.status()}`);
+    }
+  }
+
+  const readyLogin = await loginByApi(request, AUDIT_USERNAME, AUDIT_PASSWORD);
+  if (!readyLogin.response.ok() || loginData(readyLogin).user?.mustChangePassword) {
+    throw new Error('audit user is not ready after setup');
+  }
+  recordStep({ step: 'audit-user-ready', result: 'passed', mode: register.response.status() === 201 ? 'created' : 'reused' });
+}
+
 async function waitForExpectedText(page, route, timeoutMs) {
   const started = Date.now();
   let lastText = '';
@@ -164,6 +244,10 @@ async function login(page) {
     await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
   });
 
+  await withTimeout('ensure-audit-user', STEP_TIMEOUT_MS.login, async () => {
+    await ensureAuditUser(page.request);
+  });
+
   const loginInput = page.locator('input[name="username"]');
   if (!(await loginInput.count())) {
     recordStep({ step: 'login-form-detection', result: 'skipped', reason: 'login form not found, assuming already authenticated' });
@@ -171,8 +255,8 @@ async function login(page) {
   }
 
   await withTimeout('submit-login', STEP_TIMEOUT_MS.login, async () => {
-    await page.fill('input[name="username"]', 'admin');
-    await page.fill('input[name="password"]', 'admin123');
+    await page.fill('input[name="username"]', AUDIT_USERNAME);
+    await page.fill('input[name="password"]', AUDIT_PASSWORD);
     await Promise.all([
       page.waitForTimeout(1200),
       page.click('button[type="submit"]'),

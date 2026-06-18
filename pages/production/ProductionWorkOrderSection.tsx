@@ -20,6 +20,9 @@ import {
   WorkOrderStatusBadge,
 } from './ProductionWorkspacePrimitives';
 
+type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
+type QualityFormErrors = Partial<Record<'defectRate' | 'checkedBy', string>>;
+
 interface ProductionWorkOrderSectionProps {
   woProductName: string;
   setWoProductName: (value: string) => void;
@@ -38,6 +41,9 @@ interface ProductionWorkOrderSectionProps {
   woSteps: StepDraft[];
   setWoSteps: Dispatch<SetStateAction<StepDraft[]>>;
   loading: boolean;
+  workOrderSaving: boolean;
+  workOrderFormErrors: WorkOrderFormErrors;
+  clearWorkOrderFormError: (field: keyof WorkOrderFormErrors) => void;
   handleCreateWorkOrder: () => void;
   loadData: () => Promise<void>;
   workOrders: ProductionWorkOrder[];
@@ -59,6 +65,9 @@ interface ProductionWorkOrderSectionProps {
   setQcCheckedBy: (value: string) => void;
   qcNote: string;
   setQcNote: (value: string) => void;
+  qualitySaving: boolean;
+  qualityFormErrors: QualityFormErrors;
+  clearQualityFormError: (field: keyof QualityFormErrors) => void;
   handleCreateQc: () => void;
 }
 
@@ -80,6 +89,9 @@ export function ProductionWorkOrderSection({
   woSteps,
   setWoSteps,
   loading,
+  workOrderSaving,
+  workOrderFormErrors,
+  clearWorkOrderFormError,
   handleCreateWorkOrder,
   loadData,
   workOrders,
@@ -101,6 +113,9 @@ export function ProductionWorkOrderSection({
   setQcCheckedBy,
   qcNote,
   setQcNote,
+  qualitySaving,
+  qualityFormErrors,
+  clearQualityFormError,
   handleCreateQc,
 }: ProductionWorkOrderSectionProps) {
   return (
@@ -108,8 +123,28 @@ export function ProductionWorkOrderSection({
       <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-8">
         <SectionHeader title="工单工作台" subtitle="排产 / 工序 / 质检 / 完工" />
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
-          <Field dataTestId="production-work-order-product-name" label="产品名称" value={woProductName} onChange={setWoProductName} placeholder="从 BOM 或批次带入" />
-          <Field dataTestId="production-work-order-target-quantity" label="目标数量" value={woTargetQuantity} onChange={setWoTargetQuantity} placeholder="0" />
+          <Field
+            dataTestId="production-work-order-product-name"
+            label="产品名称"
+            value={woProductName}
+            onChange={value => {
+              clearWorkOrderFormError('productName');
+              setWoProductName(value);
+            }}
+            placeholder="从 BOM 或批次带入"
+            error={workOrderFormErrors.productName}
+          />
+          <Field
+            dataTestId="production-work-order-target-quantity"
+            label="目标数量"
+            value={woTargetQuantity}
+            onChange={value => {
+              clearWorkOrderFormError('targetQuantity');
+              setWoTargetQuantity(value);
+            }}
+            placeholder="0"
+            error={workOrderFormErrors.targetQuantity}
+          />
           <Field label="已产数量" value={woProducedQuantity} onChange={setWoProducedQuantity} placeholder="0" />
           <Field label="损耗数量" value={woLossQuantity} onChange={setWoLossQuantity} placeholder="0" />
         </div>
@@ -138,7 +173,7 @@ export function ProductionWorkOrderSection({
           ))}
         </div>
         <div className="flex flex-wrap gap-3">
-          <button data-testid="production-work-order-create" onClick={handleCreateWorkOrder} disabled={loading} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">创建工单</button>
+          <button data-testid="production-work-order-create" onClick={handleCreateWorkOrder} disabled={loading || workOrderSaving} aria-busy={workOrderSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">{workOrderSaving ? '创建中...' : '创建工单'}</button>
           <button onClick={() => void loadData()} className="px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 rounded-[24px] font-black text-xs uppercase tracking-widest active-shrink flex items-center gap-2"><RefreshCcw size={14} />刷新</button>
         </div>
       </div>
@@ -245,12 +280,32 @@ export function ProductionWorkOrderSection({
                     <option value="pass">{QC_RESULT_LABELS.pass}</option>
                     <option value="fail">{QC_RESULT_LABELS.fail}</option>
                   </select>
-                  <input value={qcDefectRate} onChange={e => setQcDefectRate(e.target.value)} placeholder="缺陷率 %" className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
+                  <Field
+                    dataTestId="production-quality-defect-rate"
+                    label="缺陷率 %"
+                    value={qcDefectRate}
+                    onChange={value => {
+                      clearQualityFormError('defectRate');
+                      setQcDefectRate(value);
+                    }}
+                    placeholder="0-100"
+                    error={qualityFormErrors.defectRate}
+                  />
                 </div>
-                  <input data-testid="production-quality-checked-by" value={qcCheckedBy} onChange={e => setQcCheckedBy(e.target.value)} placeholder="质检人" className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
+                <Field
+                  dataTestId="production-quality-checked-by"
+                  label="质检人"
+                  value={qcCheckedBy}
+                  onChange={value => {
+                    clearQualityFormError('checkedBy');
+                    setQcCheckedBy(value);
+                  }}
+                  placeholder="质检人"
+                  error={qualityFormErrors.checkedBy}
+                />
                 <TextareaField label="" value={qcNote} onChange={setQcNote} placeholder="质检备注" />
                 <div className="flex flex-wrap gap-3">
-                  <button data-testid="production-quality-save" onClick={handleCreateQc} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">保存质检</button>
+                  <button data-testid="production-quality-save" onClick={handleCreateQc} disabled={qualitySaving} aria-busy={qualitySaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{qualitySaving ? '保存中...' : '保存质检'}</button>
                   <button onClick={() => void handleWorkOrderStatus('qc_pending')} className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">标记待质检</button>
                   <button onClick={() => void handleWorkOrderStatus('completed')} className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest">直接完工</button>
                 </div>

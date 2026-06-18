@@ -35,6 +35,7 @@ type Props = {
     clearDraft: () => void;
     onClose: () => void;
     onSave: () => void;
+    isSaving: boolean;
     totals: { subtotal?: number; totalDiscount: number; totalTax: number; grandTotal: number; estComm: number; totalCBM: number; totalWeight: number };
     formatPrice: (amount: number) => string;
     priceSuggestions: Array<{ productName: string; recommended: number; floor: number; ceiling: number; variance: number; apply: () => void }>;
@@ -111,6 +112,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
     clearDraft,
     onClose,
     onSave,
+    isSaving,
     totals,
     formatPrice,
     priceSuggestions,
@@ -364,8 +366,14 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                             <button data-testid="sales-order-editor-cancel" onClick={handleClose} className="rounded-[18px] bg-slate-200 px-5 py-3 text-xs font-black uppercase tracking-[0.16em] text-slate-700 transition hover:bg-slate-300 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
                                 {t.cancel || '取消'}
                             </button>
-                            <button data-testid="sales-order-save-button" onClick={onSave} className="rounded-[18px] bg-blue-600 px-6 py-3 text-xs font-black uppercase tracking-[0.16em] text-white shadow-lg transition hover:bg-blue-700">
-                                {t.save || '保存订单'}
+                            <button
+                                data-testid="sales-order-save-button"
+                                onClick={onSave}
+                                disabled={isSaving}
+                                aria-busy={isSaving}
+                                className="rounded-[18px] bg-blue-600 px-6 py-3 text-xs font-black uppercase tracking-[0.16em] text-white shadow-lg transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                                {isSaving ? (t.saving || '保存中...') : (t.save || '保存订单')}
                             </button>
                         </div>
                     </div>

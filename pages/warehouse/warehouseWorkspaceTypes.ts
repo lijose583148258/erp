@@ -32,11 +32,19 @@ export type InboundFormState = {
   note: string;
 };
 
+export type InboundFormErrors = Partial<Record<'locationId' | 'productName' | 'batchNo' | 'quantity' | 'sourceRef' | 'reason', string>>;
+
 export type TransferFormState = {
   toLocationId: number;
   quantity: number;
   note: string;
 };
+
+export type TransferFormErrors = Partial<Record<'toLocationId' | 'quantity', string>>;
+
+export type WarehouseCreateErrors = Partial<Record<'code' | 'name', string>>;
+
+export type LocationCreateErrors = Partial<Record<'code' | 'name' | 'warehouse', string>>;
 
 export type WarehouseDraft = {
   code: string;

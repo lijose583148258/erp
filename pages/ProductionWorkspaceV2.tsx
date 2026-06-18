@@ -32,6 +32,11 @@ import {
 } from './production/useProductionWorkspaceForms';
 import { useUnsavedForm } from '../app/useUnsavedForm';
 
+type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatchSize' | 'percentage' | 'items', string>>;
+type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
+type QualityFormErrors = Partial<Record<'defectRate' | 'checkedBy', string>>;
+type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
+
 const ProductionWorkspaceV2 = () => {
   const { notify, language } = useAppContext();
   const [summary, setSummary] = useState<ProductionSummary | null>(null);
@@ -60,6 +65,14 @@ const ProductionWorkspaceV2 = () => {
   const [workOrderSaveVersion, setWorkOrderSaveVersion] = useState(0);
   const [qualitySaveVersion, setQualitySaveVersion] = useState(0);
   const [adjustmentSaveVersion, setAdjustmentSaveVersion] = useState(0);
+  const [bomFormErrors, setBomFormErrors] = useState<BomFormErrors>({});
+  const [workOrderFormErrors, setWorkOrderFormErrors] = useState<WorkOrderFormErrors>({});
+  const [qualityFormErrors, setQualityFormErrors] = useState<QualityFormErrors>({});
+  const [adjustmentFormErrors, setAdjustmentFormErrors] = useState<AdjustmentFormErrors>({});
+  const [bomSaving, setBomSaving] = useState(false);
+  const [workOrderSaving, setWorkOrderSaving] = useState(false);
+  const [qualitySaving, setQualitySaving] = useState(false);
+  const [adjustmentSaving, setAdjustmentSaving] = useState(false);
 
   const createInitialWorkOrderSteps = useCallback(
     () => [newStep('备料'), newStep('生产'), newStep('质检')],
@@ -229,14 +242,17 @@ const ProductionWorkspaceV2 = () => {
   }, [selectedBatch, workOrders]);
 
   const handleCreateBom = async () => {
-    if (!bomProductName.trim() || !bomOutputUnit.trim()) return notify('warning', '请填写 BOM 产品名称和输出单位');
+    if (bomSaving) return;
+    const nextErrors: BomFormErrors = {};
+    if (!bomProductName.trim()) nextErrors.productName = '请填写产品名称';
+    if (!bomOutputUnit.trim()) nextErrors.outputUnit = '请填写输出单位';
 
     const standardBatchSize = Number(bomStandardBatchSize || 0);
     if (bomFormulationMode === 'percentage' && standardBatchSize <= 0) {
-      return notify('warning', '百分比配方请填写标准批量，系统才能自动换算单耗');
+      nextErrors.standardBatchSize = '百分比配方请填写大于 0 的标准批量';
     }
     if (bomFormulationMode === 'percentage' && bomPercentageSummary > 0 && Math.abs(bomPercentageSummary - 100) > 0.01) {
-      return notify('warning', `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，建议校正为 100%`);
+      nextErrors.percentage = `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，请校正为 100%`;
     }
 
     const items = bomItems
@@ -263,11 +279,20 @@ const ProductionWorkspaceV2 = () => {
       };
       });
 
-    if (!items.length) return notify('warning', '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码');
+    if (!items.length) {
+      nextErrors.items = '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码';
+    }
     if (bomType === 'chemical_formula' && items.length < 10) {
-      return notify('warning', '化工配方建议至少填写 10 种原料；保密原料可以只填代号/编码');
+      nextErrors.items = '化工配方建议至少填写 10 种原料；保密原料可以只填代号/编码';
+    }
+    if (Object.keys(nextErrors).length) {
+      setBomFormErrors(nextErrors);
+      notify('warning', Object.values(nextErrors)[0] || '请补齐配方信息');
+      return;
     }
 
+    setBomFormErrors({});
+    setBomSaving(true);
     try {
       const createdBom = await productionService.createBom({
         productName: bomProductName.trim(),
@@ -295,11 +320,24 @@ const ProductionWorkspaceV2 = () => {
       setWoProductName(createdBom.productName);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建 BOM 失败');
+    } finally {
+      setBomSaving(false);
     }
   };
 
   const handleCreateWorkOrder = async () => {
-    if (!woProductName.trim() || !woTargetQuantity.trim()) return notify('warning', '请填写工单产品和目标数量');
+    if (workOrderSaving) return;
+    const nextErrors: WorkOrderFormErrors = {};
+    if (!woProductName.trim()) nextErrors.productName = '请填写工单产品';
+    const targetQuantity = Number(woTargetQuantity || 0);
+    if (!woTargetQuantity.trim() || !Number.isFinite(targetQuantity) || targetQuantity <= 0) {
+      nextErrors.targetQuantity = '目标数量必须大于 0';
+    }
+    if (Object.keys(nextErrors).length) {
+      setWorkOrderFormErrors(nextErrors);
+      notify('warning', Object.values(nextErrors)[0] || '请补齐工单信息');
+      return;
+    }
 
     const steps = woSteps
       .filter(step => step.title.trim())
@@ -313,12 +351,14 @@ const ProductionWorkspaceV2 = () => {
     const resolvedBom = boms.find(item => item.productName === resolvedProductName) || selectedBom;
     const resolvedBatch = selectedBatch?.productName === resolvedProductName ? selectedBatch : null;
 
+    setWorkOrderFormErrors({});
+    setWorkOrderSaving(true);
     try {
       await productionService.createWorkOrder({
         bomId: resolvedBom?.id ?? selectedBomId ?? undefined,
         batchId: resolvedBatch?.id ?? selectedBatchId ?? undefined,
         productName: resolvedProductName,
-        targetQuantity: Number(woTargetQuantity || 0),
+        targetQuantity,
         producedQuantity: Number(woProducedQuantity || 0),
         lossQuantity: Number(woLossQuantity || 0),
         plannedStartAt: woPlannedStartAt || null,
@@ -332,6 +372,8 @@ const ProductionWorkspaceV2 = () => {
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建工单失败');
+    } finally {
+      setWorkOrderSaving(false);
     }
   };
 
@@ -386,11 +428,28 @@ const ProductionWorkspaceV2 = () => {
   };
 
   const handleCreateQc = async () => {
+    if (qualitySaving) return;
     if (!selectedWorkOrder) return notify('warning', '请先选择工单');
+    const nextErrors: QualityFormErrors = {};
+    const defectRateValue = qcDefectRate.trim() ? Number(qcDefectRate) : null;
+    if (defectRateValue !== null && (!Number.isFinite(defectRateValue) || defectRateValue < 0 || defectRateValue > 100)) {
+      nextErrors.defectRate = '缺陷率必须在 0 到 100 之间';
+    }
+    if (qcResult === 'fail' && !qcCheckedBy.trim()) {
+      nextErrors.checkedBy = '不合格记录请填写质检人';
+    }
+    if (Object.keys(nextErrors).length) {
+      setQualityFormErrors(nextErrors);
+      notify('warning', Object.values(nextErrors)[0] || '请补齐质检信息');
+      return;
+    }
+
+    setQualityFormErrors({});
+    setQualitySaving(true);
     try {
       await productionService.createQualityCheck(selectedWorkOrder.id, {
         result: qcResult,
-        defectRate: qcDefectRate.trim() ? Number(qcDefectRate) : null,
+        defectRate: defectRateValue,
         note: qcNote.trim() || null,
         checkedBy: qcCheckedBy.trim() || null,
       });
@@ -400,15 +459,26 @@ const ProductionWorkspaceV2 = () => {
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '保存质检记录失败');
+    } finally {
+      setQualitySaving(false);
     }
   };
 
   const handleCreateAdjustment = async () => {
-    if (!selectedBatch) return notify('warning', '请先选择批次');
+    if (adjustmentSaving) return;
+    const nextErrors: AdjustmentFormErrors = {};
+    if (!selectedBatch) nextErrors.batch = '请先选择批次';
     const value = Number(adjustmentQuantity);
-    if (!Number.isFinite(value) || value <= 0) return notify('warning', '请填写有效数量');
-    if (!adjustmentReason.trim()) return notify('warning', '请填写调整原因');
+    if (!Number.isFinite(value) || value <= 0) nextErrors.quantity = '请填写大于 0 的有效数量';
+    if (!adjustmentReason.trim()) nextErrors.reason = '请填写调整原因';
+    if (Object.keys(nextErrors).length) {
+      setAdjustmentFormErrors(nextErrors);
+      notify('warning', Object.values(nextErrors)[0] || '请补齐批次调整信息');
+      return;
+    }
 
+    setAdjustmentFormErrors({});
+    setAdjustmentSaving(true);
     try {
       await adjustmentService.create({
         domain: 'production',
@@ -430,6 +500,8 @@ const ProductionWorkspaceV2 = () => {
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '登记生产调账失败');
+    } finally {
+      setAdjustmentSaving(false);
     }
   };
 
@@ -525,6 +597,9 @@ const ProductionWorkspaceV2 = () => {
             bomItems={bomItems}
             setBomItems={setBomItems}
             loading={loading}
+            bomSaving={bomSaving}
+            bomFormErrors={bomFormErrors}
+            clearBomFormError={field => setBomFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateBom={handleCreateBom}
             displayedBoms={displayedBoms}
             selectedBomId={selectedBomId}
@@ -556,6 +631,9 @@ const ProductionWorkspaceV2 = () => {
             woSteps={woSteps}
             setWoSteps={setWoSteps}
             loading={loading}
+            workOrderSaving={workOrderSaving}
+            workOrderFormErrors={workOrderFormErrors}
+            clearWorkOrderFormError={field => setWorkOrderFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateWorkOrder={handleCreateWorkOrder}
             loadData={loadData}
             workOrders={workOrders}
@@ -577,6 +655,9 @@ const ProductionWorkspaceV2 = () => {
             setQcCheckedBy={setQcCheckedBy}
             qcNote={qcNote}
             setQcNote={setQcNote}
+            qualitySaving={qualitySaving}
+            qualityFormErrors={qualityFormErrors}
+            clearQualityFormError={field => setQualityFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateQc={handleCreateQc}
           />
         ) : null}
@@ -601,6 +682,9 @@ const ProductionWorkspaceV2 = () => {
             adjustmentReason={adjustmentReason}
             adjustmentNote={adjustmentNote}
             setAdjustmentNote={setAdjustmentNote}
+            adjustmentSaving={adjustmentSaving}
+            adjustmentFormErrors={adjustmentFormErrors}
+            clearAdjustmentFormError={field => setAdjustmentFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateAdjustment={handleCreateAdjustment}
             adjustments={adjustments}
             adjustmentStatus={adjustmentStatus}

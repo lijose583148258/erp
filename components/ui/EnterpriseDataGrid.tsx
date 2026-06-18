@@ -1,10 +1,11 @@
 import React, { useMemo, useRef, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, SlidersHorizontal, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ActionToolbar } from './ActionToolbar';
 import { EmptyState } from './EmptyState';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { StatusBadge } from './StatusBadge';
+import { readNumberPreference, readStringArrayPreference, writeNumberPreference, writeStringArrayPreference } from './tablePreferences';
 
 export type EnterpriseColumn<T> = {
   key: string;
@@ -15,6 +16,7 @@ export type EnterpriseColumn<T> = {
   sortable?: boolean;
   isNumeric?: boolean;
   isStatus?: boolean;
+  defaultVisible?: boolean;
   width?: string;
   className?: string;
 };
@@ -57,6 +59,7 @@ type Props<T> = {
   onPageChange?: (page: number) => void;
   onPageSizeChange?: (pageSize: number) => void;
   paginationTestIdPrefix?: string;
+  preferenceKey?: string;
   className?: string;
 };
 
@@ -128,16 +131,47 @@ export function EnterpriseDataGrid<T>({
   onPageChange,
   onPageSizeChange,
   paginationTestIdPrefix,
+  preferenceKey,
   className = '',
 }: Props<T>) {
+  const tablePreferenceKey = preferenceKey || paginationTestIdPrefix || searchInputTestId || exportFileName || stringifyCell(title) || 'enterprise-grid';
+  const pageSizeStorageKey = `ailao.grid.${tablePreferenceKey}.pageSize`;
+  const columnStorageKey = `ailao.grid.${tablePreferenceKey}.columns`;
+  const defaultColumnKeys = useMemo(() => columns.filter((column) => column.defaultVisible !== false).map((column) => column.key), [columns]);
   const [sortState, setSortState] = useState<SortState>(null);
-  const [pageSize, setPageSize] = useState(defaultPageSize);
+  const [pageSize, setPageSize] = useState(() => readNumberPreference(pageSizeStorageKey, defaultPageSize, pageSizeOptions));
   const [page, setPage] = useState(1);
   const [internalSearch, setInternalSearch] = useState('');
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState(() => readStringArrayPreference(columnStorageKey, defaultColumnKeys));
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const visibleColumnKeySet = useMemo(() => new Set(visibleColumnKeys), [visibleColumnKeys]);
+  const visibleColumns = useMemo(() => {
+    const selected = columns.filter((column) => visibleColumnKeySet.has(column.key));
+    return selected.length ? selected : columns.slice(0, 1);
+  }, [columns, visibleColumnKeySet]);
   const effectiveSearchValue = typeof onSearchChange === 'function' ? searchValue : internalSearch;
   const isServerPaged = manualPagination && Boolean(pagination);
+  const handleSearchChange = (value: string) => {
+    setPage(1);
+    if (onSearchChange) {
+      onSearchChange(value);
+      return;
+    }
+    setInternalSearch(value);
+  };
+  const setColumnVisibility = (key: string, visible: boolean) => {
+    setVisibleColumnKeys((current) => {
+      const next = visible ? Array.from(new Set([...current, key])) : current.filter((item) => item !== key);
+      const safeNext = next.length ? next : [key];
+      writeStringArrayPreference(columnStorageKey, safeNext);
+      return safeNext;
+    });
+  };
+  const resetColumnVisibility = () => {
+    setVisibleColumnKeys(defaultColumnKeys);
+    writeStringArrayPreference(columnStorageKey, defaultColumnKeys);
+  };
 
   const searchedData = useMemo(() => {
     const terms = effectiveSearchValue.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -153,7 +187,7 @@ export function EnterpriseDataGrid<T>({
 
   const sortedData = useMemo(() => {
     if (isServerPaged || !sortState) return searchedData;
-    const column = columns.find((item) => item.key === sortState.key);
+    const column = visibleColumns.find((item) => item.key === sortState.key);
     if (!column) return searchedData;
     return [...searchedData].sort((left, right) => {
       const a = column.searchText?.(left) ?? stringifyCell(getAccessorValue(left, column));
@@ -162,7 +196,7 @@ export function EnterpriseDataGrid<T>({
         ? a.localeCompare(b, 'zh-Hans-CN', { numeric: true })
         : b.localeCompare(a, 'zh-Hans-CN', { numeric: true });
     });
-  }, [columns, isServerPaged, searchedData, sortState]);
+  }, [isServerPaged, searchedData, sortState, visibleColumns]);
 
   const effectivePageSize = isServerPaged && pagination ? pagination.pageSize : pageSize;
   const totalRows = isServerPaged && pagination ? pagination.total : sortedData.length;
@@ -181,9 +215,9 @@ export function EnterpriseDataGrid<T>({
 
   const handleExport = () => {
     const sheetRows = exportData.map((row) => (
-      columns.map((column) => column.searchText?.(row) ?? stringifyCell(getAccessorValue(row, column)))
+      visibleColumns.map((column) => column.searchText?.(row) ?? stringifyCell(getAccessorValue(row, column)))
     ));
-    const headers = columns.map((column) => stringifyCell(column.header) || column.key);
+    const headers = visibleColumns.map((column) => stringifyCell(column.header) || column.key);
     const worksheet = XLSX.utils.aoa_to_sheet([headers, ...sheetRows]);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, exportSheetName || 'Sheet1');
@@ -233,7 +267,7 @@ export function EnterpriseDataGrid<T>({
         title={title}
         description={description}
         searchValue={searchable ? effectiveSearchValue : undefined}
-        onSearchChange={searchable ? (onSearchChange || setInternalSearch) : undefined}
+        onSearchChange={searchable ? handleSearchChange : undefined}
         searchPlaceholder={searchPlaceholder}
         searchInputTestId={searchInputTestId}
         resultCount={isServerPaged && pagination ? pagination.total : searchedData.length}
@@ -263,6 +297,31 @@ export function EnterpriseDataGrid<T>({
             {effectiveExportLabel}
           </button>
         ) : null}
+        <details className="relative">
+          <summary className="inline-flex cursor-pointer list-none items-center justify-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black tracking-[0.14em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+            <SlidersHorizontal size={14} className="mr-2" />
+            列
+          </summary>
+          <div className="absolute right-0 top-11 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
+              <button type="button" onClick={resetColumnVisibility} className="text-xs font-bold text-blue-600 dark:text-blue-300">重置</button>
+            </div>
+            <div className="max-h-64 space-y-1 overflow-y-auto">
+              {columns.map((column) => (
+                <label key={column.key} className="flex min-h-9 items-center gap-2 rounded-xl px-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800">
+                  <input
+                    type="checkbox"
+                    checked={visibleColumnKeySet.has(column.key)}
+                    onChange={(event) => setColumnVisibility(column.key, event.target.checked)}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  />
+                  <span className="truncate">{stringifyCell(column.header) || column.key}</span>
+                </label>
+              ))}
+            </div>
+          </div>
+        </details>
         {toolbarActions}
       </ActionToolbar>
 
@@ -282,7 +341,7 @@ export function EnterpriseDataGrid<T>({
             <table className="app-density-table w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="bg-slate-50/95 dark:bg-slate-800/95 shadow-sm">
-                  {columns.map((column, columnIndex) => {
+                  {visibleColumns.map((column, columnIndex) => {
                     const canSort = Boolean(column.sortable && !isServerPaged);
                     return (
                       <th
@@ -294,6 +353,7 @@ export function EnterpriseDataGrid<T>({
                         type="button"
                         disabled={!canSort}
                         onClick={() => toggleSort(column)}
+                        aria-label={canSort ? `按 ${stringifyCell(column.header) || column.key} 排序` : undefined}
                         className={`inline-flex items-center gap-1 ${canSort ? 'hover:text-blue-600' : 'cursor-default'}`}
                       >
                         {column.header}
@@ -332,12 +392,12 @@ export function EnterpriseDataGrid<T>({
                     tabIndex={onRowClick ? 0 : undefined}
                     className={`group border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:hover:bg-slate-800/70 dark:focus:ring-blue-900/30 ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName?.(row) || ''}`}
                   >
-                    {columns.map((column, columnIndex) => {
+                    {visibleColumns.map((column, columnIndex) => {
                       const value = column.render ? column.render(row) : getAccessorValue(row, column);
                       return (
                         <td key={column.key} className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 ${columnIndex === 0 ? 'sticky left-0 z-[5] bg-white group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800' : ''} ${column.isNumeric ? 'text-right font-data' : ''} ${column.className || ''}`}>
                           {column.isStatus ? (
-                            <StatusBadge status={stringifyCell(value)} label={stringifyCell(value)} />
+                            <StatusBadge status={stringifyCell(value)} />
                           ) : React.isValidElement(value) ? (
                             value
                           ) : (
@@ -350,7 +410,7 @@ export function EnterpriseDataGrid<T>({
                     })}
                     {rowActions ? (
                       <td className="sticky right-0 z-[5] w-[260px] bg-white px-3 py-2.5 text-right group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800">
-                        <div className="app-row-actions touch-actions-visible ml-auto flex max-w-[236px] items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap pb-1">
+                        <div className="app-row-actions touch-actions-visible ml-auto flex min-w-[120px] max-w-[236px] items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap pb-1">
                           {rowActions(row)}
                         </div>
                       </td>
@@ -379,6 +439,7 @@ export function EnterpriseDataGrid<T>({
               }
               setPageSize(nextPageSize);
               setPage(1);
+              writeNumberPreference(pageSizeStorageKey, nextPageSize);
             }}
             className="rounded-xl border border-slate-200 bg-white px-2 py-1 outline-none dark:border-slate-700 dark:bg-slate-800"
           >

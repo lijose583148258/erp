@@ -32,6 +32,7 @@ export const adaptDataTableColumns = <T,>(
     sortable: true,
     isNumeric: column.isNumeric,
     isStatus: column.isStatus,
+    defaultVisible: column.defaultVisible,
     width: widths[column.key],
   };
 });

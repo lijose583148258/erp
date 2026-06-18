@@ -265,34 +265,34 @@ const SalesOrders = () => {
                     return (
                     <div className="flex flex-wrap justify-end gap-2">
                         {showOrderActions && state.canEditOrder(row) && (
-                            <button data-testid="sales-order-edit-button" onClick={(e) => { e.stopPropagation(); state.openEditModal(row); }} className="p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 border border-amber-200" title={t.editOrder}>
+                            <button data-testid="sales-order-edit-button" aria-label={t.editOrder} onClick={(e) => { e.stopPropagation(); state.openEditModal(row); }} className="min-h-11 min-w-11 p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 border border-amber-200" title={t.editOrder}>
                                 <Pencil size={16} />
                             </button>
                         )}
                         {showPaymentActions && state.canRecordPayment && 
-                            <button data-testid="sales-order-payment-button" onClick={(e) => { e.stopPropagation(); state.openPaymentModal(row); }} className="p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 border border-emerald-200" title={t.recordPayment}>
+                            <button data-testid="sales-order-payment-button" aria-label={t.recordPayment} onClick={(e) => { e.stopPropagation(); state.openPaymentModal(row); }} className="min-h-11 min-w-11 p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 border border-emerald-200" title={t.recordPayment}>
                                 <CreditCard size={16} />
                             </button>
                         }
-                        <button data-testid="sales-order-history-button" onClick={(e) => { e.stopPropagation(); state.openHistoryModal(row); }} className="p-2 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 border border-slate-200" title="View History">
+                        <button data-testid="sales-order-history-button" aria-label={t.viewHistory || '查看历史'} onClick={(e) => { e.stopPropagation(); state.openHistoryModal(row); }} className="min-h-11 min-w-11 p-2 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 border border-slate-200" title={t.viewHistory || '查看历史'}>
                             <ReceiptText size={16} />
                         </button>
                         {showCommissionActions && state.isManagerView && row.commissionStatus === CommissionStatus.PENDING && state.canAuditCommission && (
                             <>
-                                <button onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(row.id, CommissionStatus.APPROVED); }} className="p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100"><CheckCircle2 size={16} /></button>
-                                <button onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(row.id, CommissionStatus.REJECTED); }} className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100"><XCircle size={16} /></button>
+                                <button aria-label={t.approve || '通过'} title={t.approve || '通过'} onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(row.id, CommissionStatus.APPROVED); }} className="min-h-11 min-w-11 p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100"><CheckCircle2 size={16} /></button>
+                                <button aria-label={t.reject || '驳回'} title={t.reject || '驳回'} onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(row.id, CommissionStatus.REJECTED); }} className="min-h-11 min-w-11 p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100"><XCircle size={16} /></button>
                             </>
                         )}
                         {showFulfillmentActions && !state.isManagerView && state.canCreateOrder && (
                             <>
-                                {row.status === OrderStatus.PENDING && <button onClick={(e) => { e.stopPropagation(); state.handleStatusUpdate(row.id, OrderStatus.CONFIRMED); }} className="p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title="Confirm Order"><Check size={16} /></button>}
+                                {row.status === OrderStatus.PENDING && <button aria-label={t.confirmOrder || '确认订单'} onClick={(e) => { e.stopPropagation(); state.handleStatusUpdate(row.id, OrderStatus.CONFIRMED); }} className="min-h-11 min-w-11 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title={t.confirmOrder || '确认订单'}><Check size={16} /></button>}
                                 {row.status === OrderStatus.CONFIRMED && (
-                                    <button onClick={(e) => { e.stopPropagation(); state.handleQuickShip(row); }} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title="Quick Ship">
+                                    <button aria-label={t.quickShip || '快速发货'} onClick={(e) => { e.stopPropagation(); state.handleQuickShip(row); }} className="min-h-11 min-w-11 p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title={t.quickShip || '快速发货'}>
                                         <Truck size={16} />
                                     </button>
                                 )}
                                 {row.fulfillmentStatus === 'delivered' && row.financialStatus === 'paid' && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
-                                    <button onClick={(e) => { e.stopPropagation(); state.handleManualComplete(row.id); }} className="p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title="Complete Order">
+                                    <button aria-label={t.completeOrder || '完成订单'} onClick={(e) => { e.stopPropagation(); state.handleManualComplete(row.id); }} className="min-h-11 min-w-11 p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title={t.completeOrder || '完成订单'}>
                                         <CheckCircle2 size={16} />
                                     </button>
                                 )}
@@ -360,6 +360,7 @@ const SalesOrders = () => {
                 clearDraft={state.clearDraft}
                 onClose={() => state.setIsCreateOpen(false)}
                 onSave={state.handleSaveOrder}
+                isSaving={state.isSavingOrder}
                 totals={state.totals}
                 formatPrice={state.formatPrice}
                 priceSuggestions={state.priceSuggestions}

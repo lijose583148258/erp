@@ -11,4 +11,5 @@ export type { ModuleHeroStat } from './ModuleHero';
 export { PageShell } from './PageShell';
 export { ReasonDialog } from './ReasonDialog';
 export { StatusBadge } from './StatusBadge';
+export { getStatusBorderBadgeClassName, getStatusLabel, getStatusTone, isHighRiskStatus } from './statusBadgeLogic';
 export { StickyActionBar } from './StickyActionBar';

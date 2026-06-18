@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 type Option = {
   value: string;
@@ -48,10 +48,20 @@ export const FormField: React.FC<Props> = ({
   inputClassName = '',
   transformValue,
 }) => {
+  const generatedId = useId();
+  const controlId = dataTestId || `form-field-${generatedId}`;
+  const errorId = `${controlId}-error`;
+  const hintId = `${controlId}-hint`;
+  const countId = `${controlId}-count`;
   const baseClass = `app-control w-full ${error ? 'border-rose-300 focus:border-rose-300 focus:ring-rose-100 dark:focus:ring-rose-900/30' : ''} ${inputClassName}`;
   const handleChange = (nextValue: string) => onChange(transformValue ? transformValue(nextValue) : nextValue);
   const valueTitle = value.length > 18 ? value : undefined;
   const showCount = typeof maxLength === 'number' && maxLength > 0 && (as === 'input' || as === 'textarea');
+  const describedBy = [
+    error ? errorId : null,
+    !error && hint ? hintId : null,
+    showCount ? countId : null,
+  ].filter(Boolean).join(' ') || undefined;
   const remaining = showCount ? maxLength - value.length : 0;
   const countClass = remaining <= 0
     ? 'text-rose-600 dark:text-rose-300'
@@ -70,6 +80,7 @@ export const FormField: React.FC<Props> = ({
 
       {as === 'textarea' ? (
         <textarea
+          id={controlId}
           data-testid={dataTestId}
           value={value}
           title={valueTitle}
@@ -79,15 +90,22 @@ export const FormField: React.FC<Props> = ({
           disabled={disabled}
           readOnly={readOnly}
           maxLength={maxLength}
+          required={required}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
           className={`${baseClass} min-h-[96px] resize-y app-long-text`}
         />
       ) : as === 'select' ? (
         <select
+          id={controlId}
           data-testid={dataTestId}
           value={value}
           title={valueTitle}
           onChange={(event) => handleChange(event.target.value)}
           disabled={disabled}
+          required={required}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
           className={baseClass}
         >
           {options.map((option) => (
@@ -98,6 +116,7 @@ export const FormField: React.FC<Props> = ({
         </select>
       ) : (
         <input
+          id={controlId}
           data-testid={dataTestId}
           type={type}
           value={value}
@@ -108,6 +127,9 @@ export const FormField: React.FC<Props> = ({
           readOnly={readOnly}
           list={list}
           maxLength={maxLength}
+          required={required}
+          aria-invalid={Boolean(error)}
+          aria-describedby={describedBy}
           className={baseClass}
         />
       )}
@@ -115,10 +137,10 @@ export const FormField: React.FC<Props> = ({
       {(error || hint || showCount) ? (
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            {error ? <p className="text-[11px] font-bold text-rose-500">{error}</p> : hint ? <p className="text-[11px] font-medium text-slate-400">{hint}</p> : null}
+            {error ? <p id={errorId} className="text-[11px] font-bold text-rose-500">{error}</p> : hint ? <p id={hintId} className="text-[11px] font-medium text-slate-400">{hint}</p> : null}
           </div>
           {showCount ? (
-            <span className={`shrink-0 text-[11px] font-black tabular-nums ${countClass}`}>
+            <span id={countId} className={`shrink-0 text-[11px] font-black tabular-nums ${countClass}`}>
               {value.length}/{maxLength}
             </span>
           ) : null}

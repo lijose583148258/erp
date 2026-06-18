@@ -52,6 +52,8 @@ const Procurement = () => {
   const [receiptDrawerOrder, setReceiptDrawerOrder] = useState<PurchaseOrder | null>(null);
   const [receiptBundle, setReceiptBundle] = useState<PurchaseReceiptBundle | null>(null);
   const [isReceiptLoading, setIsReceiptLoading] = useState(false);
+  const [isReceiptSubmitting, setIsReceiptSubmitting] = useState(false);
+  const [isPurchaseSubmitting, setIsPurchaseSubmitting] = useState(false);
   const [receiptForm, setReceiptForm] = useState(createEmptyReceiptForm);
   const [supplierSaveVersion, setSupplierSaveVersion] = useState(0);
   const [orderSaveVersion, setOrderSaveVersion] = useState(0);
@@ -282,6 +284,7 @@ const Procurement = () => {
   };
 
   const submitReceipt = async () => {
+    if (isReceiptSubmitting) return;
     if (!receiptDrawerOrder) return;
     if (!canWriteProcurement) {
       notify('warning', '当前角色只能查看采购收货批次，不能保存收货');
@@ -298,7 +301,7 @@ const Procurement = () => {
     const rejectedQuantity = Number(receiptForm.rejectedQuantity || 0);
 
     try {
-      setIsReceiptLoading(true);
+      setIsReceiptSubmitting(true);
       const bundle = await procurementService.createReceipt(receiptDrawerOrder.id, {
         quantity,
         acceptedQuantity,
@@ -316,7 +319,7 @@ const Procurement = () => {
     } catch {
       notify('error', t.saveFail || '收货批次保存失败');
     } finally {
-      setIsReceiptLoading(false);
+      setIsReceiptSubmitting(false);
     }
   };
 
@@ -429,6 +432,7 @@ const Procurement = () => {
   };
 
   const addOrder = async () => {
+    if (isPurchaseSubmitting) return;
     if (!canWriteProcurement) {
       notify('warning', '当前角色只能查看采购单，不能新增采购单');
       return;
@@ -450,6 +454,7 @@ const Procurement = () => {
       : null;
 
     try {
+      setIsPurchaseSubmitting(true);
       const createdOrder = await procurementService.createOrder({
         supplierId: supplier.id,
         supplierName: getSupplierLabel(supplier) || supplier.supplierDisplayName || supplier.name,
@@ -508,6 +513,8 @@ const Procurement = () => {
       }
     } catch {
       notify('error', t.purchaseCreateFail);
+    } finally {
+      setIsPurchaseSubmitting(false);
     }
   };
 
@@ -586,6 +593,7 @@ const Procurement = () => {
           getSupplierLabel={getSupplierLabel}
           purchaseCostPreview={purchaseCostPreview}
           canWrite={canWriteProcurement}
+          isSubmitting={isPurchaseSubmitting}
         />
       )}
 
@@ -601,7 +609,8 @@ const Procurement = () => {
           setReceiptForm={setReceiptForm}
           receiptErrors={receiptErrors}
           clearReceiptError={clearReceiptError}
-          isReceiptLoading={isReceiptLoading}
+          isReceiptLoading={isReceiptLoading || isReceiptSubmitting}
+          isReceiptSubmitting={isReceiptSubmitting}
           submitReceipt={submitReceipt}
           onClose={() => setReceiptDrawerOrder(null)}
           canWrite={canWriteProcurement}

@@ -1,5 +1,5 @@
 ﻿import * as XLSX from 'xlsx';
-import { getStatusBorderBadgeClassName } from '../../components/ui/StatusBadge';
+import { getStatusBorderBadgeClassName } from '../../components/ui/statusBadgeLogic';
 
 export const formatDate = (value?: string | null) => {
   if (!value) return '-';

@@ -26,6 +26,8 @@ import {
   Th,
 } from './ProductionWorkspacePrimitives';
 
+type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatchSize' | 'percentage' | 'items', string>>;
+
 interface ProductionBomSectionProps {
   bomKeyword: string;
   setBomKeyword: (value: string) => void;
@@ -64,6 +66,9 @@ interface ProductionBomSectionProps {
   bomItems: BomItemDraft[];
   setBomItems: Dispatch<SetStateAction<BomItemDraft[]>>;
   loading: boolean;
+  bomSaving: boolean;
+  bomFormErrors: BomFormErrors;
+  clearBomFormError: (field: keyof BomFormErrors) => void;
   handleCreateBom: () => void;
   displayedBoms: ProductionBom[];
   selectedBomId: number | null;
@@ -113,6 +118,9 @@ export function ProductionBomSection({
   bomItems,
   setBomItems,
   loading,
+  bomSaving,
+  bomFormErrors,
+  clearBomFormError,
   handleCreateBom,
   displayedBoms,
   selectedBomId,
@@ -171,13 +179,43 @@ export function ProductionBomSection({
             先填最少必填项就能建档：产品名称、版本、配方类型、配方模式、输出单位、标准批量。密度、固含、工艺、质检等化工细节放在“高级字段”，避免一开始就把录入人员淹没。
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
-            <Field dataTestId="production-bom-product-name" label="产品名称" value={bomProductName} onChange={setBomProductName} placeholder="例如：环氧树脂底胶" />
+            <Field
+              dataTestId="production-bom-product-name"
+              label="产品名称"
+              value={bomProductName}
+              onChange={value => {
+                clearBomFormError('productName');
+                setBomProductName(value);
+              }}
+              placeholder="例如：环氧树脂底胶"
+              error={bomFormErrors.productName}
+            />
             <Field label="版本" value={bomVersion} onChange={setBomVersion} placeholder="v1" />
             <SelectField label="配方类型" value={bomType} onChange={setBomType} options={BOM_TYPE_OPTIONS} />
             <SelectField label="配方状态" value={bomStatus} onChange={setBomStatus} options={BOM_STATUS_OPTIONS} />
             <SelectField label="配方模式" value={bomFormulationMode} onChange={setBomFormulationMode} options={FORMULATION_MODE_OPTIONS} />
-            <Field label="输出单位" value={bomOutputUnit} onChange={setBomOutputUnit} placeholder="kg / 吨" />
-            <Field label="标准批量" value={bomStandardBatchSize} onChange={setBomStandardBatchSize} placeholder="例如 1000" />
+            <Field
+              dataTestId="production-bom-output-unit"
+              label="输出单位"
+              value={bomOutputUnit}
+              onChange={value => {
+                clearBomFormError('outputUnit');
+                setBomOutputUnit(value);
+              }}
+              placeholder="kg / 吨"
+              error={bomFormErrors.outputUnit}
+            />
+            <Field
+              dataTestId="production-bom-standard-batch-size"
+              label="标准批量"
+              value={bomStandardBatchSize}
+              onChange={value => {
+                clearBomFormError('standardBatchSize');
+                setBomStandardBatchSize(value);
+              }}
+              placeholder="例如 1000"
+              error={bomFormErrors.standardBatchSize}
+            />
             <Field label="批量单位" value={bomBatchSizeUnit} onChange={setBomBatchSizeUnit} placeholder="kg" />
           </div>
           <div className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/50">
@@ -223,13 +261,26 @@ export function ProductionBomSection({
               当前配方百分比合计：{bomPercentageSummary.toFixed(2)}%。百分比只代表配方占比；系统会换算为“每 1 {bomOutputUnit || '单位'} 成品的单位单耗”，标准批量只用于展示批量用量，避免完工扣料被重复放大。
             </div>
           ) : null}
-          <ProductionBomLineGrid items={bomItems} setItems={setBomItems} standardBatchSize={numericStandardBatchSize} />
+          {bomFormErrors.percentage || bomFormErrors.items ? (
+            <div data-testid="production-bom-line-error" className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-3 text-xs font-bold leading-6 text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+              {bomFormErrors.percentage || bomFormErrors.items}
+            </div>
+          ) : null}
+          <ProductionBomLineGrid
+            items={bomItems}
+            setItems={value => {
+              clearBomFormError('items');
+              clearBomFormError('percentage');
+              setBomItems(value);
+            }}
+            standardBatchSize={numericStandardBatchSize}
+          />
           <div className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-[28px] border border-blue-100 bg-white/90 p-4 shadow-[0_20px_60px_rgba(37,99,235,0.12)] backdrop-blur-xl dark:border-blue-900/40 dark:bg-slate-900/90 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-sm font-black text-slate-900 dark:text-white">保存为一个配方版本</div>
               <div className="text-xs font-bold text-slate-400">保存前确认左侧主数据 + 右侧原料明细；保存后请在下方只读列表回读，确认原料行没有丢失。</div>
             </div>
-            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">保存配方版本（主数据 + 明细）</button>
+            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading || bomSaving} aria-busy={bomSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">{bomSaving ? '保存中...' : '保存配方版本（主数据 + 明细）'}</button>
           </div>
         </div>
       </div>

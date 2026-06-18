@@ -51,7 +51,7 @@ export const ActionToolbar: React.FC<Props> = ({
       {(title || description) && (
         <div>
           {title ? <h3 className="text-sm font-black uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">{title}</h3> : null}
-          {description ? <p className="mt-1 text-xs font-medium text-slate-400">{description}</p> : null}
+          {description ? <p className="mt-1 text-xs font-medium text-slate-500 dark:text-slate-400">{description}</p> : null}
         </div>
       )}
 

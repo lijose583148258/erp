@@ -1,6 +1,6 @@
 import { Plus } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
-import type { InboundFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
+import type { InboundFormErrors, InboundFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
 
 const INBOUND_REASON_OPTIONS = [
   { value: '', label: '-- 选择补录原因 --' },
@@ -14,6 +14,8 @@ interface WarehouseInboundPanelProps {
   allLocations: WarehouseLocationOption[];
   inboundForm: InboundFormState;
   setInboundForm: Dispatch<SetStateAction<InboundFormState>>;
+  inboundErrors: InboundFormErrors;
+  clearInboundError: (field: keyof InboundFormErrors) => void;
   inboundMsg: string;
   inboundSaving: boolean;
   handleInbound: () => void;
@@ -24,11 +26,19 @@ export function WarehouseInboundPanel({
   allLocations,
   inboundForm,
   setInboundForm,
+  inboundErrors,
+  clearInboundError,
   inboundMsg,
   inboundSaving,
   handleInbound,
   canWrite,
 }: WarehouseInboundPanelProps) {
+  const controlClassName = (hasError: boolean) =>
+    `w-full bg-white dark:bg-slate-800 border rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all ${
+      hasError
+        ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20'
+        : 'border-slate-200 dark:border-slate-700'
+    }`;
   const inboundMsgClassName = `text-sm font-bold px-4 py-3 rounded-xl border ${
     inboundMsg.startsWith('✓')
       ? 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-600 border-emerald-200 dark:border-emerald-800'
@@ -76,35 +86,63 @@ export function WarehouseInboundPanel({
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">补录库位 *</label>
-            <select data-testid="warehouse-inbound-location-select" value={inboundForm.locationId} onChange={e => setInboundForm(form => ({ ...form, locationId: Number(e.target.value) }))}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all">
+            <select
+              data-testid="warehouse-inbound-location-select"
+              value={inboundForm.locationId}
+              onChange={e => {
+                clearInboundError('locationId');
+                setInboundForm(form => ({ ...form, locationId: Number(e.target.value) }));
+              }}
+              aria-invalid={Boolean(inboundErrors.locationId)}
+              aria-describedby={inboundErrors.locationId ? 'warehouse-inbound-location-error' : undefined}
+              className={controlClassName(Boolean(inboundErrors.locationId))}
+            >
               <option value={0}>-- 选择补录库位 --</option>
               {allLocations.map(location => (
                 <option key={location.id} value={location.id}>{location.warehouseName} / {location.name} ({location.code})</option>
               ))}
             </select>
+            {inboundErrors.locationId ? <p id="warehouse-inbound-location-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.locationId}</p> : null}
           </div>
 
           <div>
             <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">产品名称 *</label>
             <input data-testid="warehouse-inbound-product-input" type="text" placeholder="如：丁酮 (MEK)" value={inboundForm.productName}
-              onChange={e => setInboundForm(form => ({ ...form, productName: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+              onChange={e => {
+                clearInboundError('productName');
+                setInboundForm(form => ({ ...form, productName: e.target.value }));
+              }}
+              aria-invalid={Boolean(inboundErrors.productName)}
+              aria-describedby={inboundErrors.productName ? 'warehouse-inbound-product-error' : undefined}
+              className={controlClassName(Boolean(inboundErrors.productName))} />
+            {inboundErrors.productName ? <p id="warehouse-inbound-product-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.productName}</p> : null}
           </div>
 
           <div>
             <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">批次号 *</label>
             <input data-testid="warehouse-inbound-batch-input" type="text" placeholder="如：BATCH-2026-001" value={inboundForm.batchNo}
-              onChange={e => setInboundForm(form => ({ ...form, batchNo: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+              onChange={e => {
+                clearInboundError('batchNo');
+                setInboundForm(form => ({ ...form, batchNo: e.target.value }));
+              }}
+              aria-invalid={Boolean(inboundErrors.batchNo)}
+              aria-describedby={inboundErrors.batchNo ? 'warehouse-inbound-batch-error' : undefined}
+              className={controlClassName(Boolean(inboundErrors.batchNo))} />
+            {inboundErrors.batchNo ? <p id="warehouse-inbound-batch-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.batchNo}</p> : null}
           </div>
 
           <div className="flex gap-3">
             <div className="flex-1">
               <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">补录数量 *</label>
               <input data-testid="warehouse-inbound-quantity-input" type="number" min={0} step={0.01} value={inboundForm.quantity || ''}
-                onChange={e => setInboundForm(form => ({ ...form, quantity: Number(e.target.value) }))}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all" />
+                onChange={e => {
+                  clearInboundError('quantity');
+                  setInboundForm(form => ({ ...form, quantity: Number(e.target.value) }));
+                }}
+                aria-invalid={Boolean(inboundErrors.quantity)}
+                aria-describedby={inboundErrors.quantity ? 'warehouse-inbound-quantity-error' : undefined}
+                className={controlClassName(Boolean(inboundErrors.quantity))} />
+              {inboundErrors.quantity ? <p id="warehouse-inbound-quantity-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.quantity}</p> : null}
             </div>
             <div className="w-24">
               <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">单位</label>
@@ -124,9 +162,15 @@ export function WarehouseInboundPanel({
               type="text"
               placeholder="如：COUNT-2026-04-001"
               value={inboundForm.sourceRef}
-              onChange={e => setInboundForm(form => ({ ...form, sourceRef: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
+              onChange={e => {
+                clearInboundError('sourceRef');
+                setInboundForm(form => ({ ...form, sourceRef: e.target.value }));
+              }}
+              aria-invalid={Boolean(inboundErrors.sourceRef)}
+              aria-describedby={inboundErrors.sourceRef ? 'warehouse-inbound-source-ref-error' : undefined}
+              className={controlClassName(Boolean(inboundErrors.sourceRef))}
             />
+            {inboundErrors.sourceRef ? <p id="warehouse-inbound-source-ref-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.sourceRef}</p> : null}
           </div>
 
           <div>
@@ -134,13 +178,19 @@ export function WarehouseInboundPanel({
             <select
               data-testid="warehouse-inbound-reason-select"
               value={inboundForm.reason}
-              onChange={e => setInboundForm(form => ({ ...form, reason: e.target.value }))}
-              className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
+              onChange={e => {
+                clearInboundError('reason');
+                setInboundForm(form => ({ ...form, reason: e.target.value }));
+              }}
+              aria-invalid={Boolean(inboundErrors.reason)}
+              aria-describedby={inboundErrors.reason ? 'warehouse-inbound-reason-error' : undefined}
+              className={controlClassName(Boolean(inboundErrors.reason))}
             >
               {INBOUND_REASON_OPTIONS.map(option => (
                 <option key={option.value} value={option.value}>{option.label}</option>
               ))}
             </select>
+            {inboundErrors.reason ? <p id="warehouse-inbound-reason-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.reason}</p> : null}
           </div>
         </div>
 

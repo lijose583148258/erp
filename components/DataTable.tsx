@@ -1,8 +1,10 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, DollarSign, FileSpreadsheet, Search, Upload, X } from 'lucide-react';
+import { ChevronLeft, ChevronRight, DollarSign, FileSpreadsheet, Search, SlidersHorizontal, Upload, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useAppContext } from '../app/AppContext';
 import { StatusBadge as UnifiedStatusBadge } from './ui/StatusBadge';
+import { getStatusLabel } from './ui/statusBadgeLogic';
+import { readNumberPreference, readStringArrayPreference, writeNumberPreference, writeStringArrayPreference } from './ui/tablePreferences';
 
 export interface Column<T> {
   header: string;
@@ -38,30 +40,12 @@ interface DataTableProps<T> {
     totalPages: number;
     onPageChange: (page: number) => void;
   };
+  pageSizeOptions?: number[];
 }
-
-const STATUS_LABELS: Record<string, string> = {
-  pending: '待处理',
-  confirmed: '已确认',
-  shipped: '已发货',
-  delivered: '已签收',
-  completed: '已完成',
-  cancelled: '已取消',
-  paid: '已付款',
-  partial: '部分付款',
-  unpaid: '未付款',
-  active: '生效中',
-  draft: '草稿',
-  verified: '已核销',
-  approved: '已审批',
-  rejected: '已驳回',
-  open: '进行中',
-  closed: '已关闭',
-};
 
 export const StatusBadge: React.FC<{ value: string }> = ({ value }) => {
   const key = String(value || '').toLowerCase();
-  return <UnifiedStatusBadge status={key || 'unknown'} label={STATUS_LABELS[key] || value || 'unknown'} />;
+  return <UnifiedStatusBadge status={key || 'unknown'} label={getStatusLabel(key || value || 'unknown')} />;
 };
 
 const getImportErrorMessage = (error: unknown) => {
@@ -114,14 +98,42 @@ const DataTable = <T extends Record<string, any>>({
   exportCurrencies,
   hideSearch = false,
   pagination,
+  pageSizeOptions = [15, 30, 50],
 }: DataTableProps<T>) => {
   const { t, notify } = useAppContext();
+  const preferenceKey = tableId || title.replace(/\s+/g, '-').toLowerCase();
+  const pageSizeStorageKey = `ailao.table.${preferenceKey}.pageSize`;
+  const columnStorageKey = `ailao.table.${preferenceKey}.columns`;
+  const defaultColumnKeys = useMemo(() => columns.filter((column) => column.defaultVisible !== false).map((column) => column.key), [columns]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(() => readNumberPreference(pageSizeStorageKey, pageSizeOptions[0] || 15, pageSizeOptions));
+  const [visibleColumnKeys, setVisibleColumnKeys] = useState(() => readStringArrayPreference(columnStorageKey, defaultColumnKeys));
   const [exportCurrency, setExportCurrency] = useState<string>(exportCurrencies?.[0] ?? 'CNY');
   const [isExporting, setIsExporting] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const itemsPerPage = 15;
+  const visibleColumnKeySet = useMemo(() => new Set(visibleColumnKeys), [visibleColumnKeys]);
+  const visibleColumns = useMemo(() => {
+    const selected = columns.filter((column) => visibleColumnKeySet.has(column.key));
+    return selected.length ? selected : columns.slice(0, 1);
+  }, [columns, visibleColumnKeySet]);
+  const setColumnVisibility = (key: string, visible: boolean) => {
+    setVisibleColumnKeys((current) => {
+      const next = visible ? Array.from(new Set([...current, key])) : current.filter((item) => item !== key);
+      const safeNext = next.length ? next : [key];
+      writeStringArrayPreference(columnStorageKey, safeNext);
+      return safeNext;
+    });
+  };
+  const resetColumnVisibility = () => {
+    setVisibleColumnKeys(defaultColumnKeys);
+    writeStringArrayPreference(columnStorageKey, defaultColumnKeys);
+  };
+  const updatePageSize = (value: number) => {
+    setItemsPerPage(value);
+    setCurrentPage(1);
+    writeNumberPreference(pageSizeStorageKey, value);
+  };
 
   const filteredData = useMemo(() => {
     if (!searchTerm.trim()) return data;
@@ -146,7 +158,7 @@ const DataTable = <T extends Record<string, any>>({
   }, [pagination, totalPages]);
   const displayedData = useMemo(
     () => pagination ? data : filteredData.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage),
-    [data, filteredData, currentPage, pagination]
+    [data, filteredData, currentPage, itemsPerPage, pagination]
   );
 
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -213,9 +225,9 @@ const DataTable = <T extends Record<string, any>>({
       return;
     }
     if (!data.length) return;
-    const headers = columns.map((c) => c.header);
+    const headers = visibleColumns.map((c) => c.header);
     const rows = data.map((row) =>
-      columns.map((col) => {
+      visibleColumns.map((col) => {
         if (typeof col.accessor === 'string') return row[col.accessor as string] ?? '';
         return '';
       })
@@ -224,7 +236,7 @@ const DataTable = <T extends Record<string, any>>({
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, title);
     XLSX.writeFile(wb, `${title}_${exportCurrency}_${new Date().toISOString().slice(0, 10)}.xlsx`);
-  }, [data, columns, title, exportCurrency, notify, onExport]);
+  }, [data, visibleColumns, title, exportCurrency, notify, onExport]);
 
   const renderCell = (row: T, col: Column<T>) => {
     const raw = typeof col.accessor === 'function' ? col.accessor(row) : row[col.accessor as keyof T];
@@ -301,6 +313,31 @@ const DataTable = <T extends Record<string, any>>({
             </button>
           </div>
 
+          <details className="relative">
+            <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+              <SlidersHorizontal size={13} />列
+            </summary>
+            <div className="absolute right-0 top-10 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
+                <button type="button" onClick={resetColumnVisibility} className="text-xs font-bold text-blue-600 dark:text-blue-300">重置</button>
+              </div>
+              <div className="max-h-64 space-y-1 overflow-y-auto">
+                {columns.map((column) => (
+                  <label key={column.key} className="flex min-h-9 items-center gap-2 rounded-xl px-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800">
+                    <input
+                      type="checkbox"
+                      checked={visibleColumnKeySet.has(column.key)}
+                      onChange={(event) => setColumnVisibility(column.key, event.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    />
+                    <span className="truncate">{column.header}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </details>
+
           {onImport && (
             <>
               <input ref={fileInputRef} type="file" onChange={handleImport} className="hidden" accept=".xlsx,.xls,.csv" />
@@ -320,7 +357,7 @@ const DataTable = <T extends Record<string, any>>({
         <table className="app-density-table min-w-full text-left">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/95 dark:border-slate-800 dark:bg-slate-800/95">
-              {columns.map((col, i) => (
+              {visibleColumns.map((col, i) => (
                 <th
                   key={col.key}
                   className={`sticky top-0 z-20 bg-slate-50/95 px-3 py-2.5 text-xs font-black uppercase text-slate-600 whitespace-nowrap dark:bg-slate-800/95 dark:text-slate-300
@@ -340,7 +377,7 @@ const DataTable = <T extends Record<string, any>>({
           <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
             {isLoading && (
               <tr>
-                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-4 py-8 text-center text-sm font-bold text-slate-600 dark:text-slate-300">
+                <td colSpan={visibleColumns.length + (actions ? 1 : 0)} className="px-4 py-8 text-center text-sm font-bold text-slate-600 dark:text-slate-300">
                   正在加载...
                 </td>
               </tr>
@@ -350,13 +387,22 @@ const DataTable = <T extends Record<string, any>>({
                 key={index}
                 data-testid={rowTestId?.(row, index)}
                 onClick={() => onRowClick?.(row)}
+                onKeyDown={(event) => {
+                  if (!onRowClick) return;
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    onRowClick(row);
+                  }
+                }}
+                role={onRowClick ? 'button' : undefined}
+                tabIndex={onRowClick ? 0 : undefined}
                 className={`group transition-colors duration-150 ${
                   onRowClick
-                    ? 'cursor-pointer hover:bg-blue-50/40 dark:hover:bg-blue-900/10'
+                    ? 'cursor-pointer hover:bg-blue-50/40 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:hover:bg-blue-900/10 dark:focus:ring-blue-900/30'
                     : 'hover:bg-slate-50/60 dark:hover:bg-slate-800/20'
                 }`}
               >
-                {columns.map((col, i) => (
+                {visibleColumns.map((col, i) => (
                   <td
                     key={col.key}
                     className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200
@@ -368,7 +414,7 @@ const DataTable = <T extends Record<string, any>>({
                 ))}
                 {actions && (
                   <td className="sticky right-0 z-10 bg-white px-3 py-2.5 pr-4 text-right shadow-[-10px_0_16px_-14px_rgba(15,23,42,0.45)] dark:bg-slate-900">
-                    <div className="app-row-actions touch-actions-visible flex min-w-[96px] items-center justify-end gap-1.5 opacity-100">
+                    <div className="app-row-actions touch-actions-visible ml-auto flex min-w-[120px] max-w-[180px] items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap opacity-100">
                       {actions(row)}
                     </div>
                   </td>
@@ -377,13 +423,13 @@ const DataTable = <T extends Record<string, any>>({
             ))}
             {!isLoading && displayedData.length === 0 && (
               <tr>
-                <td colSpan={columns.length + (actions ? 1 : 0)} className="px-4 py-12 text-center">
+                <td colSpan={visibleColumns.length + (actions ? 1 : 0)} className="px-4 py-12 text-center">
                   <div className="flex flex-col items-center gap-3 text-slate-600 dark:text-slate-300">
                     <div className="w-12 h-12 rounded-full bg-slate-50 dark:bg-slate-800 flex items-center justify-center">
                       <Search size={22} strokeWidth={1.5} className="opacity-40" />
                     </div>
                     <span className="text-sm font-medium">
-                      {searchTerm ? `未找到包含 "${searchTerm}" 的记录` : '暂无数据'}
+                      {searchTerm ? `未找到包含 "${searchTerm}" 的记录，可调整关键词或清空筛选` : '暂无数据，可新建记录或刷新后重试'}
                     </span>
                   </div>
                 </td>
@@ -399,6 +445,15 @@ const DataTable = <T extends Record<string, any>>({
             第 {(effectivePage - 1) * (pagination?.pageSize || itemsPerPage) + 1}-{Math.min(effectivePage * (pagination?.pageSize || itemsPerPage), pagination?.total ?? filteredData.length)} 条，共 {pagination?.total ?? filteredData.length} 条
           </span>
           <div className="flex items-center gap-1">
+            {!pagination ? (
+              <select
+                value={itemsPerPage}
+                onChange={(event) => updatePageSize(Number(event.target.value))}
+                className="mr-1 rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs font-bold outline-none dark:border-slate-700 dark:bg-slate-800"
+              >
+                {pageSizeOptions.map((option) => <option key={option} value={option}>{option} / 页</option>)}
+              </select>
+            ) : null}
             <button
               type="button"
               disabled={effectivePage === 1}

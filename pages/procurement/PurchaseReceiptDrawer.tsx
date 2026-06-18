@@ -12,6 +12,7 @@ type PurchaseReceiptDrawerProps = {
   receiptErrors: ProcurementFormErrors;
   clearReceiptError: (field: string) => void;
   isReceiptLoading: boolean;
+  isReceiptSubmitting: boolean;
   submitReceipt: () => void;
   onClose: () => void;
   canWrite: boolean;
@@ -25,6 +26,7 @@ export const PurchaseReceiptDrawer = ({
   receiptErrors,
   clearReceiptError,
   isReceiptLoading,
+  isReceiptSubmitting,
   submitReceipt,
   onClose,
   canWrite,
@@ -115,9 +117,10 @@ export const PurchaseReceiptDrawer = ({
           data-testid="purchase-receipt-save-button"
           onClick={submitReceipt}
           disabled={isReceiptLoading || !canWrite || receiptDrawerOrder.status === 'received'}
+          aria-busy={isReceiptSubmitting}
           className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isReceiptLoading ? '保存中...' : '保存收货批次'}
+          {isReceiptSubmitting ? '保存中...' : isReceiptLoading ? '加载中...' : '保存收货批次'}
         </button>
       </div>
 

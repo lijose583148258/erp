@@ -33,8 +33,8 @@ const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordM
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {assetSummaries.map((summary) => (
-                    <div key={summary.customerId} className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm relative group overflow-hidden">
-                        <h3 className="font-black text-slate-800 dark:text-white text-lg">{summary.customerDisplayName || summary.customerName}</h3>
+                    <div key={summary.customerId} className="bg-white dark:bg-slate-900 p-5 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm">
+                        <h3 className="truncate text-lg font-black text-slate-800 dark:text-white" title={summary.customerDisplayName || summary.customerName}>{summary.customerDisplayName || summary.customerName}</h3>
                         <div className="mt-4 space-y-2">
                             {Object.entries(summary.balances).map(([type, qty]) => (
                                 qty !== 0 && (
@@ -47,15 +47,13 @@ const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordM
                                 )
                             ))}
                         </div>
-                        <div className="touch-actions-visible absolute inset-0 z-10 flex items-center justify-center bg-white/95 opacity-0 backdrop-blur-sm transition-opacity group-hover:opacity-100 dark:bg-slate-900/95">
-                            <button
-                                type="button"
-                                onClick={() => onQuickReturn(summary.customerId)}
-                                className="min-h-11 rounded-2xl bg-emerald-500 px-6 py-3 text-xs font-black uppercase text-white shadow-xl transition-transform hover:scale-110"
-                            >
-                                {t.receiveBack || 'Return'}
-                            </button>
-                        </div>
+                        <button
+                            type="button"
+                            onClick={() => onQuickReturn(summary.customerId)}
+                            className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
+                        >
+                            {t.receiveBack || 'Return'}
+                        </button>
                     </div>
                 ))}
             </div>

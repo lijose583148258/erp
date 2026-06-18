@@ -1,6 +1,6 @@
 import type { ComponentType, ReactNode } from 'react';
 import { BadgeDollarSign, Factory, Package2 } from 'lucide-react';
-import { getStatusBorderBadgeClassName } from '../../components/ui/StatusBadge';
+import { getStatusBorderBadgeClassName } from '../../components/ui/statusBadgeLogic';
 import type {
   AdjustmentDomain,
   AdjustmentStatus,

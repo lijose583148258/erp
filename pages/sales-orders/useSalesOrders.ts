@@ -5,7 +5,7 @@ import freeAIService from '../../services/freeAIService';
 import { ExtractedFormData, DocumentType, OcrDocumentData, parseOcrDocument } from '../../services/smartFormService';
 import { SalesOrder, Customer, SalesOrderItem } from '../../types';
 import type { CollectionActionMode, CollectionActionTarget } from '../../components/collections/CollectionActionModal';
-import { applyOcrResultToForm, applySmartFillToForm, buildImportedSalesOrderPayloads, buildInventoryInsights, buildPriceSuggestions, buildSalesOrderSavePayload, createEmptySalesOrderItem, createInitialPaymentForm, createProductScanOrderItem, getCollectionView, getFirstSalesOrderLineError, getOfflineProductScanCount, getOutstandingAmount, initialOrderForm, mergeOrderItemIntoDraft, saveOfflineProductScan, toNumericId, updateDimensionalItem, validateSalesOrderItems, type ImportedSalesOrderRow, type PaymentForm, type SalesOrderFormData, type SalesOrderLineErrors } from './salesOrderFormHelpers';
+import { applyOcrResultToForm, applySmartFillToForm, buildImportedSalesOrderPayloads, buildInventoryInsights, buildPriceSuggestions, buildSalesOrderSavePayload, createInitialPaymentForm, createProductScanOrderItem, getCollectionView, getFirstSalesOrderLineError, getOfflineProductScanCount, getOutstandingAmount, initialOrderForm, mergeOrderItemIntoDraft, saveOfflineProductScan, toNumericId, updateDimensionalItem, validateSalesOrderItems, type ImportedSalesOrderRow, type PaymentForm, type SalesOrderLineErrors } from './salesOrderFormHelpers';
 import { useSalesOrderCommandShortcuts } from './useSalesOrderCommandShortcuts';
 import { useSalesOrderNetworkStatus } from './useSalesOrderNetworkStatus';
 import { getSalesOrderCustomerLabel, getSalesOrderCustomerLabelFromOrder } from './salesOrderLabels';
@@ -37,6 +37,7 @@ export const useSalesOrders = () => {
     const [isManagerView, setIsManagerView] = useState(false);
     const [paymentForm, setPaymentForm] = useState<PaymentForm>(createInitialPaymentForm());
     const [orderLineErrors, setOrderLineErrors] = useState<SalesOrderLineErrors>({});
+    const [isSavingOrder, setIsSavingOrder] = useState(false);
 
     const {
         orders,
@@ -125,7 +126,7 @@ export const useSalesOrders = () => {
                 items: prev.items.map((item, itemIndex) => itemIndex === index ? { ...item, unitPrice } : item),
             }));
         });
-    }, [formData.items, formData.paymentTermsDays, t.unknownProduct]);
+    }, [formData.items, formData.paymentTermsDays, setFormData, t.unknownProduct]);
 
     const inventoryInsights = useMemo(() => {
         return buildInventoryInsights(formData.items, batches, t.unknownProduct);
@@ -241,6 +242,7 @@ export const useSalesOrders = () => {
     };
 
     const handleSaveOrder = async () => {
+        if (isSavingOrder) return;
         if (!formData.customerId) {
             notify('error', '请选择客户。');
             return;
@@ -269,6 +271,7 @@ export const useSalesOrders = () => {
             totals,
         });
 
+        setIsSavingOrder(true);
         try {
             let savedOrder: SalesOrder;
             if (isEditMode) {
@@ -284,8 +287,10 @@ export const useSalesOrders = () => {
             setOrderLineErrors({});
             setIsCreateOpen(false);
             setFormData(initialOrderForm);
-        } catch {
-            notify('error', '订单保存失败。');
+        } catch (error) {
+            notify('error', error instanceof Error ? `订单保存失败：${error.message}` : '订单保存失败，请检查网络或稍后重试。');
+        } finally {
+            setIsSavingOrder(false);
         }
     };
 
@@ -294,7 +299,7 @@ export const useSalesOrders = () => {
         setOrderLineErrors({});
         setIsEditMode(false);
         setIsCreateOpen(true);
-    }, []);
+    }, [setFormData]);
 
     const openEditModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
@@ -387,6 +392,7 @@ export const useSalesOrders = () => {
         removeOrderItem: handleRemoveOrderItem,
         importOrderItemsFromGrid: handleImportOrderItemsFromGrid,
         orderLineErrors,
+        isSavingOrder,
         displayedOrders,
         canAuditCommission,
         canRecordPayment,

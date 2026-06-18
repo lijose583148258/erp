@@ -24,12 +24,16 @@ import {
 import { buildWarehouseTabs } from './warehouse/warehouseWorkspaceNavigation';
 import {
   type InboundFormState,
+  type InboundFormErrors,
   type InventoryFilterValues,
+  type LocationCreateErrors,
   type LocationDraft,
   type StockBalanceQueryOverrides,
   type StockMeta,
   type TabKey,
+  type TransferFormErrors,
   type TransferFormState,
+  type WarehouseCreateErrors,
   type WarehouseDraft,
   type WarehouseLocationOption,
 } from './warehouse/warehouseWorkspaceTypes';
@@ -80,18 +84,24 @@ const WarehouseWorkspace = () => {
   });
   const [inboundMsg, setInboundMsg] = useState('');
   const [inboundSaving, setInboundSaving] = useState(false);
+  const [inboundErrors, setInboundErrors] = useState<InboundFormErrors>({});
 
   // ── 库存调拨表单 ──
   const [transferBalance, setTransferBalance] = useState<StockBalanceRecord | null>(null);
   const [transferForm, setTransferForm] = useState<TransferFormState>({ toLocationId: 0, quantity: 0, note: '' });
+  const [transferErrors, setTransferErrors] = useState<TransferFormErrors>({});
   const [transferMsg, setTransferMsg] = useState('');
   const [transferSaving, setTransferSaving] = useState(false);
 
   // ── 新建仓库/库位表单 ──
   const [showCreateWarehouse, setShowCreateWarehouse] = useState(false);
   const [newWarehouse, setNewWarehouse] = useState<WarehouseDraft>({ code: '', name: '', type: 'physical' });
+  const [warehouseCreateErrors, setWarehouseCreateErrors] = useState<WarehouseCreateErrors>({});
+  const [warehouseCreating, setWarehouseCreating] = useState(false);
   const [showCreateLocation, setShowCreateLocation] = useState(false);
   const [newLocation, setNewLocation] = useState<LocationDraft>({ code: '', name: '', type: 'internal' });
+  const [locationCreateErrors, setLocationCreateErrors] = useState<LocationCreateErrors>({});
+  const [locationCreating, setLocationCreating] = useState(false);
 
   useUnsavedForm({
     sourceId: 'warehouse-inbound-form',
@@ -209,35 +219,66 @@ const WarehouseWorkspace = () => {
 
   // ── 操作 ──
   const handleCreateWarehouse = async () => {
+    if (warehouseCreating) return;
     if (!canWriteWarehouse) {
       notify('warning', '当前角色只能查看仓储数据，不能新建仓库');
       return;
     }
-    if (!newWarehouse.code || !newWarehouse.name) return;
+    const nextErrors: WarehouseCreateErrors = {};
+    if (!newWarehouse.code.trim()) nextErrors.code = '请填写仓库编码';
+    if (!newWarehouse.name.trim()) nextErrors.name = '请填写仓库名称';
+    if (Object.keys(nextErrors).length) {
+      setWarehouseCreateErrors(nextErrors);
+      return;
+    }
+    setWarehouseCreateErrors({});
+    setWarehouseCreating(true);
     try {
-      const createdWarehouse = normalizeWarehouseRecord(await warehouseService.createWarehouse(newWarehouse));
+      const createdWarehouse = normalizeWarehouseRecord(await warehouseService.createWarehouse({
+        ...newWarehouse,
+        code: newWarehouse.code.trim(),
+        name: newWarehouse.name.trim(),
+      }));
       setSelectedWarehouse(createdWarehouse);
       setNewWarehouse({ code: '', name: '', type: 'physical' });
       setShowCreateWarehouse(false);
       await loadWarehouses();
     } catch (e: unknown) {
       notify('error', resolveWarehouseErrorMessage(e, '创建仓库失败'));
+    } finally {
+      setWarehouseCreating(false);
     }
   };
 
   const handleCreateLocation = async () => {
+    if (locationCreating) return;
     if (!canWriteWarehouse) {
       notify('warning', '当前角色只能查看仓储数据，不能新建库位');
       return;
     }
-    if (!selectedWarehouse || !newLocation.code || !newLocation.name) return;
+    const nextErrors: LocationCreateErrors = {};
+    if (!selectedWarehouse) nextErrors.warehouse = '请先选择要维护的仓库';
+    if (!newLocation.code.trim()) nextErrors.code = '请填写库位编码';
+    if (!newLocation.name.trim()) nextErrors.name = '请填写库位名称';
+    if (Object.keys(nextErrors).length) {
+      setLocationCreateErrors(nextErrors);
+      return;
+    }
+    setLocationCreateErrors({});
+    setLocationCreating(true);
     try {
-      await warehouseService.createLocation(selectedWarehouse.id, newLocation);
+      await warehouseService.createLocation(selectedWarehouse.id, {
+        ...newLocation,
+        code: newLocation.code.trim(),
+        name: newLocation.name.trim(),
+      });
       setNewLocation({ code: '', name: '', type: 'internal' });
       setShowCreateLocation(false);
-      loadWarehouses();
+      await loadWarehouses();
     } catch (e: unknown) {
       notify('error', resolveWarehouseErrorMessage(e, '创建库位失败'));
+    } finally {
+      setLocationCreating(false);
     }
   };
 
@@ -247,14 +288,19 @@ const WarehouseWorkspace = () => {
       setInboundMsg('当前角色只能查看仓储数据，不能执行应急补录 / 盘盈入库。');
       return;
     }
-    if (!inboundForm.locationId || !inboundForm.productName || !inboundForm.batchNo || inboundForm.quantity <= 0) {
-      setInboundMsg('请填写完整的应急补录 / 盘盈入库信息。本入口不能代替采购收货、生产入库或货抵入库。');
+    const nextErrors: InboundFormErrors = {};
+    if (!inboundForm.locationId) nextErrors.locationId = '请选择补录库位';
+    if (!inboundForm.productName.trim()) nextErrors.productName = '请填写产品名称';
+    if (!inboundForm.batchNo.trim()) nextErrors.batchNo = '请填写批次号';
+    if (inboundForm.quantity <= 0) nextErrors.quantity = '补录数量必须大于 0';
+    if (!inboundForm.sourceRef.trim()) nextErrors.sourceRef = '请填写来源单号';
+    if (!inboundForm.reason.trim()) nextErrors.reason = '请选择明确原因';
+    if (Object.keys(nextErrors).length) {
+      setInboundErrors(nextErrors);
+      setInboundMsg(Object.values(nextErrors)[0] || '请填写完整的应急补录 / 盘盈入库信息。本入口不能代替采购收货、生产入库或货抵入库。');
       return;
     }
-    if (!inboundForm.sourceRef.trim() || !inboundForm.reason.trim()) {
-      setInboundMsg('请填写补录来源单号和明确原因，便于库存流水回读。');
-      return;
-    }
+    setInboundErrors({});
     setInboundSaving(true);
     try {
       const readbackFilters = {
@@ -274,6 +320,7 @@ const WarehouseWorkspace = () => {
       setLedgerSourceRef(readbackFilters.sourceRef);
       setLedgerWarehouseId(readbackFilters.warehouseId);
       setLedgerLocationId(readbackFilters.locationId);
+      setInboundErrors({});
       setInboundMsg(`✓ 应急补录 / 盘盈入库成功，可在库存流水用来源单号 ${readbackFilters.sourceRef} 回读凭证。`);
       await Promise.all([
         loadWarehouses(),
@@ -317,6 +364,7 @@ const WarehouseWorkspace = () => {
       quantity: availableQuantity > 0 ? Math.min(availableQuantity, 1) : 0,
       note: '',
     });
+    setTransferErrors({});
     setTransferMsg('');
   };
 
@@ -324,6 +372,7 @@ const WarehouseWorkspace = () => {
     if (transferSaving) return;
     setTransferBalance(null);
     setTransferForm({ toLocationId: 0, quantity: 0, note: '' });
+    setTransferErrors({});
     setTransferMsg('');
   };
 
@@ -335,23 +384,33 @@ const WarehouseWorkspace = () => {
     }
     const quantity = Number(transferForm.quantity || 0);
     const toLocationId = Number(transferForm.toLocationId || 0);
+    const nextErrors: TransferFormErrors = {};
     if (!toLocationId) {
-      setTransferMsg('请选择目标库位');
+      nextErrors.toLocationId = '请选择目标库位';
+      setTransferErrors(nextErrors);
+      setTransferMsg(nextErrors.toLocationId);
       return;
     }
     if (toLocationId === Number(transferBalance.locationId)) {
-      setTransferMsg('目标库位不能和当前库位相同');
+      nextErrors.toLocationId = '目标库位不能和当前库位相同';
+      setTransferErrors(nextErrors);
+      setTransferMsg(nextErrors.toLocationId);
       return;
     }
     if (quantity <= 0) {
-      setTransferMsg('调拨数量必须大于 0');
+      nextErrors.quantity = '调拨数量必须大于 0';
+      setTransferErrors(nextErrors);
+      setTransferMsg(nextErrors.quantity);
       return;
     }
     if (quantity > Number(transferBalance.quantity || 0)) {
-      setTransferMsg('调拨数量不能超过当前库存');
+      nextErrors.quantity = '调拨数量不能超过当前库存';
+      setTransferErrors(nextErrors);
+      setTransferMsg(nextErrors.quantity);
       return;
     }
 
+    setTransferErrors({});
     setTransferSaving(true);
     setTransferMsg('调拨处理中...');
     try {
@@ -384,6 +443,7 @@ const WarehouseWorkspace = () => {
       ]);
       setTransferBalance(null);
       setTransferForm({ toLocationId: 0, quantity: 0, note: '' });
+      setTransferErrors({});
     } catch (e: unknown) {
       setTransferMsg(resolveWarehouseErrorMessage(e, '调拨失败'));
     } finally {
@@ -424,7 +484,14 @@ const WarehouseWorkspace = () => {
             <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
           </button>
           {activeTab === 'overview' ? (
-            <button data-testid="warehouse-create-open" onClick={() => canWriteWarehouse ? setShowCreateWarehouse(true) : notify('warning', '当前角色只能查看仓储数据，不能新建仓库')}
+            <button data-testid="warehouse-create-open" onClick={() => {
+              if (!canWriteWarehouse) {
+                notify('warning', '当前角色只能查看仓储数据，不能新建仓库');
+                return;
+              }
+              setWarehouseCreateErrors({});
+              setShowCreateWarehouse(true);
+            }}
               disabled={!canWriteWarehouse}
               className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-orange-500/30 hover:shadow-xl active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">
               <Plus size={16} /> 新建仓库
@@ -488,7 +555,14 @@ const WarehouseWorkspace = () => {
           loading={loading}
           selectedWarehouse={selectedWarehouse}
           setSelectedWarehouse={setSelectedWarehouse}
-          openCreateLocation={() => canWriteWarehouse ? setShowCreateLocation(true) : notify('warning', '当前角色只能查看仓储数据，不能新建库位')}
+          openCreateLocation={() => {
+            if (!canWriteWarehouse) {
+              notify('warning', '当前角色只能查看仓储数据，不能新建库位');
+              return;
+            }
+            setLocationCreateErrors({});
+            setShowCreateLocation(true);
+          }}
           canWrite={canWriteWarehouse}
         />
       )}
@@ -546,6 +620,13 @@ const WarehouseWorkspace = () => {
           allLocations={allLocations}
           inboundForm={inboundForm}
           setInboundForm={setInboundForm}
+          inboundErrors={inboundErrors}
+          clearInboundError={(field) => setInboundErrors(prev => {
+            if (!prev[field]) return prev;
+            const next = { ...prev };
+            delete next[field];
+            return next;
+          })}
           inboundMsg={inboundMsg}
           inboundSaving={inboundSaving}
           handleInbound={handleInbound}
@@ -558,12 +639,18 @@ const WarehouseWorkspace = () => {
         setShowCreateWarehouse={setShowCreateWarehouse}
         newWarehouse={newWarehouse}
         setNewWarehouse={setNewWarehouse}
+        warehouseErrors={warehouseCreateErrors}
+        clearWarehouseError={field => setWarehouseCreateErrors(errors => ({ ...errors, [field]: undefined }))}
+        warehouseCreating={warehouseCreating}
         handleCreateWarehouse={handleCreateWarehouse}
         showCreateLocation={showCreateLocation}
         setShowCreateLocation={setShowCreateLocation}
         selectedWarehouse={selectedWarehouse}
         newLocation={newLocation}
         setNewLocation={setNewLocation}
+        locationErrors={locationCreateErrors}
+        clearLocationError={field => setLocationCreateErrors(errors => ({ ...errors, [field]: undefined }))}
+        locationCreating={locationCreating}
         handleCreateLocation={handleCreateLocation}
         canWrite={canWriteWarehouse}
       />
@@ -572,6 +659,13 @@ const WarehouseWorkspace = () => {
         allLocations={allLocations}
         transferForm={transferForm}
         setTransferForm={setTransferForm}
+        transferErrors={transferErrors}
+        clearTransferError={(field) => setTransferErrors(prev => {
+          if (!prev[field]) return prev;
+          const next = { ...prev };
+          delete next[field];
+          return next;
+        })}
         transferMsg={transferMsg}
         transferSaving={transferSaving}
         onClose={handleCloseTransfer}

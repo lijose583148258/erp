@@ -26,6 +26,8 @@ interface BatchTraceNode {
   status: string;
 }
 
+type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
+
 interface ProductionBatchAdjustmentSectionProps {
   batches: ProductBatch[];
   batchKeyword: string;
@@ -45,6 +47,9 @@ interface ProductionBatchAdjustmentSectionProps {
   adjustmentReason: string;
   adjustmentNote: string;
   setAdjustmentNote: (value: string) => void;
+  adjustmentSaving: boolean;
+  adjustmentFormErrors: AdjustmentFormErrors;
+  clearAdjustmentFormError: (field: keyof AdjustmentFormErrors) => void;
   handleCreateAdjustment: () => void;
   adjustments: AdjustmentRecord[];
   adjustmentStatus: AdjustmentStatusFilter;
@@ -71,6 +76,9 @@ export function ProductionBatchAdjustmentSection({
   adjustmentReason,
   adjustmentNote,
   setAdjustmentNote,
+  adjustmentSaving,
+  adjustmentFormErrors,
+  clearAdjustmentFormError,
   handleCreateAdjustment,
   adjustments,
   adjustmentStatus,
@@ -180,19 +188,44 @@ export function ProductionBatchAdjustmentSection({
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {TEMPLATES.map(template => (
-                    <button key={template.id} onClick={() => { setTemplateId(template.id); setAdjustmentReason(template.reason); }} className={`text-left p-4 rounded-[24px] border transition-all duration-300 ${templateId === template.id ? 'bg-blue-600 text-white border-blue-500 shadow-xl shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-200 dark:hover:border-blue-900'}`}>
+                    <button key={template.id} onClick={() => { setTemplateId(template.id); setAdjustmentReason(template.reason); clearAdjustmentFormError('reason'); }} className={`text-left p-4 rounded-[24px] border transition-all duration-300 ${templateId === template.id ? 'bg-blue-600 text-white border-blue-500 shadow-xl shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-200 dark:hover:border-blue-900'}`}>
                       <div className="text-[10px] font-black uppercase tracking-widest">{template.label}</div>
                       <div className="mt-2 text-[11px] opacity-75">{template.hint}</div>
                     </button>
                   ))}
                 </div>
+                {adjustmentFormErrors.batch ? (
+                  <div data-testid="production-adjustment-batch-error" className="rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+                    {adjustmentFormErrors.batch}
+                  </div>
+                ) : null}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Field dataTestId="production-adjustment-quantity-input" label="数量" value={adjustmentQuantity} onChange={setAdjustmentQuantity} placeholder="例如 12" />
+                  <Field
+                    dataTestId="production-adjustment-quantity-input"
+                    label="数量"
+                    value={adjustmentQuantity}
+                    onChange={value => {
+                      clearAdjustmentFormError('quantity');
+                      setAdjustmentQuantity(value);
+                    }}
+                    placeholder="例如 12"
+                    error={adjustmentFormErrors.quantity}
+                  />
                   <Field dataTestId="production-adjustment-direction-input" label="方向" value={selectedTemplate.sign > 0 ? '入库增加' : '库存减少'} onChange={() => undefined} placeholder="" readOnly />
                 </div>
-                <Field dataTestId="production-adjustment-reason-input" label="原因" value={adjustmentReason} onChange={setAdjustmentReason} placeholder="调账原因" />
+                <Field
+                  dataTestId="production-adjustment-reason-input"
+                  label="原因"
+                  value={adjustmentReason}
+                  onChange={value => {
+                    clearAdjustmentFormError('reason');
+                    setAdjustmentReason(value);
+                  }}
+                  placeholder="调账原因"
+                  error={adjustmentFormErrors.reason}
+                />
                 <TextareaField dataTestId="production-adjustment-note-input" label="备注" value={adjustmentNote} onChange={setAdjustmentNote} placeholder="可填损耗原因、工艺说明或盘点备注" />
-                <button data-testid="production-adjustment-submit" onClick={handleCreateAdjustment} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">提交批次异常调整</button>
+                <button data-testid="production-adjustment-submit" onClick={handleCreateAdjustment} disabled={adjustmentSaving} aria-busy={adjustmentSaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{adjustmentSaving ? '提交中...' : '提交批次异常调整'}</button>
               </div>
             </>
           ) : (

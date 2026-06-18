@@ -2,13 +2,15 @@ import { ArrowRightLeft, X } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import { useUnsavedForm } from '../../app/useUnsavedForm';
 import type { StockBalanceRecord } from '../../services/warehouse.service';
-import type { TransferFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
+import type { TransferFormErrors, TransferFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
 
 interface WarehouseTransferDialogProps {
   balance: StockBalanceRecord | null;
   allLocations: WarehouseLocationOption[];
   transferForm: TransferFormState;
   setTransferForm: Dispatch<SetStateAction<TransferFormState>>;
+  transferErrors: TransferFormErrors;
+  clearTransferError: (field: keyof TransferFormErrors) => void;
   transferMsg: string;
   transferSaving: boolean;
   onClose: () => void;
@@ -21,6 +23,8 @@ export function WarehouseTransferDialog({
   allLocations,
   transferForm,
   setTransferForm,
+  transferErrors,
+  clearTransferError,
   transferMsg,
   transferSaving,
   onClose,
@@ -40,6 +44,8 @@ export function WarehouseTransferDialog({
   const sourceLocationId = Number(balance.locationId);
   const availableQuantity = Number(balance.quantity || 0);
   const targetLocations = allLocations.filter(location => Number(location.id) !== sourceLocationId);
+  const destinationErrorId = 'warehouse-transfer-destination-error';
+  const quantityErrorId = 'warehouse-transfer-quantity-error';
   const handleClose = () => {
     if (!transferSaving) requestClose(onClose);
   };
@@ -120,8 +126,13 @@ export function WarehouseTransferDialog({
             <select
               data-testid="warehouse-transfer-destination-select"
               value={transferForm.toLocationId}
-              onChange={event => setTransferForm(form => ({ ...form, toLocationId: Number(event.target.value) }))}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              onChange={event => {
+                clearTransferError('toLocationId');
+                setTransferForm(form => ({ ...form, toLocationId: Number(event.target.value) }));
+              }}
+              aria-invalid={Boolean(transferErrors.toLocationId)}
+              aria-describedby={transferErrors.toLocationId ? destinationErrorId : undefined}
+              className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white ${transferErrors.toLocationId ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`}
             >
               <option value={0}>-- 选择目标库位 --</option>
               {targetLocations.map(location => (
@@ -130,6 +141,9 @@ export function WarehouseTransferDialog({
                 </option>
               ))}
             </select>
+            {transferErrors.toLocationId ? (
+              <p id={destinationErrorId} className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{transferErrors.toLocationId}</p>
+            ) : null}
           </div>
           <div>
             <label className="mb-2 block text-xs font-black uppercase tracking-wider text-slate-500">调拨数量 *</label>
@@ -140,9 +154,17 @@ export function WarehouseTransferDialog({
               max={availableQuantity}
               step={0.01}
               value={transferForm.quantity || ''}
-              onChange={event => setTransferForm(form => ({ ...form, quantity: Number(event.target.value) }))}
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+              onChange={event => {
+                clearTransferError('quantity');
+                setTransferForm(form => ({ ...form, quantity: Number(event.target.value) }));
+              }}
+              aria-invalid={Boolean(transferErrors.quantity)}
+              aria-describedby={transferErrors.quantity ? quantityErrorId : undefined}
+              className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white ${transferErrors.quantity ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`}
             />
+            {transferErrors.quantity ? (
+              <p id={quantityErrorId} className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{transferErrors.quantity}</p>
+            ) : null}
           </div>
           <div className="md:col-span-2">
             <label className="mb-2 block text-xs font-black uppercase tracking-wider text-slate-500">调拨备注</label>

@@ -117,6 +117,10 @@ textarea {
     @apply rounded-[var(--radius-control)] border border-[color:var(--app-border)] bg-[color:var(--app-surface-muted)] px-[var(--density-control-x)] py-[var(--density-control-y)] text-sm font-bold outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-800 dark:focus:ring-blue-900/40;
   }
 
+  .app-control[aria-invalid="true"] {
+    @apply border-rose-300 bg-rose-50/40 focus:border-rose-300 focus:ring-rose-100 dark:border-rose-900/60 dark:bg-rose-950/20 dark:focus:ring-rose-900/30;
+  }
+
   .app-chip {
     @apply inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-black uppercase tracking-[0.16em];
   }
@@ -175,10 +179,6 @@ textarea {
 }
 
 @media (hover: none), (pointer: coarse) {
-  [class*="group-hover:opacity-100"] {
-    opacity: 1 !important;
-  }
-
   .touch-actions-visible {
     opacity: 1 !important;
   }
@@ -188,6 +188,7 @@ textarea {
   .app-row-actions button,
   .app-row-actions [role="button"] {
     min-height: 44px;
+    min-width: 44px;
   }
 }
 

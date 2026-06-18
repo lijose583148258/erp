@@ -2,7 +2,7 @@ import React from 'react';
 import type { ProductBatch } from '../../services/asset.service';
 import type { AdjustmentRecord } from '../../services/adjustment.service';
 import type { ProductionWorkOrderStatus } from '../../services/production.service';
-import { getStatusBorderBadgeClassName } from '../../components/ui/StatusBadge';
+import { getStatusBorderBadgeClassName } from '../../components/ui/statusBadgeLogic';
 import { WO_LABELS } from './productionWorkspaceConfig';
 
 export const SectionHeader = ({ title, subtitle }: { title: string; subtitle: string }) => (
@@ -38,6 +38,7 @@ export const Field = ({
   type = 'text',
   readOnly = false,
   dataTestId,
+  error,
 }: {
   label: string;
   value: string;
@@ -46,20 +47,30 @@ export const Field = ({
   type?: string;
   readOnly?: boolean;
   dataTestId?: string;
-}) => (
-  <label className="block">
-    <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
-    <input
-      data-testid={dataTestId}
-      value={value}
-      readOnly={readOnly}
-      onChange={readOnly ? undefined : e => onChange(e.target.value)}
-      placeholder={placeholder}
-      type={type}
-      className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700"
-    />
-  </label>
-);
+  error?: string;
+}) => {
+  const errorId = dataTestId && error ? `${dataTestId}-error` : undefined;
+
+  return (
+    <label className="block">
+      <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
+      <input
+        data-testid={dataTestId}
+        value={value}
+        readOnly={readOnly}
+        onChange={readOnly ? undefined : e => onChange(e.target.value)}
+        placeholder={placeholder}
+        type={type}
+        aria-invalid={Boolean(error)}
+        aria-describedby={errorId}
+        className={`w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border ${
+          error ? 'border-rose-400 focus:ring-2 focus:ring-rose-100' : 'border-slate-100 dark:border-slate-700'
+        }`}
+      />
+      {error ? <span id={errorId} className="mt-2 block text-xs font-bold text-rose-600 dark:text-rose-300">{error}</span> : null}
+    </label>
+  );
+};
 
 export const SelectField = ({
   label,

@@ -27,6 +27,7 @@ type PurchaseOrderWorkspaceProps = {
   getSupplierLabel: (supplier?: Pick<Supplier, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'supplierDisplayName'> | null) => string;
   purchaseCostPreview: PurchaseCostPreview;
   canWrite: boolean;
+  isSubmitting: boolean;
 };
 
 export const PurchaseOrderWorkspace = ({
@@ -51,6 +52,7 @@ export const PurchaseOrderWorkspace = ({
   getSupplierLabel,
   purchaseCostPreview,
   canWrite,
+  isSubmitting,
 }: PurchaseOrderWorkspaceProps) => {
   const isReceiptMode = mode === 'receipts';
   const [showAdvancedOrderFields, setShowAdvancedOrderFields] = React.useState(false);
@@ -242,7 +244,15 @@ export const PurchaseOrderWorkspace = ({
         ) : null}
       </div>
       <div className="border-t border-slate-100 bg-white/95 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-        <button data-testid="save-purchase-button" onClick={addOrder} disabled={!canWrite} className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.savePurchase}</button>
+        <button
+          data-testid="save-purchase-button"
+          onClick={addOrder}
+          disabled={!canWrite || isSubmitting}
+          aria-busy={isSubmitting}
+          className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isSubmitting ? (t.saving || '保存中...') : t.savePurchase}
+        </button>
       </div>
       </>
       )}

@@ -29,6 +29,7 @@ const baseInputClass =
     'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900';
 
 const rowsPerPage = 50;
+const hasLineError = (errors: string[], keyword: string) => errors.some(error => error.includes(keyword));
 
 const SalesOrderLineGrid: React.FC<Props> = ({
     t,
@@ -180,6 +181,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                         {visibleItems.map(({ item, index }) => {
                             const lineAmount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)) - Number(item.discount || 0) + Number(item.taxAmount || 0);
                             const currentLineErrors = lineErrors[index] || [];
+                            const errorId = `sales-order-line-${index}-errors`;
 
                             return (
                                 <tr key={`${index}-${item.productName}-${item.batchNo || ''}`} className={`border-b align-top last:border-b-0 ${currentLineErrors.length ? 'border-rose-200 bg-rose-50/60 dark:border-rose-900/50 dark:bg-rose-950/10' : 'border-slate-100 dark:border-slate-800'}`}>
@@ -191,10 +193,12 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             maxLength={120}
                                             placeholder={t.productName || '产品名称'}
                                             data-testid={`sales-order-line-${index}-product`}
-                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('商品名称')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            aria-invalid={hasLineError(currentLineErrors, '商品名称')}
+                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
+                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '商品名称') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                         {currentLineErrors.length > 0 && (
-                                            <div data-testid={`sales-order-line-${index}-errors`} className="mt-2 space-y-1 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[11px] font-bold text-rose-600 dark:border-rose-900/50 dark:bg-slate-950 dark:text-rose-200">
+                                            <div id={errorId} data-testid={`sales-order-line-${index}-errors`} className="mt-2 space-y-1 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[11px] font-bold text-rose-600 dark:border-rose-900/50 dark:bg-slate-950 dark:text-rose-200">
                                                 {currentLineErrors.map((error) => (
                                                     <div key={error}>第 {index + 1} 行：{error}</div>
                                                 ))}
@@ -253,7 +257,9 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.quantity}
                                             onChange={(event) => updateOrderItem(index, { quantity: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-quantity`}
-                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('数量')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            aria-invalid={hasLineError(currentLineErrors, '数量')}
+                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
+                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '数量') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -262,7 +268,9 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             onChange={(event) => updateOrderItem(index, { unit: event.target.value })}
                                             maxLength={20}
                                             data-testid={`sales-order-line-${index}-unit`}
-                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('单位')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            aria-invalid={hasLineError(currentLineErrors, '单位')}
+                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
+                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '单位') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -272,7 +280,9 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.unitPrice}
                                             onChange={(event) => updateOrderItem(index, { unitPrice: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-unit-price`}
-                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('单价')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            aria-invalid={hasLineError(currentLineErrors, '单价')}
+                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
+                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '单价') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -282,7 +292,9 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.discount}
                                             onChange={(event) => updateOrderItem(index, { discount: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-discount`}
-                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('折扣')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            aria-invalid={hasLineError(currentLineErrors, '折扣')}
+                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
+                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '折扣') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -292,7 +304,9 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             value={item.taxAmount}
                                             onChange={(event) => updateOrderItem(index, { taxAmount: Number(event.target.value) || 0 })}
                                             data-testid={`sales-order-line-${index}-tax`}
-                                            className={`${baseInputClass} ${currentLineErrors.some(error => error.includes('税额')) ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            aria-invalid={hasLineError(currentLineErrors, '税额')}
+                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
+                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '税额') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3 text-right">
