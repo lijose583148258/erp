@@ -2,12 +2,13 @@ import { useMemo } from 'react';
 import { BookOpen, ClipboardList, PackageCheck, UsersRound } from 'lucide-react';
 import { WorkspaceTaskNavigator, type WorkspaceTaskNavigatorItem } from '../../components/ui/WorkspaceTaskNavigator';
 import { getProcurementDeskCopy } from './procurementDeskCopy';
+import type { Language } from '../../types';
 
 export type ProcurementMainTab = 'suppliers' | 'orders';
 export type ProcurementDeskTab = ProcurementMainTab | 'receipts' | 'principle';
 
 type ProcurementDeskNavigatorProps = {
-  language: string;
+  language: Language;
   activeDesk: ProcurementDeskTab;
   supplierCount: number;
   orderCount: number;

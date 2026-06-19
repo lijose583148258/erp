@@ -1,17 +1,25 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CheckCircle, ClipboardList, Truck } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
-import { useUnsavedForm } from '../app/useUnsavedForm';
 import { can } from '../app/permissions';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
-import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
 import { PageShell } from '../components/ui';
 import { procurementService, PurchaseOrder, PurchaseReceiptBundle, Supplier } from '../services/procurement.service';
 import { orderService } from '../services/order.service';
 import { CustomerAddress, SalesOrder } from '../types';
-import { matchesScopedSearch, splitSearchTerms } from '../utils/scopedSearch';
 import { buildPurchaseOrderColumns, buildSupplierColumns } from './procurement/ProcurementColumns';
+import {
+  buildProcurementStats,
+  filterSuppliers,
+  findLinkedSalesOrder,
+  formatProcurementDateOnly,
+  getDisplayedPurchaseOrders,
+  getPurchaseOrderStatusLabel,
+  getReceiptReadyCount,
+  getSupplierDisplayName,
+} from './procurement/ProcurementDerived';
 import { ProcurementDeskNavigator, type ProcurementDeskTab } from './procurement/ProcurementDeskNavigator';
+import { ProcurementInputGuide } from './procurement/ProcurementInputGuide';
 import { ProcurementStats } from './procurement/ProcurementStats';
 import { PurchaseOrderWorkspace } from './procurement/PurchaseOrderWorkspace';
 import { PurchaseReceiptDrawer } from './procurement/PurchaseReceiptDrawer';
@@ -30,6 +38,7 @@ import {
   validateSupplierForm,
   type ProcurementFormErrors,
 } from './procurement/procurementForms';
+import { useProcurementUnsavedFormGuards } from './procurement/useProcurementUnsavedFormGuards';
 
 const Procurement = () => {
   const { t, notify, language, currentUser } = useAppContext();
@@ -59,19 +68,12 @@ const Procurement = () => {
   const [orderSaveVersion, setOrderSaveVersion] = useState(0);
   const localWriteVersionRef = useRef(0);
 
-  useUnsavedForm({
-    sourceId: 'procurement-supplier-form',
-    label: '供应商主数据',
-    open: true,
-    resetKey: supplierSaveVersion,
-    value: newSupplier,
-  });
-  useUnsavedForm({
-    sourceId: 'procurement-order-form',
-    label: '采购订单',
-    open: true,
-    resetKey: orderSaveVersion,
-    value: { ...newOrder, isB2B },
+  useProcurementUnsavedFormGuards({
+    supplierSaveVersion,
+    orderSaveVersion,
+    newSupplier,
+    newOrder,
+    isB2B,
   });
 
   const loadData = useCallback(async () => {
@@ -114,26 +116,17 @@ const Procurement = () => {
     };
   }, [b2bLinks, isB2B, newOrder.salesOrderRef]);
 
-  const stats = useMemo(() => {
-    const avgLead = suppliers.length
-      ? Math.round(suppliers.reduce((sum, supplier) => sum + supplier.leadTimeDays, 0) / suppliers.length)
-      : 0;
-    const risky = suppliers.filter(supplier => supplier.riskLevel === 'high').length;
-    const activeOrders = orders.filter(order => order.status !== 'received').length;
-    return { avgLead, risky, activeOrders };
-  }, [orders, suppliers]);
+  const stats = useMemo(() => buildProcurementStats(suppliers, orders), [orders, suppliers]);
 
   const purchaseCostPreview = useMemo(() => calculatePurchaseCostPreview(newOrder), [newOrder]);
 
   const receiptReadyCount = useMemo(
-    () => orders.filter(order => ['approved', 'in_transit', 'received'].includes(order.status)).length,
+    () => getReceiptReadyCount(orders),
     [orders],
   );
 
   const displayedPurchaseOrders = useMemo(
-    () => activeDesk === 'receipts'
-      ? orders.filter(order => ['approved', 'in_transit', 'received'].includes(order.status))
-      : orders,
+    () => getDisplayedPurchaseOrders(orders, activeDesk),
     [activeDesk, orders],
   );
 
@@ -168,79 +161,17 @@ const Procurement = () => {
     });
   }, []);
 
-  const filteredSuppliers = useMemo(() => {
-    const terms = splitSearchTerms(supplierSearch);
-    if (terms.length === 0) return suppliers;
-
-    return suppliers.filter((supplier) => {
-      return matchesScopedSearch([
-        supplier.id,
-        supplier.name,
-        supplier.nameZh,
-        supplier.nameEn,
-        supplier.nameVi,
-        supplier.supplierDisplayName,
-        ...(supplier.nameAliases || []),
-        supplier.category,
-        supplier.contact,
-        ...(supplier.contacts || []).flatMap((contact) => [
-          contact.name,
-          contact.role,
-          contact.position,
-          contact.phone,
-          contact.email,
-          contact.mobile,
-          contact.department,
-          contact.whatsapp,
-          contact.wechat,
-        ]),
-        ...(supplier.addresses || []).flatMap((address) => [
-          address.label,
-          address.fullAddress,
-          address.city,
-          address.region,
-          address.countryCode,
-          address.registeredName,
-          address.registrationNo,
-          address.taxNo,
-        ]),
-      ], supplierSearch);
-    });
-  }, [supplierSearch, suppliers]);
+  const filteredSuppliers = useMemo(() => filterSuppliers(suppliers, supplierSearch), [supplierSearch, suppliers]);
 
   const getSupplierLabel = useCallback((supplier?: Pick<Supplier, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'supplierDisplayName'> | null) => {
-    if (!supplier) return '';
-    if (language === 'en') {
-      return supplier.nameEn || supplier.name || supplier.nameZh || supplier.nameVi || supplier.supplierDisplayName || '';
-    }
-    if (language === 'vi') {
-      return supplier.nameVi || supplier.nameEn || supplier.nameZh || supplier.name || supplier.supplierDisplayName || '';
-    }
-    return supplier.nameZh || supplier.name || supplier.nameEn || supplier.nameVi || supplier.supplierDisplayName || '';
+    return getSupplierDisplayName(supplier, language);
   }, [language]);
 
   const getOrderStatusLabel = useCallback((status: PurchaseOrder['status']) => {
-    switch (status) {
-      case 'pending':
-        return t.pending;
-      case 'approved':
-        return t.approved;
-      case 'in_transit':
-        return t.activeTransit || t.transit || status;
-      case 'received':
-        return language === 'en' ? 'Received' : language === 'vi' ? 'Đã nhận hàng' : '已收货';
-      case 'cancelled':
-        return t.contractCancelled || status;
-      default:
-        return status;
-    }
+    return getPurchaseOrderStatusLabel(status, language, t);
   }, [language, t]);
 
-  const formatDateOnly = useCallback((value?: string) => {
-    if (!value) return '-';
-    const [datePart] = String(value).split('T');
-    return datePart || value;
-  }, []);
+  const formatDateOnly = useCallback(formatProcurementDateOnly, []);
 
   const supplierColumns = useMemo(
     () => buildSupplierColumns({ t, getSupplierLabel }),
@@ -450,7 +381,7 @@ const Procurement = () => {
       return;
     }
     const linkedSalesOrder = isB2B && newOrder.salesOrderRef
-      ? salesOrders.find(so => so.id === newOrder.salesOrderRef || (so as any).orderNo === newOrder.salesOrderRef)
+      ? findLinkedSalesOrder(salesOrders, newOrder.salesOrderRef)
       : null;
 
     try {
@@ -523,24 +454,7 @@ const Procurement = () => {
       title={getModuleTitle('procurement', language)}
       subtitle={getModuleDescription('procurement', language)}
     >
-      <DocumentInputGuide
-        testId="procurement-input-guide"
-        eyebrow="采购 / 供应商 / 收货路线"
-        title="供应商、采购单、收货动作必须分清"
-        description="采购页不能把供应商建档、采购开单、分批收货、入库、差异处理混成一个大表。成熟进销存习惯是先维护供应商，再开采购单和明细行，到货后按批次收货并回写库存；短收、拒收、质检差异再进入差异/RMA链。"
-        tone="amber"
-        steps={[
-          { title: '供应商主数据', description: '维护供应商多名称、多地址、多联系人和账期，不在这里做收货。', badge: '主数据' },
-          { title: '采购单', description: '录采购单头和物料明细，确认数量、单价、币种、交期。', badge: '开单' },
-          { title: '分批收货', description: '按到货批次收货，保存后必须回读采购单状态和库存入库。', badge: '执行' },
-          { title: '差异闭环', description: '短收、拒收、质量问题进入差异处理或RMA，不直接改采购单历史。', badge: '异常' },
-        ]}
-        boundaries={[
-          { title: '本区负责', items: ['供应商', '采购单', '采购明细', '分批收货', '入库关联'] },
-          { title: '转入其他区', items: ['库存调拨', '财务付款', '异常线索复核', 'RMA补偿'] },
-        ]}
-        evidence={['供应商能查到', '采购单能回读', '收货后库存变化', '差异能追踪']}
-      />
+      <ProcurementInputGuide />
 
       <ProcurementStats t={t} supplierCount={suppliers.length} stats={stats} />
 

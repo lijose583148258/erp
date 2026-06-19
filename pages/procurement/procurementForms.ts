@@ -120,12 +120,14 @@ export const roundMoney = (value: number) => Math.round(value * 100) / 100;
 export const mergePreservingLocalWrites = <T extends { id: string }>(localFirst: T[], serverList: T[]) => {
   const seen = new Set<string>();
   const merged: T[] = [];
+
   for (const item of [...localFirst, ...serverList]) {
     const key = String(item.id);
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(item);
   }
+
   return merged;
 };
 
@@ -160,10 +162,13 @@ export const validateSupplierForm = (form: NewSupplierForm): ProcurementFormErro
   if (form.contactEmail.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.contactEmail.trim())) {
     errors.contactEmail = '邮箱格式不正确';
   }
+
   const rating = Number(form.rating);
   if (!Number.isFinite(rating) || rating < 1 || rating > 5) errors.rating = '评级必须在 1 到 5 之间';
+
   const leadTimeDays = Number(form.leadTimeDays);
   if (!Number.isFinite(leadTimeDays) || leadTimeDays < 0) errors.leadTimeDays = '交期不能为负数';
+
   return errors;
 };
 
@@ -211,6 +216,7 @@ export const validatePurchaseReceiptForm = (
   if (!Number.isFinite(quantity) || quantity <= 0) errors.quantity = '本次数量必须大于 0';
   if (!Number.isFinite(acceptedQuantity) || acceptedQuantity < 0) errors.acceptedQuantity = '合格数量不能为负数';
   if (!Number.isFinite(rejectedQuantity) || rejectedQuantity < 0) errors.rejectedQuantity = '差异数量不能为负数';
+
   if (Number.isFinite(quantity) && Number.isFinite(acceptedQuantity) && Number.isFinite(rejectedQuantity)
     && Math.abs(quantity - acceptedQuantity - rejectedQuantity) > 0.000001) {
     errors.quantity = '本次数量必须等于合格数量与差异数量之和';
