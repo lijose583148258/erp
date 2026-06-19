@@ -12,14 +12,10 @@ export interface TableData {
 export const parseTableFile = async (file: File): Promise<TableData> => {
   const fileType = file.name.split('.').pop()?.toLowerCase();
 
-  if (fileType === 'csv') {
-    return parseCSV(file);
-  }
-  if (fileType === 'xlsx' || fileType === 'xls') {
-    return parseExcel(file);
-  }
+  if (fileType === 'csv') return parseCSV(file);
+  if (fileType === 'xlsx' || fileType === 'xls') return parseExcel(file);
 
-  throw new Error('不支持的文件格式，请上传 CSV 或 Excel 文件');
+  throw new Error('不支持的文件格式，请上传 CSV 或 Excel 文件。');
 };
 
 const parseCSV = async (file: File): Promise<TableData> => {
@@ -27,22 +23,13 @@ const parseCSV = async (file: File): Promise<TableData> => {
   const lines = text.split(/\r?\n/).filter((line) => line.trim());
 
   if (lines.length === 0) {
-    throw new Error('文件为空');
+    throw new Error('文件为空，未读取到表头或数据行。');
   }
 
   const headers = parseCSVLine(lines[0]);
   const rows = lines.slice(1).map((line) => parseCSVLine(line));
 
-  return {
-    headers,
-    rows,
-    metadata: {
-      fileName: file.name,
-      fileType: 'csv',
-      rowCount: rows.length,
-      columnCount: headers.length,
-    },
-  };
+  return buildTableData(headers, rows, file, 'csv');
 };
 
 const parseCSVLine = (line: string): string[] => {
@@ -78,29 +65,36 @@ const parseExcel = async (file: File): Promise<TableData> => {
   const firstSheetName = workbook.SheetNames[0];
 
   if (!firstSheetName) {
-    throw new Error('工作簿没有可读取的工作表');
+    throw new Error('工作簿没有可读取的工作表。');
   }
 
   const worksheet = workbook.Sheets[firstSheetName];
-  const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[][];
+  const rawRows = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as unknown[][];
 
-  if (jsonData.length === 0) {
-    throw new Error('工作表为空');
+  if (rawRows.length === 0) {
+    throw new Error('工作表为空，未读取到表头或数据行。');
   }
 
-  const headers = jsonData[0].map((header) => String(header || ''));
-  const rows = jsonData.slice(1).map((row) =>
-    row.map((cell) => (cell === undefined || cell === null ? '' : String(cell))),
+  const headers = rawRows[0].map((header) => String(header || '').trim());
+  const rows = rawRows.slice(1).map((row) =>
+    row.map((cell) => (cell === undefined || cell === null ? '' : String(cell).trim())),
   );
 
-  return {
-    headers,
-    rows,
-    metadata: {
-      fileName: file.name,
-      fileType: 'excel',
-      rowCount: rows.length,
-      columnCount: headers.length,
-    },
-  };
+  return buildTableData(headers, rows, file, 'excel');
 };
+
+const buildTableData = (
+  headers: string[],
+  rows: string[][],
+  file: File,
+  fileType: 'csv' | 'excel',
+): TableData => ({
+  headers,
+  rows,
+  metadata: {
+    fileName: file.name,
+    fileType,
+    rowCount: rows.length,
+    columnCount: headers.length,
+  },
+});

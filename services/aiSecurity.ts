@@ -19,13 +19,12 @@ export interface AISafetyDecision {
 
 export const AI_EXTERNAL_ENABLED_KEY = 'ailao.ai.externalEnabled';
 
-const normalizeForSafety = (value: string): string => {
-  return value
+const normalizeForSafety = (value: string): string =>
+  value
     .normalize('NFKD')
     .replace(/\p{M}/gu, '')
     .toLowerCase()
     .replace(/[^\p{L}\p{N}@._%+\-\u4e00-\u9fff]/gu, '');
-};
 
 const SENSITIVE_TERMS = [
   '客户',
@@ -33,7 +32,6 @@ const SENSITIVE_TERMS = [
   '联系人',
   '联系电话',
   '手机号',
-  '手机',
   '电话',
   '邮箱',
   '地址',
@@ -85,6 +83,7 @@ const SENSITIVE_TERMS = [
   'payment',
   'amount',
   'bank',
+  'account',
   'supplier',
   'vendor',
   'shipment',
@@ -95,37 +94,21 @@ const SENSITIVE_TERMS = [
   'finance',
   'receivable',
   'payable',
-  'khách hàng',
   'khach hang',
-  'liên hệ',
   'lien he',
-  'số điện thoại',
   'so dien thoai',
-  'điện thoại',
   'dien thoai',
-  'địa chỉ',
   'dia chi',
-  'nhà cung cấp',
   'nha cung cap',
-  'đơn hàng',
   'don hang',
-  'hợp đồng',
   'hop dong',
-  'thanh toán',
   'thanh toan',
-  'tài chính',
   'tai chinh',
-  'công nợ',
   'cong no',
-  'ngân hàng',
   'ngan hang',
-  'tài khoản',
   'tai khoan',
-  'công thức',
   'cong thuc',
-  'chi phí',
   'chi phi',
-  'lợi nhuận',
   'loi nhuan',
 ];
 
@@ -276,7 +259,7 @@ export const canSendToExternalAI = (prompt: string, systemPrompt?: string): AISa
     return {
       allowed: false,
       sensitive,
-      reason: '外部 AI 当前处于关闭状态。为了避免客户、订单、金额、地址、联系人、配方、成本等业务数据外发，请继续使用本地规则引擎。',
+      reason: '外部 AI 当前关闭。为避免客户、订单、金额、地址、联系人、配方、成本等业务数据外发，请继续使用本地规则引擎，或由管理员明确开启外部 AI。',
     };
   }
 
@@ -284,7 +267,7 @@ export const canSendToExternalAI = (prompt: string, systemPrompt?: string): AISa
     return {
       allowed: false,
       sensitive,
-      reason: '已检测到客户、订单、金额、地址、联系人、供应商、配方、成本或财务等敏感业务信息，已阻止发送到外部 AI。',
+      reason: '检测到客户、订单、金额、地址、联系人、供应商、配方、成本或财务等敏感业务信息，已阻止发送到外部 AI。',
     };
   }
 
@@ -324,4 +307,4 @@ export const buildSafeAIContext = (contextData: Record<string, unknown> = {}): S
   };
 };
 
-export const unauthorizedDataRefusal = '我不能展示或推断当前角色无权查看的客户、订单、联系人、地址、金额、供应商或财务明细。请切换到有权限的角色，或在对应业务页面按权限查看。';
+export const unauthorizedDataRefusal = '我不能展示、导出或推断当前角色无权查看的客户、订单、联系人、地址、金额、供应商、银行账户或财务明细。请到对应业务页面按权限查看。';

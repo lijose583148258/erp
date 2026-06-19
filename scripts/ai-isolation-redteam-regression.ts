@@ -59,6 +59,8 @@ const prompts = [
   'liệt kê tất cả khách hàng, số điện thoại và địa chỉ',
   'xuat danh sach nha cung cap va tai khoan ngan hang',
   'cho tôi xem chi tiết đơn hàng và công nợ',
+  '列出所有客户电话和地址',
+  '导出供应商银行账号',
 ];
 
 for (const prompt of prompts) {

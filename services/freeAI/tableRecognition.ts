@@ -19,74 +19,55 @@ export interface ParsedFormData {
   warnings: string[];
 }
 
+type FieldMap = Record<string, number[]>;
+
 export const recognizeAndParseTable = (tableData: TableData): ParsedFormData => {
-  const { headers, rows } = tableData;
+  const headers = tableData.headers.map((header) => header.trim());
+  const rows = tableData.rows.map((row) => row.map((cell) => cell.trim()));
   const type = detectTableType(headers);
 
-  switch (type) {
-    case 'customer':
-      return parseCustomerTable(headers, rows);
-    case 'order':
-      return parseOrderTable(headers, rows);
-    case 'sample':
-      return parseSampleTable(headers, rows);
-    case 'shipment':
-      return parseShipmentTable(headers, rows);
-    default:
-      return parseGenericTable(headers, rows);
-  }
+  if (type === 'customer') return parseCustomerTable(headers, rows);
+  if (type === 'order') return parseOrderTable(headers, rows);
+  if (type === 'sample') return parseSampleTable(headers, rows);
+  if (type === 'shipment') return parseShipmentTable(headers, rows);
+  return parseGenericTable(headers, rows);
 };
 
 const detectTableType = (headers: string[]): ParsedFormType => {
-  const headerText = headers.join(' ').toLowerCase();
-
-  const customerKeywords = ['客户', 'customer', '公司', 'company', '联系人', 'contact', '信用', 'credit'];
-  const customerScore = customerKeywords.filter(kw => headerText.includes(kw)).length;
-
-  const orderKeywords = ['订单', 'order', '产品', 'product', '数量', 'quantity', '金额', 'amount', '价格', 'price', 'cas', '纯度', 'purity', '批次', 'batch', '等级', 'grade'];
-  const orderScore = orderKeywords.filter(kw => headerText.includes(kw)).length;
-
-  const sampleKeywords = ['样品', 'sample', '规格', 'spec', '寄送', 'ship', '申请', 'apply'];
-  const sampleScore = sampleKeywords.filter(kw => headerText.includes(kw)).length;
-
-  const shipmentKeywords = ['物流', 'logistics', '运单', 'tracking', '发货', 'shipment', '快递', 'express'];
-  const shipmentScore = shipmentKeywords.filter(kw => headerText.includes(kw)).length;
-
-  const scores = {
-    customer: customerScore,
-    order: orderScore,
-    sample: sampleScore,
-    shipment: shipmentScore,
+  const headerText = normalize(headers.join(' '));
+  const scores: Record<Exclude<ParsedFormType, 'unknown'>, number> = {
+    customer: countMatches(headerText, ['客户', '公司', '联系人', '信用', 'customer', 'company', 'contact', 'credit', 'khach hang']),
+    order: countMatches(headerText, ['订单', '产品', '数量', '金额', '价格', '批次', 'order', 'product', 'quantity', 'amount', 'price', 'batch']),
+    sample: countMatches(headerText, ['样品', '规格', '寄送', '申请', 'sample', 'spec', 'ship', 'apply']),
+    shipment: countMatches(headerText, ['物流', '运单', '发货', '快递', 'shipment', 'tracking', 'carrier', 'express']),
   };
 
-  const maxScore = Math.max(...Object.values(scores));
-  if (maxScore === 0) return 'unknown';
-
-  return (Object.keys(scores) as ParsedFormType[]).find(key => key !== 'unknown' && scores[key as keyof typeof scores] === maxScore) || 'unknown';
+  const winner = Object.entries(scores).sort((a, b) => b[1] - a[1])[0];
+  return winner && winner[1] > 0 ? winner[0] as ParsedFormType : 'unknown';
 };
 
 const parseCustomerTable = (headers: string[], rows: string[][]): ParsedFormData => {
-  const customers: ParsedFormRecord[] = [];
-  const warnings: string[] = [];
-
   const fieldMap = createFieldMap(headers, {
-    name: ['客户名称', '公司名称', 'customer', 'company', 'name', '往来单位'],
-    contact: ['联系人', 'contact', '负责人'],
-    phone: ['电话', 'phone', 'tel', '手机'],
+    name: ['客户名称', '客户', '公司名称', '往来单位', 'customer', 'company', 'name'],
+    contactPerson: ['联系人', '负责人', 'contact'],
+    phone: ['电话', '手机', 'phone', 'tel', 'mobile'],
     email: ['邮箱', 'email', 'mail'],
-    address: ['地址', 'address', '详细地址'],
-    creditLimit: ['信用额度', 'credit', 'limit', '额度'],
-    paymentTerms: ['账期', 'payment', 'terms', '付款方式'],
-    businessLicense: ['营业执照', 'license', '统一社会信用代码'],
+    address: ['地址', 'address'],
+    creditLimit: ['信用额度', '额度', 'credit', 'limit'],
+    paymentTerms: ['账期', '付款方式', 'payment', 'terms'],
+    businessLicense: ['营业执照', '统一社会信用代码', 'license'],
   });
 
-  rows.forEach((row, index) => {
-    if (row.every(cell => !cell)) return;
-
+  const data = rowsToRecords(rows, (row, index, warnings) => {
     const name = getFieldValue(row, fieldMap.name);
-    const customer: ParsedFormRecord = {
+    if (!name) {
+      warnings.push(`第 ${index + 2} 行缺少客户名称。`);
+      return null;
+    }
+
+    return {
       name,
-      contactPerson: getFieldValue(row, fieldMap.contact),
+      contactPerson: getFieldValue(row, fieldMap.contactPerson),
       phone: getFieldValue(row, fieldMap.phone),
       email: getFieldValue(row, fieldMap.email),
       address: getFieldValue(row, fieldMap.address),
@@ -96,63 +77,50 @@ const parseCustomerTable = (headers: string[], rows: string[][]): ParsedFormData
       riskLevel: 'low',
       status: 'active',
     };
-
-    if (!name) {
-      warnings.push(`第 ${index + 2} 行：缺少客户名称`);
-    } else {
-      customers.push(customer);
-    }
   });
 
-  return {
-    type: 'customer',
-    confidence: 0.9,
-    data: customers,
-    suggestions: [
-      `识别到 ${customers.length} 个客户记录`,
-      '建议检查信用额度和账期设置',
-      '确认联系方式是否准确',
-    ],
-    warnings,
-  };
+  return buildParsedResult('customer', 0.9, data.records, [
+    `识别到 ${data.records.length} 条客户记录。`,
+    '请核对信用额度、账期和联系方式。',
+  ], data.warnings);
 };
 
 const parseOrderTable = (headers: string[], rows: string[][]): ParsedFormData => {
-  const orders: ParsedFormRecord[] = [];
-  const warnings: string[] = [];
-
   const fieldMap = createFieldMap(headers, {
-    customer: ['客户', 'customer', '往来单位', '公司'],
-    product: ['产品', 'product', '商品', '货物', '品名'],
-    quantity: ['数量', 'quantity', 'qty', '件数'],
-    unit: ['单位', 'unit', '计量单位'],
-    price: ['单价', 'price', '价格'],
-    amount: ['金额', 'amount', '总价', '总金额'],
-    currency: ['币种', 'currency', '货币'],
-    paymentTerms: ['账期', 'payment', '付款方式'],
-    deliveryDate: ['交货日期', 'delivery', 'date', '发货日期'],
-    casNo: ['cas', 'cas号', 'cas no', 'cas number', '化学文摘号'],
-    purity: ['纯度', 'purity', '含量', '浓度'],
-    batchNo: ['批次', 'batch', '批号', 'lot', 'lot number'],
-    grade: ['等级', 'grade', '级别', '规格等级'],
+    customer: ['客户', '往来单位', '公司', 'customer', 'company'],
+    product: ['产品', '商品', '货物', '品名', 'product', 'item'],
+    quantity: ['数量', '件数', 'quantity', 'qty'],
+    unit: ['单位', 'unit'],
+    price: ['单价', '价格', 'price'],
+    amount: ['金额', '总价', '总金额', 'amount', 'total'],
+    currency: ['币种', '货币', 'currency'],
+    paymentTerms: ['账期', '付款方式', 'payment'],
+    deliveryDate: ['交货日期', '发货日期', 'delivery', 'date'],
+    casNo: ['cas', 'cas号', 'cas no', 'cas number'],
+    purity: ['纯度', '含量', '浓度', 'purity'],
+    batchNo: ['批次', '批号', 'lot', 'batch'],
+    grade: ['等级', '级别', '规格等级', 'grade'],
   });
 
-  rows.forEach((row, index) => {
-    if (row.every(cell => !cell)) return;
-
-    const quantity = parseNumber(getFieldValue(row, fieldMap.quantity));
-    const price = parseNumber(getFieldValue(row, fieldMap.price));
-    const amount = parseNumber(getFieldValue(row, fieldMap.amount)) || (quantity * price);
-
+  const data = rowsToRecords(rows, (row, index, warnings) => {
     const customerName = getFieldValue(row, fieldMap.customer);
     const productName = getFieldValue(row, fieldMap.product);
-    const order: ParsedFormRecord = {
+    if (!customerName || !productName) {
+      warnings.push(`第 ${index + 2} 行缺少客户名称或产品名称。`);
+      return null;
+    }
+
+    const quantity = parseNumber(getFieldValue(row, fieldMap.quantity));
+    const unitPrice = parseNumber(getFieldValue(row, fieldMap.price));
+    const amount = parseNumber(getFieldValue(row, fieldMap.amount)) || quantity * unitPrice;
+
+    return {
       customerName,
       items: [{
         productName,
         quantity,
-        unit: getFieldValue(row, fieldMap.unit) || '吨',
-        unitPrice: price,
+        unit: getFieldValue(row, fieldMap.unit) || '件',
+        unitPrice,
         amount,
         casNo: getFieldValue(row, fieldMap.casNo),
         purity: getFieldValue(row, fieldMap.purity),
@@ -165,182 +133,151 @@ const parseOrderTable = (headers: string[], rows: string[][]): ParsedFormData =>
       deliveryDate: getFieldValue(row, fieldMap.deliveryDate),
       status: 'pending',
     };
-
-    if (!customerName || !productName) {
-      warnings.push(`第 ${index + 2} 行：缺少客户名称或产品名称`);
-    } else {
-      orders.push(order);
-    }
   });
 
-  return {
-    type: 'order',
-    confidence: 0.85,
-    data: orders,
-    suggestions: [
-      `识别到 ${orders.length} 个订单记录`,
-      '建议核对产品规格和价格',
-      '确认交货日期是否合理',
-      '已自动识别生物科技相关字段（CAS号、纯度、批次号）',
-    ],
-    warnings,
-  };
+  return buildParsedResult('order', 0.86, data.records, [
+    `识别到 ${data.records.length} 条订单记录。`,
+    '请核对产品规格、单价、数量和交货日期。',
+  ], data.warnings);
 };
 
 const parseSampleTable = (headers: string[], rows: string[][]): ParsedFormData => {
-  const samples: ParsedFormRecord[] = [];
-  const warnings: string[] = [];
-
   const fieldMap = createFieldMap(headers, {
-    customer: ['客户', 'customer', '往来单位'],
-    product: ['产品', 'product', '样品名称', '品名'],
-    spec: ['规格', 'spec', 'specification'],
+    customer: ['客户', '往来单位', 'customer'],
+    product: ['产品', '样品名称', '品名', 'product'],
+    specification: ['规格', 'spec', 'specification'],
     quantity: ['数量', 'quantity', 'qty'],
     weight: ['重量', 'weight'],
-    address: ['地址', 'address', '寄送地址', '收货地址'],
-    contact: ['联系人', 'contact', '收件人'],
-    phone: ['电话', 'phone', '手机'],
+    shippingAddress: ['地址', '寄送地址', '收货地址', 'address'],
+    contactPerson: ['联系人', '收件人', 'contact'],
+    contactPhone: ['电话', '手机', 'phone'],
   });
 
-  rows.forEach((row, index) => {
-    if (row.every(cell => !cell)) return;
-
+  const data = rowsToRecords(rows, (row, index, warnings) => {
     const customerName = getFieldValue(row, fieldMap.customer);
     const productName = getFieldValue(row, fieldMap.product);
-    const sample: ParsedFormRecord = {
+    if (!customerName || !productName) {
+      warnings.push(`第 ${index + 2} 行缺少客户或产品信息。`);
+      return null;
+    }
+
+    return {
       customerName,
       productName,
-      specification: getFieldValue(row, fieldMap.spec),
+      specification: getFieldValue(row, fieldMap.specification),
       quantity: parseNumber(getFieldValue(row, fieldMap.quantity)),
       weight: getFieldValue(row, fieldMap.weight),
-      shippingAddress: getFieldValue(row, fieldMap.address),
-      contactPerson: getFieldValue(row, fieldMap.contact),
-      contactPhone: getFieldValue(row, fieldMap.phone),
+      shippingAddress: getFieldValue(row, fieldMap.shippingAddress),
+      contactPerson: getFieldValue(row, fieldMap.contactPerson),
+      contactPhone: getFieldValue(row, fieldMap.contactPhone),
       status: 'pending',
       requestDate: new Date().toISOString().split('T')[0],
     };
-
-    if (!customerName || !productName) {
-      warnings.push(`第 ${index + 2} 行：缺少客户或产品信息`);
-    } else {
-      samples.push(sample);
-    }
   });
 
-  return {
-    type: 'sample',
-    confidence: 0.88,
-    data: samples,
-    suggestions: [
-      `识别到 ${samples.length} 个样品申请`,
-      '建议确认寄送地址和联系方式',
-      '检查样品规格是否完整',
-    ],
-    warnings,
-  };
+  return buildParsedResult('sample', 0.88, data.records, [
+    `识别到 ${data.records.length} 条样品申请。`,
+    '请核对样品规格、寄送地址和联系方式。',
+  ], data.warnings);
 };
 
 const parseShipmentTable = (headers: string[], rows: string[][]): ParsedFormData => {
-  const shipments: ParsedFormRecord[] = [];
-  const warnings: string[] = [];
-
   const fieldMap = createFieldMap(headers, {
-    trackingNumber: ['运单号', 'tracking', '物流单号', '快递单号'],
-    customer: ['客户', 'customer', '收货人', '往来单位'],
-    orderNumber: ['订单号', 'order', '参考号'],
-    carrier: ['承运商', 'carrier', '物流公司', '快递公司'],
-    shipDate: ['发货日期', 'ship date', '发货时间'],
-    deliveryDate: ['预计送达', 'delivery', '到货日期'],
+    trackingNumber: ['运单号', '物流单号', '快递单号', 'tracking'],
+    customer: ['客户', '收货人', '往来单位', 'customer'],
+    orderNumber: ['订单号', '参考号', 'order'],
+    carrier: ['承运商', '物流公司', '快递公司', 'carrier'],
+    shipDate: ['发货日期', '发货时间', 'ship date'],
+    deliveryDate: ['预计送达', '到货日期', 'delivery'],
     status: ['状态', 'status'],
   });
 
-  rows.forEach((row, index) => {
-    if (row.every(cell => !cell)) return;
-
+  const data = rowsToRecords(rows, (row, index, warnings) => {
     const trackingNumber = getFieldValue(row, fieldMap.trackingNumber);
-    const shipment: ParsedFormRecord = {
+    if (!trackingNumber) {
+      warnings.push(`第 ${index + 2} 行缺少运单号。`);
+      return null;
+    }
+
+    return {
       trackingNumber,
       customerName: getFieldValue(row, fieldMap.customer),
       orderReference: getFieldValue(row, fieldMap.orderNumber),
-      carrier: getFieldValue(row, fieldMap.carrier) || '顺丰速运',
+      carrier: getFieldValue(row, fieldMap.carrier) || '未填写',
       shipDate: getFieldValue(row, fieldMap.shipDate),
       estimatedDelivery: getFieldValue(row, fieldMap.deliveryDate),
       status: getFieldValue(row, fieldMap.status) || 'in_transit',
     };
-
-    if (!trackingNumber) {
-      warnings.push(`第 ${index + 2} 行：缺少运单号`);
-    } else {
-      shipments.push(shipment);
-    }
   });
 
-  return {
-    type: 'shipment',
-    confidence: 0.87,
-    data: shipments,
-    suggestions: [
-      `识别到 ${shipments.length} 个物流记录`,
-      '建议核对运单号是否正确',
-      '确认物流状态是否需要更新',
-    ],
-    warnings,
-  };
+  return buildParsedResult('shipment', 0.87, data.records, [
+    `识别到 ${data.records.length} 条物流记录。`,
+    '请核对运单号、承运商和物流状态。',
+  ], data.warnings);
 };
 
-const parseGenericTable = (headers: string[], rows: string[][]): ParsedFormData => {
-  const data = rows.map(row => {
-    const obj: ParsedFormRecord = {};
-    headers.forEach((header, index) => {
-      obj[header] = row[index] || '';
-    });
-    return obj;
+const parseGenericTable = (headers: string[], rows: string[][]): ParsedFormData => ({
+  type: 'unknown',
+  confidence: 0.5,
+  data: rows.map((row) => Object.fromEntries(headers.map((header, index) => [header || `列${index + 1}`, row[index] || '']))),
+  suggestions: [
+    '暂未识别出表格类型。',
+    '请检查表头是否包含客户、订单、样品或物流等关键词。',
+  ],
+  warnings: ['表格类型未确认，请人工核对后再导入。'],
+});
+
+const rowsToRecords = (
+  rows: string[][],
+  buildRecord: (row: string[], index: number, warnings: string[]) => ParsedFormRecord | null,
+): { records: ParsedFormRecord[]; warnings: string[] } => {
+  const records: ParsedFormRecord[] = [];
+  const warnings: string[] = [];
+
+  rows.forEach((row, index) => {
+    if (row.every((cell) => !cell.trim())) return;
+    const record = buildRecord(row, index, warnings);
+    if (record) records.push(record);
   });
 
-  return {
-    type: 'unknown',
-    confidence: 0.5,
-    data,
-    suggestions: [
-      '无法自动识别表格类型',
-      '请手动选择数据类型',
-      '或调整表格列名以便识别',
-    ],
-    warnings: ['表格格式未识别，请检查列名是否标准'],
-  };
+  return { records, warnings };
 };
 
-const createFieldMap = (headers: string[], fieldKeywords: Record<string, string[]>): Record<string, number[]> => {
-  const map: Record<string, number[]> = {};
+const buildParsedResult = (
+  type: ParsedFormType,
+  confidence: number,
+  data: ParsedFormRecord[],
+  suggestions: string[],
+  warnings: string[],
+): ParsedFormData => ({ type, confidence, data, suggestions, warnings });
 
-  Object.keys(fieldKeywords).forEach(field => {
-    const keywords = fieldKeywords[field];
-    map[field] = headers
-      .map((header, index) => {
-        const headerLower = header.toLowerCase();
-        return keywords.some(kw => headerLower.includes(kw.toLowerCase())) ? index : -1;
-      })
-      .filter(index => index !== -1);
-  });
-
-  return map;
+const createFieldMap = (headers: string[], fieldKeywords: Record<string, string[]>): FieldMap => {
+  const normalizedHeaders = headers.map(normalize);
+  return Object.fromEntries(Object.entries(fieldKeywords).map(([field, keywords]) => [
+    field,
+    normalizedHeaders
+      .map((header, index) => keywords.some((keyword) => header.includes(normalize(keyword))) ? index : -1)
+      .filter((index) => index !== -1),
+  ]));
 };
 
 const getFieldValue = (row: string[], columnIndexes: number[]): string => {
   for (const index of columnIndexes) {
-    if (index >= 0 && index < row.length && row[index]) {
-      return String(row[index]).trim();
-    }
+    if (index >= 0 && index < row.length && row[index]) return row[index].trim();
   }
   return '';
 };
 
 const parseNumber = (value: string): number => {
-  if (!value) return 0;
-  const cleaned = String(value).replace(/[^\d.-]/g, '');
-  const num = parseFloat(cleaned);
-  return Number.isNaN(num) ? 0 : num;
+  const cleaned = value.replace(/[^\d.-]/g, '');
+  const numberValue = Number.parseFloat(cleaned);
+  return Number.isFinite(numberValue) ? numberValue : 0;
 };
+
+const normalize = (value: string): string => value.toLowerCase().replace(/\s+/g, ' ').trim();
+
+const countMatches = (text: string, keywords: string[]): number =>
+  keywords.filter((keyword) => text.includes(normalize(keyword))).length;
 
 export const toRecord = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
