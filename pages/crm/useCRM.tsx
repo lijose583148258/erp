@@ -9,29 +9,7 @@ import { getCustomerPoolState } from '../../utils/customerPool';
 import { normalizeCustomerAddresses } from '../../utils/customerAddressV2';
 import { buildCRMColumns } from './CRMColumns';
 import { formatImportedCustomers, type ImportedCustomerRow } from './useCRMImport';
-
-type CRMUrlState = {
-  viewMode: 'my' | 'public';
-  segmentFilter: 'all' | 'direct' | 'channel' | 'mixed';
-  searchKeyword: string;
-  currentPage: number;
-};
-
-const readCRMUrlState = (): CRMUrlState => {
-  const params = typeof window === 'undefined' ? new URLSearchParams() : new URLSearchParams(window.location.search);
-  const view = params.get('crmView');
-  const segment = params.get('crmSegment');
-  const page = Number(params.get('crmPage'));
-  return {
-    viewMode: view === 'public' ? 'public' as const : 'my' as const,
-    segmentFilter:
-      segment === 'direct' || segment === 'channel' || segment === 'mixed'
-        ? segment
-        : 'all' as const,
-    searchKeyword: params.get('crmSearch') || '',
-    currentPage: Number.isInteger(page) && page > 0 ? page : 1,
-  };
-};
+import { readCRMUrlState } from './crmUrlState';
 
 export function useCRM() {
   const { t, formatPrice, notify, currentUser, language, registerUnsavedChanges } = useAppContext();
