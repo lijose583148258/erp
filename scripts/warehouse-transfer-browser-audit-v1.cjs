@@ -6,6 +6,11 @@ const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'warehouse-transfer-browser-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const AUDIT_USER = {
+  username: process.env.WAREHOUSE_BROWSER_AUDIT_USER || 'audit_warehouse',
+  password: process.env.WAREHOUSE_BROWSER_AUDIT_PASSWORD || 'AuditWarehouse123!',
+  tempPassword: process.env.WAREHOUSE_BROWSER_AUDIT_TEMP_PASSWORD || 'AuditWarehouseTemp123!',
+};
 
 const DATA = {
   productName: `WH-XFER-UI-RESIN-${RUN_ID}`,
@@ -82,6 +87,59 @@ async function loginApi(username, password) {
   return data;
 }
 
+async function ensureWarehouseAuditUser() {
+  const existing = await apiFetch('/auth/login', {
+    method: 'POST',
+    data: { username: AUDIT_USER.username, password: AUDIT_USER.password },
+  });
+  const existingData = unwrapData(existing);
+  if (existing.ok && existingData?.token && existingData.user?.mustChangePassword === false) {
+    recordStep({ step: 'audit-warehouse-user-ready', result: 'passed', mode: 'existing' });
+    return existingData;
+  }
+
+  const admin = await loginApi('admin', 'admin123');
+  const register = await apiFetch('/auth/register', {
+    method: 'POST',
+    data: {
+      username: AUDIT_USER.username,
+      password: AUDIT_USER.tempPassword,
+      email: `${AUDIT_USER.username}@local.test`,
+      role: 'warehouse',
+      segment: 'mixed',
+    },
+  }, admin.token);
+  if (![201, 400].includes(register.status)) {
+    throw new Error(`audit warehouse user register failed: ${register.status} ${JSON.stringify(register.json)}`);
+  }
+
+  const tempLogin = await apiFetch('/auth/login', {
+    method: 'POST',
+    data: { username: AUDIT_USER.username, password: AUDIT_USER.tempPassword },
+  });
+  const tempData = unwrapData(tempLogin);
+  if (tempLogin.ok && tempData?.token) {
+    const change = await apiFetch('/auth/password', {
+      method: 'PUT',
+      data: { oldPassword: AUDIT_USER.tempPassword, newPassword: AUDIT_USER.password },
+    }, tempData.token);
+    if (!change.ok) {
+      throw new Error(`audit warehouse user password change failed: ${change.status} ${JSON.stringify(change.json)}`);
+    }
+  }
+
+  const ready = await expectOk('login ready audit warehouse user', apiFetch('/auth/login', {
+    method: 'POST',
+    data: { username: AUDIT_USER.username, password: AUDIT_USER.password },
+  }));
+  const readyData = unwrapData(ready);
+  if (!readyData?.token || readyData.user?.mustChangePassword) {
+    throw new Error('audit warehouse user is not ready after setup');
+  }
+  recordStep({ step: 'audit-warehouse-user-ready', result: 'passed', mode: register.status === 201 ? 'created' : 'reused' });
+  return readyData;
+}
+
 async function getDefaultLocations(token) {
   const response = await expectOk('list warehouses', apiFetch('/warehouses', {}, token));
   const warehouses = unwrapList(response);
@@ -109,8 +167,8 @@ function findBalance(rows, locationId) {
 async function loginBrowser(page) {
   await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 15000 });
   await page.locator('#login-username').waitFor({ state: 'visible', timeout: 15000 });
-  await page.locator('#login-username').fill('warehouse');
-  await page.locator('#login-password').fill('warehouse123');
+  await page.locator('#login-username').fill(AUDIT_USER.username);
+  await page.locator('#login-password').fill(AUDIT_USER.password);
   await page.locator('button[type="submit"]').click();
   await page.waitForFunction(() => {
     return window.localStorage.getItem('token') && !document.querySelector('#login-username');
@@ -152,8 +210,7 @@ function answerNextDialog(page, accept) {
 async function run() {
   let browser = null;
   try {
-    const warehouseUser = await loginApi('warehouse', 'warehouse123');
-    recordStep({ step: 'api-login-warehouse', result: 'passed' });
+    const warehouseUser = await ensureWarehouseAuditUser();
 
     const { raw, wip } = await getDefaultLocations(warehouseUser.token);
     report.locations = { raw: raw.id, wip: wip.id };

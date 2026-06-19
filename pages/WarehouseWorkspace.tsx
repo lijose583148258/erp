@@ -1,8 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import {
-  Warehouse, MapPin, Package, Plus, RefreshCw,
-  Building2, BarChart3
-} from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { useUnsavedForm } from '../app/useUnsavedForm';
 import { can } from '../app/permissions';
@@ -16,11 +12,18 @@ import { WarehouseInventoryPanel } from './warehouse/WarehouseInventoryPanel';
 import { WarehouseLedgerPanel } from './warehouse/WarehouseLedgerPanel';
 import { WarehouseOverviewPanel } from './warehouse/WarehouseOverviewPanel';
 import { WarehouseTransferDialog } from './warehouse/WarehouseTransferDialog';
+import { WarehouseWorkspaceHeader } from './warehouse/WarehouseWorkspaceHeader';
+import { WarehouseWorkspaceSummaryCards } from './warehouse/WarehouseWorkspaceSummaryCards';
 import {
   resolveWarehouseErrorMessage,
   warehouseInputGuideBoundaries,
   warehouseInputGuideSteps,
 } from './warehouse/warehouseWorkspaceContent';
+import {
+  filterWarehouseLocations,
+  flattenWarehouseLocations,
+  summarizeWarehouses,
+} from './warehouse/warehouseWorkspaceHelpers';
 import { buildWarehouseTabs } from './warehouse/warehouseWorkspaceNavigation';
 import {
   type InboundFormState,
@@ -35,7 +38,6 @@ import {
   type TransferFormState,
   type WarehouseCreateErrors,
   type WarehouseDraft,
-  type WarehouseLocationOption,
 } from './warehouse/warehouseWorkspaceTypes';
 
 /* ================================================================
@@ -335,21 +337,11 @@ const WarehouseWorkspace = () => {
   };
 
   // ── 汇总统计 ──
-  const totalItems = warehouses.reduce((sum, wh) => sum + (wh._summary?.totalItems || 0), 0);
-  const totalQuantity = warehouses.reduce((sum, wh) => sum + (wh._summary?.totalQuantity || 0), 0);
-  const totalLocations = warehouses.reduce((sum, wh) => sum + wh.locations.length, 0);
+  const { totalItems, totalQuantity, totalLocations } = summarizeWarehouses(warehouses);
 
   // ── 所有库位（扁平化） ──
-  const allLocations: WarehouseLocationOption[] = warehouses.flatMap(wh =>
-    wh.locations.map(loc => ({
-      ...loc,
-      warehouseName: wh.name,
-      warehouseCode: wh.code,
-    }))
-  );
-  const inventoryLocations = inventoryWarehouseId
-    ? allLocations.filter(loc => String(loc.warehouseId) === inventoryWarehouseId)
-    : allLocations;
+  const allLocations = flattenWarehouseLocations(warehouses);
+  const inventoryLocations = filterWarehouseLocations(allLocations, inventoryWarehouseId);
 
   const handleOpenTransfer = (balance: StockBalanceRecord) => {
     if (!canWriteWarehouse) {
@@ -467,59 +459,32 @@ const WarehouseWorkspace = () => {
       data-complex-input-action="warehouse transfer; manual inbound; audit sourceRef; negative-stock guard"
       data-complex-input-readback="刷新库存台账; 回读库存流水; sourceRef evidence"
     >
-      {/* 标题栏 */}
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <div className="w-14 h-14 bg-gradient-to-br from-amber-500 via-orange-500 to-rose-500 rounded-[22px] flex items-center justify-center shadow-xl shadow-orange-500/30">
-            <Warehouse size={28} className="text-white" />
-          </div>
-          <div>
-            <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">{getModuleTitle('warehouse', language)}</h1>
-            <p className="text-sm text-slate-400 font-bold mt-0.5">{getModuleDescription('warehouse', language)}</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3">
-          <button onClick={() => { loadWarehouses(); if (activeTab === 'inventory') queryInventory(); }}
-            className="p-3 bg-white/60 dark:bg-slate-800/60 backdrop-blur-xl rounded-2xl text-slate-500 hover:text-blue-600 active:scale-95 transition-all shadow-sm border border-white/40 dark:border-slate-700">
-            <RefreshCw size={18} className={loading ? 'animate-spin' : ''} />
-          </button>
-          {activeTab === 'overview' ? (
-            <button data-testid="warehouse-create-open" onClick={() => {
-              if (!canWriteWarehouse) {
-                notify('warning', '当前角色只能查看仓储数据，不能新建仓库');
-                return;
-              }
-              setWarehouseCreateErrors({});
-              setShowCreateWarehouse(true);
-            }}
-              disabled={!canWriteWarehouse}
-              className="flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-orange-500/30 hover:shadow-xl active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">
-              <Plus size={16} /> 新建仓库
-            </button>
-          ) : null}
-        </div>
-      </div>
+      <WarehouseWorkspaceHeader
+        title={getModuleTitle('warehouse', language)}
+        description={getModuleDescription('warehouse', language)}
+        loading={loading}
+        showCreate={activeTab === 'overview'}
+        canWrite={canWriteWarehouse}
+        onRefresh={() => {
+          void loadWarehouses();
+          if (activeTab === 'inventory') queryInventory();
+        }}
+        onCreate={() => {
+          if (!canWriteWarehouse) {
+            notify('warning', '当前角色只能查看仓储数据，不能新建仓库');
+            return;
+          }
+          setWarehouseCreateErrors({});
+          setShowCreateWarehouse(true);
+        }}
+      />
 
-      {/* 统计卡片 */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-        {[
-          { label: '仓库数量', value: warehouses.length, icon: Building2, color: 'from-amber-500 to-orange-500', accent: 'text-amber-600' },
-          { label: '库位总数', value: totalLocations, icon: MapPin, color: 'from-blue-500 to-indigo-500', accent: 'text-blue-600' },
-          { label: '库存品项', value: totalItems, icon: Package, color: 'from-emerald-500 to-teal-500', accent: 'text-emerald-600' },
-          { label: '库存总量', value: totalQuantity.toFixed(1) + ' kg', icon: BarChart3, color: 'from-violet-500 to-purple-500', accent: 'text-violet-600' },
-        ].map((card, idx) => (
-          <div key={idx} className="relative bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl rounded-[24px] p-6 shadow-sm border border-white/40 dark:border-slate-800 overflow-hidden group hover:shadow-lg transition-all">
-            <div className={`absolute -right-3 -top-3 w-16 h-16 bg-gradient-to-br ${card.color} rounded-[20px] opacity-10 group-hover:opacity-20 transition-opacity rotate-12`} />
-            <div className="flex items-center gap-3 mb-3">
-              <div className={`w-10 h-10 bg-gradient-to-br ${card.color} rounded-[14px] flex items-center justify-center shadow-lg`}>
-                <card.icon size={18} className="text-white" />
-              </div>
-              <span className="text-xs font-black text-slate-400 uppercase tracking-wider">{card.label}</span>
-            </div>
-            <p className={`text-2xl font-black ${card.accent} dark:text-white`}>{card.value}</p>
-          </div>
-        ))}
-      </div>
+      <WarehouseWorkspaceSummaryCards
+        warehouseCount={warehouses.length}
+        totalLocations={totalLocations}
+        totalItems={totalItems}
+        totalQuantity={totalQuantity}
+      />
 
       <DocumentInputGuide
         testId="warehouse-complex-input-guide"
