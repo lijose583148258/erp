@@ -10,6 +10,27 @@ $OutputDir = Join-Path (Split-Path -Parent $PSScriptRoot) 'output\audit'
 $ReportPath = Join-Path $OutputDir 'runtime-check-v1.json'
 $startedAt = (Get-Date).ToUniversalTime().ToString('o')
 
+function Invoke-WebRequestWithRetry {
+  param(
+    [string]$Url,
+    [int]$Attempts = 3,
+    [int]$DelayMs = 500
+  )
+
+  $lastError = $null
+  for ($attempt = 1; $attempt -le $Attempts; $attempt++) {
+    try {
+      return Invoke-WebRequest $Url -UseBasicParsing -TimeoutSec 5
+    } catch {
+      $lastError = $_
+      if ($attempt -lt $Attempts) {
+        Start-Sleep -Milliseconds $DelayMs
+      }
+    }
+  }
+  throw $lastError
+}
+
 function Check-Url {
   param(
     [string]$Name,
@@ -17,7 +38,7 @@ function Check-Url {
   )
 
   try {
-    $resp = Invoke-WebRequest $Url -UseBasicParsing -TimeoutSec 5
+    $resp = Invoke-WebRequestWithRetry -Url $Url
     [PSCustomObject]@{
       Name = $Name
       Url = $Url
@@ -43,7 +64,7 @@ function Check-DisabledUrl {
   )
 
   try {
-    $resp = Invoke-WebRequest $Url -UseBasicParsing -TimeoutSec 5
+    $resp = Invoke-WebRequestWithRetry -Url $Url
     [PSCustomObject]@{
       Name = $Name
       Url = $Url
@@ -75,7 +96,7 @@ $results.Add((Check-Url -Name 'icon' -Url "$BaseUrl/icon.svg"))
 $results.Add((Check-DisabledUrl -Name 'service-worker-disabled' -Url "$BaseUrl/sw.js"))
 
 try {
-  $homeResp = Invoke-WebRequest "$BaseUrl/" -UseBasicParsing -TimeoutSec 5
+  $homeResp = Invoke-WebRequestWithRetry -Url "$BaseUrl/"
   $matches = [regex]::Matches($homeResp.Content, '(?:src|href)="([^"]+\.(?:js|css))"')
   $assetPaths = @()
   foreach ($match in $matches) {
