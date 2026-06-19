@@ -23,14 +23,21 @@ function Assert-PathNotRoot {
 function Copy-Directory {
   param(
     [Parameter(Mandatory = $true)][string]$Source,
-    [Parameter(Mandatory = $true)][string]$Destination
+    [Parameter(Mandatory = $true)][string]$Destination,
+    [switch]$Mirror
   )
 
   if (-not (Test-Path -LiteralPath $Source)) {
     throw "Missing source directory: $Source"
   }
+  $destinationFull = [System.IO.Path]::GetFullPath($Destination)
+  $targetFull = [System.IO.Path]::GetFullPath($target)
+  if (-not $destinationFull.StartsWith($targetFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refuse to mirror/copy outside clean runtime package: $destinationFull"
+  }
   New-Item -ItemType Directory -Path $Destination -Force | Out-Null
-  $args = @($Source, $Destination, '/E', '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1')
+  $copyMode = if ($Mirror) { '/MIR' } else { '/E' }
+  $args = @($Source, $Destination, $copyMode, '/NFL', '/NDL', '/NJH', '/NJS', '/R:1', '/W:1')
   & robocopy @args | Out-Host
   if ($LASTEXITCODE -ge 8) {
     throw "robocopy failed from $Source to $Destination with exit code $LASTEXITCODE"
@@ -135,13 +142,13 @@ if ($inPlaceUpdate) {
 }
 New-Item -ItemType Directory -Path $target -Force | Out-Null
 
-Copy-Directory -Source (Join-Path $source 'dist') -Destination (Join-Path $target 'dist')
-Copy-Directory -Source (Join-Path $source 'backend\dist') -Destination (Join-Path $target 'backend\dist')
+Copy-Directory -Source (Join-Path $source 'dist') -Destination (Join-Path $target 'dist') -Mirror
+Copy-Directory -Source (Join-Path $source 'backend\dist') -Destination (Join-Path $target 'backend\dist') -Mirror
 $targetPrisma = Join-Path $target 'backend\prisma'
-Copy-Directory -Source (Join-Path $source 'backend\prisma') -Destination $targetPrisma
+Copy-Directory -Source (Join-Path $source 'backend\prisma') -Destination $targetPrisma -Mirror
 Remove-PackagedDatabaseFiles -Directory $targetPrisma
 Copy-Directory -Source (Join-Path $source 'backend\node_modules') -Destination (Join-Path $target 'backend\node_modules')
-Copy-Directory -Source (Join-Path $source 'scripts') -Destination (Join-Path $target 'scripts')
+Copy-Directory -Source (Join-Path $source 'scripts') -Destination (Join-Path $target 'scripts') -Mirror
 
 Copy-File -Source (Join-Path $source 'backend\package.json') -Destination (Join-Path $target 'backend\package.json')
 Copy-File -Source (Join-Path $source 'backend\package-lock.json') -Destination (Join-Path $target 'backend\package-lock.json')
