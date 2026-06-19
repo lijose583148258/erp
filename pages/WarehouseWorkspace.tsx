@@ -3,8 +3,6 @@ import { useAppContext } from '../app/AppContext';
 import { useUnsavedForm } from '../app/useUnsavedForm';
 import { can } from '../app/permissions';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
-import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
-import { WorkspaceTaskNavigator } from '../components/ui/WorkspaceTaskNavigator';
 import { warehouseService, Warehouse as WarehouseType, StockBalanceRecord, StockEntryRecord, normalizeWarehouseRecord } from '../services/warehouse.service';
 import { WarehouseCreateDialogs } from './warehouse/WarehouseCreateDialogs';
 import { WarehouseInboundPanel } from './warehouse/WarehouseInboundPanel';
@@ -12,19 +10,13 @@ import { WarehouseInventoryPanel } from './warehouse/WarehouseInventoryPanel';
 import { WarehouseLedgerPanel } from './warehouse/WarehouseLedgerPanel';
 import { WarehouseOverviewPanel } from './warehouse/WarehouseOverviewPanel';
 import { WarehouseTransferDialog } from './warehouse/WarehouseTransferDialog';
-import { WarehouseWorkspaceHeader } from './warehouse/WarehouseWorkspaceHeader';
-import { WarehouseWorkspaceSummaryCards } from './warehouse/WarehouseWorkspaceSummaryCards';
-import {
-  resolveWarehouseErrorMessage,
-  warehouseInputGuideBoundaries,
-  warehouseInputGuideSteps,
-} from './warehouse/warehouseWorkspaceContent';
+import { WarehouseWorkspaceTop } from './warehouse/WarehouseWorkspaceTop';
+import { resolveWarehouseErrorMessage } from './warehouse/warehouseWorkspaceContent';
 import {
   filterWarehouseLocations,
   flattenWarehouseLocations,
   summarizeWarehouses,
 } from './warehouse/warehouseWorkspaceHelpers';
-import { buildWarehouseTabs } from './warehouse/warehouseWorkspaceNavigation';
 import {
   type InboundFormState,
   type InboundFormErrors,
@@ -39,10 +31,6 @@ import {
   type WarehouseCreateErrors,
   type WarehouseDraft,
 } from './warehouse/warehouseWorkspaceTypes';
-
-/* ================================================================
-   仓储管理工作台
-   ================================================================ */
 
 const WarehouseWorkspace = () => {
   const { language, currentUser, notify } = useAppContext();
@@ -73,7 +61,6 @@ const WarehouseWorkspace = () => {
   const stockEntryRequestSeqRef = useRef(0);
   const hasLoadedLedgerRef = useRef(false);
 
-  // ── 入库表单 ──
   const [inboundForm, setInboundForm] = useState<InboundFormState>({
     locationId: 0,
     productName: '',
@@ -88,14 +75,12 @@ const WarehouseWorkspace = () => {
   const [inboundSaving, setInboundSaving] = useState(false);
   const [inboundErrors, setInboundErrors] = useState<InboundFormErrors>({});
 
-  // ── 库存调拨表单 ──
   const [transferBalance, setTransferBalance] = useState<StockBalanceRecord | null>(null);
   const [transferForm, setTransferForm] = useState<TransferFormState>({ toLocationId: 0, quantity: 0, note: '' });
   const [transferErrors, setTransferErrors] = useState<TransferFormErrors>({});
   const [transferMsg, setTransferMsg] = useState('');
   const [transferSaving, setTransferSaving] = useState(false);
 
-  // ── 新建仓库/库位表单 ──
   const [showCreateWarehouse, setShowCreateWarehouse] = useState(false);
   const [newWarehouse, setNewWarehouse] = useState<WarehouseDraft>({ code: '', name: '', type: 'physical' });
   const [warehouseCreateErrors, setWarehouseCreateErrors] = useState<WarehouseCreateErrors>({});
@@ -112,7 +97,6 @@ const WarehouseWorkspace = () => {
     value: inboundForm,
   });
 
-  // ── 数据加载 ──
   const loadWarehouses = useCallback(async () => {
     setLoading(true);
     try {
@@ -219,7 +203,6 @@ const WarehouseWorkspace = () => {
     }
   }, [activeTab, canViewLedger, loadStockEntries]);
 
-  // ── 操作 ──
   const handleCreateWarehouse = async () => {
     if (warehouseCreating) return;
     if (!canWriteWarehouse) {
@@ -336,12 +319,17 @@ const WarehouseWorkspace = () => {
     }
   };
 
-  // ── 汇总统计 ──
   const { totalItems, totalQuantity, totalLocations } = summarizeWarehouses(warehouses);
 
-  // ── 所有库位（扁平化） ──
   const allLocations = flattenWarehouseLocations(warehouses);
   const inventoryLocations = filterWarehouseLocations(allLocations, inventoryWarehouseId);
+  const tabCounts = {
+    warehouses: warehouses.length,
+    stockBalances: stockBalances.length,
+    stockTotal: stockMeta.total,
+    stockEntries: stockEntries.length,
+    locations: allLocations.length,
+  };
 
   const handleOpenTransfer = (balance: StockBalanceRecord) => {
     if (!canWriteWarehouse) {
@@ -443,14 +431,6 @@ const WarehouseWorkspace = () => {
     }
   };
 
-  const warehouseTabs = buildWarehouseTabs({
-    warehouses: warehouses.length,
-    stockBalances: stockBalances.length,
-    stockTotal: stockMeta.total,
-    stockEntries: stockEntries.length,
-    locations: allLocations.length,
-  }, canViewLedger);
-
   return (
     <div
       className="space-y-6"
@@ -459,17 +439,22 @@ const WarehouseWorkspace = () => {
       data-complex-input-action="warehouse transfer; manual inbound; audit sourceRef; negative-stock guard"
       data-complex-input-readback="刷新库存台账; 回读库存流水; sourceRef evidence"
     >
-      <WarehouseWorkspaceHeader
+      <WarehouseWorkspaceTop
         title={getModuleTitle('warehouse', language)}
         description={getModuleDescription('warehouse', language)}
         loading={loading}
-        showCreate={activeTab === 'overview'}
         canWrite={canWriteWarehouse}
+        activeTab={activeTab}
+        canViewLedger={canViewLedger}
+        counts={tabCounts}
+        totalItems={totalItems}
+        totalQuantity={totalQuantity}
+        totalLocations={totalLocations}
         onRefresh={() => {
           void loadWarehouses();
           if (activeTab === 'inventory') queryInventory();
         }}
-        onCreate={() => {
+        onCreateWarehouse={() => {
           if (!canWriteWarehouse) {
             notify('warning', '当前角色只能查看仓储数据，不能新建仓库');
             return;
@@ -477,43 +462,9 @@ const WarehouseWorkspace = () => {
           setWarehouseCreateErrors({});
           setShowCreateWarehouse(true);
         }}
+        onTabChange={setActiveTab}
       />
 
-      <WarehouseWorkspaceSummaryCards
-        warehouseCount={warehouses.length}
-        totalLocations={totalLocations}
-        totalItems={totalItems}
-        totalQuantity={totalQuantity}
-      />
-
-      <DocumentInputGuide
-        testId="warehouse-complex-input-guide"
-        tone="amber"
-        eyebrow="仓储复杂输入路径"
-        title="仓库 / 库位主档 + 库存台账 + 入库 / 调拨动作 + 回读证据"
-        description="先把仓库和库位主档维护清楚，再在库存台账确认余额；所有写库存的动作必须通过受控入口发起，保存后回到库存流水按来源单号、产品、批次、库位核对。"
-        steps={warehouseInputGuideSteps}
-        boundaries={warehouseInputGuideBoundaries}
-        evidence={['库存余额刷新', '库存流水 sourceRef', '调拨双边记录', '负库存拦截']}
-      />
-
-      {/* 职责导航 */}
-      <WorkspaceTaskNavigator
-        eyebrow="仓储职责导航"
-        title="先确定位置，再看余额，再追流水"
-        description="仓储页按成熟库存系统拆成“库位主数据 / 库存余额 / 库存流水 / 应急补录”。同一块区域不再同时承担建仓、查库存、调拨和补录。"
-        items={warehouseTabs}
-        activeId={activeTab}
-        onChange={(id) => {
-          if (id === 'overview' || id === 'inventory' || id === 'ledger' || id === 'inbound') {
-            setActiveTab(id);
-          }
-        }}
-        variant="amber"
-        columns="four"
-      />
-
-      {/* ═══════════════ 概览 ═══════════════ */}
       {activeTab === 'overview' && (
         <WarehouseOverviewPanel
           warehouses={warehouses}
@@ -532,7 +483,6 @@ const WarehouseWorkspace = () => {
         />
       )}
 
-      {/* ═══════════════ 库存台账 ═══════════════ */}
       {activeTab === 'inventory' && (
         <WarehouseInventoryPanel
           warehouses={warehouses}
@@ -556,7 +506,6 @@ const WarehouseWorkspace = () => {
         />
       )}
 
-      {/* ═══════════════ 库存流水 ═══════════════ */}
       {activeTab === 'ledger' && (
         <WarehouseLedgerPanel
           warehouses={warehouses}
@@ -579,7 +528,6 @@ const WarehouseWorkspace = () => {
         />
       )}
 
-      {/* ═══════════════ 应急补录 / 盘盈入库 ═══════════════ */}
       {activeTab === 'inbound' && (
         <WarehouseInboundPanel
           allLocations={allLocations}
