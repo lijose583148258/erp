@@ -246,7 +246,12 @@ async function main() {
       const statusButton = adminPage.locator(`[data-testid="team-member-status-${readback.member.id}"]`);
       await statusButton.waitFor({ state: 'visible', timeout: TIMEOUTS.page });
       await statusButton.click();
-      await adminPage.getByText('已停用', { exact: true }).last().waitFor({ state: 'visible', timeout: TIMEOUTS.save });
+      await adminPage.waitForFunction((testId) => {
+        const button = document.querySelector(`[data-testid="${testId}"]`);
+        return button?.textContent?.includes('启用');
+      }, `team-member-status-${readback.member.id}`, { timeout: TIMEOUTS.save });
+      const disabledReadback = await readMemberFromApi(adminPage);
+      expect(disabledReadback.member?.isActive === false, 'disabled member should be inactive after UI toggle', disabledReadback);
     });
 
     await employeePage.evaluate(() => {
