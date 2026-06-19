@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
-import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
-import { WorkspaceTaskNavigator } from '../components/ui/WorkspaceTaskNavigator';
 import { assetService, ProductBatch } from '../services/asset.service';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
 import { productionService, ProductionBom, ProductionSummary, ProductionWorkOrder, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
@@ -9,28 +7,31 @@ import { isCanceledApiError } from '../utils/api';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
-import { ProductionAdjustmentReverseDialog } from './production/ProductionAdjustmentReverseDialog';
-import { CompleteWorkOrderModal } from './production/CompleteWorkOrderModal';
-import { getEffectiveBomQuantityPerUnit, isEffectiveBomItemDraft } from './production/ProductionBomLineGrid';
+import { ProductionWorkspaceModals } from './production/ProductionWorkspaceModals';
 import {
   getJsonSummary,
   newStep,
-  PRODUCTION_DESK_TABS,
   type AdjustmentStatusFilter,
   type BatchStatusFilter,
   type ProductionDeskTab,
   type WorkOrderFilter,
 } from './production/productionWorkspaceConfig';
 import {
-  ProductionWorkspaceHeader,
-} from './production/ProductionWorkspaceHeader';
-import {
   useProductionAdjustmentForm,
   useProductionBomForm,
   useProductionQualityForm,
   useProductionWorkOrderForm,
 } from './production/useProductionWorkspaceForms';
-import { useUnsavedForm } from '../app/useUnsavedForm';
+import {
+  buildBatchTrace,
+  buildEffectiveBomItemsPayload,
+  buildProductionDeskItems,
+  buildProductionStats,
+  buildWorkOrderStepsPayload,
+  filterProductionBoms,
+} from './production/ProductionWorkspaceDerived';
+import { useProductionUnsavedFormGuards } from './production/useProductionUnsavedFormGuards';
+import { ProductionWorkspaceShellHeader } from './production/ProductionWorkspaceShellHeader';
 
 type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatchSize' | 'percentage' | 'items', string>>;
 type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
@@ -86,30 +87,6 @@ const ProductionWorkspaceV2 = () => {
   const { woProductName, setWoProductName, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
   const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
-  useUnsavedForm({
-    sourceId: 'production-bom-form',
-    label: '生产 BOM 配方',
-    open: true,
-    resetKey: bomSaveVersion,
-    value: {
-      bomProductName,
-      bomVersion,
-      bomType,
-      bomStatus,
-      bomFormulationMode,
-      bomOutputUnit,
-      bomStandardBatchSize,
-      bomBatchSizeUnit,
-      bomDensity,
-      bomSolidContent,
-      bomEffectiveFrom,
-      bomEffectiveTo,
-      bomProcessText,
-      bomQualitySpecText,
-      bomNotes,
-      bomItems,
-    },
-  });
   const selectedBom = useMemo(() => boms.find(item => item.id === selectedBomId) || null, [boms, selectedBomId]);
   const selectedWorkOrder = useMemo(() => workOrders.find(item => item.id === selectedWorkOrderId) || null, [workOrders, selectedWorkOrderId]);
   const completingWorkOrder = useMemo(
@@ -118,35 +95,16 @@ const ProductionWorkspaceV2 = () => {
   );
   const selectedBatch = useMemo(() => batches.find(item => item.id === selectedBatchId) || null, [batches, selectedBatchId]);
   const autoFilledWorkOrderProduct = selectedBom?.productName || selectedBatch?.productName || '';
-  useUnsavedForm({
-    sourceId: 'production-work-order-form',
-    label: '生产工单',
-    open: true,
-    resetKey: workOrderSaveVersion,
-    value: {
-      productName: woProductName === autoFilledWorkOrderProduct ? '' : woProductName,
-      woTargetQuantity,
-      woProducedQuantity,
-      woLossQuantity,
-      woPlannedStartAt,
-      woPlannedEndAt,
-      woNote,
-      woSteps,
-    },
-  });
-  useUnsavedForm({
-    sourceId: 'production-quality-form',
-    label: '生产质检记录',
-    open: true,
-    resetKey: qualitySaveVersion,
-    value: { qcResult, qcDefectRate, qcNote, qcCheckedBy },
-  });
-  useUnsavedForm({
-    sourceId: 'production-batch-adjustment-form',
-    label: '生产批次异常调整',
-    open: true,
-    resetKey: adjustmentSaveVersion,
-    value: { templateId, adjustmentQuantity, adjustmentReason, adjustmentNote },
+  useProductionUnsavedFormGuards({
+    bomForm,
+    workOrderForm,
+    qualityForm,
+    adjustmentForm,
+    bomSaveVersion,
+    workOrderSaveVersion,
+    qualitySaveVersion,
+    adjustmentSaveVersion,
+    autoFilledWorkOrderProduct,
   });
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
@@ -185,19 +143,8 @@ const ProductionWorkspaceV2 = () => {
   useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); }, [selectedBom, setWoProductName, woProductName]);
   useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductName(selectedBatch.productName); }, [selectedBatch, setWoProductName, woProductName]);
 
-  const displayedBoms = useMemo(() => {
-    const keyword = bomKeyword.trim().toLowerCase();
-    return keyword ? boms.filter(item => item.productName.toLowerCase().includes(keyword) || item.bomNo.toLowerCase().includes(keyword) || (item.version || '').toLowerCase().includes(keyword)) : boms;
-  }, [boms, bomKeyword]);
-
-  const stats = useMemo(() => ({
-    totalBoms: summary?.bomCount ?? boms.length,
-    totalWorkOrders: summary?.workOrderCount ?? workOrders.length,
-    activeWorkOrders: summary?.activeWorkOrders ?? workOrders.filter(item => ['planned', 'in_progress', 'qc_pending'].includes(item.status)).length,
-    qcPendingCount: summary?.qcPendingCount ?? workOrders.filter(item => item.status === 'qc_pending').length,
-    batchCount: summary?.batchCount ?? batches.length,
-    totalStock: batches.reduce((sum, batch) => sum + Number(batch.stockQuantity || 0), 0),
-  }), [summary, boms.length, batches, workOrders]);
+  const displayedBoms = useMemo(() => filterProductionBoms(boms, bomKeyword), [boms, bomKeyword]);
+  const stats = useMemo(() => buildProductionStats(summary, boms, workOrders, batches), [summary, boms, workOrders, batches]);
   const isInitialLoading = loading && !summary;
   const bomPercentageSummary = useMemo(
     () => bomItems.reduce((sum, item) => sum + Number(item.percentage || 0), 0),
@@ -220,26 +167,7 @@ const ProductionWorkspaceV2 = () => {
     [selectedBom],
   );
 
-  const batchTrace = useMemo(() => {
-    if (!selectedBatch) return [];
-    const productionDate = new Date(selectedBatch.productionDate);
-    const expiryDate = new Date(selectedBatch.expiryDate);
-    const events = [];
-    const linkedWo = workOrders.find(wo => wo.batchId === selectedBatch.id);
-    if (linkedWo) {
-      events.push({ label: '工单创建', time: new Date(linkedWo.createdAt), place: `工单 ${linkedWo.workOrderNo}`, status: '已创建' });
-      if (linkedWo.actualStartAt) events.push({ label: '开始生产', time: new Date(linkedWo.actualStartAt), place: '生产线', status: '已开始' });
-      for (const qc of (linkedWo.qualityChecks || [])) {
-        events.push({ label: `质检 ${qc.result === 'pass' ? '通过' : qc.result === 'fail' ? '不合格' : '待检'}`, time: new Date(qc.checkedAt || qc.createdAt), place: `质检 ${qc.checkNo}`, status: qc.result === 'pass' ? '已通过' : qc.result === 'fail' ? '不合格' : '待检' });
-      }
-      if (linkedWo.actualEndAt) events.push({ label: '生产完成', time: new Date(linkedWo.actualEndAt), place: '完工入库', status: '已完成' });
-    } else {
-      events.push({ label: '生产完成', time: productionDate, place: '生产线', status: '已记录' });
-    }
-    events.push({ label: '效期管控', time: expiryDate, place: '合规', status: selectedBatch.status === 'expired' ? '已过期' : '待到期' });
-    events.sort((a, b) => a.time.getTime() - b.time.getTime());
-    return events;
-  }, [selectedBatch, workOrders]);
+  const batchTrace = useMemo(() => buildBatchTrace(selectedBatch, workOrders), [selectedBatch, workOrders]);
 
   const handleCreateBom = async () => {
     if (bomSaving) return;
@@ -255,29 +183,7 @@ const ProductionWorkspaceV2 = () => {
       nextErrors.percentage = `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，请校正为 100%`;
     }
 
-    const items = bomItems
-      .filter(isEffectiveBomItemDraft)
-      .map(item => {
-        const safeMaterialName = item.materialName.trim() || item.materialCode.trim();
-        const dosageMode = item.dosageMode || null;
-        const percentageValue = item.percentage.trim() ? Number(item.percentage || 0) : null;
-        const normalizedQuantityPerUnit = getEffectiveBomQuantityPerUnit(item);
-        return {
-        materialName: safeMaterialName,
-        materialCode: item.materialCode.trim() || null,
-        ingredientRole: item.ingredientRole || null,
-        dosageMode,
-        percentage: percentageValue,
-        quantityPerUnit: normalizedQuantityPerUnit,
-        unit: item.unit.trim() || 'kg',
-        lossRate: Number(item.lossRate || 0),
-        allowedVarianceRate: item.allowedVarianceRate.trim() ? Number(item.allowedVarianceRate || 0) : null,
-        processStage: item.processStage.trim() || null,
-        substituteGroup: item.substituteGroup.trim() || null,
-        yieldContribution: item.yieldContribution.trim() ? Number(item.yieldContribution || 0) : null,
-        notes: item.notes.trim() || null,
-      };
-      });
+    const items = buildEffectiveBomItemsPayload(bomItems);
 
     if (!items.length) {
       nextErrors.items = '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码';
@@ -339,14 +245,7 @@ const ProductionWorkspaceV2 = () => {
       return;
     }
 
-    const steps = woSteps
-      .filter(step => step.title.trim())
-      .map((step, index) => ({
-        stepNo: index + 1,
-        title: step.title.trim(),
-        operatorName: step.operatorName.trim() || null,
-        note: step.note.trim() || null,
-      }));
+    const steps = buildWorkOrderStepsPayload(woSteps);
     const resolvedProductName = woProductName.trim();
     const resolvedBom = boms.find(item => item.productName === resolvedProductName) || selectedBom;
     const resolvedBatch = selectedBatch?.productName === resolvedProductName ? selectedBatch : null;
@@ -526,35 +425,20 @@ const ProductionWorkspaceV2 = () => {
 
   const selectedChecks = selectedWorkOrder?.qualityChecks || [];
   const productionDeskItems = useMemo(
-    () => PRODUCTION_DESK_TABS.map(tab => ({
-      ...tab,
-      count: tab.id === 'bom' ? boms.length : tab.id === 'workOrders' ? workOrders.length : batches.length,
-    })),
+    () => buildProductionDeskItems(boms.length, workOrders.length, batches.length),
     [batches.length, boms.length, workOrders.length],
   );
 
   return (
     <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
-      <ProductionWorkspaceHeader
-        title={getModuleTitle('production', language)}
-        description={getModuleDescription('production', language)}
+      <ProductionWorkspaceShellHeader
+        language={language}
         stats={stats}
         isInitialLoading={isInitialLoading}
         onRefresh={() => void loadData()}
-      />
-
-      <WorkspaceTaskNavigator
-        eyebrow="生产职责导航"
-        title="先选工作区，再输入数据"
-        description="按成熟 ERP 的“对象库 / 执行动作 / 台账回放”拆开：BOM 只管配方，工单只管执行，批次区只做追溯和异常登记，避免同一页面同时承担建档、排产、调账和入库。"
         items={productionDeskItems}
-        activeId={activeDeskTab}
-        onChange={(id) => {
-          if (id === 'bom' || id === 'workOrders' || id === 'batches') {
-            setActiveDeskTab(id);
-          }
-        }}
-        variant="blue"
+        activeTab={activeDeskTab}
+        onTabChange={setActiveDeskTab}
       />
 
       <div className="space-y-8">
@@ -693,23 +577,18 @@ const ProductionWorkspaceV2 = () => {
           />
         ) : null}
       </div>
-      {showCompleteModal && completingWorkOrder ? (
-        <CompleteWorkOrderModal
-          workOrderId={completingWorkOrder.id}
-          productName={completingWorkOrder.productName}
-          targetQuantity={Number(completingWorkOrder.targetQuantity || 0)}
-          onClose={() => {
-            setShowCompleteModal(false);
-            setCompletingWorkOrderId(null);
-          }}
-          onConfirm={handleCompleteWorkOrder}
-        />
-      ) : null}
-      <ProductionAdjustmentReverseDialog
-        record={reverseAdjustment}
-        loading={reverseSubmitting}
-        onCancel={() => setReverseAdjustment(null)}
-        onConfirm={confirmReverseAdjustment}
+      <ProductionWorkspaceModals
+        showCompleteModal={showCompleteModal}
+        completingWorkOrder={completingWorkOrder}
+        reverseAdjustment={reverseAdjustment}
+        reverseSubmitting={reverseSubmitting}
+        onCloseComplete={() => {
+          setShowCompleteModal(false);
+          setCompletingWorkOrderId(null);
+        }}
+        onConfirmComplete={handleCompleteWorkOrder}
+        onCancelReverse={() => setReverseAdjustment(null)}
+        onConfirmReverse={confirmReverseAdjustment}
       />
     </div>
   );
