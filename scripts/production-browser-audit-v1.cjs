@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   ensureDir,
   createStepRecorder,
@@ -73,10 +74,15 @@ async function apiFetch(page, endpoint, options = {}) {
 }
 
 async function seedAuthToken(page) {
-  const loginResponse = await page.request.post(`${APP_URL}api/auth/login`, { data: { username: 'admin', password: 'admin123', role: 'super_admin' } });
-  if (!loginResponse.ok()) throw new Error(`login api failed: ${loginResponse.status()}`);
-  const loginJson = await loginResponse.json();
-  authToken = loginJson?.data?.token;
+  const session = await loginUiAuditUser(page, APP_URL, {
+    storage: {
+      'ailao.activeTab': 'production',
+      'ailao.language': 'zh',
+      language: 'zh',
+      currency: 'CNY',
+    },
+  });
+  authToken = session.token;
   if (!authToken) throw new Error('login api returned empty token');
 }
 
@@ -431,10 +437,17 @@ async function createQualityCheck(page, recordStep, workOrderNo) {
   await withTimebox(page, recordStep, 'create-quality-check', STEP_TIMEOUT_MS.qc, async () => {
     const row = await waitForRowByText(page, workOrderNo, STEP_TIMEOUT_MS.readBack);
     await row.click();
-    await page.getByPlaceholder(S.defectRate).fill(TEST_DATA.qc.defectRate);
-    await page.getByPlaceholder(S.qcPerson).fill(TEST_DATA.qc.checkedBy);
-    await page.getByPlaceholder(S.qcNote).fill(TEST_DATA.qc.note);
-    await page.getByRole('button', { name: S.saveQc }).click();
+    const defectRate = page.getByTestId('production-quality-defect-rate');
+    await defectRate.scrollIntoViewIfNeeded();
+    await defectRate.fill(TEST_DATA.qc.defectRate);
+    await page.getByTestId('production-quality-checked-by').fill(TEST_DATA.qc.checkedBy);
+    const qualityNote = page.getByTestId('production-quality-note');
+    if (await qualityNote.count()) {
+      await qualityNote.fill(TEST_DATA.qc.note);
+    } else {
+      await page.getByPlaceholder(S.qcNote).fill(TEST_DATA.qc.note);
+    }
+    await page.getByTestId('production-quality-save').click();
   }, SHOT_DIR);
   await withTimebox(page, recordStep, 'verify-quality-check-api-readback', STEP_TIMEOUT_MS.readBack, async () => {
     const check = await waitForQualityCheck(page, workOrderNo, TEST_DATA.qc.note);

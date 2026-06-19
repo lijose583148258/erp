@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { connectOrLaunchBrowser } = require('./lib/browser-connect-or-launch.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
@@ -76,39 +77,18 @@ async function screenshot(page, name) {
 }
 
 async function loginByApi(page) {
-  return withTimebox('login-admin-api', TIMEOUTS.login, async () => {
-    const response = await page.request.post(`${APP_URL}api/auth/login`, {
-      data: {
-        username: 'admin',
-        password: 'admin123',
-        role: 'super_admin',
+  return withTimebox('login-audit-user-api', TIMEOUTS.login, async () => {
+    await loginUiAuditUser(page, APP_URL, {
+      storage: {
+        'ailao.language': 'zh',
+        language: 'zh',
+        currency: 'CNY',
+        'ailao.activeTab': 'dashboard',
+      },
+      defaultStorage: {
+        'ailao.theme': 'light',
       },
     });
-    if (!response.ok()) {
-      throw new Error(`admin login failed: ${response.status()}`);
-    }
-    const json = await response.json();
-    const token = json?.data?.token;
-    const user = json?.data?.user;
-    if (!token || !user) {
-      throw new Error('admin login returned empty token or user');
-    }
-
-    await page.addInitScript(({ savedToken, savedUser }) => {
-      window.localStorage.setItem('token', savedToken);
-      window.localStorage.setItem('user', JSON.stringify(savedUser));
-      window.localStorage.setItem('auth_token', savedToken);
-      window.localStorage.setItem('erp_auth_token', savedToken);
-      window.localStorage.setItem('currentUser', JSON.stringify(savedUser));
-      window.localStorage.setItem('erp_current_user', JSON.stringify(savedUser));
-      window.localStorage.setItem('ailao.language', 'zh');
-      window.localStorage.setItem('language', 'zh');
-      window.localStorage.setItem('currency', 'CNY');
-      window.localStorage.setItem('ailao.activeTab', 'dashboard');
-      if (!window.localStorage.getItem('ailao.theme')) {
-        window.localStorage.setItem('ailao.theme', 'light');
-      }
-    }, { savedToken: token, savedUser: user });
   });
 }
 

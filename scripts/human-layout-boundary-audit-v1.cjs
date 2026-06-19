@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { createBrowserHumanFlowAuditContext } = require('./lib/browser-human-flow-audit-utils.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -112,7 +113,19 @@ async function run() {
     });
 
     await contextHelpers.resetRuntimeCaches(page);
-    await contextHelpers.ensureRole(page, 'admin');
+    await contextHelpers.withTimeout('login-audit-user-api', TIMEOUTS.login, async () => {
+      await loginUiAuditUser(page, APP_URL, {
+        storage: {
+          'ailao.language': 'zh',
+          language: 'zh',
+          'ailao.theme': 'light',
+          currency: 'CNY',
+          'ailao.activeTab': 'dashboard',
+        },
+      });
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: TIMEOUTS.pageLoad });
+      await page.getByTestId('theme-toggle').waitFor({ state: 'visible', timeout: TIMEOUTS.login });
+    });
 
     await runCheck(page, checks, 'orders-payments-boundary', async () => {
       await contextHelpers.openHash(page, '#orders', 'orders', ['订单', 'Sales Order', '订单台账']);

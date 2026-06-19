@@ -303,7 +303,7 @@ export function ProductionWorkOrderSection({
                   placeholder="质检人"
                   error={qualityFormErrors.checkedBy}
                 />
-                <TextareaField label="" value={qcNote} onChange={setQcNote} placeholder="质检备注" />
+                <TextareaField dataTestId="production-quality-note" label="" value={qcNote} onChange={setQcNote} placeholder="质检备注" />
                 <div className="flex flex-wrap gap-3">
                   <button data-testid="production-quality-save" onClick={handleCreateQc} disabled={qualitySaving} aria-busy={qualitySaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{qualitySaving ? '保存中...' : '保存质检'}</button>
                   <button onClick={() => void handleWorkOrderStatus('qc_pending')} className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">标记待质检</button>
