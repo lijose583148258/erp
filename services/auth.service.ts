@@ -1,22 +1,26 @@
 import api from '../utils/api';
+import { clearAuthStorage, safeStorage } from '../utils/browserStorage';
 import { CurrentUser, UserRole } from '../types';
 
 export interface LoginResponse {
     success: boolean;
     data: {
         token: string;
-        user: {
-            id: number;
-            username: string;
-            email: string;
-            role: string;
-            segment?: string | null;
-            avatar?: string;
-            mustChangePassword?: boolean;
-            permissions?: string[];
-            dataScopes?: string[];
-        };
+        refreshToken?: string;
+        user: AuthUserPayload;
     };
+}
+
+export interface AuthUserPayload {
+    id: number | string;
+    username: string;
+    email?: string | null;
+    role: string;
+    segment?: string | null;
+    avatar?: string | null;
+    mustChangePassword?: boolean;
+    permissions?: string[];
+    dataScopes?: string[];
 }
 
 const resolveSegment = (role: UserRole, segment?: string | null, username?: string): CurrentUser['segment'] => {
@@ -33,29 +37,34 @@ const resolveSegment = (role: UserRole, segment?: string | null, username?: stri
     return 'direct';
 };
 
+const normalizeUser = (user: AuthUserPayload): CurrentUser => ({
+    id: String(user.id),
+    name: user.username,
+    role: user.role as UserRole,
+    segment: resolveSegment(user.role as UserRole, user.segment, user.username),
+    avatar: user.avatar || '',
+    mustChangePassword: Boolean(user.mustChangePassword),
+    permissions: Array.isArray(user.permissions) ? user.permissions : [],
+    dataScopes: Array.isArray(user.dataScopes) ? user.dataScopes : [],
+});
+
+const persistSession = (token: string, user: CurrentUser, refreshToken?: string) => {
+    safeStorage.setItem('token', token);
+    if (refreshToken) safeStorage.setItem('refreshToken', refreshToken);
+    safeStorage.setJson('user', user);
+};
+
 export const authService = {
     async login(username: string, password: string): Promise<CurrentUser> {
         if (!username || !password) {
             throw new Error('请输入用户名和密码');
         }
 
+        clearAuthStorage();
         const response = await api.post<any, LoginResponse>('/auth/login', { username, password });
-        const { token, user } = response.data;
-
-        localStorage.setItem('token', token);
-
-        const currentUser: CurrentUser = {
-            id: String(user.id),
-            name: user.username,
-            role: user.role as UserRole,
-            segment: resolveSegment(user.role as UserRole, user.segment, user.username),
-            avatar: user.avatar || '',
-            mustChangePassword: Boolean(user.mustChangePassword),
-            permissions: user.permissions || [],
-            dataScopes: user.dataScopes || [],
-        };
-
-        localStorage.setItem('user', JSON.stringify(currentUser));
+        const { token, refreshToken, user } = response.data;
+        const currentUser = normalizeUser(user);
+        persistSession(token, currentUser, refreshToken);
         return currentUser;
     },
 
@@ -67,29 +76,48 @@ export const authService = {
         return api.put('/auth/password', { oldPassword, newPassword });
     },
 
-    /**
-     * 退出登录
-     */
+    async me(): Promise<CurrentUser> {
+        const response = await api.get<any, { data: AuthUserPayload }>('/auth/me');
+        const currentUser = normalizeUser(response.data);
+        safeStorage.setJson('user', currentUser);
+        return currentUser;
+    },
+
+    async refresh(): Promise<boolean> {
+        const refreshToken = safeStorage.getItem('refreshToken');
+        if (!refreshToken) return false;
+        try {
+            const response = await api.post<any, { data: { token: string; refreshToken?: string } }>('/auth/refresh', { refreshToken });
+            safeStorage.setItem('token', response.data.token);
+            if (response.data.refreshToken) safeStorage.setItem('refreshToken', response.data.refreshToken);
+            return true;
+        } catch {
+            clearAuthStorage();
+            return false;
+        }
+    },
+
     logout() {
-        const token = localStorage.getItem('token');
+        const token = safeStorage.getItem('token');
+        const refreshToken = safeStorage.getItem('refreshToken');
         if (token) {
-            void api.post('/auth/logout', {}, {
+            void api.post('/auth/logout', { refreshToken }, {
                 headers: { Authorization: `Bearer ${token}` },
             }).catch(() => undefined);
         }
-        localStorage.removeItem('token');
-        localStorage.removeItem('user');
+        clearAuthStorage();
     },
 
-    /**
-     * 获取当前用户信息（从本地存储或 API）
-     */
     getCurrentUser(): CurrentUser | null {
-        const userStr = localStorage.getItem('user');
-        if (userStr) {
-            const user = JSON.parse(userStr) as CurrentUser;
-            return user;
+        const token = safeStorage.getItem('token');
+        if (!token) {
+            clearAuthStorage();
+            return null;
         }
-        return null;
+        return safeStorage.getJson<CurrentUser>('user');
+    },
+
+    hasToken(): boolean {
+        return Boolean(safeStorage.getItem('token'));
     },
 };

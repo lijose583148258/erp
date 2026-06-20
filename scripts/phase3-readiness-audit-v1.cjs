@@ -52,9 +52,15 @@ const ACTIVE_SOURCE_DIRS = [
 ];
 
 function parseArgs(argv) {
+  const originArg = argv.find(arg => arg.startsWith('--origin='));
+  const origin = originArg ? originArg.slice('--origin='.length).toLowerCase() : '';
+  if (origin && !['workspace', 'package'].includes(origin)) {
+    throw new Error(`Unsupported origin: ${origin}. Use workspace or package.`);
+  }
   return {
     withBrowser: argv.includes('--with-browser'),
     withReleaseCore: argv.includes('--with-release-core'),
+    origin,
   };
 }
 
@@ -66,7 +72,19 @@ function isTruthy(value) {
   return ['1', 'true', 'yes', 'on'].includes(String(value || '').toLowerCase());
 }
 
+function shouldUseWorkspaceOrigin() {
+  const auditOrigin = String(process.env.AILAODA_AUDIT_ORIGIN || '').toLowerCase();
+  const restartOverride = String(process.env.AILAODA_RESTART_FROM_PACKAGE || '').toLowerCase();
+  return auditOrigin === 'workspace'
+    || restartOverride === '0'
+    || restartOverride === 'false'
+    || restartOverride === 'no'
+    || restartOverride === 'off';
+}
+
 function shouldRestartFromPackage() {
+  if (shouldUseWorkspaceOrigin()) return false;
+  if (String(process.env.AILAODA_AUDIT_ORIGIN || '').toLowerCase() === 'package') return true;
   return isTruthy(process.env.AILAODA_RESTART_FROM_PACKAGE)
     || fs.existsSync(CLEAN_RUNTIME_LAUNCHER)
     || fs.existsSync(STABLE_PACKAGE_LAUNCHER);
@@ -347,7 +365,6 @@ function getRuntimeTasks(options) {
   const tasks = [
     task('backend-build-gate', process.platform === 'win32' ? 'cmd.exe' : 'npm', process.platform === 'win32' ? ['/d', '/s', '/c', 'npm --prefix backend run build'] : ['--prefix', 'backend', 'run', 'build']),
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
-    task('stable-package-origin-early', 'node', ['scripts/stable-package-origin-audit-v1.cjs']),
     task('runtime-db-integrity', process.platform === 'win32' ? 'cmd.exe' : 'npx', process.platform === 'win32' ? ['/d', '/s', '/c', 'npx tsx scripts/runtime-db-integrity-audit-v1.ts'] : ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),
     task('runtime-db-shadow-inventory', 'node', ['scripts/runtime-db-shadow-inventory-audit-v1.cjs']),
     npxTask('test-data-retention-inventory', ['tsx', 'scripts/test-data-retention-inventory-audit-v1.ts']),
@@ -418,6 +435,9 @@ function getRuntimeTasks(options) {
     );
   }
   if (shouldRestartFromPackage()) {
+    tasks.splice(2, 0, task('stable-package-origin-early', 'node', ['scripts/stable-package-origin-audit-v1.cjs']));
+  }
+  if (shouldRestartFromPackage()) {
     tasks.push(task('stable-package-origin-final', 'node', ['scripts/stable-package-origin-audit-v1.cjs']));
   }
   if (options.withReleaseCore) {
@@ -470,6 +490,9 @@ function writeReports(report) {
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  if (options.origin) {
+    process.env.AILAODA_AUDIT_ORIGIN = options.origin;
+  }
   const startedAt = new Date().toISOString();
   const staticResult = staticReadinessChecks();
   const runtimeSteps = [];

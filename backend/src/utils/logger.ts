@@ -54,7 +54,9 @@ const expectedBusinessErrorPatterns = [
   /already (?:been|exists|fully)/i,
   /Please refresh/i,
   /\b[A-Z][A-Z0-9_]*(?:BELOW_ZERO|TRANSITION|STATE)[A-Z0-9_]*\b/,
+  /\bBACKUP_OPERATION_IN_PROGRESS\b/,
   /\b(?:Promise|Dispute|Order|Payment|Adjustment|Barter|Shipment|Purchase|Production) status cannot transition\b/i,
+  /工作流节点 .* 必须配置 assigneeRole 或 assigneeUserId/,
 ];
 
 function stringifyLogArg(value: unknown): string {

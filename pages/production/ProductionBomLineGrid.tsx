@@ -1,6 +1,11 @@
 ﻿import React, { useState } from 'react';
 import { Calculator, ChevronRight, ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { ActionToolbar } from '../../components/ui';
+import {
+  getBomOperatingMetrics,
+  getBomOperatingSummary,
+  ProductionBomOperatingFields,
+} from './ProductionBomOperatingFields';
 
 export type BomItemDraft = {
   materialName: string;
@@ -16,6 +21,10 @@ export type BomItemDraft = {
   substituteGroup: string;
   yieldContribution: string;
   notes: string;
+  availableStock?: string;
+  lockedStock?: string;
+  unitCost?: string;
+  currency?: string;
 };
 
 type Props = {
@@ -225,6 +234,17 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
   const hasPercentageRows = effectiveItems.some((item) => normalizeDosageValue(item.dosageMode) === 'percentage');
   const lineCountWarning = effectiveLineCount < 10;
   const percentageWarning = hasPercentageRows && Math.abs(percentageTotal - 100) > 0.01;
+  const materialCodeCounts = new Map<string, number>();
+  items.forEach((item) => {
+    const code = item.materialCode.trim();
+    if (code) materialCodeCounts.set(code, (materialCodeCounts.get(code) || 0) + 1);
+  });
+  const operatingSummary = getBomOperatingSummary(items, {
+    standardBatchSize,
+    materialCodeCounts,
+    hasItemIdentity,
+    getEffectiveQuantity: getEffectiveBomQuantityPerUnit,
+  });
 
   const updateItem = (index: number, patch: Partial<BomItemDraft>) => {
     setItems((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -336,6 +356,15 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
             <span className={`rounded-full px-3 py-1 text-[11px] font-black ${percentageWarning ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200'}`}>
               百分比合计 {percentageTotal.toFixed(2)}%
             </span>
+            <span className={`rounded-full px-3 py-1 text-[11px] font-black ${operatingSummary.riskLineCount ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200' : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'}`}>
+              风险行 {operatingSummary.riskLineCount}
+            </span>
+            <span className={`rounded-full px-3 py-1 text-[11px] font-black ${operatingSummary.shortageLineCount ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' : 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-200'}`}>
+              缺料行 {operatingSummary.shortageLineCount}
+            </span>
+            <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-black text-white dark:bg-white dark:text-slate-900">
+              理论成本 {operatingSummary.totalCost.toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+            </span>
             {standardBatchSize > 0 ? (
               <span className="rounded-full bg-slate-900 px-3 py-1 text-[11px] font-black text-white dark:bg-white dark:text-slate-900">
                 标准批量 {standardBatchSize}
@@ -391,13 +420,14 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
       )}
 
       <div className="overflow-x-auto rounded-[24px] border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
-        <table data-testid="production-bom-line-grid" className="min-w-[1320px] w-full border-collapse">
+        <table data-testid="production-bom-line-grid" className="min-w-[1600px] w-full border-collapse">
           <thead>
             <tr>
               <th className="w-10 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">#</th>
               <th className="whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">原料身份 / 工艺信息</th>
               <th className="w-60 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">配方占比 / 单位单耗 / 单位</th>
               <th className="w-32 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">损耗 / 偏差 %</th>
+              <th className="w-72 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">库存 / 成本 / 风险</th>
               <th className="w-24 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-center text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">操作</th>
             </tr>
           </thead>
@@ -414,9 +444,17 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                   ? formatDecimal(getPerUnitFromPercentage(percentageValue))
                   : '';
               const batchQuantity =
-                standardBatchSize > 0 && dosageValue === 'percentage' && percentageValue > 0
-                  ? formatDecimal((standardBatchSize * percentageValue) / 100, 4)
-                  : '';
+                standardBatchSize > 0 && effectiveQuantity > 0
+                  ? effectiveQuantity * standardBatchSize
+                  : 0;
+              const materialCode = item.materialCode.trim();
+              const operatingMetrics = getBomOperatingMetrics({
+                item,
+                standardBatchSize,
+                effectiveQuantity,
+                isInvalidDraftLine,
+                materialCodeCount: materialCode ? materialCodeCounts.get(materialCode) || 0 : 0,
+              });
 
               return (
                 <tr
@@ -561,6 +599,13 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       <div className="px-1 text-[10px] font-bold text-slate-400">留空按角色默认</div>
                     </div>
                   </td>
+
+                  <ProductionBomOperatingFields
+                    item={item}
+                    inputClassName={baseInputClass}
+                    metrics={operatingMetrics}
+                    onChange={(patch) => updateItem(index, patch)}
+                  />
 
                   <td className="px-2 py-3 align-top text-center">
                     <div className="flex justify-center gap-2">

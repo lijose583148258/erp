@@ -51,7 +51,7 @@ export function isTokenBlacklisted(token: string): boolean {
   return tokenBlacklist.has(token);
 }
 
-setInterval(() => {
+const tokenCleanupTimer = setInterval(() => {
   const now = new Date();
   let refreshCleaned = 0;
   for (const [token, data] of refreshTokenStore.entries()) {
@@ -79,3 +79,5 @@ setInterval(() => {
     logger.info(`Token cleanup complete: blacklist ${blacklistCleaned}, refresh tokens ${refreshCleaned}. Remaining blacklist ${tokenBlacklist.size}, refresh tokens ${refreshTokenStore.size}`);
   }
 }, TOKEN_CLEANUP_INTERVAL_MS);
+
+tokenCleanupTimer.unref?.();

@@ -222,12 +222,24 @@ function Assert-PackageFreshness {
   Write-Host 'Package freshness gates passed.'
 }
 
+function Assert-GitWorkspaceClean {
+  Write-Host 'Checking git workspace cleanliness...'
+  $gitStatus = @(& git -C $root status --porcelain)
+  if ($gitStatus.Count -gt 0) {
+    $sample = ($gitStatus | Select-Object -First 20) -join [Environment]::NewLine
+    throw "Refuse to package from a dirty workspace. Commit or ignore all changes first. Dirty entries=$($gitStatus.Count). Sample:$([Environment]::NewLine)$sample"
+  }
+  Write-Host 'Git workspace is clean.'
+}
+
 Assert-PackageFreshness
 
 if ($CheckOnly) {
   Write-Host 'Check-only mode complete. No package files were copied or renamed.'
   exit 0
 }
+
+Assert-GitWorkspaceClean
 
 $inPlaceUpdate = $false
 if (Test-Path -LiteralPath $dest) {

@@ -54,8 +54,8 @@ async function loginViaUi(page, {
     return;
   }
   await withTimebox(page, recordStep, 'submit-login', timeout, async () => {
-    await username.fill('admin');
-    await password.fill('admin123');
+    await username.fill(process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin');
+    await password.fill(process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!');
     await Promise.all([page.waitForTimeout(1200), submit.click()]);
   }, shotDir);
 }

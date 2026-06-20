@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const REPORT_PATH = path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json');
@@ -19,29 +20,21 @@ function expect(value, message) {
 }
 
 async function seedLogin(page) {
-  const response = await page.request.post(`${APP_URL}api/auth/login`, {
-    data: { username: 'admin', password: 'admin123', role: 'super_admin' },
+  await loginUiAuditUser(page, APP_URL, {
+    account: {
+      username: 'ui_unsaved_admin',
+      password: 'AuditSmoke12345!',
+      role: 'admin',
+    },
+    storage: {
+      'ailao.language': 'zh',
+    },
   });
-  expect(response.ok(), `login failed: ${response.status()}`);
-  const json = await response.json();
-  const token = json?.data?.token;
-  const user = json?.data?.user;
-  expect(token && user, 'login response missing token or user');
-  await page.addInitScript(({ token, user }) => {
-    const appUser = {
-      id: String(user.id),
-      name: user.username,
-      role: user.role,
-      segment: user.segment || 'mixed',
-      avatar: user.avatar || '',
-    };
-    localStorage.setItem('token', token);
-    localStorage.setItem('user', JSON.stringify(appUser));
-    localStorage.setItem('ailao.language', 'zh');
+  await page.addInitScript(() => {
     Object.keys(localStorage)
       .filter((key) => key.startsWith('ailao.salesOrderDraft.'))
       .forEach((key) => localStorage.removeItem(key));
-  }, { token, user });
+  });
 }
 
 async function answerNextDialog(page, accept) {

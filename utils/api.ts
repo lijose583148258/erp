@@ -1,5 +1,6 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { reportClientIssue } from './clientIssue';
+import { clearAuthStorage, safeStorage } from './browserStorage';
 
 export type ApiRequestOptions = {
     signal?: AbortSignal;
@@ -64,7 +65,7 @@ const api = axios.create({
 // 请求拦截器：自动注入 Token
 api.interceptors.request.use(
     (config: InternalAxiosRequestConfig) => {
-        const token = localStorage.getItem('token');
+        const token = safeStorage.getItem('token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
@@ -94,7 +95,7 @@ api.interceptors.response.use(
         // 处理 401 未授权
         if (error.response && error.response.status === 401) {
             const requestToken = (error.config as InternalAxiosRequestConfig & { __authToken?: string | null } | undefined)?.__authToken;
-            const currentToken = localStorage.getItem('token');
+            const currentToken = safeStorage.getItem('token');
             const isCurrentAuthFailure = (Boolean(requestToken) && requestToken === currentToken)
                 || (!requestToken && !currentToken);
             if (!isCurrentAuthFailure) {
@@ -104,10 +105,10 @@ api.interceptors.response.use(
                 staleAuthError.issues = error.response?.data?.issues;
                 return Promise.reject(staleAuthError);
             }
-            localStorage.removeItem('token');
-            localStorage.removeItem('user');
-            // 可以在这里直接重定向，或者交给上层组件处理
-            window.location.href = '/';
+            clearAuthStorage();
+            window.dispatchEvent(new CustomEvent('ailaoda:auth-expired', {
+                detail: { message: error.response?.data?.message || '登录状态已失效，请重新登录' },
+            }));
         }
 
         // 提取错误信息，并保留后端结构化业务问题，供生产/库存等关键页面展示细节。

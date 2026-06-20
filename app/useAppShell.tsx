@@ -6,6 +6,7 @@ import { renderAppContent } from './appContent';
 
 // Canonical app shell hook entry. App.tsx imports this file explicitly (`useAppShell.tsx`).
 type AppShellResult = {
+    isBootstrappingSession: boolean;
     isLoggedIn: boolean;
     activeTab: string;
     setActiveTab: (tab: string) => boolean;
@@ -34,6 +35,7 @@ const rates = { USD: 1 / 7.2, VND: 3500, CNY: 1 };
 const currencySymbols = { CNY: '¥', USD: '$', VND: '₫' };
 
 export const useAppShell = (): AppShellResult => {
+    const [isBootstrappingSession, setIsBootstrappingSession] = useState(true);
     const [isLoggedIn, setIsLoggedIn] = useState(false);
     const normalizeActiveTab = useCallback((tab: string) => (tab === 'timber' ? 'barter' : tab), []);
     const readTabFromLocation = useCallback(() => {
@@ -117,12 +119,54 @@ export const useAppShell = (): AppShellResult => {
     }, [activeTab, confirmDiscardChanges, normalizeActiveTab]);
 
     useEffect(() => {
-        const user = authService.getCurrentUser();
-        if (user) {
-            setCurrentUser(user);
-            setIsLoggedIn(true);
-        }
+        let cancelled = false;
+        const bootstrapSession = async () => {
+            const cachedUser = authService.getCurrentUser();
+            if (!cachedUser || !authService.hasToken()) {
+                if (!cancelled) setIsBootstrappingSession(false);
+                return;
+            }
+
+            try {
+                const user = await authService.me();
+                if (cancelled) return;
+                setCurrentUser(user);
+                setIsLoggedIn(true);
+            } catch {
+                if (cancelled) return;
+                authService.logout();
+                setIsLoggedIn(false);
+            } finally {
+                if (!cancelled) setIsBootstrappingSession(false);
+            }
+        };
+
+        void bootstrapSession();
+        return () => {
+            cancelled = true;
+        };
     }, []);
+
+    useEffect(() => {
+        const handleAuthExpired = (event: Event) => {
+            const message = event instanceof CustomEvent && typeof event.detail?.message === 'string'
+                ? event.detail.message
+                : '登录状态已失效，请重新登录';
+            authService.logout();
+            setIsLoggedIn(false);
+            setCurrentUser({
+                id: '',
+                name: '',
+                role: 'sales',
+                segment: 'direct',
+                avatar: '',
+            });
+            notify('warning', message);
+        };
+
+        window.addEventListener('ailaoda:auth-expired', handleAuthExpired);
+        return () => window.removeEventListener('ailaoda:auth-expired', handleAuthExpired);
+    }, [notify]);
 
     useEffect(() => {
         try {
@@ -323,6 +367,7 @@ export const useAppShell = (): AppShellResult => {
     const content = useMemo(() => renderAppContent(activeTab), [activeTab]);
 
     return {
+        isBootstrappingSession,
         isLoggedIn,
         activeTab,
         setActiveTab,

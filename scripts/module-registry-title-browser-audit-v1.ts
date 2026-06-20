@@ -17,6 +17,13 @@ const { connectOrLaunchBrowser } = require('./lib/browser-connect-or-launch.cjs'
     waitMs?: number;
   }) => Promise<{ browser: Browser; launcher?: unknown }>;
 };
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs') as {
+  loginUiAuditUser: (page: Page, appUrl: string, options?: {
+    account?: { username: string; password: string; role: string };
+    storage?: Record<string, string>;
+    defaultStorage?: Record<string, string>;
+  }) => Promise<{ token: string; user: unknown; account: unknown }>;
+};
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -118,39 +125,22 @@ async function withTimebox<T>(step: string, timeoutMs: number, task: () => Promi
   }
 }
 
-async function login(page: Page, username: string, password: string) {
+async function login(page: Page, username: string, _password: string) {
   return withTimebox(`login-${username}`, TIMEOUTS.login, async () => {
-    const response = await page.request.post(`${APP_URL}api/auth/login`, {
-      data: {
-        username,
-        password,
-        role: username === 'admin' ? 'super_admin' : username,
+    const role = username === 'sales' ? 'sales' : 'admin';
+    const account = {
+      username: username === 'sales' ? 'ui_smoke_sales' : 'ui_smoke_admin',
+      password: 'AuditSmoke12345!',
+      role,
+    };
+    return loginUiAuditUser(page, APP_URL, {
+      account,
+      storage: {
+        'ailao.language': 'zh',
+        language: 'zh-CN',
+        currency: 'CNY',
       },
     });
-    if (!response.ok()) {
-      throw new Error(`login ${username} failed: ${response.status()}`);
-    }
-
-    const json = await response.json();
-    const token = json?.data?.token;
-    const user = json?.data?.user;
-    if (!token || !user) {
-      throw new Error(`login ${username} returned empty token or user`);
-    }
-
-    await page.addInitScript(({ savedToken, savedUser }) => {
-      window.localStorage.setItem('token', savedToken);
-      window.localStorage.setItem('user', JSON.stringify(savedUser));
-      window.localStorage.setItem('auth_token', savedToken);
-      window.localStorage.setItem('erp_auth_token', savedToken);
-      window.localStorage.setItem('currentUser', JSON.stringify(savedUser));
-      window.localStorage.setItem('erp_current_user', JSON.stringify(savedUser));
-      window.localStorage.setItem('ailao.language', 'zh');
-      window.localStorage.setItem('language', 'zh-CN');
-      window.localStorage.setItem('currency', 'CNY');
-    }, { savedToken: token, savedUser: user });
-
-    return { token, user };
   });
 }
 

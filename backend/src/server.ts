@@ -131,6 +131,20 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+app.get(['/livez', '/api/livez'], (_req: Request, res: Response) => {
+  res.json({ status: 'alive', timestamp: new Date().toISOString(), uptime: process.uptime() });
+});
+
+app.get(['/ready', '/api/ready'], async (_req: Request, res: Response) => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    res.json({ status: 'ready', database: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+  } catch (error) {
+    logger.error('Readiness database probe failed', error);
+    res.status(503).json({ status: 'not-ready', database: 'unavailable', timestamp: new Date().toISOString() });
+  }
+});
+
 app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
   const checks = {
     database: 'ok',
@@ -279,6 +293,10 @@ const shutdownGracefully = (reason: string) => {
       }
       closeDatabaseAndExit(0).catch(() => process.exit(1));
     });
+    (server as Server & { closeIdleConnections?: () => void }).closeIdleConnections?.();
+    setTimeout(() => {
+      (server as Server & { closeAllConnections?: () => void }).closeAllConnections?.();
+    }, 2000).unref();
     return;
   }
 

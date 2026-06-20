@@ -1,6 +1,7 @@
 ﻿const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -81,15 +82,14 @@ async function withTimebox(page, step, timeout, task) {
 
 async function seedLoginState(page) {
   return withTimebox(page, 'seed-login-state', TIMEOUTS.login, async () => {
-    const loginResponse = await page.request.post(`${APP_URL}api/auth/login`, {
-      data: { username: 'admin', password: 'admin123', role: 'super_admin' },
+    const { token, user } = await loginUiAuditUser(page, APP_URL, {
+      defaultStorage: {
+        'ailao.activeTab': 'orders',
+        'ailao.language': 'zh',
+        language: 'zh-CN',
+        currency: 'CNY',
+      },
     });
-    if (!loginResponse.ok()) throw new Error(`login api failed: ${loginResponse.status()}`);
-
-    const loginJson = await loginResponse.json();
-    const token = loginJson?.data?.token;
-    const user = loginJson?.data?.user;
-    if (!token || !user) throw new Error('login api returned empty token or user');
     authToken = token;
 
     await page.addInitScript(({ savedToken, savedUser }) => {

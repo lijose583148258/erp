@@ -1,31 +1,75 @@
 import React, { useCallback, useMemo, useState } from 'react';
 import { BookOpen, ClipboardList, Pencil, CheckCircle2, XCircle, Check, Truck, ReceiptText, CreditCard, ShieldCheck } from 'lucide-react';
-import { adaptDataTableColumns, EnterpriseDataGrid } from '../components/ui';
+import type { EnterpriseColumn } from '../components/ui';
 import { WorkspaceTaskNavigator, type WorkspaceTaskNavigatorItem } from '../components/ui/WorkspaceTaskNavigator';
+import { OperatingDataGrid } from '../components/operatingTable/OperatingDataGrid';
+import {
+    createSalesOrderOperatingColumns,
+    getSalesOrderRiskTone,
+    type SalesOrderOperatingRow,
+} from '../components/operatingTable/salesOrderOperatingTable';
 import { useSalesOrders } from './sales-orders/useSalesOrders';
-import { buildSalesOrderColumns } from './sales-orders/SalesOrderColumns';
 import SalesOrderHistoryModal from './sales-orders/SalesOrderHistoryModal';
 import SalesOrderPaymentModal from './sales-orders/SalesOrderPaymentModal';
 import SalesOrderEditorModal from './sales-orders/SalesOrderEditorModal';
 import CollectionActionModal from '../components/collections/CollectionActionModal';
-import { OrderStatus, CommissionStatus } from '../types';
+import { OrderStatus, CommissionStatus, type SalesOrder } from '../types';
 import { useAppContext } from '../app/AppContext';
+import { getOperatingTableLabels } from '../i18n/operatingTable';
 
 const makeSalesOrderTestId = (id: unknown) => String(id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-');
 type SalesOrderDesk = 'orders' | 'payments' | 'fulfillment' | 'commission' | 'principle';
+type OperatingSalesOrderRow = SalesOrderOperatingRow & { sourceOrder: SalesOrder };
+
+const toOperatingSalesOrderRow = (order: SalesOrder): OperatingSalesOrderRow => {
+    const orderedQuantity = (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const productSummary = (order.items || [])
+        .map((item) => [item.productName, item.packagingSpec].filter(Boolean).join(' '))
+        .filter(Boolean)
+        .join(' / ');
+
+    return {
+        sourceOrder: order,
+        id: order.id,
+        orderNo: order.orderNo || `#${order.id}`,
+        customerName: order.customerDisplayName || order.customerNameZh || order.customerNameEn || order.customerNameVi || order.customerName,
+        customerCode: order.customerId,
+        ownerName: order.creatorName || order.salespersonId,
+        orderDate: order.orderDate,
+        deliveryDate: order.dueDate,
+        productSummary,
+        totalAmount: Number(order.finalAmount || order.totalAmount || 0),
+        paidAmount: Number(order.paidAmount || 0),
+        currency: order.currency,
+        orderedQuantity,
+        shippedQuantity: order.fulfillmentStatus === 'delivered' ? orderedQuantity : 0,
+        quantityUnit: order.items?.[0]?.unit,
+        orderStatus: order.status,
+        fulfillmentStatus: order.fulfillmentStatus,
+        paymentStatus: order.financialStatus || order.paymentStatus,
+        overdueDays: order.financialStatus === 'overdue' ? 1 : 0,
+        creditRisk: (order as any).creditRisk || (order.financialStatus === 'overdue' ? 'blocked' : 'normal'),
+        stockRisk: (order as any).stockRisk || (order as any).inventoryRisk || 'normal',
+    };
+};
 
 const SalesOrders = () => {
     const { t, currentUser } = useAppContext();
     const state = useSalesOrders();
     const [activeDesk, setActiveDesk] = useState<SalesOrderDesk>('orders');
 
-    const columns = useMemo(() => buildSalesOrderColumns({
-        t,
-        language: state.language,
-        formatPrice: state.formatPrice,
-        getCollectionView: state.getCollectionView,
-        openHistoryModal: state.openHistoryModal
-    }), [t, state.language, state.formatPrice, state.getCollectionView, state.openHistoryModal]);
+    const operatingLabels = useMemo(() => getOperatingTableLabels(state.language), [state.language]);
+    const operatingRows = useMemo(
+        () => state.displayedOrders.map((order: SalesOrder) => toOperatingSalesOrderRow(order)),
+        [state.displayedOrders],
+    );
+    const columns = useMemo(
+        () => createSalesOrderOperatingColumns(
+            operatingLabels,
+            (value, currency) => state.formatPrice(value, currency as any),
+        ) as EnterpriseColumn<OperatingSalesOrderRow>[],
+        [operatingLabels, state.formatPrice],
+    );
 
     const handleCollectionSubmitted = async () => {
         const selectedId = state.selectedOrder?.id;
@@ -236,63 +280,59 @@ const SalesOrders = () => {
             )}
 
             <div className="app-card p-6">
-            <EnterpriseDataGrid
-                title={state.isManagerView ? t.commPending : t.orders}
-                data={state.displayedOrders}
-                columns={adaptDataTableColumns(columns, {
-                    id: '130px',
-                    customer: '220px',
-                    documentAxis: '130px',
-                    fulfillmentAxis: '130px',
-                    financialAxis: '140px',
-                    finance: '220px',
-                    commissionAxis: '140px',
-                    dueDate: '130px',
-                    finalAmount: '140px',
-                })}
-                rowKey={(row: any) => String(row.id)}
-                getRowTestId={(row: any) => `sales-order-row-${makeSalesOrderTestId(row.id)}`}
+            <OperatingDataGrid
+                labels={operatingLabels}
+                titleKey="order.title"
+                titleFallback={state.isManagerView ? t.commPending : t.orders}
+                descriptionKey="order.description"
+                descriptionFallback=""
+                data={operatingRows}
+                columns={columns}
+                rowKey={(row) => String(row.id)}
+                getRowTestId={(row) => `sales-order-row-${makeSalesOrderTestId(row.id)}`}
+                preferenceKey="sales-order-operating-table"
                 exportFileName={state.isManagerView ? '销售订单_提成审核' : '销售订单'}
                 exportSheetName="销售订单"
                 onImport={state.handleImport}
-                searchPlaceholder={t.search || '搜索订单、客户、状态...'}
                 searchInputTestId="sales-order-search"
-                rowActions={(row: any) => {
+                rowTone={getSalesOrderRiskTone}
+                renderRowActions={(row) => {
+                    const order = row.sourceOrder;
                     const showOrderActions = activeDesk === 'orders';
                     const showPaymentActions = activeDesk === 'payments';
                     const showFulfillmentActions = activeDesk === 'fulfillment';
                     const showCommissionActions = activeDesk === 'commission';
                     return (
                     <div className="flex flex-wrap justify-end gap-2">
-                        {showOrderActions && state.canEditOrder(row) && (
-                            <button data-testid="sales-order-edit-button" aria-label={t.editOrder} onClick={(e) => { e.stopPropagation(); state.openEditModal(row); }} className="min-h-11 min-w-11 p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 border border-amber-200" title={t.editOrder}>
+                        {showOrderActions && state.canEditOrder(order) && (
+                            <button data-testid="sales-order-edit-button" aria-label={t.editOrder} onClick={(e) => { e.stopPropagation(); state.openEditModal(order); }} className="min-h-11 min-w-11 p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 border border-amber-200" title={t.editOrder}>
                                 <Pencil size={16} />
                             </button>
                         )}
                         {showPaymentActions && state.canRecordPayment && 
-                            <button data-testid="sales-order-payment-button" aria-label={t.recordPayment} onClick={(e) => { e.stopPropagation(); state.openPaymentModal(row); }} className="min-h-11 min-w-11 p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 border border-emerald-200" title={t.recordPayment}>
+                            <button data-testid="sales-order-payment-button" aria-label={t.recordPayment} onClick={(e) => { e.stopPropagation(); state.openPaymentModal(order); }} className="min-h-11 min-w-11 p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100 border border-emerald-200" title={t.recordPayment}>
                                 <CreditCard size={16} />
                             </button>
                         }
-                        <button data-testid="sales-order-history-button" aria-label={t.viewHistory || '查看历史'} onClick={(e) => { e.stopPropagation(); state.openHistoryModal(row); }} className="min-h-11 min-w-11 p-2 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 border border-slate-200" title={t.viewHistory || '查看历史'}>
+                        <button data-testid="sales-order-history-button" aria-label={t.viewHistory || '查看历史'} onClick={(e) => { e.stopPropagation(); state.openHistoryModal(order); }} className="min-h-11 min-w-11 p-2 bg-slate-50 text-slate-600 rounded-xl hover:bg-slate-100 border border-slate-200" title={t.viewHistory || '查看历史'}>
                             <ReceiptText size={16} />
                         </button>
-                        {showCommissionActions && state.isManagerView && row.commissionStatus === CommissionStatus.PENDING && state.canAuditCommission && (
+                        {showCommissionActions && state.isManagerView && order.commissionStatus === CommissionStatus.PENDING && state.canAuditCommission && (
                             <>
-                                <button aria-label={t.approve || '通过'} title={t.approve || '通过'} onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(row.id, CommissionStatus.APPROVED); }} className="min-h-11 min-w-11 p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100"><CheckCircle2 size={16} /></button>
-                                <button aria-label={t.reject || '驳回'} title={t.reject || '驳回'} onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(row.id, CommissionStatus.REJECTED); }} className="min-h-11 min-w-11 p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100"><XCircle size={16} /></button>
+                                <button aria-label={t.approve || '通过'} title={t.approve || '通过'} onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(order.id, CommissionStatus.APPROVED); }} className="min-h-11 min-w-11 p-2 bg-emerald-50 text-emerald-600 rounded-xl hover:bg-emerald-100"><CheckCircle2 size={16} /></button>
+                                <button aria-label={t.reject || '驳回'} title={t.reject || '驳回'} onClick={(e) => { e.stopPropagation(); state.handleCommissionAudit(order.id, CommissionStatus.REJECTED); }} className="min-h-11 min-w-11 p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-100"><XCircle size={16} /></button>
                             </>
                         )}
                         {showFulfillmentActions && !state.isManagerView && state.canCreateOrder && (
                             <>
-                                {row.status === OrderStatus.PENDING && <button aria-label={t.confirmOrder || '确认订单'} onClick={(e) => { e.stopPropagation(); state.handleStatusUpdate(row.id, OrderStatus.CONFIRMED); }} className="min-h-11 min-w-11 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title={t.confirmOrder || '确认订单'}><Check size={16} /></button>}
-                                {row.status === OrderStatus.CONFIRMED && (
-                                    <button aria-label={t.quickShip || '快速发货'} onClick={(e) => { e.stopPropagation(); state.handleQuickShip(row); }} className="min-h-11 min-w-11 p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title={t.quickShip || '快速发货'}>
+                                {order.status === OrderStatus.PENDING && <button aria-label={t.confirmOrder || '确认订单'} onClick={(e) => { e.stopPropagation(); state.handleStatusUpdate(order.id, OrderStatus.CONFIRMED); }} className="min-h-11 min-w-11 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title={t.confirmOrder || '确认订单'}><Check size={16} /></button>}
+                                {order.status === OrderStatus.CONFIRMED && (
+                                    <button aria-label={t.quickShip || '快速发货'} onClick={(e) => { e.stopPropagation(); state.handleQuickShip(order); }} className="min-h-11 min-w-11 p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title={t.quickShip || '快速发货'}>
                                         <Truck size={16} />
                                     </button>
                                 )}
-                                {row.fulfillmentStatus === 'delivered' && row.financialStatus === 'paid' && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
-                                    <button aria-label={t.completeOrder || '完成订单'} onClick={(e) => { e.stopPropagation(); state.handleManualComplete(row.id); }} className="min-h-11 min-w-11 p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title={t.completeOrder || '完成订单'}>
+                                {order.fulfillmentStatus === 'delivered' && order.financialStatus === 'paid' && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                                    <button aria-label={t.completeOrder || '完成订单'} onClick={(e) => { e.stopPropagation(); state.handleManualComplete(order.id); }} className="min-h-11 min-w-11 p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title={t.completeOrder || '完成订单'}>
                                         <CheckCircle2 size={16} />
                                     </button>
                                 )}

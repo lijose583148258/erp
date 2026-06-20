@@ -1,13 +1,13 @@
-# 依赖
+# Dependencies
 node_modules/
 backend/node_modules/
 
-# 构建产物
+# Build artifacts
 dist/
 backend/dist/
 .vite-cache/
 
-# 运行时数据（不提交到版本控制）
+# Runtime data and generated evidence
 backups/
 logs/
 uploads/
@@ -19,6 +19,8 @@ scratchdb/
 tempdb/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 backend/%TEMP%/
@@ -27,34 +29,33 @@ backend/backend/data/
 backend/prisma/tenants/
 backend/prisma/prisma/
 
-# Playwright 缓存
+# Playwright and browser caches
 .playwright/
 .playwright-cli/
 .playwright-daemon/
 
-# 临时文件
+# Temporary files
 tmp-*
 *.bak*
 fix-db.*
 
-# 环境变量
+# Environment files
 .env
 .env.local
 .env.production
 
-# 编辑器
+# Editor and OS files
 .vscode/
 *.swp
 *.swo
-
-# OS
 Thumbs.db
 .DS_Store
 
-# 历史归档（大文件目录，按需提交）
+# Local packages and governance archives
 历史归档/
 文档归档/
 测试/
+爱劳达软件治理中心/*.zip
 AilaoDa_Stable_Package/
 AilaoDa_Stable_Package_previous_*/
 AilaoDa_Stable_Package_*.zip

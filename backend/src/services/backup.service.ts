@@ -249,7 +249,7 @@ export class BackupService {
     }
 
     private static parseRetentionMode(value: string | undefined): BackupRetentionMode {
-        return String(value || 'report-only').trim().toLowerCase() === 'enforce' ? 'enforce' : 'report-only';
+        return String(value || 'enforce').trim().toLowerCase() === 'report-only' ? 'report-only' : 'enforce';
     }
 
     private static getRetentionPolicy(): BackupRetentionPolicy {
