@@ -1,0 +1,47 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "experimentalDecorators": true,
+    "useDefineForClassFields": false,
+    "module": "ESNext",
+    "lib": [
+      "ES2022",
+      "DOM",
+      "DOM.Iterable"
+    ],
+    "skipLibCheck": true,
+    "types": [
+      "node",
+      "vite/client"
+    ],
+    "moduleResolution": "bundler",
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "jsx": "react-jsx",
+    "paths": {
+      "@/*": [
+        "./*"
+      ]
+    },
+    "allowImportingTsExtensions": true,
+    "noEmit": true
+  },
+  "exclude": [
+    "backend",
+    "node_modules",
+    "dist",
+    ".vite-cache",
+    "backups",
+    "logs",
+    "output",
+    "runtime-db",
+    "scratchdb",
+    "src",
+    "temp_compare_cleanmigration",
+    "tempdb",
+    "utils/quarantine",
+    "历史归档",
+    "文档归档",
+    "测试"
+  ]
+}

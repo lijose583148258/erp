@@ -1,0 +1,63 @@
+model Supplier {
+    id            Int      @id @default(autoincrement())
+    name          String
+    nameZh        String?  @map("name_zh")
+    nameEn        String?  @map("name_en")
+    nameVi        String?  @map("name_vi")
+    nameAliases   String?  @map("name_aliases")
+    contactsJson  String?  @map("contacts_json")
+    addressesJson String?  @map("addresses_json")
+    category      String
+    rating        Float    @default(4)
+    leadTimeDays  Int      @default(7) @map("lead_time_days")
+    riskLevel     String   @default("medium") @map("risk_level")
+    contact       String
+    status        String   @default("active")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  purchaseOrders PurchaseOrder[]
+  barterAgreements BarterAgreement[]
+  barterSettlements BarterSettlement[]
+
+  @@index([name])
+  @@index([riskLevel])
+  @@index([status])
+  @@map("suppliers")
+}
+
+model PurchaseOrder {
+  id            Int      @id @default(autoincrement())
+  supplierId    Int      @map("supplier_id")
+  item          String
+  quantity      Float
+  unit          String
+  price         Float
+  currency      String   @default("CNY")
+  exchangeRate  Float    @default(1.0) @map("exchange_rate")
+  taxRate       Float    @default(0) @map("tax_rate")
+  taxAmount     Float    @default(0) @map("tax_amount")
+  freightCost   Float    @default(0) @map("freight_cost")
+  dutyCost      Float    @default(0) @map("duty_cost")
+  insuranceCost Float    @default(0) @map("insurance_cost")
+  otherCost     Float    @default(0) @map("other_cost")
+  landedCostAmount Float @default(0) @map("landed_cost_amount")
+  landedUnitCost   Float @default(0) @map("landed_unit_cost")
+  eta           DateTime
+  status        String   @default("pending")
+  salesOrderRef String?  @map("sales_order_ref")
+  salesOrderId  Int?     @map("sales_order_id")
+  isB2B         Boolean  @default(false) @map("is_b2b")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  supplier      Supplier @relation(fields: [supplierId], references: [id])
+  salesOrder    Order?   @relation(fields: [salesOrderId], references: [id])
+
+  @@index([supplierId])
+  @@index([status])
+  @@index([salesOrderId])
+  @@map("purchase_orders")
+}
+
+// 样品表

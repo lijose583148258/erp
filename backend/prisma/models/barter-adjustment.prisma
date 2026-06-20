@@ -1,0 +1,227 @@
+// 合同里程碑 (Phase 3: 节点对账核心)
+model BarterAgreement {
+  id                   Int       @id @default(autoincrement())
+  agreementNo          String    @unique @map("agreement_no")
+  counterpartyType     String    @default("other") @map("counterparty_type")
+  counterpartyName     String    @map("counterparty_name")
+  customerId           Int?      @map("customer_id")
+  supplierId           Int?      @map("supplier_id")
+  orderId              Int?      @map("order_id")
+  settlementMode       String    @default("mixed") @map("settlement_mode")
+  totalPartyAValue     Float     @default(0) @map("total_party_a_value")
+  totalPartyBValue     Float     @default(0) @map("total_party_b_value")
+  agreedOffsetAmount   Float     @default(0) @map("agreed_offset_amount")
+  executedOffsetAmount Float     @default(0) @map("executed_offset_amount")
+  remainingOffsetAmount Float    @default(0) @map("remaining_offset_amount")
+  completionRatio      Float     @default(0) @map("completion_ratio")
+  currency             String    @default("CNY")
+  status               String    @default("active")
+  agreementDate        DateTime? @map("agreement_date")
+  valuationDate        DateTime? @map("valuation_date")
+  note                 String?
+  createdBy            Int       @map("created_by")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  creator              User      @relation(fields: [createdBy], references: [id])
+  customer             Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier             Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  order                Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  items                BarterAgreementItem[]
+  settlements          BarterSettlement[]
+
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([orderId])
+  @@index([status])
+  @@index([counterpartyType])
+  @@map("barter_agreements")
+}
+
+model BarterAgreementItem {
+  id              Int      @id @default(autoincrement())
+  agreementId     Int      @map("agreement_id")
+  side            String
+  itemName        String   @map("item_name")
+  specification   String?
+  unit            String
+  quantity        Float
+  unitPrice       Float    @map("unit_price")
+  qualityFactor   Float    @default(1) @map("quality_factor")
+  lossFactor      Float    @default(1) @map("loss_factor")
+  marketValue     Float    @map("market_value")
+  valuationMethod String   @default("market") @map("valuation_method")
+  sourceDocument  String?  @map("source_document")
+  note            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  agreement       BarterAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+
+  @@index([agreementId])
+  @@index([side])
+  @@map("barter_agreement_items")
+}
+
+model BarterSettlement {
+  id                 Int       @id @default(autoincrement())
+  settlementNo       String    @unique @map("settlement_no")
+  agreementId        Int?      @map("agreement_id")
+  batchIndex         Int?      @map("batch_index")
+  counterpartyType   String    @default("other") @map("counterparty_type")
+  counterpartyName   String    @map("counterparty_name")
+  customerId         Int?      @map("customer_id")
+  supplierId         Int?      @map("supplier_id")
+  orderId            Int?      @map("order_id")
+  settlementMode     String    @default("mixed") @map("settlement_mode")
+  totalPartyAValue   Float     @default(0) @map("total_party_a_value")
+  totalPartyBValue   Float     @default(0) @map("total_party_b_value")
+  cashDifference     Float     @default(0) @map("cash_difference")
+  currency           String    @default("CNY")
+  status             String    @default("quoted")
+  valuationDate      DateTime? @map("valuation_date")
+  approvedBy         Int?      @map("approved_by")
+  approvedAt         DateTime? @map("approved_at")
+  postedBy           Int?      @map("posted_by")
+  postedAt           DateTime? @map("posted_at")
+  reversedAt         DateTime? @map("reversed_at")
+  paymentRecordId    Int?      @unique @map("payment_record_id")
+  note               String?
+  createdBy          Int       @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  creator            User      @relation(fields: [createdBy], references: [id])
+  agreement          BarterAgreement? @relation(fields: [agreementId], references: [id], onDelete: SetNull)
+  customer           Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  supplier           Supplier? @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  order              Order?    @relation(fields: [orderId], references: [id], onDelete: SetNull)
+  paymentRecord      PaymentRecord? @relation(fields: [paymentRecordId], references: [id], onDelete: SetNull)
+  items              BarterItem[]
+  valuationSnapshots BarterValuationSnapshot[]
+  offsetPostings     BarterOffsetPosting[]
+  reversalLogs       BarterReversalLog[]
+
+  @@index([agreementId])
+  @@index([customerId])
+  @@index([supplierId])
+  @@index([orderId])
+  @@index([status])
+  @@index([counterpartyType])
+  @@map("barter_settlements")
+}
+
+model BarterItem {
+  id              Int      @id @default(autoincrement())
+  settlementId    Int      @map("settlement_id")
+  side            String
+  itemName        String   @map("item_name")
+  specification   String?
+  unit            String
+  quantity        Float
+  unitPrice       Float    @map("unit_price")
+  qualityFactor   Float    @default(1) @map("quality_factor")
+  lossFactor      Float    @default(1) @map("loss_factor")
+  marketValue     Float    @map("market_value")
+  valuationMethod String   @default("market") @map("valuation_method")
+  sourceDocument  String?  @map("source_document")
+  note            String?
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@index([side])
+  @@map("barter_items")
+}
+
+model BarterValuationSnapshot {
+  id              Int       @id @default(autoincrement())
+  settlementId    Int       @map("settlement_id")
+  itemName        String    @map("item_name")
+  referencePrice  Float     @map("reference_price")
+  referenceSource String?   @map("reference_source")
+  marketArea      String?   @map("market_area")
+  validUntil      DateTime? @map("valid_until")
+  appraisedBy     Int?      @map("appraised_by")
+  appraisedAt     DateTime  @default(now()) @map("appraised_at")
+  note            String?
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@map("barter_valuation_snapshots")
+}
+
+model BarterOffsetPosting {
+  id              Int      @id @default(autoincrement())
+  settlementId    Int      @map("settlement_id")
+  paymentRecordId  Int?     @map("payment_record_id")
+  offsetAmount    Float    @map("offset_amount")
+  offsetType      String   @map("offset_type")
+  note            String?
+  postedBy        Int      @map("posted_by")
+  postedAt        DateTime @default(now()) @map("posted_at")
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  paymentRecord   PaymentRecord? @relation(fields: [paymentRecordId], references: [id], onDelete: SetNull)
+
+  @@index([settlementId])
+  @@index([paymentRecordId])
+  @@map("barter_offset_postings")
+}
+
+model BarterReversalLog {
+  id              Int      @id @default(autoincrement())
+  settlementId    Int      @map("settlement_id")
+  originalStatus  String   @map("original_status")
+  reason          String
+  reversedBy      Int      @map("reversed_by")
+  reversedAt      DateTime @default(now()) @map("reversed_at")
+
+  settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+
+  @@index([settlementId])
+  @@map("barter_reversal_logs")
+}
+
+model AdjustmentRecord {
+  id              Int       @id @default(autoincrement())
+  adjustmentNo    String    @unique @map("adjustment_no")
+  domain          String
+  targetType      String    @map("target_type")
+  targetId        Int?      @map("target_id")
+  targetRef       String?   @map("target_ref")
+  orderId         Int?      @map("order_id")
+  order           Order?    @relation("OrderAdjustments", fields: [orderId], references: [id], onDelete: SetNull)
+  batchId         Int?      @map("batch_id")
+  productBatch    ProductBatch? @relation("BatchAdjustments", fields: [batchId], references: [id], onDelete: SetNull)
+  customerId      Int?      @map("customer_id")
+  quantityDelta   Float?    @map("quantity_delta")
+  amountDelta     Float?    @map("amount_delta")
+  reason          String
+  reasonCategory  String?   @map("reason_category")
+  lossType        String?   @map("loss_type")
+  beforeSnapshot  String?   @map("before_snapshot")
+  afterSnapshot   String?   @map("after_snapshot")
+  note            String?
+  status          String    @default("posted")
+  createdBy       Int       @map("created_by")
+  creator         User      @relation("AdjustmentCreator", fields: [createdBy], references: [id])
+  approvedBy      Int?      @map("approved_by")
+  approver        User?     @relation("AdjustmentApprover", fields: [approvedBy], references: [id])
+  approvedAt      DateTime? @map("approved_at")
+  appliedAt       DateTime? @map("applied_at")
+  inventoryCostLedger InventoryCostLedger?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([domain])
+  @@index([targetType, targetId])
+  @@index([status])
+  @@index([orderId])
+  @@index([batchId])
+  @@index([customerId])
+  @@map("adjustment_records")
+}
+
+// 新增: 实体仓库表 (Shadow Warehouse Extension)

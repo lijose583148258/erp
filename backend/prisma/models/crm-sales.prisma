@@ -1,0 +1,286 @@
+// 客户表
+model Customer {
+  id              Int       @id @default(autoincrement())
+  name            String
+  nameZh          String?   @map("name_zh")
+    nameEn          String?   @map("name_en")
+    nameVi          String?   @map("name_vi")
+    nameAliases     String?   @map("name_aliases")
+    addressesJson   String?   @map("addresses_json")
+    contactsJson    String?   @map("contacts_json")
+    licenseNumber   String?   @map("license_number")
+  creditLimit     Float?    @map("credit_limit")
+  overdueAmount   Float     @default(0) @map("overdue_amount")
+  riskLevel       String?   @map("risk_level")
+  collectionsStatus String   @default("normal") @map("collections_status")
+  dunningLevel    Int       @default(0) @map("dunning_level")
+  nextActionAt    DateTime? @map("next_action_at")
+  creditHold      Boolean   @default(false) @map("credit_hold")
+  creditHoldReason String?  @map("credit_hold_reason")
+  creditHoldSource String?  @map("credit_hold_source")
+  creditHoldUpdatedAt DateTime? @map("credit_hold_updated_at")
+  shipmentHold    Boolean   @default(false) @map("shipment_hold")
+  shipmentHoldReason String? @map("shipment_hold_reason")
+  shipmentHoldSource String? @map("shipment_hold_source")
+  shipmentHoldUpdatedAt DateTime? @map("shipment_hold_updated_at")
+  salespersonId   Int?      @map("salesperson_id")
+  segment         String?
+  poolState       String    @default("private") @map("pool_state")
+  poolReason      String?   @map("pool_reason")
+  poolUpdatedAt   DateTime? @map("pool_updated_at")
+  poolUpdatedBy   Int?      @map("pool_updated_by")
+  status          String    @default("active")
+  contactName     String?   @map("contact_name")
+  contactPhone    String?   @map("contact_phone")
+  contactEmail    String?   @map("contact_email")
+  address         String?
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  salesperson     User?     @relation(fields: [salespersonId], references: [id])
+  poolUpdatedByUser User?   @relation("CustomerPoolUpdater", fields: [poolUpdatedBy], references: [id], onDelete: SetNull)
+  orders          Order[]
+  samples         Sample[]
+  shipments       Shipment[]
+  rmas            Rma[]
+  assetBalances   AssetBalance[]
+  assetTransactions AssetTransaction[]
+  contracts       Contract[]
+  collectionPromises CollectionPromise[]
+  collectionDisputes CollectionDispute[]
+  barterAgreements BarterAgreement[]
+  barterSettlements BarterSettlement[]
+  receivableAdjustments ReceivableAdjustment[]
+
+  @@index([salespersonId])
+  @@index([riskLevel])
+  @@index([status])
+  @@index([poolState])
+  @@index([name])
+  @@index([licenseNumber])
+  @@map("customers")
+}
+
+// 订单表
+
+// 订单表
+model Order {
+  id              Int       @id @default(autoincrement())
+  orderNo         String    @unique @map("order_no")
+  customerId      Int       @map("customer_id")
+  totalAmount     Float     @map("total_amount")
+  discountAmount  Float     @default(0) @map("discount_amount")
+  finalAmount     Float     @map("final_amount")
+  // ── 多货币支持 (三国体系) ──────────────────────────────────────
+  currency        String    @default("CNY")                           // 交易币种
+  lockedExchangeRate Float? @map("locked_exchange_rate")              // 下单时锁定的1CNY换算汇率快照
+  baseAmount      Float?    @map("base_amount")                       // 等值CNY本位币金额
+  // ─────────────────────────────────────────────────────────────
+  paymentTerms    Int       @default(30) @map("payment_terms")
+  status          String    @default("pending")
+  commissionRate  Float?    @map("commission_rate")
+  commissionAmount Float?   @map("commission_amount")
+  commissionStatus String    @default("pending") @map("commission_status")
+  commissionNotes  String?   @map("commission_notes")
+  notes           String?
+  createdBy       Int       @map("created_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  creator         User      @relation(fields: [createdBy], references: [id])
+  items           OrderItem[]
+  shipments       Shipment[]
+  purchaseOrders  PurchaseOrder[]
+  paymentRecords  PaymentRecord[]
+  contractId      Int?      @map("contract_id")
+  contract        Contract? @relation(fields: [contractId], references: [id])
+  adjustments     AdjustmentRecord[] @relation("OrderAdjustments")
+  collectionPromises CollectionPromise[]
+  collectionDisputes CollectionDispute[]
+  barterAgreements BarterAgreement[]
+  barterSettlements BarterSettlement[]
+  receivableAdjustments ReceivableAdjustment[]
+  
+  // 财务统计增强
+  paidAmount      Float     @default(0) @map("paid_amount")
+  receivableAdjustmentAmount Float @default(0) @map("receivable_adjustment_amount")
+  paymentStatus   String    @default("unpaid") @map("payment_status") // unpaid, partial, paid
+  shipmentHold    Boolean   @default(false) @map("shipment_hold")
+  shipmentHoldReason String? @map("shipment_hold_reason")
+  shipmentHoldSource String? @map("shipment_hold_source")
+  shipmentHoldUpdatedAt DateTime? @map("shipment_hold_updated_at")
+
+  @@index([customerId])
+  @@index([status])
+  @@index([paymentStatus])
+  @@index([createdBy])
+  @@index([contractId])
+  @@index([createdAt])
+  @@index([status, createdAt]) // 复合索引：优化状态筛选+时间排序
+  @@map("orders")
+}
+
+// 订单明细表
+
+// 订单明细表
+model OrderItem {
+  id              Int       @id @default(autoincrement())
+  orderId         Int       @map("order_id")
+  productName     String    @map("product_name")
+  specification   String?
+  quantity        Float
+  unit            String
+  unitPrice       Float     @map("unit_price")
+  totalPrice      Float     @map("total_price")
+  itemType        String    @default("normal") @map("item_type")
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // 关联
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// 付款记录模型 (从 AuditLog 升级为独立实体)
+model PaymentRecord {
+  id              Int       @id @default(autoincrement())
+  orderId         Int       @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  // ── 四字段多货币记账 (符合 SAP/NetSuite 国际标准) ──────────────
+  amount          Float                                                // 交易金额（原币）
+  currency        String    @default("CNY") @map("currency")            // 交易币种 CNY/USD/VND/EUR/HKD
+  exchangeRate    Float     @default(1.0) @map("exchange_rate")         // 执行汇率 (1 CNY = X 外币)
+  baseAmount      Float     @default(0) @map("base_amount")             // 本位币金额 (CNY)
+  // ─────────────────────────────────────────────────────────────
+  method          String    // bank_transfer, cash, alipay, wechat, check, wire_transfer
+  date            DateTime  @default(now())
+  payerName       String?   @map("payer_name")
+  isProxy         Boolean   @default(false) @map("is_proxy")
+  note            String?
+  status          String    @default("pending") // pending (待核销), verified (已确认)
+  verifiedBy      Int?      @map("verified_by")
+  milestoneId     Int?      @map("milestone_id")
+  milestone       ContractMilestone? @relation(fields: [milestoneId], references: [id])
+  barterMetadata  String?   @map("barter_metadata") // 存储 JSON 字符串：货抵明细（品名、规格、单价换算等）
+  barterSettlement BarterSettlement?
+  barterOffsetPostings BarterOffsetPosting[]
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([orderId])
+  @@index([status])
+  @@index([milestoneId])
+  @@map("payment_records")
+}
+
+// 合同里程碑 (Phase 3: 节点对账核心)
+
+model CollectionPromise {
+  id              Int       @id @default(autoincrement())
+  promiseNo       String    @unique @map("promise_no")
+  customerId      Int       @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId         Int       @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  promisedAmount  Float     @map("promised_amount")
+  promisedAt      DateTime  @map("promised_at")
+  channel         String    @default("phone")
+  contactName     String?   @map("contact_name")
+  contactPhone    String?   @map("contact_phone")
+  status          String    @default("open") // open, kept, missed, cancelled
+  note            String?
+  createdBy       Int       @map("created_by")
+  creator         User      @relation(fields: [createdBy], references: [id])
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([promisedAt])
+  @@map("collection_promises")
+}
+
+model CollectionDispute {
+  id              Int       @id @default(autoincrement())
+  disputeNo       String    @unique @map("dispute_no")
+  customerId      Int       @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  orderId         Int       @map("order_id")
+  order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  disputedAmount  Float?    @map("disputed_amount")
+  reasonCategory  String    @map("reason_category")
+  reason          String
+  evidenceJson    String?   @map("evidence_json")
+  status          String    @default("open") // open, reviewing, resolved, rejected, withdrawn
+  note            String?
+  createdBy       Int       @map("created_by")
+  creator         User      @relation(fields: [createdBy], references: [id])
+  resolvedAt      DateTime? @map("resolved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  @@index([customerId])
+  @@index([orderId])
+  @@index([status])
+  @@index([reasonCategory])
+  @@map("collection_disputes")
+}
+
+// 合同表
+model Contract {
+  id              Int       @id @default(autoincrement())
+  contractNo      String    @unique @map("contract_no")
+  type            String    @default("sales") // sales (销售), purchase (采购)
+  customerId      Int       @map("customer_id")
+  customer        Customer  @relation(fields: [customerId], references: [id])
+  title           String
+  totalAmount     Float     @map("total_amount")
+  currency        String    @default("CNY")
+  status          String    @default("draft") // draft (草稿), active (生效), completed (结案), cancelled (作废)
+  signedAt        DateTime? @map("signed_at")
+  expiredAt       DateTime? @map("expired_at")
+  fileUrl         String?   @map("file_url")
+  ocrMetadata     String?   @map("ocr_metadata") // 存储 OCR 识别的原始 JSON 数据
+  notes           String?
+  createdBy       Int       @map("created_by")
+  creator         User      @relation(fields: [createdBy], references: [id])
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // 关联
+  orders          Order[]
+  milestones      ContractMilestone[]
+
+  @@index([customerId])
+  @@index([status])
+  @@index([createdBy])
+  @@map("contracts")
+}
+
+// 付款记录模型 (从 AuditLog 升级为独立实体)
+
+model ContractMilestone {
+  id              Int       @id @default(autoincrement())
+  contractId      Int       @map("contract_id")
+  contract        Contract  @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  title           String    // 例如：预付款、到货款、验收款
+  percentage      Float     // 比例 e.g. 30.0
+  amount          Float?    // 固定的绝对金额 (可选)
+  dueDate         DateTime? @map("due_date")
+  status          String    @default("pending") // pending, paid
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  paymentRecords  PaymentRecord[]
+
+  @@index([contractId])
+  @@map("contract_milestones")
+}

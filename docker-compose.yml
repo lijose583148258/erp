@@ -1,0 +1,42 @@
+version: '3.8'
+
+services:
+  ailao-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ailao-erp-crm:latest
+    container_name: ailao-erp-crm
+    restart: unless-stopped
+    ports:
+      - "${AILAODA_HTTP_PORT:-5001}:5001"
+    environment:
+      NODE_ENV: production
+      AILAODA_DEPLOYMENT_MODE: ${AILAODA_DEPLOYMENT_MODE:-private}
+      PORT: 5001
+      SERVE_FRONTEND: "true"
+      TRUST_PROXY: "true"
+      FRONTEND_DIST_DIR: /app/dist
+      DATABASE_URL: ${DATABASE_URL:-file:/data/stable.db}
+      BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
+      LOG_DIR: ${LOG_DIR:-/data/logs}
+      UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-90}
+      BACKUP_RETENTION_MODE: ${BACKUP_RETENTION_MODE:-report-only}
+      BACKUP_MAX_FILES: ${BACKUP_MAX_FILES:-800}
+      BACKUP_MAX_TOTAL_MB: ${BACKUP_MAX_TOTAL_MB:-8192}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set before server deploy}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://127.0.0.1:5001,http://localhost:5001}
+      API_RATE_LIMIT_WINDOW_MS: ${API_RATE_LIMIT_WINDOW_MS:-900000}
+      API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-2000}
+    volumes:
+      - ailao-data:/data
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  ailao-data:
