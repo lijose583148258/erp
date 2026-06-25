@@ -24,10 +24,12 @@ import {
 } from './production/useProductionWorkspaceForms';
 import {
   buildBatchTrace,
+  buildBomDraftPreviewSummary,
   buildEffectiveBomItemsPayload,
   buildProductionDeskItems,
   buildProductionStats,
   buildWorkOrderStepsPayload,
+  formatBomDraftPreviewWarnings,
   filterProductionBoms,
 } from './production/ProductionWorkspaceDerived';
 import { useProductionUnsavedFormGuards } from './production/useProductionUnsavedFormGuards';
@@ -166,6 +168,14 @@ const ProductionWorkspaceV2 = () => {
     () => getJsonSummary(selectedBom?.qualitySpecJson),
     [selectedBom],
   );
+  const bomDraftPreviewSummary = useMemo(
+    () => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize),
+    [bomItems, numericStandardBatchSize],
+  );
+  const bomDraftWarning = useMemo(
+    () => formatBomDraftPreviewWarnings(bomDraftPreviewSummary.rejectedRows),
+    [bomDraftPreviewSummary],
+  );
 
   const batchTrace = useMemo(() => buildBatchTrace(selectedBatch, workOrders), [selectedBatch, workOrders]);
 
@@ -183,7 +193,7 @@ const ProductionWorkspaceV2 = () => {
       nextErrors.percentage = `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，请校正为 100%`;
     }
 
-    const items = buildEffectiveBomItemsPayload(bomItems);
+    const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
 
     if (!items.length) {
       nextErrors.items = '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码';
@@ -195,6 +205,9 @@ const ProductionWorkspaceV2 = () => {
       setBomFormErrors(nextErrors);
       notify('warning', Object.values(nextErrors)[0] || '请补齐配方信息');
       return;
+    }
+    if (rejectedRows.length) {
+      notify('warning', `有 ${rejectedRows.length} 行不会保存，保存前请先确认右侧预览`);
     }
 
     setBomFormErrors({});
@@ -483,6 +496,7 @@ const ProductionWorkspaceV2 = () => {
             loading={loading}
             bomSaving={bomSaving}
             bomFormErrors={bomFormErrors}
+            bomDraftWarning={bomDraftWarning}
             clearBomFormError={field => setBomFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateBom={handleCreateBom}
             displayedBoms={displayedBoms}

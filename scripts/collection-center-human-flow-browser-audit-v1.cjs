@@ -27,8 +27,12 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const STEP_TIMEOUT_MS = 20_000;
 const DOWNLOAD_TIMEOUT_MS = 15_000;
 const SCRIPT_TIMEOUT_MS = 290_000;
-const ADMIN = { username: 'admin', password: 'admin123' };
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}_${Math.random().toString(36).slice(2, 7)}`;
+const ADMIN = {
+  username: `hf_admin_${RUN_ID.slice(-8)}`,
+  password: `Audit${RUN_ID.slice(-6)}!A`,
+  role: 'admin',
+};
 
 const runtimeDbPath = process.env.AILAODA_RUNTIME_DB_PATH || 'D:/AilaoDaRuntime/stable.db';
 process.env.DATABASE_URL = process.env.DATABASE_URL || `file:${runtimeDbPath.replace(/\\/g, '/')}`;

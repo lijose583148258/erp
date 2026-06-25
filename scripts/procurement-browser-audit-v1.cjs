@@ -1,6 +1,7 @@
 ﻿const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   ensureDir,
   safeScreenshot: captureScreenshot,
@@ -26,7 +27,7 @@ const DATA = {
   purchasePrice: '3800',
 };
 
-const REQUIRED_ROUTE_COPY = ['\u91c7\u8d2d', '\u4f9b\u5e94\u5546', '\u91c7\u8d2d\u8ba2\u5355'];
+const REQUIRED_ROUTE_COPY = ['采购、供应商与收货', '供应商主数据入口', '采购职责分流'];
 const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
 
 const TIMEOUTS = { login: 15000, route: 20000, fill: 20000, save: 25000, api: 15000, readBack: 15000 };
@@ -80,38 +81,31 @@ async function withTimebox(page, step, timeout, task) {
 
 async function seedLoginState(page) {
   return withTimebox(page, 'seed-login-state', TIMEOUTS.login, async () => {
-    const loginResponse = await page.request.post(`${APP_URL}api/auth/login`, {
-      data: { username: 'admin', password: 'admin123', role: 'super_admin' },
+    const { token } = await loginUiAuditUser(page, APP_URL, {
+      defaultStorage: {
+        'ailao.activeTab': 'procurement',
+        'ailao.language': 'zh',
+        language: 'zh-CN',
+        currency: 'CNY',
+      },
     });
-    if (!loginResponse.ok()) throw new Error(`login api failed: ${loginResponse.status()}`);
-
-    const loginJson = await loginResponse.json();
-    const token = loginJson?.data?.token;
-    const user = loginJson?.data?.user;
-    if (!token || !user) throw new Error('login api returned empty token or user');
     authToken = token;
-
-    await page.addInitScript(({ savedToken, savedUser }) => {
-      const appUser = {
-        id: String(savedUser.id),
-        name: savedUser.username,
-        role: savedUser.role,
-        segment: savedUser.segment || 'mixed',
-        avatar: savedUser.avatar || '',
-      };
-      window.localStorage.setItem('token', savedToken);
-      window.localStorage.setItem('user', JSON.stringify(appUser));
-      window.localStorage.setItem('auth_token', savedToken);
-      window.localStorage.setItem('erp_auth_token', savedToken);
-      window.localStorage.setItem('currentUser', JSON.stringify(savedUser));
-      window.localStorage.setItem('erp_current_user', JSON.stringify(savedUser));
-      window.localStorage.setItem('erp_current_role', savedUser.role || 'super_admin');
-      window.localStorage.setItem('ailao.activeTab', 'procurement');
-      window.localStorage.setItem('ailao.language', 'zh');
-      window.localStorage.setItem('language', 'zh-CN');
-      window.localStorage.setItem('currency', 'CNY');
-    }, { savedToken: token, savedUser: user });
   });
+}
+
+async function resolveForcePasswordChange(page) {
+  const card = page.locator('[data-testid="force-password-change"]');
+  if (!(await card.count())) return;
+  await card.waitFor({ state: 'visible', timeout: TIMEOUTS.route });
+  const fields = await card.locator('input[type="password"]').all();
+  if (fields.length < 3) throw new Error(`force password change inputs missing: ${fields.length}`);
+  const temporaryPassword = 'admin123';
+  const nextPassword = `ProcurementAudit${RUN_ID.slice(-6)}!`;
+  await fields[0].fill(temporaryPassword);
+  await fields[1].fill(nextPassword);
+  await fields[2].fill(nextPassword);
+  await page.getByTestId('force-password-change-submit').click();
+  await card.waitFor({ state: 'detached', timeout: TIMEOUTS.route });
 }
 
 async function apiFetch(page, endpoint, options = {}) {
@@ -233,6 +227,7 @@ async function openProcurement(page) {
       window.location.hash = '#procurement';
       window.dispatchEvent(new HashChangeEvent('hashchange'));
     });
+    await resolveForcePasswordChange(page);
 
     for (let index = 0; index < 30; index += 1) {
       const bodyText = await page.locator('body').innerText();

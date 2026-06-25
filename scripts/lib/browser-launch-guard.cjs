@@ -47,16 +47,7 @@ function buildLaunchStrategies() {
     ];
   }
 
-  const strategies = [
-    {
-      name: 'playwright-chromium',
-      options: browserOptions,
-    },
-  ];
-
-  if (process.env.BROWSER_GUARD_SKIP_PROBE === '1') {
-    return strategies;
-  }
+  const strategies = [];
 
   if (fs.existsSync(EDGE_PATH)) {
     strategies.push({
@@ -71,6 +62,19 @@ function buildLaunchStrategies() {
       options: { headless: true, executablePath: CHROME_PATH },
     });
   }
+
+  if (process.env.BROWSER_GUARD_SKIP_PROBE === '1') {
+    strategies.push({
+      name: 'playwright-chromium',
+      options: browserOptions,
+    });
+    return strategies;
+  }
+
+  strategies.push({
+    name: 'playwright-chromium',
+    options: browserOptions,
+  });
 
   return strategies;
 }

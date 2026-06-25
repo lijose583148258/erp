@@ -127,27 +127,33 @@ async function importBomLinesViaExcelPaste(page, recordStep) {
     await page.waitForTimeout(500);
     for (let index = 0; index < TEST_DATA.items.length; index += 1) {
       const row = page.getByTestId(`production-bom-line-row-${index}`);
-      const targetRow = (await row.count()) ? row : page.locator('table').first().locator('tbody tr').nth(index);
-      const inputValues = await targetRow.locator('input').evaluateAll((inputs) => inputs.map((input) => input.value));
-      const selectValues = await targetRow.locator('select').evaluateAll((selects) => selects.map((select) => select.value));
       const expected = TEST_DATA.items[index];
-      if (inputValues[0] !== expected.materialName) {
-        throw new Error(`excel paste materialName mismatch at row ${index + 1}: ${inputValues[0]}`);
+      if (!(await row.count())) {
+        throw new Error(`excel paste row missing at row ${index + 1}`);
       }
-      if (inputValues[1] !== expected.materialCode) {
-        throw new Error(`excel paste materialCode mismatch at row ${index + 1}: ${inputValues[1]}`);
+      const materialName = await row.getByTestId(`production-bom-row-${index}-material-name`).inputValue();
+      const materialCode = await row.getByTestId(`production-bom-row-${index}-material-code`).inputValue();
+      const ingredientRole = await row.getByTestId(`production-bom-row-${index}-ingredient-role`).inputValue();
+      const dosageMode = await row.getByTestId(`production-bom-row-${index}-dosage-mode`).inputValue();
+      const percentage = await row.getByTestId(`production-bom-row-${index}-percentage`).inputValue();
+      const quantityPerUnit = await row.getByTestId(`production-bom-row-${index}-quantity-per-unit`).inputValue();
+      if (materialName !== expected.materialName) {
+        throw new Error(`excel paste materialName mismatch at row ${index + 1}: ${materialName}`);
       }
-      if (selectValues[0] !== expected.ingredientRole) {
-        throw new Error(`excel paste ingredientRole mismatch at row ${index + 1}: ${selectValues[0]}`);
+      if (materialCode !== expected.materialCode) {
+        throw new Error(`excel paste materialCode mismatch at row ${index + 1}: ${materialCode}`);
       }
-      if (selectValues[1] !== expected.dosageMode) {
-        throw new Error(`excel paste dosageMode mismatch at row ${index + 1}: ${selectValues[1]}`);
+      if (ingredientRole !== expected.ingredientRole) {
+        throw new Error(`excel paste ingredientRole mismatch at row ${index + 1}: ${ingredientRole}`);
       }
-      if (inputValues[6] !== expected.percentage) {
-        throw new Error(`excel paste percentage mismatch at row ${index + 1}: ${inputValues[6]}`);
+      if (dosageMode !== expected.dosageMode) {
+        throw new Error(`excel paste dosageMode mismatch at row ${index + 1}: ${dosageMode}`);
       }
-      if (inputValues[7] !== expected.quantityPerUnit) {
-        throw new Error(`excel paste quantityPerUnit mismatch at row ${index + 1}: ${inputValues[7]}`);
+      if (percentage !== expected.percentage) {
+        throw new Error(`excel paste percentage mismatch at row ${index + 1}: ${percentage}`);
+      }
+      if (quantityPerUnit !== expected.quantityPerUnit) {
+        throw new Error(`excel paste quantityPerUnit mismatch at row ${index + 1}: ${quantityPerUnit}`);
       }
     }
   }, SHOT_DIR);
@@ -184,6 +190,25 @@ async function createChemicalBom(page, recordStep) {
     if (Number(bom.standardBatchSize || 0) !== Number(TEST_DATA.standardBatchSize)) throw new Error(`standardBatchSize mismatch: ${bom.standardBatchSize}`);
     if (String(bom.qualitySpecJson || '').indexOf('\u56fa\u542b') === -1) throw new Error('qualitySpecJson missing quality summary');
     if (!Array.isArray(bom.items) || bom.items.length !== TEST_DATA.items.length) throw new Error('bom items count mismatch');
+    TEST_DATA.items.forEach((expectedItem, index) => {
+      const actualItem = bom.items[index];
+      if (!actualItem) throw new Error(`bom item missing at row ${index + 1}`);
+      if ((actualItem.materialCode || '') !== expectedItem.materialCode) {
+        throw new Error(`bom materialCode mismatch at row ${index + 1}: ${actualItem.materialCode}`);
+      }
+      if ((actualItem.dosageMode || '') !== expectedItem.dosageMode) {
+        throw new Error(`bom dosageMode mismatch at row ${index + 1}: ${actualItem.dosageMode}`);
+      }
+      if (Number(actualItem.percentage || 0) !== Number(expectedItem.percentage || 0)) {
+        throw new Error(`bom percentage mismatch at row ${index + 1}: ${actualItem.percentage}`);
+      }
+      if (Number(actualItem.quantityPerUnit || 0) !== Number(expectedItem.quantityPerUnit || 0)) {
+        throw new Error(`bom quantityPerUnit mismatch at row ${index + 1}: ${actualItem.quantityPerUnit}`);
+      }
+      if ((actualItem.processStage || '') !== (expectedItem.processStage || '')) {
+        throw new Error(`bom processStage mismatch at row ${index + 1}: ${actualItem.processStage}`);
+      }
+    });
     if (!bom.items.some((item) => Number(item.allowedVarianceRate || 0) > 0)) throw new Error('allowedVarianceRate missing in BOM API readback');
     return bom;
   }, SHOT_DIR);
@@ -470,12 +495,13 @@ async function verifyIncompleteCompletionIsBlocked(page, recordStep) {
     if (inputCount < TEST_DATA.items.length) {
       throw new Error(`completion modal did not expose enough material deduction inputs: ${inputCount}`);
     }
+    const inputLocators = await numberInputs.all();
     const originalValues = [];
-    for (let index = 0; index < inputCount; index += 1) {
-      originalValues.push(await numberInputs.nth(index).inputValue());
+    for (const input of inputLocators) {
+      originalValues.push(await input.inputValue());
     }
-    for (let index = 0; index < inputCount; index += 1) {
-      await numberInputs.nth(index).fill(index === 0 ? (originalValues[index] || '1') : '0');
+    for (let index = 0; index < inputLocators.length; index += 1) {
+      await inputLocators[index].fill(index === 0 ? (originalValues[index] || '1') : '0');
     }
     await modal.getByTestId('production-complete-confirm').click();
     const blocked = await waitForAnyBodyText(page, [
@@ -485,8 +511,8 @@ async function verifyIncompleteCompletionIsBlocked(page, recordStep) {
       '\u0042\u004f\u004d \u539f\u6599',
     ], STEP_TIMEOUT_MS.readBack);
     await waitForBodyText(page, [S.completionModal, S.completeConfirm], STEP_TIMEOUT_MS.readBack);
-    for (let index = 0; index < inputCount; index += 1) {
-      await numberInputs.nth(index).fill(originalValues[index] || '0');
+    for (let index = 0; index < inputLocators.length; index += 1) {
+      await inputLocators[index].fill(originalValues[index] || '0');
     }
     report.incompleteCompletionBlocked = {
       matchedText: blocked.matched,
