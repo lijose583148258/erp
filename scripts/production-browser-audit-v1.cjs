@@ -143,11 +143,11 @@ async function importBomLinesViaExcelPaste(page, recordStep) {
       if (selectValues[1] !== expected.dosageMode) {
         throw new Error(`excel paste dosageMode mismatch at row ${index + 1}: ${selectValues[1]}`);
       }
-      if (inputValues[6] !== expected.percentage) {
-        throw new Error(`excel paste percentage mismatch at row ${index + 1}: ${inputValues[6]}`);
+      if (inputValues[2] !== expected.percentage) {
+        throw new Error(`excel paste percentage mismatch at row ${index + 1}: ${inputValues[2]}`);
       }
-      if (inputValues[7] !== expected.quantityPerUnit) {
-        throw new Error(`excel paste quantityPerUnit mismatch at row ${index + 1}: ${inputValues[7]}`);
+      if (inputValues[3] !== expected.quantityPerUnit) {
+        throw new Error(`excel paste quantityPerUnit mismatch at row ${index + 1}: ${inputValues[3]}`);
       }
     }
   }, SHOT_DIR);

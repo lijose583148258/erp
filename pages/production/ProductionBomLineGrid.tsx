@@ -1,4 +1,4 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { Calculator, ChevronRight, ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { ActionToolbar } from '../../components/ui';
 import {
@@ -37,6 +37,9 @@ const baseInputClass =
   'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-100 dark:focus:bg-slate-900 border-none';
 const baseSelectClass =
   'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none border-none cursor-pointer';
+
+const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
+const commonSelectClass = 'w-full rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30 cursor-pointer';
 
 const CHEMICAL_ROLE_OPTIONS = [
   { value: 'main_resin', label: '主树脂' },
@@ -420,18 +423,28 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
       )}
 
       <div className="overflow-x-auto rounded-[24px] border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
-        <table data-testid="production-bom-line-grid" className="min-w-[1600px] w-full border-collapse">
+        <table data-testid="production-bom-line-grid" className="w-full min-w-max border-collapse">
           <thead>
             <tr>
-              <th className="w-10 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">#</th>
-              <th className="whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">原料身份 / 工艺信息</th>
-              <th className="w-60 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">配方占比 / 单位单耗 / 单位</th>
-              <th className="w-32 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">损耗 / 偏差 %</th>
-              <th className="w-72 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">库存 / 成本 / 风险</th>
-              <th className="w-24 whitespace-nowrap border-b border-slate-200 px-2 py-3 text-center text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 dark:border-slate-700">操作</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">#</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">物料名</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">保密代号/编码*</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">角色</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">剂量模式</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">百分比%</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">单位单耗</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">单位</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">损耗率%</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">允许偏差%</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">工艺阶段</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">替代组</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">收率%</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">备注</th>
+              <th className="sticky top-0 z-20 bg-slate-50/95 px-2 py-3 text-left text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400 min-w-[280px]">库存/成本/风险状态</th>
+              <th className="sticky right-0 top-0 z-30 bg-slate-50/95 px-2 py-3 text-center text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 shadow-sm shadow-[-10px_0_16px_-14px_rgba(15,23,42,0.55)] dark:bg-slate-800/95 dark:text-slate-400 w-20">操作</th>
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
             {items.map((item, index) => {
               const roleValue = normalizeRoleValue(item.ingredientRole);
               const dosageValue = normalizeDosageValue(item.dosageMode);
@@ -443,10 +456,6 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                 dosageValue === 'percentage' && percentageValue > 0
                   ? formatDecimal(getPerUnitFromPercentage(percentageValue))
                   : '';
-              const batchQuantity =
-                standardBatchSize > 0 && effectiveQuantity > 0
-                  ? effectiveQuantity * standardBatchSize
-                  : 0;
               const materialCode = item.materialCode.trim();
               const operatingMetrics = getBomOperatingMetrics({
                 item,
@@ -456,174 +465,176 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                 materialCodeCount: materialCode ? materialCodeCounts.get(materialCode) || 0 : 0,
               });
 
+              const displayQuantityPerUnit = dosageValue === 'percentage' && percentageValue > 0 ? perUnitQuantity : item.quantityPerUnit;
+
               return (
                 <tr
                   key={index}
                   data-testid={`production-bom-line-row-${index}`}
-                  className={`group border-b border-slate-200 transition-colors hover:bg-white dark:border-slate-700 dark:hover:bg-slate-800 ${isInvalidDraftLine ? 'bg-rose-50/60 dark:bg-rose-950/10' : ''}`}
+                  className={`group transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/30 ${isInvalidDraftLine ? 'bg-rose-50/50 dark:bg-rose-950/20' : 'bg-white dark:bg-slate-900/40'}`}
                 >
-                  <td className="px-2 py-3 align-top text-xs font-black text-slate-400">{index + 1}</td>
-                  <td className="px-2 py-2">
-                    <div className="flex w-full flex-col gap-1">
-                      <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white transition-all focus-within:border-blue-400 focus-within:ring-1 focus-within:ring-blue-400 dark:border-slate-700 dark:bg-slate-900">
-                        <div className="w-1/2 border-r border-slate-100 dark:border-slate-800">
-                          <input
-                            value={item.materialName}
-                            onChange={(e) => updateItem(index, { materialName: e.target.value })}
-                            placeholder="物料名称（可留空）"
-                            className={baseInputClass}
-                          />
-                        </div>
-                        <div className="w-1/4 border-r border-slate-100 dark:border-slate-800">
-                          <input
-                            value={item.materialCode}
-                            onChange={(e) => updateItem(index, { materialCode: e.target.value })}
-                            placeholder="代号/编码 *"
-                            className={baseInputClass}
-                          />
-                        </div>
-                        <div className="w-1/4">
-                          <select
-                            value={roleValue}
-                            onChange={(e) => updateItem(index, { ingredientRole: normalizeRoleValue(e.target.value) })}
-                            className={baseSelectClass}
-                          >
-                            {CHEMICAL_ROLE_OPTIONS.map((option) => (
-                              <option key={option.value} value={option.value}>
-                                {option.label}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                      </div>
-
-                      <div className="flex items-center gap-2 opacity-70 transition-opacity group-hover:opacity-100">
-                        <ChevronRight size={12} className="flex-shrink-0 text-slate-400" />
-                        <select
-                          value={dosageValue}
-                          onChange={(e) => updateItem(index, { dosageMode: normalizeDosageValue(e.target.value) })}
-                          className="w-24 rounded-md bg-transparent px-1 py-1 text-[11px] font-bold outline-none focus:bg-white focus:text-blue-600 dark:focus:bg-slate-900 dark:focus:text-blue-400"
-                        >
-                          {DOSAGE_MODE_OPTIONS.map((option) => (
-                            <option key={option.value} value={option.value}>
-                              {option.label}
-                            </option>
-                          ))}
-                        </select>
-                        <input
-                          value={item.processStage}
-                          onChange={(e) => updateItem(index, { processStage: e.target.value })}
-                          placeholder="工艺阶段"
-                          className="w-24 bg-transparent text-[11px] outline-none text-slate-500 focus:text-blue-600 dark:focus:text-blue-400"
-                        />
-                        <input
-                          value={item.substituteGroup}
-                          onChange={(e) => updateItem(index, { substituteGroup: e.target.value })}
-                          placeholder="替代组"
-                          className="w-20 bg-transparent text-[11px] outline-none text-slate-500 focus:text-blue-600 dark:focus:text-blue-400"
-                        />
-                        <input
-                          value={item.yieldContribution}
-                          onChange={(e) => updateItem(index, { yieldContribution: e.target.value })}
-                          placeholder="收率贡献%"
-                          className="w-20 bg-transparent text-[11px] outline-none text-slate-500 focus:text-blue-600 dark:focus:text-blue-400"
-                        />
-                        <input
-                          value={item.notes}
-                          onChange={(e) => updateItem(index, { notes: e.target.value })}
-                          placeholder="备注"
-                          className="min-w-[150px] flex-1 bg-transparent text-[11px] outline-none text-slate-500 focus:text-blue-600 dark:focus:text-blue-400"
-                        />
-                      </div>
-                    </div>
+                  <td className="px-2 py-2.5 align-middle text-xs font-black text-slate-400">{index + 1}</td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[140px] max-w-[200px]">
+                    <input
+                      value={item.materialName}
+                      onChange={(e) => updateItem(index, { materialName: e.target.value })}
+                      placeholder="物料名(可选)"
+                      className={commonInputClass}
+                    />
                   </td>
-
-                  <td className="px-2 py-2 align-top">
-                    <div className="flex flex-col gap-1">
-                      <div className="flex overflow-hidden rounded-lg border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
-                        <input
-                          value={item.percentage}
-                          onChange={(e) => updateItem(index, { percentage: e.target.value })}
-                          placeholder={dosageValue === 'percentage' ? '占比%' : '占比'}
-                          className={`${baseInputClass} w-16 border-r border-slate-100 text-center dark:border-slate-800`}
-                        />
-                        <input
-                          value={item.quantityPerUnit}
-                          onChange={(e) => updateItem(index, { quantityPerUnit: e.target.value })}
-                          placeholder="单位单耗"
-                          className={`${baseInputClass} flex-1 border-r border-slate-100 text-center dark:border-slate-800`}
-                        />
-                        <input
-                          value={item.unit}
-                          onChange={(e) => updateItem(index, { unit: e.target.value })}
-                          placeholder="单位"
-                          className={`${baseInputClass} w-12 text-center`}
-                        />
-                      </div>
-                      {dosageValue === 'percentage' && percentageValue > 0 && (
-                        <button
-                          type="button"
-                          onClick={() => updateItem(index, { quantityPerUnit: perUnitQuantity })}
-                          className="rounded bg-blue-50 px-2 py-1 text-left text-[10px] text-blue-500 hover:text-blue-700 dark:bg-blue-900/30"
-                        >
-                          <Calculator size={11} className="mr-1 inline" />
-                          单位单耗 {perUnitQuantity}{batchQuantity ? ` / 标准批量用量 ${batchQuantity}` : ''}
-                        </button>
-                      )}
-                      {isInvalidDraftLine ? (
-                        <div className="rounded-lg bg-rose-50 px-2 py-1 text-[10px] font-black text-rose-600 dark:bg-rose-950/30 dark:text-rose-200">
-                          这行不会保存：请填写单位单耗，或在百分比模式下填写占比%
-                        </div>
-                      ) : null}
-                    </div>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[130px] max-w-[180px]">
+                    <input
+                      value={item.materialCode}
+                      onChange={(e) => updateItem(index, { materialCode: e.target.value })}
+                      placeholder="代号 *"
+                      className={`${commonInputClass} border-blue-200 focus:border-blue-500 dark:border-blue-900/50`}
+                    />
                   </td>
-
-                  <td className="px-2 py-2 align-top">
-                    <div className="flex flex-col gap-1">
-                      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white p-0.5 dark:border-slate-700 dark:bg-slate-900">
-                        <input
-                          value={item.lossRate}
-                          onChange={(e) => updateItem(index, { lossRate: e.target.value })}
-                          placeholder="损耗"
-                          className={`${baseInputClass} text-center`}
-                        />
-                      </div>
-                      <div className="overflow-hidden rounded-lg border border-emerald-100 bg-white p-0.5 dark:border-emerald-900/40 dark:bg-slate-900">
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[110px]">
+                    <select
+                      value={roleValue}
+                      onChange={(e) => updateItem(index, { ingredientRole: normalizeRoleValue(e.target.value) })}
+                      className={commonSelectClass}
+                    >
+                      {CHEMICAL_ROLE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[100px]">
+                    <select
+                      value={dosageValue}
+                      onChange={(e) => {
+                        const newMode = normalizeDosageValue(e.target.value);
+                        updateItem(index, { dosageMode: newMode });
+                      }}
+                      className={commonSelectClass}
+                    >
+                      {DOSAGE_MODE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>{option.label}</option>
+                      ))}
+                    </select>
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[90px]">
+                    <div className="relative">
                       <input
-                        value={item.allowedVarianceRate}
-                        onChange={(e) => updateItem(index, { allowedVarianceRate: e.target.value })}
-                        placeholder="偏差"
-                        className={`${baseInputClass} text-center`}
+                        value={item.percentage}
+                        onChange={(e) => updateItem(index, { percentage: e.target.value })}
+                        onBlur={() => {
+                          if (dosageValue === 'percentage' && percentageValue > 0) {
+                            updateItem(index, { quantityPerUnit: getPerUnitFromPercentage(percentageValue).toString() });
+                          }
+                        }}
+                        placeholder="%"
+                        disabled={dosageValue !== 'percentage'}
+                        className={`${commonInputClass} text-right font-mono ${dosageValue !== 'percentage' ? 'bg-slate-50 opacity-40 cursor-not-allowed dark:bg-slate-800' : 'bg-blue-50/30 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'}`}
                       />
-                      </div>
-                      <div className="px-1 text-[10px] font-bold text-slate-400">留空按角色默认</div>
                     </div>
                   </td>
-
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[100px]">
+                    <input
+                      value={displayQuantityPerUnit}
+                      onChange={(e) => updateItem(index, { quantityPerUnit: e.target.value })}
+                      placeholder="单耗"
+                      disabled={dosageValue === 'percentage'}
+                      className={`${commonInputClass} text-right font-mono ${dosageValue === 'percentage' ? 'bg-slate-50/80 border-slate-200 text-slate-500 cursor-not-allowed dark:bg-slate-800 dark:text-slate-400' : ''}`}
+                      title={dosageValue === 'percentage' ? '按百分比自动计算，禁止手动修改' : undefined}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[70px]">
+                    <input
+                      value={item.unit}
+                      onChange={(e) => updateItem(index, { unit: e.target.value })}
+                      placeholder="单位"
+                      className={`${commonInputClass} text-center`}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[80px]">
+                    <input
+                      value={item.lossRate}
+                      onChange={(e) => updateItem(index, { lossRate: e.target.value })}
+                      placeholder="%"
+                      className={`${commonInputClass} text-right font-mono`}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[80px]">
+                    <input
+                      value={item.allowedVarianceRate}
+                      onChange={(e) => updateItem(index, { allowedVarianceRate: e.target.value })}
+                      placeholder="%"
+                      className={`${commonInputClass} text-right font-mono`}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[100px]">
+                    <input
+                      value={item.processStage}
+                      onChange={(e) => updateItem(index, { processStage: e.target.value })}
+                      placeholder="工序"
+                      className={commonInputClass}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[90px]">
+                    <input
+                      value={item.substituteGroup}
+                      onChange={(e) => updateItem(index, { substituteGroup: e.target.value })}
+                      placeholder="替代组"
+                      className={commonInputClass}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[80px]">
+                    <input
+                      value={item.yieldContribution}
+                      onChange={(e) => updateItem(index, { yieldContribution: e.target.value })}
+                      placeholder="%"
+                      className={`${commonInputClass} text-right font-mono`}
+                    />
+                  </td>
+                  
+                  <td className="px-2 py-2.5 align-top min-w-[120px]">
+                    <input
+                      value={item.notes}
+                      onChange={(e) => updateItem(index, { notes: e.target.value })}
+                      placeholder="备注"
+                      className={commonInputClass}
+                    />
+                  </td>
+                  
                   <ProductionBomOperatingFields
                     item={item}
-                    inputClassName={baseInputClass}
+                    inputClassName={baseInputClass} // Keep base class for the tiny inputs inside
                     metrics={operatingMetrics}
                     onChange={(patch) => updateItem(index, patch)}
                   />
 
-                  <td className="px-2 py-3 align-top text-center">
-                    <div className="flex justify-center gap-2">
+                  <td className="sticky right-0 z-10 bg-white px-2 py-2.5 align-middle text-center shadow-[-8px_0_15px_-10px_rgba(0,0,0,0.1)] dark:bg-slate-900">
+                    <div className="flex justify-center gap-1.5">
                       <button
                         type="button"
                         onClick={() => duplicateItem(index)}
-                        className="rounded-xl border border-slate-200 p-2 text-slate-500 transition hover:bg-slate-100 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800"
+                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         title="复制一行"
                       >
-                        <CopyPlus size={14} />
+                        <CopyPlus size={16} />
                       </button>
                       <button
                         type="button"
                         onClick={() => removeItem(index)}
-                        className="rounded-xl border border-rose-200 p-2 text-rose-500 transition hover:bg-rose-50 dark:border-rose-900/40 dark:hover:bg-rose-950/20"
+                        className="rounded-lg p-2 text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
                         title="删除一行"
                       >
-                        <Trash2 size={14} />
+                        <Trash2 size={16} />
                       </button>
                     </div>
                   </td>
