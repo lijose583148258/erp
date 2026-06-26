@@ -80,6 +80,7 @@ interface ProductionBomSectionProps {
   selectedBomPercentageSummary: number;
   selectedBomProcessSummary: string;
   selectedBomQualitySummary: string;
+  onFormTouched: () => void;
 }
 
 export function ProductionBomSection({
@@ -133,6 +134,7 @@ export function ProductionBomSection({
   selectedBomPercentageSummary,
   selectedBomProcessSummary,
   selectedBomQualitySummary,
+  onFormTouched,
 }: ProductionBomSectionProps) {
   const isBomMasterReady = Boolean(bomProductName.trim() && bomVersion.trim() && bomOutputUnit.trim());
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
@@ -188,21 +190,23 @@ export function ProductionBomSection({
               label="产品名称"
               value={bomProductName}
               onChange={value => {
+                onFormTouched();
                 clearBomFormError('productName');
                 setBomProductName(value);
               }}
               placeholder="例如：环氧树脂底胶"
               error={bomFormErrors.productName}
             />
-            <Field dataTestId="production-bom-version" label="版本" value={bomVersion} onChange={setBomVersion} placeholder="v1" />
-            <SelectField dataTestId="production-bom-type" label="配方类型" value={bomType} onChange={setBomType} options={BOM_TYPE_OPTIONS} />
-            <SelectField dataTestId="production-bom-status" label="配方状态" value={bomStatus} onChange={setBomStatus} options={BOM_STATUS_OPTIONS} />
-            <SelectField dataTestId="production-bom-formulation-mode" label="配方模式" value={bomFormulationMode} onChange={setBomFormulationMode} options={FORMULATION_MODE_OPTIONS} />
+            <Field dataTestId="production-bom-version" label="版本" value={bomVersion} onChange={value => { onFormTouched(); setBomVersion(value); }} placeholder="v1" />
+            <SelectField dataTestId="production-bom-type" label="配方类型" value={bomType} onChange={value => { onFormTouched(); setBomType(value); }} options={BOM_TYPE_OPTIONS} />
+            <SelectField dataTestId="production-bom-status" label="配方状态" value={bomStatus} onChange={value => { onFormTouched(); setBomStatus(value); }} options={BOM_STATUS_OPTIONS} />
+            <SelectField dataTestId="production-bom-formulation-mode" label="配方模式" value={bomFormulationMode} onChange={value => { onFormTouched(); setBomFormulationMode(value); }} options={FORMULATION_MODE_OPTIONS} />
             <Field
               dataTestId="production-bom-output-unit"
               label="输出单位"
               value={bomOutputUnit}
               onChange={value => {
+                onFormTouched();
                 clearBomFormError('outputUnit');
                 setBomOutputUnit(value);
               }}
@@ -214,6 +218,7 @@ export function ProductionBomSection({
               label="鏍囧噯鎵归噺"
               value={bomStandardBatchSize}
               onChange={value => {
+                onFormTouched();
                 clearBomFormError('standardBatchSize');
                 setBomStandardBatchSize(value);
               }}

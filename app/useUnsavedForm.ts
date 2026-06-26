@@ -6,19 +6,30 @@ type Options<T> = {
   label: string;
   open: boolean;
   value: T;
+  enabled?: boolean;
+  touched?: boolean;
   resetKey?: string | number | null;
 };
 
-export const useUnsavedForm = <T,>({ sourceId, label, open, value, resetKey = null }: Options<T>) => {
+export const useUnsavedForm = <T,>({
+  sourceId,
+  label,
+  open,
+  value,
+  enabled = true,
+  touched = true,
+  resetKey = null,
+}: Options<T>) => {
   const { registerUnsavedChanges, confirmDiscardChanges } = useAppContext();
   const snapshot = useMemo(() => JSON.stringify(value), [value]);
   const [baseline, setBaseline] = useState<string | null>(null);
+  const isEnabled = open && enabled;
 
   useEffect(() => {
-    setBaseline(open ? snapshot : null);
-  }, [open, resetKey]);
+    setBaseline(isEnabled ? snapshot : null);
+  }, [isEnabled, resetKey]);
 
-  const dirty = open && baseline !== null && snapshot !== baseline;
+  const dirty = isEnabled && touched && baseline !== null && snapshot !== baseline;
 
   useEffect(() => {
     registerUnsavedChanges(sourceId, label, dirty);

@@ -106,7 +106,24 @@ export const useAppShell = (): AppShellResult => {
     const confirmDiscardChanges = useCallback(() => {
         const labels = Object.values(unsavedChanges);
         if (!labels.length) return true;
-        return window.confirm(`${labels[0]}有未保存的更改，确定离开当前页面吗？`);
+        const message = `${labels.join('\u3001')} \u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff0c\u786e\u5b9a\u79bb\u5f00\u5f53\u524d\u9875\u9762\u5417\uff1f`;
+        return window.confirm(message);
+    }, [unsavedChanges]);
+
+    useEffect(() => {
+        const debugWindow = window as typeof window & {
+            __AILAODA_UNSAVED_STATE__?: {
+                dirtySourceIds: string[];
+                dirtyLabels: string[];
+                count: number;
+            };
+        };
+        const dirtySourceIds = Object.keys(unsavedChanges);
+        debugWindow.__AILAODA_UNSAVED_STATE__ = {
+            dirtySourceIds,
+            dirtyLabels: Object.values(unsavedChanges),
+            count: dirtySourceIds.length,
+        };
     }, [unsavedChanges]);
 
     const setActiveTab = useCallback((tab: string) => {

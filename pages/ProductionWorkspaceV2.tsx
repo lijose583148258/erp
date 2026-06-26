@@ -105,7 +105,7 @@ const ProductionWorkspaceV2 = () => {
   const qualityForm = useProductionQualityForm();
   const adjustmentForm = useProductionAdjustmentForm();
   const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
-  const { woProductName, setWoProductName, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
+  const { woProductName, setWoProductName, setWoProductNameSilently, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
   const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
   const selectedBom = useMemo(() => boms.find(item => item.id === selectedBomId) || null, [boms, selectedBomId]);
@@ -126,6 +126,8 @@ const ProductionWorkspaceV2 = () => {
     qualitySaveVersion,
     adjustmentSaveVersion,
     autoFilledWorkOrderProduct,
+    activeDeskTab,
+    hasSelectedWorkOrder: Boolean(selectedWorkOrder),
   });
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
@@ -161,8 +163,8 @@ const ProductionWorkspaceV2 = () => {
     void loadData(controller.signal);
     return () => controller.abort();
   }, [loadData]);
-  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); }, [selectedBom, setWoProductName, woProductName]);
-  useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductName(selectedBatch.productName); }, [selectedBatch, setWoProductName, woProductName]);
+  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductNameSilently(selectedBom.productName); }, [selectedBom, setWoProductNameSilently, woProductName]);
+  useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductNameSilently(selectedBatch.productName); }, [selectedBatch, setWoProductNameSilently, woProductName]);
 
   const displayedBoms = useMemo(() => filterProductionBoms(boms, bomKeyword), [boms, bomKeyword]);
   const stats = useMemo(() => buildProductionStats(summary, boms, workOrders, batches), [summary, boms, workOrders, batches]);
@@ -273,9 +275,10 @@ const ProductionWorkspaceV2 = () => {
       notify('success', 'BOM 已创建，回读核对通过');
       resetBomForm();
       setBomSaveVersion(version => version + 1);
+      bomForm.clearTouched();
       await loadData();
       setSelectedBomId(createdBom.id);
-      setWoProductName(createdBom.productName);
+      setWoProductNameSilently(createdBom.productName);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建 BOM 失败');
     } finally {
@@ -305,7 +308,7 @@ const ProductionWorkspaceV2 = () => {
     setWorkOrderFormErrors({});
     setWorkOrderSaving(true);
     try {
-      await withSaveTimeout(() => productionService.createWorkOrder({
+      const createdWorkOrder = await withSaveTimeout(() => productionService.createWorkOrder({
         bomId: resolvedBom?.id ?? selectedBomId ?? undefined,
         batchId: resolvedBatch?.id ?? selectedBatchId ?? undefined,
         productName: resolvedProductName,
@@ -320,7 +323,9 @@ const ProductionWorkspaceV2 = () => {
       notify('success', '工单已创建');
       resetWoForm();
       setWorkOrderSaveVersion(version => version + 1);
+      workOrderForm.clearTouched();
       await loadData();
+      setSelectedWorkOrderId(createdWorkOrder.id);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建工单失败');
     } finally {
@@ -407,6 +412,7 @@ const ProductionWorkspaceV2 = () => {
       notify('success', '质检记录已保存');
       resetQualityForm();
       setQualitySaveVersion(version => version + 1);
+      qualityForm.clearTouched();
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '保存质检记录失败');
@@ -448,6 +454,7 @@ const ProductionWorkspaceV2 = () => {
       setAdjustmentQuantity('');
       setAdjustmentNote('');
       setAdjustmentSaveVersion(version => version + 1);
+      adjustmentForm.clearTouched();
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '登记生产调账失败');
@@ -541,11 +548,12 @@ const ProductionWorkspaceV2 = () => {
             displayedBoms={displayedBoms}
             selectedBomId={selectedBomId}
             setSelectedBomId={setSelectedBomId}
-            setWoProductName={setWoProductName}
+            setWoProductName={setWoProductNameSilently}
             selectedBom={selectedBom}
             selectedBomPercentageSummary={selectedBomPercentageSummary}
             selectedBomProcessSummary={selectedBomProcessSummary}
             selectedBomQualitySummary={selectedBomQualitySummary}
+            onFormTouched={bomForm.markTouched}
           />
         ) : null}
 

@@ -78,6 +78,22 @@ const report = {
 let authToken = '';
 let browser = null;
 
+async function readUnsavedState(page) {
+  await page.waitForFunction(() => Boolean(window.__AILAODA_UNSAVED_STATE__), null, { timeout: 5000 }).catch(() => {});
+  return page.evaluate(() => {
+    const state = window.__AILAODA_UNSAVED_STATE__;
+    if (!state || typeof state !== 'object') {
+      return { dirtySourceIds: [], dirtyLabels: [], count: 0, missing: true };
+    }
+    return {
+      dirtySourceIds: Array.isArray(state.dirtySourceIds) ? state.dirtySourceIds : [],
+      dirtyLabels: Array.isArray(state.dirtyLabels) ? state.dirtyLabels : [],
+      count: Number(state.count || 0),
+      missing: false,
+    };
+  });
+}
+
 function recordFinal() {
   fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), 'utf8');
 }
@@ -173,6 +189,12 @@ async function fillContractDraft(page) {
     if (percentage !== expected.percentage) throw new Error(`row ${index + 1} percentage mismatch`);
     if (Number(quantityPerUnit || 0) !== Number(expected.quantityPerUnit || 0)) throw new Error(`row ${index + 1} quantityPerUnit mismatch`);
   }
+
+  const unsavedState = await readUnsavedState(page);
+  if (unsavedState.missing) throw new Error('__AILAODA_UNSAVED_STATE__ missing before save');
+  if (!unsavedState.dirtySourceIds.includes('production-bom-form')) {
+    throw new Error(`production BOM draft did not become dirty before save: ${JSON.stringify(unsavedState)}`);
+  }
 }
 
 async function saveAndVerifyReadback(page, recordStep) {
@@ -215,6 +237,12 @@ async function saveAndVerifyReadback(page, recordStep) {
     assertNoMojibake(await page.locator('body').innerText(), 'bom ui readback', FORBIDDEN_MOJIBAKE);
   }, SHOT_DIR);
 
+  const unsavedState = await readUnsavedState(page);
+  if (unsavedState.missing) throw new Error('__AILAODA_UNSAVED_STATE__ missing after successful save');
+  if (unsavedState.count !== 0 || unsavedState.dirtySourceIds.length !== 0) {
+    throw new Error(`production BOM stayed dirty after successful save: ${JSON.stringify(unsavedState)}`);
+  }
+
   return created;
 }
 
@@ -232,6 +260,12 @@ async function verifyDraftPreservedOnFailedSave(page, recordStep) {
     const lastMaterialCode = await lastRow.getByTestId(`production-bom-row-${CONTRACT_DATA.items.length - 1}-material-code`).inputValue();
     if (firstMaterialName !== CONTRACT_DATA.items[0].materialName) throw new Error('draft was cleared after failed save');
     if (lastMaterialCode !== CONTRACT_DATA.items[CONTRACT_DATA.items.length - 1].materialCode) throw new Error('tail draft was cleared after failed save');
+
+    const unsavedState = await readUnsavedState(page);
+    if (unsavedState.missing) throw new Error('__AILAODA_UNSAVED_STATE__ missing after failed save');
+    if (!unsavedState.dirtySourceIds.includes('production-bom-form')) {
+      throw new Error(`production BOM dirty state was cleared after failed save: ${JSON.stringify(unsavedState)}`);
+    }
   }, SHOT_DIR);
 }
 

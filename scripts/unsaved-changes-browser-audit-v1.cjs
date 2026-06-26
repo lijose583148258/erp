@@ -5,6 +5,7 @@ const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const REPORT_PATH = path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json');
+const UNSAVED_TEXT = '\u672a\u4fdd\u5b58';
 const report = { startedAt: new Date().toISOString(), status: 'running', steps: [] };
 
 function recordStep(step, details = {}) {
@@ -17,6 +18,39 @@ function recordStep(step, details = {}) {
 
 function expect(value, message) {
   if (!value) throw new Error(message);
+}
+
+async function readUnsavedState(page) {
+  await page.waitForFunction(() => Boolean(window.__AILAODA_UNSAVED_STATE__), null, { timeout: 5000 }).catch(() => {});
+  return page.evaluate(() => {
+    const state = window.__AILAODA_UNSAVED_STATE__;
+    if (!state || typeof state !== 'object') {
+      return { dirtySourceIds: [], dirtyLabels: [], count: 0, missing: true };
+    }
+    return {
+      dirtySourceIds: Array.isArray(state.dirtySourceIds) ? state.dirtySourceIds : [],
+      dirtyLabels: Array.isArray(state.dirtyLabels) ? state.dirtyLabels : [],
+      count: Number(state.count || 0),
+      missing: false,
+    };
+  });
+}
+
+async function expectCleanUnsavedState(page, context, disallowedSourceIds = []) {
+  const state = await readUnsavedState(page);
+  expect(!state.missing, `${context}: __AILAODA_UNSAVED_STATE__ missing`);
+  expect(state.count === 0, `${context}: expected clean unsaved state, got ${JSON.stringify(state)}`);
+  disallowedSourceIds.forEach((sourceId) => {
+    expect(!state.dirtySourceIds.includes(sourceId), `${context}: unexpected dirty source ${sourceId}`);
+  });
+  return state;
+}
+
+async function expectDirtyUnsavedState(page, context, sourceId) {
+  const state = await readUnsavedState(page);
+  expect(!state.missing, `${context}: __AILAODA_UNSAVED_STATE__ missing`);
+  expect(state.dirtySourceIds.includes(sourceId), `${context}: expected dirty source ${sourceId}, got ${JSON.stringify(state)}`);
+  return state;
 }
 
 async function clickWhenStable(locator, attempts = 5) {
@@ -87,7 +121,7 @@ async function verifySalesOrder(page) {
   const dismissDialog = answerNextDialog(page, false);
   await modal.locator('[data-testid="sales-order-editor-close"]').click();
   const dismissMessage = await dismissDialog;
-  expect(dismissMessage.includes('未保存'), 'sales order close warning is unclear');
+  expect(dismissMessage.includes(UNSAVED_TEXT), 'sales order close warning is unclear');
   expect(await modal.isVisible(), 'sales order modal closed after warning was dismissed');
 
   const draftState = await page.evaluate(() => {
@@ -138,7 +172,7 @@ async function verifyCrmCreate(page) {
   const dismissDialog = answerNextDialog(page, false);
   await modal.locator('[data-testid="crm-create-close"]').click();
   const message = await dismissDialog;
-  expect(message.includes('未保存'), 'CRM close warning is unclear');
+  expect(message.includes(UNSAVED_TEXT), 'CRM close warning is unclear');
   expect(await modal.isVisible(), 'CRM modal closed after warning was dismissed');
   recordStep('crm-create-warning');
 
@@ -159,6 +193,7 @@ async function openModule(page, moduleId, readyTestId) {
 async function verifyCleanNavigation(page, moduleId, readyTestId) {
   await openModule(page, moduleId, readyTestId);
   await page.waitForTimeout(500);
+  await expectCleanUnsavedState(page, `${moduleId} clean navigation before leave`);
   let unexpectedDialog = '';
   page.once('dialog', async (dialog) => {
     unexpectedDialog = dialog.message();
@@ -169,6 +204,7 @@ async function verifyCleanNavigation(page, moduleId, readyTestId) {
   });
   await page.waitForFunction(() => window.location.hash === '#dashboard', null, { timeout: 10000 });
   expect(!unexpectedDialog, `${moduleId} clean navigation showed an unsaved warning: ${unexpectedDialog}`);
+  await expectCleanUnsavedState(page, `${moduleId} clean navigation after leave`);
   recordStep(`${moduleId}-clean-navigation`);
 }
 
@@ -176,15 +212,23 @@ async function verifyProductionBom(page) {
   await openModule(page, 'production', 'production-desk-bom');
   await page.locator('[data-testid="production-bom-save"]').waitFor({ state: 'visible', timeout: 20000 });
   await page.waitForFunction(() => !document.querySelector('[data-testid="production-bom-save"]')?.hasAttribute('disabled'), null, { timeout: 20000 });
+  await expectCleanUnsavedState(page, 'production bom initial state', [
+    'production-bom-form',
+    'production-work-order-form',
+    'production-quality-form',
+    'production-batch-adjustment-form',
+  ]);
   await page.locator('[data-testid="production-bom-product-name"]').fill('UNSAVED-BOM-AUDIT');
+  await expectDirtyUnsavedState(page, 'production bom after manual input', 'production-bom-form');
 
   const dismissDialog = answerNextDialog(page, false);
   await page.evaluate(() => {
     window.location.hash = '#dashboard';
   });
   const dismissMessage = await dismissDialog;
-  expect(dismissMessage.includes('未保存'), 'production BOM navigation warning is unclear');
+  expect(dismissMessage.includes(UNSAVED_TEXT), 'production BOM navigation warning is unclear');
   expect(await page.locator('[data-testid="production-bom-product-name"]').inputValue() === 'UNSAVED-BOM-AUDIT', 'production BOM draft disappeared after navigation was dismissed');
+  await expectDirtyUnsavedState(page, 'production bom after dismiss navigation', 'production-bom-form');
   recordStep('production-bom-navigation-warning');
 
   const acceptDialog = answerNextDialog(page, true);
@@ -200,16 +244,24 @@ async function verifyProductionWorkOrder(page) {
   await openModule(page, 'production', 'production-desk-work-orders');
   await page.locator('[data-testid="production-desk-work-orders"]').click();
   await page.locator('[data-testid="production-work-order-target-quantity"]').waitFor({ state: 'visible', timeout: 20000 });
+  await expectCleanUnsavedState(page, 'production work order initial state', [
+    'production-work-order-form',
+    'production-quality-form',
+    'production-bom-form',
+    'production-batch-adjustment-form',
+  ]);
   await page.locator('[data-testid="production-work-order-target-quantity"]').fill('25');
   await page.waitForTimeout(200);
+  await expectDirtyUnsavedState(page, 'production work order after manual input', 'production-work-order-form');
 
   const dismissDialog = answerNextDialog(page, false);
   await page.evaluate(() => {
     window.location.hash = '#dashboard';
   });
   const message = await dismissDialog;
-  expect(message.includes('未保存'), 'production work order navigation warning is unclear');
+  expect(message.includes(UNSAVED_TEXT), 'production work order navigation warning is unclear');
   expect(await page.locator('[data-testid="production-work-order-target-quantity"]').inputValue() === '25', 'production work order draft disappeared after navigation was dismissed');
+  await expectDirtyUnsavedState(page, 'production work order after dismiss navigation', 'production-work-order-form');
   recordStep('production-work-order-navigation-warning');
 
   const acceptDialog = answerNextDialog(page, true);
@@ -221,6 +273,19 @@ async function verifyProductionWorkOrder(page) {
   recordStep('production-work-order-confirm-leave');
 }
 
+async function verifyProductionBatchSubTabClean(page) {
+  await openModule(page, 'production', 'production-desk-batches');
+  await page.locator('[data-testid="production-desk-batches"]').click();
+  await page.locator('[data-testid="production-batch-search-input"]').waitFor({ state: 'visible', timeout: 20000 });
+  await expectCleanUnsavedState(page, 'production batches initial state', [
+    'production-batch-adjustment-form',
+    'production-bom-form',
+    'production-work-order-form',
+    'production-quality-form',
+  ]);
+  recordStep('production-batches-clean-state');
+}
+
 async function verifyAdjustment(page) {
   await openModule(page, 'adjustment', 'adjustment-create-form');
   await page.locator('[data-testid="adjustment-reason"]').fill('UNSAVED-ADJUSTMENT-AUDIT');
@@ -230,7 +295,7 @@ async function verifyAdjustment(page) {
     window.location.hash = '#dashboard';
   });
   const message = await dismissDialog;
-  expect(message.includes('未保存'), 'adjustment navigation warning is unclear');
+  expect(message.includes(UNSAVED_TEXT), 'adjustment navigation warning is unclear');
   expect(await page.locator('[data-testid="adjustment-reason"]').inputValue() === 'UNSAVED-ADJUSTMENT-AUDIT', 'adjustment draft disappeared after navigation was dismissed');
   recordStep('adjustment-navigation-warning');
 
@@ -253,7 +318,7 @@ async function verifyWarehouseForms(page) {
   const dismissDialog = answerNextDialog(page, false);
   await page.locator('[data-testid="warehouse-create-cancel"]').click();
   const dismissMessage = await dismissDialog;
-  expect(dismissMessage.includes('未保存'), 'warehouse create warning is unclear');
+  expect(dismissMessage.includes(UNSAVED_TEXT), 'warehouse create warning is unclear');
   expect(await warehouseModal.isVisible(), 'warehouse create modal closed after warning was dismissed');
   recordStep('warehouse-create-warning');
 
@@ -270,7 +335,7 @@ async function verifyWarehouseForms(page) {
   const locationDismissDialog = answerNextDialog(page, false);
   await page.locator('[data-testid="warehouse-location-create-cancel"]').click();
   const locationMessage = await locationDismissDialog;
-  expect(locationMessage.includes('未保存'), 'warehouse location warning is unclear');
+  expect(locationMessage.includes(UNSAVED_TEXT), 'warehouse location warning is unclear');
   expect(await locationModal.isVisible(), 'warehouse location modal closed after warning was dismissed');
   recordStep('warehouse-location-create-warning');
 
@@ -288,7 +353,7 @@ async function verifyWarehouseForms(page) {
     window.location.hash = '#dashboard';
   });
   const inboundMessage = await inboundDismissDialog;
-  expect(inboundMessage.includes('未保存'), 'warehouse inbound navigation warning is unclear');
+  expect(inboundMessage.includes(UNSAVED_TEXT), 'warehouse inbound navigation warning is unclear');
   expect(await page.locator('[data-testid="warehouse-inbound-product-input"]').inputValue() === 'UNSAVED-INBOUND-AUDIT', 'warehouse inbound draft disappeared after navigation was dismissed');
   recordStep('warehouse-inbound-navigation-warning');
 
@@ -327,6 +392,11 @@ async function main() {
     await seedLogin(workOrderPage);
     await verifyProductionWorkOrder(workOrderPage);
     await workOrderPage.close();
+
+    const productionBatchesPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await seedLogin(productionBatchesPage);
+    await verifyProductionBatchSubTabClean(productionBatchesPage);
+    await productionBatchesPage.close();
 
     const adjustmentPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
     await seedLogin(adjustmentPage);
