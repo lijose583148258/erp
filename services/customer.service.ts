@@ -212,6 +212,11 @@ export const customerService = {
         return mapCustomerResponse(response.data);
     },
 
+    async getById(id: string | number, options: ApiRequestOptions = {}): Promise<Customer> {
+        const response = await api.get<unknown, ApiDataResponse<unknown>>(`/customers/${id}`, { signal: options.signal });
+        return mapCustomerResponse(response.data);
+    },
+
     /**
      * 更新客户
      */

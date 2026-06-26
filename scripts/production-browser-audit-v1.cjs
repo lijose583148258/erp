@@ -24,6 +24,7 @@ const {
   fillBomHeaderFields: fillBomHeaderFieldsWithData,
   loginViaUi: runLoginViaUi,
   parsePayload,
+  readAuthTokenFromStorage,
   setControlByLabel,
   setControlByPlaceholder,
   switchProductionDesk: runSwitchProductionDesk,
@@ -36,6 +37,11 @@ const SHOT_DIR = path.join(OUTPUT_DIR, 'production-browser-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'production-browser-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 const TEST_DATA = createProductionAuditData(RUN_ID);
+const AUDIT_ACCOUNT = {
+  username: process.env.AUDIT_PRODUCTION_USERNAME || 'production_browser_admin',
+  password: process.env.AUDIT_PRODUCTION_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 
 const report = {
   name: 'Production Browser Audit',
@@ -52,7 +58,7 @@ let authToken = '';
 let browser = null;
 
 const loginViaUi = (page, recordStep) => runLoginViaUi(page, {
-  appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR,
+  appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR, account: AUDIT_ACCOUNT,
 });
 const switchProductionDesk = (page, options) =>
   runSwitchProductionDesk(page, options, waitForBodyText, STEP_TIMEOUT_MS.readBack);
@@ -63,10 +69,17 @@ function recordFinal() {
 }
 
 async function apiFetch(page, endpoint, options = {}) {
-  const response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+  let response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(options.headers || {}) },
   });
+  if (response.status() === 401) {
+    await seedAuthToken(page);
+    response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(options.headers || {}) },
+    });
+  }
   const text = await response.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
@@ -75,6 +88,7 @@ async function apiFetch(page, endpoint, options = {}) {
 
 async function seedAuthToken(page) {
   const session = await loginUiAuditUser(page, APP_URL, {
+    account: AUDIT_ACCOUNT,
     storage: {
       'ailao.activeTab': 'production',
       'ailao.language': 'zh',
@@ -84,6 +98,12 @@ async function seedAuthToken(page) {
   });
   authToken = session.token;
   if (!authToken) throw new Error('login api returned empty token');
+}
+
+async function syncAuthTokenFromPage(page) {
+  const token = await readAuthTokenFromStorage(page);
+  if (token) authToken = token;
+  if (!authToken) throw new Error('audit page has no auth token');
 }
 
 async function openProductionRoute(page, recordStep) {
@@ -375,7 +395,7 @@ async function createAndReverseProductionAdjustment(page, recordStep, completedB
     await row.click();
     await page.getByTestId('production-adjustment-quantity-input').fill('1');
     await page.getByTestId('production-adjustment-note-input').fill(adjustmentNote);
-    await page.getByTestId('production-adjustment-submit').click();
+    await page.getByTestId('production-adjustment-save').click();
     createdAdjustment = await waitForAdjustmentByNote(page, {
       batchId: completedBatch.id,
       note: adjustmentNote,
@@ -472,7 +492,7 @@ async function createQualityCheck(page, recordStep, workOrderNo) {
     } else {
       await page.getByPlaceholder(S.qcNote).fill(TEST_DATA.qc.note);
     }
-    await page.getByTestId('production-quality-save').click();
+    await page.getByTestId('production-qc-save').click();
   }, SHOT_DIR);
   await withTimebox(page, recordStep, 'verify-quality-check-api-readback', STEP_TIMEOUT_MS.readBack, async () => {
     const check = await waitForQualityCheck(page, workOrderNo, TEST_DATA.qc.note);
@@ -587,6 +607,7 @@ async function main() {
     const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
     await seedAuthToken(page);
     await loginViaUi(page, recordStep);
+    await syncAuthTokenFromPage(page);
     stallGuard.assertAlive('after-login');
     await openProductionRoute(page, recordStep);
     stallGuard.assertAlive('after-route-open');

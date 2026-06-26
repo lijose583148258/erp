@@ -23,12 +23,14 @@ import {
   useProductionWorkOrderForm,
 } from './production/useProductionWorkspaceForms';
 import {
+  buildExpectedBomDraftSummary,
   buildBatchTrace,
   buildBomDraftPreviewSummary,
   buildEffectiveBomItemsPayload,
   buildProductionDeskItems,
   buildProductionStats,
   buildWorkOrderStepsPayload,
+  compareBomReadbackAgainstSummary,
   formatBomDraftPreviewWarnings,
   filterProductionBoms,
 } from './production/ProductionWorkspaceDerived';
@@ -39,6 +41,23 @@ type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatc
 type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
 type QualityFormErrors = Partial<Record<'defectRate' | 'checkedBy', string>>;
 type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
+
+const SAVE_TIMEOUT_MS = 10000;
+const SAVE_TIMEOUT_MESSAGE = '服务器响应超时，请检查后端服务';
+
+const withSaveTimeout = async <T,>(operation: () => Promise<T>): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(SAVE_TIMEOUT_MESSAGE)), SAVE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
 
 const ProductionWorkspaceV2 = () => {
   const { notify, language } = useAppContext();
@@ -194,6 +213,7 @@ const ProductionWorkspaceV2 = () => {
     }
 
     const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
+    const expectedDraftSummary = buildExpectedBomDraftSummary(items);
 
     if (!items.length) {
       nextErrors.items = '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码';
@@ -213,7 +233,7 @@ const ProductionWorkspaceV2 = () => {
     setBomFormErrors({});
     setBomSaving(true);
     try {
-      const createdBom = await productionService.createBom({
+      const createdBom = await withSaveTimeout(() => productionService.createBom({
         productName: bomProductName.trim(),
         version: bomVersion.trim() || 'v1',
         bomType,
@@ -230,8 +250,27 @@ const ProductionWorkspaceV2 = () => {
         qualitySpecJson: bomQualitySpecText.trim() ? JSON.stringify({ summary: bomQualitySpecText.trim() }) : null,
         notes: bomNotes.trim() || null,
         items,
-      });
-      notify('success', 'BOM 已创建');
+      }));
+      let readbackBom: ProductionBom | null = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const latestBoms = await withSaveTimeout(() => productionService.getBoms());
+        readbackBom = latestBoms.find(item => item.id === createdBom.id) || null;
+        if (readbackBom) break;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+
+      if (!readbackBom) {
+        notify('error', '保存后回读不一致，请不要继续使用该 BOM');
+        return;
+      }
+
+      const readbackComparison = compareBomReadbackAgainstSummary(expectedDraftSummary, readbackBom);
+      if (!readbackComparison.ok) {
+        notify('error', readbackComparison.reason || '保存后回读不一致，请不要继续使用该 BOM');
+        return;
+      }
+
+      notify('success', 'BOM 已创建，回读核对通过');
       resetBomForm();
       setBomSaveVersion(version => version + 1);
       await loadData();
@@ -266,7 +305,7 @@ const ProductionWorkspaceV2 = () => {
     setWorkOrderFormErrors({});
     setWorkOrderSaving(true);
     try {
-      await productionService.createWorkOrder({
+      await withSaveTimeout(() => productionService.createWorkOrder({
         bomId: resolvedBom?.id ?? selectedBomId ?? undefined,
         batchId: resolvedBatch?.id ?? selectedBatchId ?? undefined,
         productName: resolvedProductName,
@@ -277,7 +316,7 @@ const ProductionWorkspaceV2 = () => {
         plannedEndAt: woPlannedEndAt || null,
         note: woNote.trim() || null,
         steps,
-      });
+      }));
       notify('success', '工单已创建');
       resetWoForm();
       setWorkOrderSaveVersion(version => version + 1);
@@ -359,12 +398,12 @@ const ProductionWorkspaceV2 = () => {
     setQualityFormErrors({});
     setQualitySaving(true);
     try {
-      await productionService.createQualityCheck(selectedWorkOrder.id, {
+      await withSaveTimeout(() => productionService.createQualityCheck(selectedWorkOrder.id, {
         result: qcResult,
         defectRate: defectRateValue,
         note: qcNote.trim() || null,
         checkedBy: qcCheckedBy.trim() || null,
-      });
+      }));
       notify('success', '质检记录已保存');
       resetQualityForm();
       setQualitySaveVersion(version => version + 1);
@@ -392,7 +431,7 @@ const ProductionWorkspaceV2 = () => {
     setAdjustmentFormErrors({});
     setAdjustmentSaving(true);
     try {
-      await adjustmentService.create({
+      await withSaveTimeout(() => adjustmentService.create({
         domain: 'production',
         targetType: 'productBatch',
         batchId: selectedBatch.id,
@@ -404,7 +443,7 @@ const ProductionWorkspaceV2 = () => {
         lossType: selectedTemplate.lossType,
         note: adjustmentNote.trim() || null,
         status: 'posted',
-      });
+      }));
         notify('success', '生产调账已登记');
       setAdjustmentQuantity('');
       setAdjustmentNote('');

@@ -225,7 +225,7 @@ export function ProductionBatchAdjustmentSection({
                   error={adjustmentFormErrors.reason}
                 />
                 <TextareaField dataTestId="production-adjustment-note-input" label="备注" value={adjustmentNote} onChange={setAdjustmentNote} placeholder="可填损耗原因、工艺说明或盘点备注" />
-                <button data-testid="production-adjustment-submit" onClick={handleCreateAdjustment} disabled={adjustmentSaving} aria-busy={adjustmentSaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{adjustmentSaving ? '提交中...' : '提交批次异常调整'}</button>
+                <button data-testid="production-adjustment-save" onClick={handleCreateAdjustment} disabled={adjustmentSaving} aria-busy={adjustmentSaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{adjustmentSaving ? '保存中...' : '提交批次异常调整'}</button>
               </div>
             </>
           ) : (

@@ -22,6 +22,7 @@ const {
   fillBomHeaderFields,
   loginViaUi,
   parsePayload,
+  readAuthTokenFromStorage,
   switchProductionDesk,
   waitForAnyBodyText,
 } = require('./lib/production-browser-audit-helpers.cjs');
@@ -32,6 +33,11 @@ const SHOT_DIR = path.join(OUTPUT_DIR, 'production-bom-percentage-ux-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'production-bom-percentage-ux-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 const TEST_DATA = createProductionAuditData(RUN_ID);
+const AUDIT_ACCOUNT = {
+  username: process.env.AUDIT_PERCENTAGE_USERNAME || 'production_percentage_admin',
+  password: process.env.AUDIT_PERCENTAGE_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 
 const report = {
   name: 'Production BOM Percentage UX Audit',
@@ -50,10 +56,17 @@ function recordFinal() {
 }
 
 async function apiFetch(page, endpoint, options = {}) {
-  const response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+  let response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
     ...options,
     headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(options.headers || {}) },
   });
+  if (response.status() === 401) {
+    await seedAuthToken(page);
+    response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+      ...options,
+      headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(options.headers || {}) },
+    });
+  }
   const text = await response.text();
   let json = null;
   try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
@@ -62,6 +75,7 @@ async function apiFetch(page, endpoint, options = {}) {
 
 async function seedAuthToken(page) {
   const session = await loginUiAuditUser(page, APP_URL, {
+    account: AUDIT_ACCOUNT,
     storage: {
       'ailao.activeTab': 'production',
       'ailao.language': 'zh',
@@ -71,6 +85,12 @@ async function seedAuthToken(page) {
   });
   authToken = session.token;
   if (!authToken) throw new Error('login api returned empty token');
+}
+
+async function syncAuthTokenFromPage(page) {
+  const token = await readAuthTokenFromStorage(page);
+  if (token) authToken = token;
+  if (!authToken) throw new Error('audit page has no auth token');
 }
 
 async function openProductionRoute(page, recordStep) {
@@ -165,7 +185,8 @@ async function main() {
     const page = await browser.newPage();
     page.setDefaultTimeout(STEP_TIMEOUT_MS.readBack);
     await seedAuthToken(page);
-    await loginViaUi(page, { appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR });
+    await loginViaUi(page, { appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR, account: AUDIT_ACCOUNT });
+    await syncAuthTokenFromPage(page);
     await openProductionRoute(page, recordStep);
     await switchProductionDesk(page, {
       testId: 'production-desk-bom',

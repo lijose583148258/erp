@@ -19,6 +19,21 @@ function expect(value, message) {
   if (!value) throw new Error(message);
 }
 
+async function clickWhenStable(locator, attempts = 5) {
+  let lastError;
+  for (let index = 0; index < attempts; index += 1) {
+    try {
+      await locator.waitFor({ state: 'visible', timeout: 10000 });
+      await locator.click({ timeout: 10000 });
+      return;
+    } catch (error) {
+      lastError = error;
+      await locator.page().waitForTimeout(250);
+    }
+  }
+  throw lastError;
+}
+
 async function seedLogin(page) {
   await loginUiAuditUser(page, APP_URL, {
     account: {
@@ -41,6 +56,7 @@ async function answerNextDialog(page, accept) {
   return new Promise((resolve, reject) => {
     const onDialog = async (dialog) => {
       clearTimeout(timeout);
+      page.off('dialog', onDialog);
       const message = dialog.message();
       if (accept) await dialog.accept();
       else await dialog.dismiss();
@@ -50,6 +66,7 @@ async function answerNextDialog(page, accept) {
       page.off('dialog', onDialog);
       reject(new Error('expected unsaved-changes dialog did not appear within 10000ms'));
     }, 10000);
+    timeout.unref?.();
     page.once('dialog', onDialog);
   });
 }
@@ -61,8 +78,7 @@ async function verifySalesOrder(page) {
     window.location.hash = '#orders';
     window.dispatchEvent(new HashChangeEvent('hashchange'));
   });
-  await page.locator('[data-testid="sales-order-create-button"]').waitFor({ state: 'visible', timeout: 20000 });
-  await page.locator('[data-testid="sales-order-create-button"]').click();
+  await clickWhenStable(page.locator('[data-testid="sales-order-create-button"]'));
   const modal = page.locator('[data-testid="sales-order-editor-modal"]');
   await modal.waitFor({ state: 'visible', timeout: 10000 });
   await modal.locator('[data-testid="sales-order-notes"]').fill('UNSAVED-AUDIT');

@@ -6,25 +6,29 @@ const SCRIPTS_DIR = path.join(ROOT, 'scripts');
 const PATTERNS = [/\.nth\s*\(/, /inputValues\s*\[/, /querySelectorAll\(\s*['"]input['"]\s*\)/];
 const WHITELIST = new Set([
   'browser-runtime-probe.cjs',
+  'browser-spawn-policy-probe.cjs',
 ]);
 
-function walk(dir) {
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const full = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      files.push(...walk(full));
-    } else if (entry.isFile() && entry.name.endsWith('.cjs')) {
-      files.push(full);
+function listGovernedBrowserScripts() {
+  const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+  const referenced = new Set();
+  for (const command of Object.values(packageJson.scripts || {})) {
+    for (const match of String(command).matchAll(/(?:\.\\|\.\/)?scripts[\\/](?<file>[A-Za-z0-9_.-]+\.(?:cjs|mjs|js|ts|tsx|ps1))/g)) {
+      if (match.groups?.file) referenced.add(match.groups.file);
     }
   }
-  return files;
+  return fs.readdirSync(SCRIPTS_DIR, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.cjs'))
+    .map((entry) => entry.name)
+    .filter((file) => /browser/i.test(file))
+    .filter((file) => referenced.has(file))
+    .map((file) => path.join(SCRIPTS_DIR, file));
 }
 
 function main() {
-  const files = walk(SCRIPTS_DIR).filter((file) => /browser/i.test(path.basename(file)));
+  const files = listGovernedBrowserScripts();
   const violations = [];
+  const skippedFiles = [];
 
   for (const file of files) {
     if (WHITELIST.has(path.basename(file))) continue;
@@ -39,9 +43,17 @@ function main() {
     }
   }
 
+  for (const entry of fs.readdirSync(SCRIPTS_DIR, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith('.cjs') || !/browser/i.test(entry.name)) continue;
+    if (files.some((file) => path.basename(file) === entry.name)) continue;
+    skippedFiles.push(entry.name);
+  }
+
   const report = {
     status: violations.length ? 'failed' : 'passed',
     scannedFiles: files.length,
+    scannedScriptNames: files.map((file) => path.basename(file)).sort(),
+    skippedFiles: skippedFiles.sort(),
     violations,
   };
 

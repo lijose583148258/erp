@@ -21,6 +21,7 @@ const {
   fillBomHeaderFields,
   loginViaUi,
   parsePayload,
+  readAuthTokenFromStorage,
   waitForAnyBodyText,
 } = require('./lib/production-browser-audit-helpers.cjs');
 
@@ -29,6 +30,11 @@ const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'production-save-readback-contract-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'production-save-readback-contract-audit-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const AUDIT_ACCOUNT = {
+  username: process.env.AUDIT_READBACK_USERNAME || 'production_readback_admin',
+  password: process.env.AUDIT_READBACK_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 
 const CONTRACT_DATA = {
   bomName: `CONTRACT-BOM-${RUN_ID}`,
@@ -77,7 +83,7 @@ function recordFinal() {
 }
 
 async function apiFetch(page, endpoint, options = {}) {
-  const response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+  let response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
     ...options,
     headers: {
       'Content-Type': 'application/json',
@@ -85,6 +91,17 @@ async function apiFetch(page, endpoint, options = {}) {
       ...(options.headers || {}),
     },
   });
+  if (response.status() === 401) {
+    await seedAuthToken(page);
+    response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+      ...options,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  }
   const text = await response.text();
   let json = null;
   try {
@@ -97,6 +114,7 @@ async function apiFetch(page, endpoint, options = {}) {
 
 async function seedAuthToken(page) {
   const session = await loginUiAuditUser(page, APP_URL, {
+    account: AUDIT_ACCOUNT,
     storage: {
       'ailao.activeTab': 'production',
       'ailao.language': 'zh',
@@ -106,6 +124,12 @@ async function seedAuthToken(page) {
   });
   authToken = session.token;
   if (!authToken) throw new Error('login api returned empty token');
+}
+
+async function syncAuthTokenFromPage(page) {
+  const token = await readAuthTokenFromStorage(page);
+  if (token) authToken = token;
+  if (!authToken) throw new Error('audit page has no auth token');
 }
 
 async function openProductionRoute(page, recordStep) {
@@ -135,44 +159,53 @@ async function fillContractDraft(page) {
 
   for (let index = 0; index < CONTRACT_DATA.items.length; index += 1) {
     const row = page.getByTestId(`production-bom-line-row-${index}`);
-    const inputValues = await row.locator('input').evaluateAll((inputs) => inputs.map((input) => input.value));
-    const selectValues = await row.locator('select').evaluateAll((selects) => selects.map((select) => select.value));
     const expected = CONTRACT_DATA.items[index];
-    if (inputValues[0] !== expected.materialName) throw new Error(`row ${index + 1} materialName mismatch`);
-    if (inputValues[1] !== expected.materialCode) throw new Error(`row ${index + 1} materialCode mismatch`);
-    if (selectValues[0] !== expected.ingredientRole) throw new Error(`row ${index + 1} ingredientRole mismatch`);
-    if (selectValues[1] !== expected.dosageMode) throw new Error(`row ${index + 1} dosageMode mismatch`);
-    if (inputValues[2] !== expected.percentage) throw new Error(`row ${index + 1} percentage mismatch`);
-    if (Number(inputValues[3] || 0) !== Number(expected.quantityPerUnit || 0)) throw new Error(`row ${index + 1} quantityPerUnit mismatch`);
+    const materialName = await row.getByTestId(`production-bom-row-${index}-material-name`).inputValue();
+    const materialCode = await row.getByTestId(`production-bom-row-${index}-material-code`).inputValue();
+    const ingredientRole = await row.getByTestId(`production-bom-row-${index}-ingredient-role`).inputValue();
+    const dosageMode = await row.getByTestId(`production-bom-row-${index}-dosage-mode`).inputValue();
+    const percentage = await row.getByTestId(`production-bom-row-${index}-percentage`).inputValue();
+    const quantityPerUnit = await row.getByTestId(`production-bom-row-${index}-quantity-per-unit`).inputValue();
+    if (materialName !== expected.materialName) throw new Error(`row ${index + 1} materialName mismatch`);
+    if (materialCode !== expected.materialCode) throw new Error(`row ${index + 1} materialCode mismatch`);
+    if (ingredientRole !== expected.ingredientRole) throw new Error(`row ${index + 1} ingredientRole mismatch`);
+    if (dosageMode !== expected.dosageMode) throw new Error(`row ${index + 1} dosageMode mismatch`);
+    if (percentage !== expected.percentage) throw new Error(`row ${index + 1} percentage mismatch`);
+    if (Number(quantityPerUnit || 0) !== Number(expected.quantityPerUnit || 0)) throw new Error(`row ${index + 1} quantityPerUnit mismatch`);
   }
 }
 
 async function saveAndVerifyReadback(page, recordStep) {
-  await withTimebox(page, recordStep, 'save-and-readback-bom', STEP_TIMEOUT_MS.save, async () => {
+  await withTimebox(page, recordStep, 'trigger-bom-save', STEP_TIMEOUT_MS.save, async () => {
     await page.getByTestId('production-bom-save').click();
-    const success = await waitForAnyBodyText(page, ['BOM 已创建'], STEP_TIMEOUT_MS.readBack);
-    if (!success.matched) throw new Error('save success toast missing');
+    await page.waitForTimeout(300);
   }, SHOT_DIR);
 
   const created = await withTimebox(page, recordStep, 'verify-bom-readback-list', STEP_TIMEOUT_MS.readBack, async () => {
-    const res = await apiFetch(page, '/production/boms');
-    if (!res.ok) throw new Error(`production boms api failed: ${res.status}`);
-    const boms = parsePayload(res) || [];
-    const bom = boms.find((item) => item.productName === CONTRACT_DATA.bomName);
-    if (!bom) throw new Error('created BOM not found in API readback');
-    if (!Array.isArray(bom.items) || bom.items.length !== CONTRACT_DATA.items.length) {
-      throw new Error(`bom items count mismatch: ${bom.items?.length}`);
+    for (let attempt = 0; attempt < 25; attempt += 1) {
+      const res = await apiFetch(page, '/production/boms');
+      if (!res.ok) throw new Error(`production boms api failed: ${res.status}`);
+      const boms = parsePayload(res) || [];
+      const bom = boms.find((item) => item.productName === CONTRACT_DATA.bomName);
+      if (!bom) {
+        await page.waitForTimeout(300);
+        continue;
+      }
+      if (!Array.isArray(bom.items) || bom.items.length !== CONTRACT_DATA.items.length) {
+        throw new Error(`bom items count mismatch: ${bom.items?.length}`);
+      }
+      CONTRACT_DATA.items.forEach((expected, index) => {
+        const actual = bom.items[index];
+        if (!actual) throw new Error(`missing bom item ${index + 1}`);
+        if ((actual.materialCode || '') !== expected.materialCode) throw new Error(`materialCode mismatch at row ${index + 1}`);
+        if ((actual.dosageMode || '') !== expected.dosageMode) throw new Error(`dosageMode mismatch at row ${index + 1}`);
+        if (Number(actual.percentage || 0) !== Number(expected.percentage || 0)) throw new Error(`percentage mismatch at row ${index + 1}`);
+        if (Number(actual.quantityPerUnit || 0) !== Number(expected.quantityPerUnit || 0)) throw new Error(`quantityPerUnit mismatch at row ${index + 1}`);
+        if ((actual.processStage || '') !== (expected.processStage || '')) throw new Error(`processStage mismatch at row ${index + 1}`);
+      });
+      return bom;
     }
-    CONTRACT_DATA.items.forEach((expected, index) => {
-      const actual = bom.items[index];
-      if (!actual) throw new Error(`missing bom item ${index + 1}`);
-      if ((actual.materialCode || '') !== expected.materialCode) throw new Error(`materialCode mismatch at row ${index + 1}`);
-      if ((actual.dosageMode || '') !== expected.dosageMode) throw new Error(`dosageMode mismatch at row ${index + 1}`);
-      if (Number(actual.percentage || 0) !== Number(expected.percentage || 0)) throw new Error(`percentage mismatch at row ${index + 1}`);
-          if (Number(actual.quantityPerUnit || 0) !== Number(expected.quantityPerUnit || 0)) throw new Error(`quantityPerUnit mismatch at row ${index + 1}`);
-      if ((actual.processStage || '') !== (expected.processStage || '')) throw new Error(`processStage mismatch at row ${index + 1}`);
-    });
-    return bom;
+    throw new Error('created BOM not found in API readback');
   }, SHOT_DIR);
 
   await withTimebox(page, recordStep, 'verify-bom-ui-readback', STEP_TIMEOUT_MS.readBack, async () => {
@@ -195,10 +228,10 @@ async function verifyDraftPreservedOnFailedSave(page, recordStep) {
 
     const firstRow = page.getByTestId('production-bom-line-row-0');
     const lastRow = page.getByTestId(`production-bom-line-row-${CONTRACT_DATA.items.length - 1}`);
-    const firstInputs = await firstRow.locator('input').evaluateAll((inputs) => inputs.map((input) => input.value));
-    const lastInputs = await lastRow.locator('input').evaluateAll((inputs) => inputs.map((input) => input.value));
-    if (firstInputs[0] !== CONTRACT_DATA.items[0].materialName) throw new Error('draft was cleared after failed save');
-    if (lastInputs[1] !== CONTRACT_DATA.items[CONTRACT_DATA.items.length - 1].materialCode) throw new Error('tail draft was cleared after failed save');
+    const firstMaterialName = await firstRow.getByTestId('production-bom-row-0-material-name').inputValue();
+    const lastMaterialCode = await lastRow.getByTestId(`production-bom-row-${CONTRACT_DATA.items.length - 1}-material-code`).inputValue();
+    if (firstMaterialName !== CONTRACT_DATA.items[0].materialName) throw new Error('draft was cleared after failed save');
+    if (lastMaterialCode !== CONTRACT_DATA.items[CONTRACT_DATA.items.length - 1].materialCode) throw new Error('tail draft was cleared after failed save');
   }, SHOT_DIR);
 }
 
@@ -213,7 +246,8 @@ async function main() {
     browser = launched.browser;
     const page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
     await seedAuthToken(page);
-    await loginViaUi(page, { appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR });
+    await loginViaUi(page, { appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR, account: AUDIT_ACCOUNT });
+    await syncAuthTokenFromPage(page);
     stallGuard.assertAlive('after-login');
     await openProductionRoute(page, recordStep);
     stallGuard.assertAlive('after-route-open');

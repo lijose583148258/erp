@@ -1,6 +1,7 @@
-﻿const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
 const fs = require('fs');
 const path = require('path');
+const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
+const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
@@ -78,31 +79,6 @@ async function withTimebox(page, name, timeout, action) {
   }
 }
 
-async function clickButtonByText(scope, regex) {
-  const button = scope.locator('button').filter({ hasText: regex }).first();
-  if (await button.count()) {
-    await button.click();
-    return;
-  }
-  throw new Error(`button not found: ${regex}`);
-}
-
-async function clickLastButton(scope, errorMessage) {
-  const buttons = scope.locator('button');
-  const count = await buttons.count();
-  if (!count) throw new Error(errorMessage);
-  await buttons.nth(count - 1).click();
-}
-
-async function selectOptionContaining(selectLocator, text) {
-  const value = await selectLocator.evaluate((element, expectedText) => {
-    const option = Array.from(element.options).find((item) => (item.textContent || '').includes(expectedText));
-    return option ? option.value : '';
-  }, text);
-  if (!value) throw new Error(`select option not found for text: ${text}`);
-  await selectLocator.selectOption(value);
-}
-
 async function waitForText(page, text, timeout) {
   const started = Date.now();
   while (Date.now() - started < timeout) {
@@ -124,36 +100,29 @@ async function findRowByText(page, text, timeout) {
 }
 
 async function login(page) {
-  await withTimebox(page, 'open-login', STEP_TIMEOUT_MS.pageLoad, async () => {
+  await withTimebox(page, 'prime-audit-session', STEP_TIMEOUT_MS.login, async () => {
+    await loginUiAuditUser(page, APP_URL, {
+      account: {
+        username: 'browser_acceptance_admin',
+        password: 'BrowserAcceptance123!',
+        role: 'super_admin',
+      },
+      defaultStorage: {
+        language: 'zh',
+        preferredLanguage: 'zh',
+      },
+    });
+  });
+
+  await withTimebox(page, 'open-shell', STEP_TIMEOUT_MS.pageLoad, async () => {
     await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
   });
-
-  const loginInput = page.locator('input[name="username"]');
-  if (!(await loginInput.count())) {
-    recordStep({ step: 'login-form-detection', result: 'skipped', reason: 'login form not found, assuming already authenticated' });
-    return;
-  }
-
-  await withTimebox(page, 'submit-login', STEP_TIMEOUT_MS.login, async () => {
-    await page.fill('input[name="username"]', 'admin');
-    await page.fill('input[name="password"]', 'admin123');
-    await Promise.all([page.waitForTimeout(1200), page.click('button[type="submit"]')]);
-  });
-
-  const bodyText = await page.locator('body').innerText();
-  if (/invalid credentials|\u7528\u6237\u540d\u6216\u5bc6\u7801\u9519\u8bef|sai m\u1eadt kh\u1ea9u/i.test(bodyText)) {
-    throw new Error('login rejected with invalid credentials');
-  }
 }
 
 async function checkNoVisibleCorruption(page, routeName) {
   const text = await page.locator('body').innerText();
-  const corruptionSignals = [
-    /undefined\s+undefined/i,
-    /\ufffd+/,
-    /\u951f\u91d1\u62f7/u,
-  ];
+  const corruptionSignals = [/undefined\s+undefined/i, /\ufffd+/, /\u951f\u91d1\u62f7/u];
   const hit = corruptionSignals.find((signal) => signal.test(text));
   if (hit) throw new Error(`${routeName} shows corruption signal: ${String(hit)}`);
 }
@@ -181,20 +150,18 @@ async function createCustomerAndReadBack(page) {
   await openHash(page, '#crm', 'crm-write', ['\u5ba2\u6237', 'CUSTOMERS', '\u5ba2\u6237\u5173\u7cfb']);
 
   await withTimebox(page, 'crm-open-create', STEP_TIMEOUT_MS.modal, async () => {
-    await clickButtonByText(page, /\u65b0\u589e\u5ba2\u6237|Add Customer|Thêm khách hàng/i);
-    await page.locator('div.fixed.inset-0').last().waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.modal });
+    await page.getByTestId('crm-add-customer').click();
+    await page.getByTestId('crm-create-modal').waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.modal });
   });
 
-  const modal = page.locator('div.fixed.inset-0').last();
-  const inputs = modal.locator('input');
-  const textareas = modal.locator('textarea');
+  const modal = page.getByTestId('crm-create-modal');
 
   await withTimebox(page, 'crm-create-customer', STEP_TIMEOUT_MS.save, async () => {
-    await inputs.nth(0).fill(TEST_DATA.customerName);
-    await textareas.nth(0).fill(TEST_DATA.customerAddress);
-    await inputs.nth(10).fill(TEST_DATA.contactName);
-    await inputs.nth(12).fill(TEST_DATA.contactPhone);
-    await clickLastButton(modal, 'crm submit button not found');
+    await modal.getByTestId('crm-name').fill(TEST_DATA.customerName);
+    await modal.getByTestId('crm-primary-address-full-address').fill(TEST_DATA.customerAddress);
+    await modal.getByTestId('crm-primary-contact-name').fill(TEST_DATA.contactName);
+    await modal.getByTestId('crm-primary-contact-phone').fill(TEST_DATA.contactPhone);
+    await modal.getByTestId('crm-create-submit').click();
     await page.waitForTimeout(1600);
   });
 
@@ -217,26 +184,30 @@ async function createOrderRecordPaymentAndReadBack(page) {
   const beforeFirstRowText = await page.locator('tbody tr').first().innerText().catch(() => '');
 
   await withTimebox(page, 'orders-open-create', STEP_TIMEOUT_MS.modal, async () => {
-    const primaryCreateButton = page.locator('button.bg-blue-600').first();
-    if (!(await primaryCreateButton.count())) throw new Error('orders primary create button not found');
-    await primaryCreateButton.click();
-    await page.locator('div.fixed.inset-0').last().waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.modal });
+    await page.getByTestId('sales-order-create-button').click();
+    await page.getByTestId('sales-order-editor-modal').waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.modal });
   });
 
-  const modal = page.locator('div.fixed.inset-0').last();
-  const selects = modal.locator('select');
-  const inputs = modal.locator('input:not([type="file"]):not([type="checkbox"])');
+  const modal = page.getByTestId('sales-order-editor-modal');
   let createdRowMarker = TEST_DATA.customerName;
 
   await withTimebox(page, 'orders-create-order', STEP_TIMEOUT_MS.save, async () => {
-    await selectOptionContaining(selects.nth(1), TEST_DATA.customerName);
-    await inputs.nth(1).fill(TEST_DATA.productName);
-    await inputs.nth(2).fill(TEST_DATA.packaging);
-    await inputs.nth(3).fill(String(TEST_DATA.quantity));
-    await inputs.nth(4).fill(TEST_DATA.unit);
-    await inputs.nth(5).fill(String(TEST_DATA.unitPrice));
-    await inputs.nth(6).fill(String(TEST_DATA.taxAmount));
-    await clickLastButton(modal, 'order save button not found');
+    const customerPicker = modal.getByTestId('sales-order-customer-select');
+    await customerPicker.fill(TEST_DATA.customerName);
+    await page.waitForTimeout(300);
+    await page
+      .locator('[data-testid^="sales-order-customer-option-"]')
+      .filter({ hasText: TEST_DATA.customerName })
+      .first()
+      .click();
+    await modal.getByTestId('sales-order-line-0-product').fill(TEST_DATA.productName);
+    await modal.getByTestId('sales-order-line-0-packaging').fill(TEST_DATA.packaging);
+    await modal.getByTestId('sales-order-line-0-quantity').fill(String(TEST_DATA.quantity));
+    await modal.getByTestId('sales-order-line-0-unit').fill(TEST_DATA.unit);
+    await modal.getByTestId('sales-order-line-0-unit-price').fill(String(TEST_DATA.unitPrice));
+    await modal.getByTestId('sales-order-line-0-tax').fill(String(TEST_DATA.taxAmount));
+    await modal.getByTestId('sales-order-save-button').click();
+
     const started = Date.now();
     while (Date.now() - started < STEP_TIMEOUT_MS.readBack) {
       const currentText = await page.locator('tbody tr').first().innerText().catch(() => '');
@@ -258,7 +229,12 @@ async function createOrderRecordPaymentAndReadBack(page) {
           const markerMatch = currentText.match(/#\d+/);
           if (markerMatch) createdRowMarker = markerMatch[0];
           if (!currentText.includes(TEST_DATA.customerName)) {
-            recordStep({ step: 'orders-customer-label-missing', result: 'warning', expectedCustomerName: TEST_DATA.customerName, rowText: currentText });
+            recordStep({
+              step: 'orders-customer-label-missing',
+              result: 'warning',
+              expectedCustomerName: TEST_DATA.customerName,
+              rowText: currentText,
+            });
           }
           break;
         }
@@ -285,12 +261,11 @@ async function createOrderRecordPaymentAndReadBack(page) {
     if (!(await paymentButton.count())) throw new Error('payment action button not found');
     await paymentButton.click();
 
-    const payModal = page.locator('div.fixed.inset-0').last();
+    const payModal = page.getByTestId('sales-order-payment-modal');
     await payModal.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS.modal });
-    const payInputs = payModal.locator('input:not([type="checkbox"])');
-    await payInputs.nth(0).fill(String(TEST_DATA.paymentAmount));
-    await payInputs.last().fill(TEST_DATA.paymentNote);
-    await clickLastButton(payModal, 'payment confirm button not found');
+    await payModal.getByTestId('sales-order-payment-amount').fill(String(TEST_DATA.paymentAmount));
+    await payModal.locator('input[type="text"]').first().fill(TEST_DATA.paymentNote);
+    await payModal.getByTestId('sales-order-payment-confirm').click();
     await page.waitForTimeout(1800);
   });
 
@@ -306,7 +281,13 @@ async function createOrderRecordPaymentAndReadBack(page) {
   });
 
   const paymentShot = await safeScreenshot(page, 'orders-payment-readback');
-  recordStep({ step: 'orders-payment-readback-evidence', result: 'passed', evidence: paymentShot, paymentNote: TEST_DATA.paymentNote, paymentAmount: TEST_DATA.paymentAmount });
+  recordStep({
+    step: 'orders-payment-readback-evidence',
+    result: 'passed',
+    evidence: paymentShot,
+    paymentNote: TEST_DATA.paymentNote,
+    paymentAmount: TEST_DATA.paymentAmount,
+  });
 }
 
 async function run() {

@@ -43,6 +43,7 @@ async function loginViaUi(page, {
   withTimebox,
   timeout,
   shotDir,
+  account,
 }) {
   await withTimebox(page, recordStep, 'open-login', timeout, async () => {
     await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
@@ -58,10 +59,19 @@ async function loginViaUi(page, {
   }
 
   await withTimebox(page, recordStep, 'submit-login', timeout, async () => {
-    await username.fill(process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin');
-    await password.fill(process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!');
+    await username.fill(account?.username || process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin');
+    await password.fill(account?.password || process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!');
     await Promise.all([page.waitForTimeout(1200), submit.click()]);
   }, shotDir);
+}
+
+async function readAuthTokenFromStorage(page) {
+  return page.evaluate(() => (
+    window.localStorage.getItem('token')
+    || window.localStorage.getItem('auth_token')
+    || window.localStorage.getItem('erp_auth_token')
+    || ''
+  )).catch(() => '');
 }
 
 async function switchProductionDesk(page, { testId, fallbackName, expectedText }, waitForBodyText, timeout) {
@@ -160,6 +170,7 @@ module.exports = {
   fillBomHeaderFields,
   loginViaUi,
   parsePayload,
+  readAuthTokenFromStorage,
   setControlByLabel,
   setControlByPlaceholder,
   setControlByTestId,
