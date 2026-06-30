@@ -14,6 +14,14 @@ type ShippingDeskTab = 'logistics' | 'receipts' | 'ocr' | 'assets' | 'principle'
 
 const Shipping = () => {
     const state = useShipping();
+    const {
+        canWriteShipping,
+        handleFileUpload,
+        handleOpenReceiptEvents: openReceiptEvents,
+        handleShipmentStatusUpdate,
+        setActiveTab,
+        t,
+    } = state;
     const [activeDesk, setActiveDesk] = React.useState<ShippingDeskTab>('logistics');
 
     const shippingDeskCopy = React.useMemo(() => {
@@ -115,8 +123,8 @@ const Shipping = () => {
 
     const switchShippingDesk = React.useCallback((desk: ShippingDeskTab) => {
         setActiveDesk(desk);
-        state.setActiveTab(desk === 'assets' ? 'assets' : 'logistics');
-    }, [state.setActiveTab]);
+        setActiveTab(desk === 'assets' ? 'assets' : 'logistics');
+    }, [setActiveTab]);
 
     React.useEffect(() => {
         const openOcrDesk = () => switchShippingDesk('ocr');
@@ -179,14 +187,70 @@ const Shipping = () => {
 
     const handleOpenReceiptEvents = React.useCallback((shipment: Shipment) => {
         switchShippingDesk('receipts');
-        void state.handleOpenReceiptEvents(shipment);
-    }, [state.handleOpenReceiptEvents, switchShippingDesk]);
+        void openReceiptEvents(shipment);
+    }, [openReceiptEvents, switchShippingDesk]);
 
     const latestReceipt = state.receiptBundle?.receipts?.[0] || null;
     const discrepancyCases = state.receiptBundle?.discrepancyCases || [];
     const primaryDiscrepancyCase = state.receiptBundle?.discrepancyCase || discrepancyCases[0] || null;
 
-    const shipmentColumns = buildShipmentColumns(state.t, state.handleFileUpload, state.handleShipmentStatusUpdate, handleOpenReceiptEvents, state.canWriteShipping);
+    const shipmentColumns = React.useMemo(
+        () => buildShipmentColumns(t, canWriteShipping),
+        [t, canWriteShipping]
+    );
+
+    const renderShipmentRowActions = React.useCallback((row: Shipment) => {
+        if (!canWriteShipping && row.status === 'pending') {
+            return <span className="text-xs font-bold text-slate-400">只读</span>;
+        }
+
+        return (
+            <>
+                {row.status === 'pending' && canWriteShipping ? (
+                    <button
+                        type="button"
+                        data-testid={`shipment-dispatch-${row.id}`}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            handleShipmentStatusUpdate(row.id, 'in_transit');
+                        }}
+                        className="inline-flex min-h-8 items-center justify-center rounded-xl border border-blue-100 bg-blue-50 px-2.5 text-xs font-black text-blue-700 hover:bg-blue-100"
+                    >
+                        <Truck size={13} className="mr-1" />
+                        {t.arrangeDispatch || '发运'}
+                    </button>
+                ) : null}
+                {row.status !== 'pending' && !row.signedReceiptUrl && canWriteShipping ? (
+                    <button
+                        type="button"
+                        data-testid={`shipment-receipt-button-${row.id}`}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            handleFileUpload(row.id);
+                        }}
+                        className="inline-flex min-h-8 items-center justify-center rounded-xl border border-emerald-100 bg-emerald-50 px-2.5 text-xs font-black text-emerald-700 hover:bg-emerald-100"
+                    >
+                        <Camera size={13} className="mr-1" />
+                        {t.capturePod || '上传 POD'}
+                    </button>
+                ) : null}
+                {row.status !== 'pending' ? (
+                    <button
+                        type="button"
+                        data-testid={`shipment-receipts-button-${row.id}`}
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            handleOpenReceiptEvents(row);
+                        }}
+                        className="inline-flex min-h-8 items-center justify-center rounded-xl border border-indigo-100 bg-indigo-50 px-2.5 text-xs font-black text-indigo-700 hover:bg-indigo-100"
+                    >
+                        <ClipboardList size={13} className="mr-1" />
+                        签收批次
+                    </button>
+                ) : null}
+            </>
+        );
+    }, [canWriteShipping, handleFileUpload, handleOpenReceiptEvents, handleShipmentStatusUpdate, t]);
 
     return (
         <div className="space-y-6">
@@ -316,6 +380,7 @@ const Shipping = () => {
                             data={state.shipments}
                             rowKey={(row) => String(row.id)}
                             getRowTestId={(row) => `shipment-row-${String(row.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`}
+                            rowActions={renderShipmentRowActions}
                             exportFileName="出货物流清单"
                             exportSheetName="出货物流"
                             searchPlaceholder={state.t.search || '搜索物流、订单、产品...'}

@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Calculator, ChevronRight, ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
+import React, { useState } from 'react';
+import { ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { ActionToolbar } from '../../components/ui';
 import {
   getBomOperatingMetrics,
@@ -32,8 +32,6 @@ type Props = {
 };
 const baseInputClass =
   'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-100 dark:focus:bg-slate-900 border-none';
-const baseSelectClass =
-  'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none border-none cursor-pointer';
 const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
 const commonSelectClass = 'w-full rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30 cursor-pointer';
 const CHEMICAL_ROLE_OPTIONS = [

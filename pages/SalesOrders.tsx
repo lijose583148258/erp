@@ -56,6 +56,7 @@ const toOperatingSalesOrderRow = (order: SalesOrder): OperatingSalesOrderRow => 
 const SalesOrders = () => {
     const { t, currentUser } = useAppContext();
     const state = useSalesOrders();
+    const { formatPrice } = state;
     const [activeDesk, setActiveDesk] = useState<SalesOrderDesk>('orders');
 
     const operatingLabels = useMemo(() => getOperatingTableLabels(state.language), [state.language]);
@@ -66,9 +67,9 @@ const SalesOrders = () => {
     const columns = useMemo(
         () => createSalesOrderOperatingColumns(
             operatingLabels,
-            (value, currency) => state.formatPrice(value, currency as any),
+            (value, currency) => formatPrice(value, currency as any),
         ) as EnterpriseColumn<OperatingSalesOrderRow>[],
-        [operatingLabels, state.formatPrice],
+        [formatPrice, operatingLabels],
     );
 
     const handleCollectionSubmitted = async () => {
