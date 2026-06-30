@@ -20,6 +20,7 @@
                     "test:browser:spawn-policy":  "node .\\scripts\\browser-spawn-policy-probe.cjs",
                     "test:acceptance:browser":  "node .\\scripts\\browser-acceptance-audit-v3.cjs",
                     "test:browser:isolated:parallel":  "node .\\scripts\\parallel-isolated-playwright-audit-v1.cjs",
+                    "test:browser:ui-ux":  "node .\\scripts\\browser-ui-ux-audit-v2.cjs",
                     "audit:production:background":  "node .\\scripts\\production-browser-audit-v1.cjs",
                     "audit:assets:batch:browser":  "node .\\scripts\\assets-batch-browser-audit-v1.cjs",
                     "audit:production:visible":  "set BROWSER_AUDIT_VISIBLE=1\u0026\u0026 set BROWSER_AUDIT_SLOWMO_MS=400\u0026\u0026 node .\\scripts\\production-browser-audit-v1.cjs",
