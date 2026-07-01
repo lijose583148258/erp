@@ -22,8 +22,16 @@ The audit does not submit, save, approve, delete, cancel, or perform destructive
 
 ## Command
 
+Fast local/CI gate:
+
 ```powershell
 npm run test:browser:ui-ux
+```
+
+Deep full-page screenshot audit:
+
+```powershell
+npm run test:browser:ui-ux:deep
 ```
 
 Route-pinned run:
@@ -55,7 +63,7 @@ npm run test:browser:ui-ux
 | `UI_UX_AUDIT_FAIL_ON_CONSOLE_ERRORS` | `1` | Treat console/page errors as audit errors |
 | `UI_UX_AUDIT_IGNORE_CONSOLE_PATTERN` | empty | Regex for noisy console messages |
 | `UI_UX_AUDIT_IGNORE_HTTP_PATTERN` | empty | Regex for noisy network URLs |
-| `UI_UX_AUDIT_SCREENSHOT_MODE` | `fullPage` | `fullPage` or `viewport` |
+| `UI_UX_AUDIT_SCREENSHOT_MODE` | `viewport` | `viewport` for fast gates, `fullPage` for deep review |
 | `UI_UX_AUDIT_TRACE_ON_FAILURE` | `0` | Reserved for trace capture |
 | `UI_UX_AUDIT_REDUCED_MOTION` | `1` | Force reduced motion and short animations |
 | `UI_UX_AUDIT_COLOR_SCHEME` | `light` | `light`, `dark`, or `both` |
@@ -69,6 +77,14 @@ Each run writes to:
 ```text
 output/ui-ux-audit/<runId>/
 ```
+
+Directory convention:
+
+- audit executables live in `scripts/`
+- shared audit helpers live in `scripts/lib/`
+- audit documentation lives in `docs/`
+- generated evidence lives only under `output/`
+- business UI fixes stay in their owning `components/` or `pages/` module
 
 Required artifacts:
 

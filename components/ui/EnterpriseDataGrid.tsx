@@ -275,7 +275,16 @@ export function EnterpriseDataGrid<T>({
       >
         {onImport ? (
           <>
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImport} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleImport}
+              aria-label="导入表格文件"
+              aria-hidden="true"
+              tabIndex={-1}
+            />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -298,14 +307,14 @@ export function EnterpriseDataGrid<T>({
           </button>
         ) : null}
         <details className="relative">
-          <summary className="inline-flex cursor-pointer list-none items-center justify-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black tracking-[0.14em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+          <summary aria-label="显示或隐藏表格列" className="inline-flex min-h-9 cursor-pointer list-none items-center justify-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black tracking-[0.14em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
             <SlidersHorizontal size={14} className="mr-2" />
             列
           </summary>
           <div className="absolute right-0 top-11 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
-              <button type="button" onClick={resetColumnVisibility} className="text-xs font-bold text-blue-600 dark:text-blue-300">重置</button>
+              <button type="button" onClick={resetColumnVisibility} className="min-h-8 rounded-lg px-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40">重置</button>
             </div>
             <div className="max-h-64 space-y-1 overflow-y-auto">
               {columns.map((column) => (
@@ -354,7 +363,7 @@ export function EnterpriseDataGrid<T>({
                         disabled={!canSort}
                         onClick={() => toggleSort(column)}
                         aria-label={canSort ? `按 ${stringifyCell(column.header) || column.key} 排序` : undefined}
-                        className={`inline-flex items-center gap-1 ${canSort ? 'hover:text-blue-600' : 'cursor-default'}`}
+                        className={`inline-flex min-h-8 items-center gap-1 rounded px-1.5 ${canSort ? 'hover:text-blue-600' : 'cursor-default'}`}
                       >
                         {column.header}
                         {canSort ? (
@@ -430,6 +439,8 @@ export function EnterpriseDataGrid<T>({
         <div className="flex items-center gap-2">
           <select
             data-testid={paginationTestIdPrefix ? `${paginationTestIdPrefix}-page-size` : undefined}
+            aria-label="每页行数"
+            title="每页行数"
             value={effectivePageSize}
             onChange={(event) => {
               const nextPageSize = Number(event.target.value);
@@ -441,7 +452,7 @@ export function EnterpriseDataGrid<T>({
               setPage(1);
               writeNumberPreference(pageSizeStorageKey, nextPageSize);
             }}
-            className="rounded-xl border border-slate-200 bg-white px-2 py-1 outline-none dark:border-slate-700 dark:bg-slate-800"
+            className="min-h-8 rounded-xl border border-slate-200 bg-white px-2 py-1 outline-none dark:border-slate-700 dark:bg-slate-800"
           >
             {pageSizeOptions.map((option) => (
               <option key={option} value={option}>
@@ -452,6 +463,8 @@ export function EnterpriseDataGrid<T>({
           <button
             type="button"
             data-testid={paginationTestIdPrefix ? `${paginationTestIdPrefix}-prev` : undefined}
+            aria-label="上一页"
+            title="上一页"
             onClick={() => {
               const nextPage = Math.max(1, safePage - 1);
               if (isServerPaged && onPageChange) {
@@ -461,7 +474,7 @@ export function EnterpriseDataGrid<T>({
               setPage(nextPage);
             }}
             disabled={safePage <= 1}
-            className="rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
+            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
           >
             <ChevronLeft size={14} />
           </button>
@@ -469,6 +482,8 @@ export function EnterpriseDataGrid<T>({
           <button
             type="button"
             data-testid={paginationTestIdPrefix ? `${paginationTestIdPrefix}-next` : undefined}
+            aria-label="下一页"
+            title="下一页"
             onClick={() => {
               const nextPage = Math.min(totalPages, safePage + 1);
               if (isServerPaged && onPageChange) {
@@ -478,7 +493,7 @@ export function EnterpriseDataGrid<T>({
               setPage(nextPage);
             }}
             disabled={safePage >= totalPages}
-            className="rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
+            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
           >
             <ChevronRight size={14} />
           </button>

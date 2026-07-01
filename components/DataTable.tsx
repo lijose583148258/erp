@@ -279,10 +279,18 @@ const DataTable = <T extends Record<string, any>>({
               value={searchTerm}
               onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
               placeholder={t.search || '搜索...'}
+              aria-label={`${title} 搜索`}
+              title={`${title} 搜索`}
               className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-8 pr-8 text-sm font-medium outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
             />
             {searchTerm && (
-              <button onClick={() => setSearchTerm('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-300 hover:text-slate-500">
+              <button
+                type="button"
+                onClick={() => setSearchTerm('')}
+                aria-label="清空搜索"
+                title="清空搜索"
+                className="absolute right-2 top-1/2 inline-flex min-h-7 min-w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-100 hover:text-slate-500 dark:hover:bg-slate-800"
+              >
                 <X size={13} />
               </button>
             )}
@@ -295,7 +303,9 @@ const DataTable = <T extends Record<string, any>>({
                 <select
                   value={exportCurrency}
                   onChange={(e) => setExportCurrency(e.target.value)}
-                  className="bg-transparent text-xs font-bold text-slate-600 outline-none dark:text-slate-300 pr-1"
+                  aria-label="导出币种"
+                  title="导出币种"
+                  className="min-h-8 bg-transparent pr-1 text-xs font-bold text-slate-600 outline-none dark:text-slate-300"
                 >
                   {exportCurrencies.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -306,21 +316,26 @@ const DataTable = <T extends Record<string, any>>({
               onClick={() => { void handleExport(); }}
               disabled={isExporting || (!onExport && !data.length)}
               data-testid={tableId ? `${tableId}-export` : undefined}
+              aria-label="导出 Excel"
               title="导出 Excel"
-              className="flex items-center gap-1 rounded-xl bg-white px-3 py-1.5 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-200"
+              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-200"
             >
               <FileSpreadsheet size={13} />{isExporting ? '导出中...' : '导出'}
             </button>
           </div>
 
           <details className="relative">
-            <summary className="flex cursor-pointer list-none items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700">
+            <summary
+              aria-label="显示或隐藏表格列"
+              title="显示或隐藏表格列"
+              className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+            >
               <SlidersHorizontal size={13} />列
             </summary>
             <div className="absolute right-0 top-10 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
               <div className="mb-2 flex items-center justify-between gap-2">
                 <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
-                <button type="button" onClick={resetColumnVisibility} className="text-xs font-bold text-blue-600 dark:text-blue-300">重置</button>
+                <button type="button" onClick={resetColumnVisibility} className="min-h-8 rounded-lg px-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30">重置</button>
               </div>
               <div className="max-h-64 space-y-1 overflow-y-auto">
                 {columns.map((column) => (
@@ -329,6 +344,8 @@ const DataTable = <T extends Record<string, any>>({
                       type="checkbox"
                       checked={visibleColumnKeySet.has(column.key)}
                       onChange={(event) => setColumnVisibility(column.key, event.target.checked)}
+                      aria-label={`显示列：${column.header}`}
+                      title={`显示列：${column.header}`}
                       className="h-4 w-4 rounded border-slate-300 text-blue-600"
                     />
                     <span className="truncate">{column.header}</span>
@@ -340,11 +357,23 @@ const DataTable = <T extends Record<string, any>>({
 
           {onImport && (
             <>
-              <input ref={fileInputRef} type="file" onChange={handleImport} className="hidden" accept=".xlsx,.xls,.csv" />
+              <input
+                ref={fileInputRef}
+                type="file"
+                onChange={handleImport}
+                className="hidden"
+                accept=".xlsx,.xls,.csv"
+                aria-label="导入表格文件"
+                aria-hidden="true"
+                tabIndex={-1}
+                title="导入表格文件"
+              />
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="flex items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                aria-label="导入表格文件"
+                title="导入表格文件"
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 <Upload size={13} />导入
               </button>
@@ -449,7 +478,9 @@ const DataTable = <T extends Record<string, any>>({
               <select
                 value={itemsPerPage}
                 onChange={(event) => updatePageSize(Number(event.target.value))}
-                className="mr-1 rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs font-bold outline-none dark:border-slate-700 dark:bg-slate-800"
+                aria-label="每页行数"
+                title="每页行数"
+                className="mr-1 min-h-8 rounded-xl border border-slate-200 bg-white px-2 py-1 text-xs font-bold outline-none dark:border-slate-700 dark:bg-slate-800"
               >
                 {pageSizeOptions.map((option) => <option key={option} value={option}>{option} / 页</option>)}
               </select>
@@ -458,7 +489,9 @@ const DataTable = <T extends Record<string, any>>({
               type="button"
               disabled={effectivePage === 1}
               onClick={() => pagination ? pagination.onPageChange(Math.max(1, effectivePage - 1)) : setCurrentPage((p) => Math.max(1, p - 1))}
-              className="rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-800"
+              aria-label="上一页"
+              title="上一页"
+              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800"
             >
               <ChevronLeft size={16} />
             </button>
@@ -467,7 +500,9 @@ const DataTable = <T extends Record<string, any>>({
                 key={n}
                 type="button"
                 onClick={() => pagination ? pagination.onPageChange(n) : setCurrentPage(n)}
-                className={`min-w-[32px] rounded-xl px-2 py-1 text-xs font-bold transition-all ${
+                aria-label={`第 ${n} 页`}
+                title={`第 ${n} 页`}
+                className={`min-h-8 min-w-8 rounded-xl px-2 py-1 text-xs font-bold transition-all ${
                   n === effectivePage
                     ? 'bg-blue-500 text-white shadow-sm'
                     : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -480,7 +515,9 @@ const DataTable = <T extends Record<string, any>>({
               type="button"
               disabled={effectivePage === totalPages}
               onClick={() => pagination ? pagination.onPageChange(Math.min(totalPages, effectivePage + 1)) : setCurrentPage((p) => Math.min(totalPages, p + 1))}
-              className="rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed dark:hover:bg-slate-800"
+              aria-label="下一页"
+              title="下一页"
+              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800"
             >
               <ChevronRight size={16} />
             </button>

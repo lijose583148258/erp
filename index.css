@@ -192,6 +192,14 @@ textarea {
   }
 }
 
+@media (max-width: 640px) {
+  button,
+  a[role="button"],
+  [role="button"] {
+    min-height: 32px;
+  }
+}
+
 .app-density-table .truncate-cell {
   display: block;
   min-width: 0;

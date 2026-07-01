@@ -93,7 +93,7 @@ function parseConfig() {
     failOnConsoleErrors: boolEnv('UI_UX_AUDIT_FAIL_ON_CONSOLE_ERRORS', true),
     ignoreConsolePattern: regexEnv('UI_UX_AUDIT_IGNORE_CONSOLE_PATTERN'),
     ignoreHttpPattern: regexEnv('UI_UX_AUDIT_IGNORE_HTTP_PATTERN'),
-    screenshotMode: enumEnv('UI_UX_AUDIT_SCREENSHOT_MODE', 'fullPage', ['fullPage', 'viewport']),
+    screenshotMode: enumEnv('UI_UX_AUDIT_SCREENSHOT_MODE', 'viewport', ['fullPage', 'viewport']),
     traceOnFailure: boolEnv('UI_UX_AUDIT_TRACE_ON_FAILURE', false),
     reducedMotion: boolEnv('UI_UX_AUDIT_REDUCED_MOTION', true),
     colorScheme: enumEnv('UI_UX_AUDIT_COLOR_SCHEME', 'light', ['light', 'dark', 'both']),
@@ -321,6 +321,8 @@ async function auditState(page, run, route, viewport, state, collectors) {
     ).trim();
     const add = (severity, category, code, message, element, details = {}) => {
       const rect = element?.getBoundingClientRect?.();
+      const elementName = element ? nameOf(element).slice(0, 80) : '';
+      const elementClass = element?.getAttribute?.('class') || '';
       result.push({
         severity,
         category,
@@ -331,7 +333,11 @@ async function auditState(page, run, route, viewport, state, collectors) {
         state,
         selector: element ? labelFor(element) : null,
         bbox: rect ? { x: rect.x, y: rect.y, width: rect.width, height: rect.height } : null,
-        details,
+        details: {
+          ...details,
+          name: elementName || undefined,
+          className: elementClass ? elementClass.slice(0, 180) : undefined,
+        },
       });
     };
     const hasScrollableAncestor = (element) => {
@@ -358,12 +364,14 @@ async function auditState(page, run, route, viewport, state, collectors) {
     for (const element of Array.from(document.querySelectorAll('button,a,input,select,textarea,[role="button"],[role="menu"],[role="dialog"],[data-testid*="toast"]'))) {
       if (!visible(element)) continue;
       const rect = element.getBoundingClientRect();
+      const labelRect = element.closest('label')?.getBoundingClientRect?.();
+      const hitRect = labelRect && labelRect.width >= rect.width && labelRect.height >= rect.height ? labelRect : rect;
       const interactive = element.matches('button,a,input,select,textarea,[role="button"]');
       const nativeSmallControl = element.matches('input[type="checkbox"],input[type="radio"],input[type="range"]');
       const name = nameOf(element);
       if (interactive && !name) add('error', 'accessibility', 'CONTROL_MISSING_NAME', 'Interactive control has no accessible name', element);
-      if (interactive && !nativeSmallControl && (rect.width < 24 || rect.height < 24)) add('error', 'interaction', 'CLICK_TARGET_TOO_SMALL', 'Click target is smaller than 24x24px', element, { width: rect.width, height: rect.height });
-      if (interactive && !nativeSmallControl && isMobile && (rect.width < 32 || rect.height < 32)) add('error', 'interaction', 'MOBILE_CLICK_TARGET_TOO_SMALL', 'Mobile click target is smaller than 32x32px', element, { width: rect.width, height: rect.height });
+      if (interactive && !nativeSmallControl && (hitRect.width < 24 || hitRect.height < 24)) add('error', 'interaction', 'CLICK_TARGET_TOO_SMALL', 'Click target is smaller than 24x24px', element, { width: hitRect.width, height: hitRect.height });
+      if (interactive && !nativeSmallControl && isMobile && (hitRect.width < 32 || hitRect.height < 32)) add('error', 'interaction', 'MOBILE_CLICK_TARGET_TOO_SMALL', 'Mobile click target is smaller than 32x32px', element, { width: hitRect.width, height: hitRect.height });
       if ((rect.right > window.innerWidth + 4 || rect.left < -4) && !hasScrollableAncestor(element)) {
         add('error', 'layout', 'ELEMENT_OUTSIDE_VIEWPORT', 'Visible control extends outside viewport', element);
       }

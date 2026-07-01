@@ -49,9 +49,12 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
           const Icon = tpl.icon;
           return (
             <button
+              type="button"
               key={tpl.id}
               onClick={() => setForm((prev) => ({ ...prev, ...tpl.patch }))}
-              className="rounded-[18px] border border-slate-100 bg-slate-50 p-3 text-left hover:border-blue-200 dark:border-slate-800 dark:bg-slate-800/60 dark:hover:border-blue-800"
+              aria-label={`套用模板：${tpl.label}`}
+              title={`套用模板：${tpl.label}`}
+              className="min-h-20 rounded-[18px] border border-slate-100 bg-slate-50 p-3 text-left hover:border-blue-200 dark:border-slate-800 dark:bg-slate-800/60 dark:hover:border-blue-800"
             >
               <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
                 <Icon size={12} />
@@ -66,6 +69,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       <div className="mt-4 grid grid-cols-2 gap-2">
         <select
           data-testid="adjustment-domain"
+          aria-label="调账领域"
+          title="调账领域"
           value={form.domain}
           onChange={(e) =>
             setForm((prev) => ({
@@ -82,6 +87,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
         </select>
         <select
           data-testid="adjustment-status"
+          aria-label="调账状态"
+          title="调账状态"
           value={form.status}
           onChange={(e) => setForm((prev) => ({ ...prev, status: e.target.value as AdjustmentStatus }))}
           className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black dark:border-slate-700 dark:bg-slate-800"
@@ -94,6 +101,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       <div className="mt-2 grid grid-cols-2 gap-2">
         <select
           data-testid="adjustment-target-type"
+          aria-label="调账对象类型"
+          title="调账对象类型"
           value={form.targetType}
           onChange={(e) => setForm((prev) => ({ ...prev, targetType: e.target.value as AdjustmentTargetType }))}
           className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3 text-xs font-black dark:border-slate-700 dark:bg-slate-800"
@@ -104,6 +113,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
         </select>
         <input
           data-testid="adjustment-target-ref"
+          aria-label="对象参考号"
+          title="对象参考号"
           value={form.targetRef}
           onChange={(e) => setForm((prev) => ({ ...prev, targetRef: e.target.value }))}
           placeholder="对象参考号"
@@ -114,6 +125,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       <div className="mt-2 grid grid-cols-2 gap-2">
         <input
           data-testid="adjustment-order-id"
+          aria-label="订单 ID"
+          title="订单 ID"
           value={form.orderId}
           onChange={(e) => setForm((prev) => ({ ...prev, orderId: e.target.value }))}
           placeholder="订单ID"
@@ -123,6 +136,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
         />
         <input
           data-testid="adjustment-batch-id"
+          aria-label="批次 ID"
+          title="批次 ID"
           value={form.batchId}
           onChange={(e) => setForm((prev) => ({ ...prev, batchId: e.target.value }))}
           placeholder="批次ID"
@@ -135,6 +150,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       <div className="mt-2 grid grid-cols-2 gap-2">
         <input
           data-testid="adjustment-amount-delta"
+          aria-label="金额变动"
+          title="金额变动"
           value={form.amountDelta}
           onChange={(e) => setForm((prev) => ({ ...prev, amountDelta: e.target.value }))}
           placeholder="金额变动"
@@ -144,6 +161,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
         />
         <input
           data-testid="adjustment-quantity-delta"
+          aria-label="数量变动"
+          title="数量变动"
           value={form.quantityDelta}
           onChange={(e) => setForm((prev) => ({ ...prev, quantityDelta: e.target.value }))}
           placeholder="数量变动"
@@ -156,6 +175,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       <div className="mt-2 grid grid-cols-2 gap-2">
         <input
           data-testid="adjustment-reason-category"
+          aria-label="原因分类"
+          title="原因分类"
           value={form.reasonCategory}
           onChange={(e) => setForm((prev) => ({ ...prev, reasonCategory: e.target.value }))}
           placeholder="原因分类"
@@ -163,6 +184,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
         />
         <input
           data-testid="adjustment-loss-type"
+          aria-label="损耗类型"
+          title="损耗类型"
           value={form.lossType}
           onChange={(e) => setForm((prev) => ({ ...prev, lossType: e.target.value }))}
           placeholder="损耗类型"
@@ -172,6 +195,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
 
       <textarea
         data-testid="adjustment-reason"
+        aria-label="调账原因"
+        title="调账原因"
         value={form.reason}
         onChange={(e) => setForm((prev) => ({ ...prev, reason: e.target.value }))}
         placeholder="调账原因"
@@ -180,6 +205,8 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
       />
       <textarea
         data-testid="adjustment-note"
+        aria-label="备注"
+        title="备注"
         value={form.note}
         onChange={(e) => setForm((prev) => ({ ...prev, note: e.target.value }))}
         placeholder="备注"
@@ -189,6 +216,7 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
 
       <div className="mt-3 grid grid-cols-2 gap-3">
         <button
+          type="button"
           data-testid="adjustment-create-submit"
           onClick={onCreate}
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-white"
@@ -197,6 +225,7 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
           创建单据
         </button>
         <button
+          type="button"
           data-testid="adjustment-create-reset"
           onClick={onReset}
           className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-slate-600 dark:bg-slate-800 dark:text-slate-200"
