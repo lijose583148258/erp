@@ -23,7 +23,7 @@ export const BARTER_DESK_TABS: WorkspaceTaskNavigatorItem<BarterDeskTab>[] = [
   {
     id: 'ledger',
     title: '审批过账',
-    subtitle: '审核、过账、冲销和批次流水回放',
+    subtitle: '审核、过账、冲销和批次流水回读',
     purpose: '只回答“哪些批次已经被确认入账”。',
     icon: Coins,
   },
@@ -80,31 +80,31 @@ export const buildBarterPreview = (items: BarterItem[]) => {
   };
 };
 
-export function BarterItemEditor({
-  title,
-  item,
-  onChange,
-}: {
+type BarterItemEditorProps = {
   title: string;
   item: BarterItem;
   onChange: (key: keyof BarterItem, value: string | number) => void;
-}) {
+};
+
+export function BarterItemEditor({ title, item, onChange }: BarterItemEditorProps) {
+  const label = (name: string) => `${title} ${name}`;
+
   return (
     <div className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-4">
       <div className="mb-3 text-sm font-black text-slate-800">{title}</div>
       <div className="grid gap-3">
-        <input value={item.itemName} onChange={(e) => onChange('itemName', e.target.value)} placeholder="品名" className={barterFieldClass} />
-        <input value={item.specification || ''} onChange={(e) => onChange('specification', e.target.value)} placeholder="规格" className={barterFieldClass} />
+        <input aria-label={label('品名')} title={label('品名')} value={item.itemName} onChange={(e) => onChange('itemName', e.target.value)} placeholder="品名" className={barterFieldClass} />
+        <input aria-label={label('规格')} title={label('规格')} value={item.specification || ''} onChange={(e) => onChange('specification', e.target.value)} placeholder="规格" className={barterFieldClass} />
         <div className="grid grid-cols-3 gap-3">
-          <input type="number" value={item.quantity} onChange={(e) => onChange('quantity', Number(e.target.value || 0))} placeholder="数量" className={barterFieldClass} />
-          <input value={item.unit} onChange={(e) => onChange('unit', e.target.value)} placeholder="单位" className={barterFieldClass} />
-          <input type="number" value={item.unitPrice} onChange={(e) => onChange('unitPrice', Number(e.target.value || 0))} placeholder="单价" className={barterFieldClass} />
+          <input aria-label={label('数量')} title={label('数量')} type="number" value={item.quantity} onChange={(e) => onChange('quantity', Number(e.target.value || 0))} placeholder="数量" className={barterFieldClass} />
+          <input aria-label={label('单位')} title={label('单位')} value={item.unit} onChange={(e) => onChange('unit', e.target.value)} placeholder="单位" className={barterFieldClass} />
+          <input aria-label={label('单价')} title={label('单价')} type="number" value={item.unitPrice} onChange={(e) => onChange('unitPrice', Number(e.target.value || 0))} placeholder="单价" className={barterFieldClass} />
         </div>
         <div className="grid grid-cols-2 gap-3">
-          <input type="number" step="0.01" value={item.qualityFactor ?? 1} onChange={(e) => onChange('qualityFactor', Number(e.target.value || 1))} placeholder="质量系数" className={barterFieldClass} />
-          <input type="number" step="0.01" value={item.lossFactor ?? 1} onChange={(e) => onChange('lossFactor', Number(e.target.value || 1))} placeholder="损耗系数" className={barterFieldClass} />
+          <input aria-label={label('质量系数')} title={label('质量系数')} type="number" step="0.01" value={item.qualityFactor ?? 1} onChange={(e) => onChange('qualityFactor', Number(e.target.value || 1))} placeholder="质量系数" className={barterFieldClass} />
+          <input aria-label={label('损耗系数')} title={label('损耗系数')} type="number" step="0.01" value={item.lossFactor ?? 1} onChange={(e) => onChange('lossFactor', Number(e.target.value || 1))} placeholder="损耗系数" className={barterFieldClass} />
         </div>
-        <input value={item.note || ''} onChange={(e) => onChange('note', e.target.value)} placeholder="行备注/估值证据" className={barterFieldClass} />
+        <input aria-label={label('行备注/估值证据')} title={label('行备注/估值证据')} value={item.note || ''} onChange={(e) => onChange('note', e.target.value)} placeholder="行备注/估值证据" className={barterFieldClass} />
       </div>
     </div>
   );

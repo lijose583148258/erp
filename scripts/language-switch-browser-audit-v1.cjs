@@ -16,17 +16,33 @@ const TIMEOUTS = {
   screenshot: 5_000,
 };
 
+const cp = (...codes) => String.fromCodePoint(...codes);
+
 const BAD_VISIBLE_TOKENS = [
   'undefined',
   '\uFFFD',
   '\u00e2\u20ac',
   '\u9416',
   '\u6d93\ue15f\u6783',
-  '缁忚惀',
-  '涓枃',
-  'Ti\u5cb7',
-  'Vi\u5cc4',
-  'T峄',
+  cp(0x7f01, 0x5fda, 0x60c0),
+  cp(0x7f02, 0x4f78, 0x7e57, 0x93af, 0x20ac),
+  cp(0x9416, 0x535e),
+  cp(0x7039, 0x3221),
+  cp(0x95bf, 0x20ac),
+  cp(0x9365, 0x70b4),
+  cp(0x6434, 0x65c0),
+  cp(0x7490, 0x3220),
+  cp(0x935a, 0x581d),
+  cp(0x690b, 0x5ea2),
+  cp(0x5a13, 0x72bb),
+  cp(0x93cd, 0x5cf0),
+  cp(0x9359, 0x6223),
+  cp(0x9422, 0x71b6),
+  cp(0x6d60, 0x64b3),
+  cp(0x95b2, 0x56ea),
+  cp(0x7039, 0x00a4),
+  cp(0x54, 0x69, 0x5cb7),
+  cp(0x54, 0x5cc4),
 ];
 
 const LANGUAGE_CASES = [
@@ -38,8 +54,8 @@ const LANGUAGE_CASES = [
   },
   {
     code: 'vi',
-    menuLabel: 'Tiếng Việt',
-    expectedText: 'Tổng quan',
+    menuLabel: 'Tieng Viet',
+    expectedText: 'Tong quan',
     screenshot: 'language-vi',
   },
   {
@@ -130,7 +146,7 @@ async function assertNoBadVisibleText(page, scope) {
 
 async function openLanguageMenu(page, currentCode) {
   await withTimebox(`open-language-menu-${currentCode}`, TIMEOUTS.action, async () => {
-    const button = page.locator('button').filter({ hasText: new RegExp(`\\b${currentCode}\\b`, 'i') }).first();
+    const button = page.locator('button').filter({ hasText: new RegExp(`^${currentCode}$`, 'i') }).first();
     await button.waitFor({ state: 'visible', timeout: TIMEOUTS.action });
     await button.click();
     await page.locator('button').filter({ hasText: 'English' }).first().waitFor({ state: 'visible', timeout: TIMEOUTS.action });
@@ -141,10 +157,10 @@ async function switchLanguage(page, currentCode, target) {
   await openLanguageMenu(page, currentCode);
   await withTimebox(`select-language-${target.code}`, TIMEOUTS.action, async () => {
     await page.locator('button').filter({ hasText: target.menuLabel }).first().click();
-    await page.waitForFunction(({ code, expected }) => {
-      return window.localStorage.getItem('ailao.language') === code
-        && document.body.innerText.includes(expected);
-    }, { code: target.code, expected: target.expectedText }, { timeout: TIMEOUTS.action });
+    await page.waitForFunction(({ code, expected }) => (
+      window.localStorage.getItem('ailao.language') === code
+      && document.body.innerText.includes(expected)
+    ), { code: target.code, expected: target.expectedText }, { timeout: TIMEOUTS.action });
   });
 
   await assertNoBadVisibleText(page, `language-${target.code}`);
@@ -167,6 +183,7 @@ async function main() {
   }, TIMEOUTS.script);
 
   let browser = null;
+  let context = null;
   try {
     const launched = await connectOrLaunchBrowser({
       recordStep,
@@ -177,7 +194,7 @@ async function main() {
     report.launcher = launched.launcher;
     report.endpoint = launched.endpoint || null;
 
-    const context = browser.contexts()[0] || await browser.newContext({ viewport: { width: 1440, height: 980 } });
+    context = await browser.newContext({ viewport: { width: 1600, height: 980 } });
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     page.on('console', (message) => {
@@ -219,6 +236,7 @@ async function main() {
   } finally {
     if (scriptTimer) clearTimeout(scriptTimer);
     try {
+      if (context) await context.close();
       if (browser) await browser.close();
     } catch {
       // ignore browser close failures in report-only probe

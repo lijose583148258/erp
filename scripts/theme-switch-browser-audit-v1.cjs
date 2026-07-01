@@ -137,6 +137,7 @@ async function main() {
   }, TIMEOUTS.script);
 
   let browser = null;
+  let context = null;
   try {
     const launched = await connectOrLaunchBrowser({
       recordStep,
@@ -147,7 +148,7 @@ async function main() {
     report.launcher = launched.launcher;
     report.endpoint = launched.endpoint || null;
 
-    const context = browser.contexts()[0] || await browser.newContext({ viewport: { width: 1440, height: 980 } });
+    context = await browser.newContext({ viewport: { width: 1600, height: 980 } });
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     page.on('console', (message) => {
@@ -201,6 +202,7 @@ async function main() {
   } finally {
     if (scriptTimer) clearTimeout(scriptTimer);
     try {
+      if (context) await context.close();
       if (browser) await browser.close();
     } catch {
       // ignore browser close failures in report-only probe

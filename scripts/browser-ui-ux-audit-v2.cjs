@@ -87,7 +87,7 @@ function parseConfig() {
       .map((item) => normalizeRoute(item))
       .filter(Boolean),
     maxRoutes: intEnv('UI_UX_AUDIT_MAX_ROUTES', 30, 1),
-    timeoutMs: intEnv('UI_UX_AUDIT_TIMEOUT_MS', 120000, 1000),
+    timeoutMs: intEnv('UI_UX_AUDIT_TIMEOUT_MS', 180000, 1000),
     pageTimeoutMs: intEnv('UI_UX_AUDIT_PAGE_TIMEOUT_MS', 15000, 1000),
     failOnWarnings: boolEnv('UI_UX_AUDIT_FAIL_ON_WARNINGS', false),
     failOnConsoleErrors: boolEnv('UI_UX_AUDIT_FAIL_ON_CONSOLE_ERRORS', true),

@@ -9,6 +9,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -16,7 +17,11 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'audit-read-dynamic-permission-audit-r
 const REQUEST_TIMEOUT_MS = 10_000;
 const SCRIPT_TIMEOUT_MS = 290_000;
 
-const ADMIN = { username: 'admin', password: 'admin123' };
+const ADMIN = {
+  username: process.env.AUDIT_UI_USERNAME || 'ui_audit_read_admin',
+  password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 const SALES = { username: 'sales', password: 'sales123' };
 const AUDIT_READ_PERMISSION = 'audit.read';
 
@@ -192,6 +197,7 @@ async function main() {
   let sales = null;
   let originalSalesRole = null;
   try {
+    await ensureUiAuditUser(ADMIN);
     admin = await login(ADMIN, 'admin');
     sales = await login(SALES, 'sales');
 

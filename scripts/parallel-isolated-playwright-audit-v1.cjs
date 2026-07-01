@@ -19,9 +19,10 @@ const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const RUN_ID = process.env.ISOLATED_PLAYWRIGHT_RUN_ID || new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 const OUTPUT_ROOT = path.resolve(process.env.ISOLATED_PLAYWRIGHT_OUTPUT_ROOT || path.join(process.cwd(), 'output', 'playwright', 'isolated-parallel', RUN_ID));
 const MAX_WORKERS = Math.max(1, Math.min(parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKERS', defaultWorkerCount()), ROUTES.length));
+const WORKER_TIMEOUT_MS = parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKER_TIMEOUT_MS', 180000);
 const WORKER_SCRIPT = path.join(__dirname, 'lib', 'isolated-playwright-worker.cjs');
 const SANDBOX_TEMPLATE = (process.env.SANDBOX_RUNTIME_COMMAND || '').trim();
-const AUDIT_ACCOUNT = {
+const AUDIT_ACCOUNT_BASE = {
   username: process.env.ISOLATED_PLAYWRIGHT_USERNAME || 'ui_isolated_parallel_admin',
   password: process.env.ISOLATED_PLAYWRIGHT_PASSWORD || 'AuditSmoke12345!',
   role: 'admin',
@@ -55,19 +56,28 @@ function shellQuote(value) {
   return `'${stringValue.replace(/'/g, `'"'"'`)}'`;
 }
 
+function accountForWorker(workerId) {
+  const safeWorkerId = String(workerId).replace(/[^a-zA-Z0-9_]/g, '_');
+  return {
+    ...AUDIT_ACCOUNT_BASE,
+    username: `${AUDIT_ACCOUNT_BASE.username}_${safeWorkerId}`.slice(0, 64),
+  };
+}
+
 function buildWorkerEnv(workerId, routes, outputDir) {
+  const account = accountForWorker(workerId);
   return {
     ...process.env,
     ISOLATED_PLAYWRIGHT_WORKER_ID: workerId,
-    ISOLATED_PLAYWRIGHT_USERNAME: AUDIT_ACCOUNT.username,
-    ISOLATED_PLAYWRIGHT_PASSWORD: AUDIT_ACCOUNT.password,
+    ISOLATED_PLAYWRIGHT_USERNAME: account.username,
+    ISOLATED_PLAYWRIGHT_PASSWORD: account.password,
     ISOLATED_PLAYWRIGHT_WORKER_CONFIG: JSON.stringify({
       workerId,
       appUrl: APP_URL,
       outputDir,
       routes,
-      username: AUDIT_ACCOUNT.username,
-      password: AUDIT_ACCOUNT.password,
+      username: account.username,
+      password: account.password,
     }),
   };
 }
@@ -103,10 +113,13 @@ function runWorker({ workerId, routes, outputDir }) {
     const stderr = fs.createWriteStream(stderrPath);
     const startedAt = Date.now();
     let settled = false;
+    let timedOut = false;
+    let timeout = null;
 
     function settle(result) {
       if (settled) return;
       settled = true;
+      if (timeout) clearTimeout(timeout);
       stdout.end();
       stderr.end();
       resolve(result);
@@ -120,6 +133,11 @@ function runWorker({ workerId, routes, outputDir }) {
     const child = SANDBOX_TEMPLATE
       ? spawn(applySandboxTemplate(SANDBOX_TEMPLATE, { workerId, outputDir }), { ...spawnOptions, shell: true })
       : spawn(process.execPath, [WORKER_SCRIPT], spawnOptions);
+
+    timeout = setTimeout(() => {
+      timedOut = true;
+      child.kill('SIGTERM');
+    }, WORKER_TIMEOUT_MS);
 
     child.stdout.pipe(stdout);
     child.stderr.pipe(stderr);
@@ -151,6 +169,7 @@ function runWorker({ workerId, routes, outputDir }) {
         reportPath: workerReportPath,
         report: workerReport,
         reportParseError: parseError,
+        error: timedOut ? `worker exceeded ${WORKER_TIMEOUT_MS}ms` : null,
       });
     });
   });
@@ -176,13 +195,13 @@ function writeReport() {
 
 async function run() {
   ensureDir(OUTPUT_ROOT);
-  await ensureUiAuditUser(AUDIT_ACCOUNT);
   const buckets = chunkRoutes(ROUTES, MAX_WORKERS);
   const workerJobs = buckets.map((routes, index) => ({
     workerId: `worker-${index + 1}`,
     routes,
     outputDir: path.join(OUTPUT_ROOT, `worker-${index + 1}`),
   }));
+  await Promise.all(workerJobs.map((job) => ensureUiAuditUser(accountForWorker(job.workerId))));
 
   const workers = await Promise.all(workerJobs.map(runWorker));
   const summary = summarize(workers);

@@ -289,9 +289,9 @@ const DataTable = <T extends Record<string, any>>({
                 onClick={() => setSearchTerm('')}
                 aria-label="清空搜索"
                 title="清空搜索"
-                className="absolute right-2 top-1/2 inline-flex min-h-7 min-w-7 -translate-y-1/2 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-100 hover:text-slate-500 dark:hover:bg-slate-800"
+                className="absolute right-2 top-1/2 inline-flex min-h-8 min-w-8 -translate-y-1/2 items-center justify-center rounded-lg text-slate-300 hover:bg-slate-100 hover:text-slate-500 dark:hover:bg-slate-800"
               >
-                <X size={13} />
+                <X size={14} />
               </button>
             )}
           </div>}

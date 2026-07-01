@@ -1,11 +1,7 @@
 import React, { useState } from 'react';
 import { ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { ActionToolbar } from '../../components/ui';
-import {
-  getBomOperatingMetrics,
-  getBomOperatingSummary,
-  ProductionBomOperatingFields,
-} from './ProductionBomOperatingFields';
+import { getBomOperatingMetrics, getBomOperatingSummary, ProductionBomOperatingFields } from './ProductionBomOperatingFields';
 export type BomItemDraft = {
   materialName: string;
   materialCode: string;
@@ -478,6 +474,8 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                   <td className="px-2 py-2.5 align-top min-w-[110px]">
                     <select
                       data-testid={`production-bom-row-${index}-ingredient-role`}
+                      aria-label={`BOM 第 ${index + 1} 行原料角色`}
+                      title={`BOM 第 ${index + 1} 行原料角色`}
                       value={roleValue}
                       onChange={(e) => updateItem(index, { ingredientRole: normalizeRoleValue(e.target.value) })}
                       className={commonSelectClass}
@@ -490,6 +488,8 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                   <td className="px-2 py-2.5 align-top min-w-[100px]">
                     <select
                       data-testid={`production-bom-row-${index}-dosage-mode`}
+                      aria-label={`BOM 第 ${index + 1} 行用量模式`}
+                      title={`BOM 第 ${index + 1} 行用量模式`}
                       value={dosageValue}
                       onChange={(e) => {
                         const newMode = normalizeDosageValue(e.target.value);

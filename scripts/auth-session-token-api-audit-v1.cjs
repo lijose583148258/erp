@@ -6,13 +6,18 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'auth-session-token-api-audit-report-v1.json');
 const REQUEST_TIMEOUT_MS = 10_000;
 const SCRIPT_TIMEOUT_MS = 290_000;
-const ADMIN = { username: 'admin', password: 'admin123' };
+const ADMIN = {
+  username: process.env.AUDIT_UI_USERNAME || 'ui_auth_session_admin',
+  password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 
 const report = {
   appUrl: APP_URL,
@@ -113,9 +118,10 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
+    await ensureUiAuditUser(ADMIN);
     const loginResponse = await apiFetch('/auth/login', {
       method: 'POST',
-      data: ADMIN,
+      data: { username: ADMIN.username, password: ADMIN.password },
     });
     expectStatus(loginResponse, [200], 'login');
     const loginData = dataOf(loginResponse);

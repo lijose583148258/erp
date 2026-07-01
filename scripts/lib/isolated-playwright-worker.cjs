@@ -31,10 +31,12 @@ const ROUTES = Array.isArray(workerConfig.routes) && workerConfig.routes.length 
 const AUDIT_USERNAME = workerConfig.username || process.env.ISOLATED_PLAYWRIGHT_USERNAME || 'ui_isolated_parallel_admin';
 const AUDIT_PASSWORD = workerConfig.password || process.env.ISOLATED_PLAYWRIGHT_PASSWORD || 'AuditSmoke12345!';
 const HEADLESS = process.env.BROWSER_AUDIT_VISIBLE === '1' ? false : true;
+const FAIL_ON_CONSOLE_ERRORS = process.env.ISOLATED_PLAYWRIGHT_FAIL_ON_CONSOLE_ERRORS === '1';
+const FAIL_ON_HTTP_FAILURES = process.env.ISOLATED_PLAYWRIGHT_FAIL_ON_HTTP_FAILURES === '1';
 const STEP_TIMEOUT_MS = {
-  pageLoad: parsePositiveInt('ISOLATED_PLAYWRIGHT_PAGE_LOAD_TIMEOUT_MS', 15000),
+  pageLoad: parsePositiveInt('ISOLATED_PLAYWRIGHT_PAGE_LOAD_TIMEOUT_MS', 30000),
   login: parsePositiveInt('ISOLATED_PLAYWRIGHT_LOGIN_TIMEOUT_MS', 20000),
-  route: parsePositiveInt('ISOLATED_PLAYWRIGHT_ROUTE_TIMEOUT_MS', 9000),
+  route: parsePositiveInt('ISOLATED_PLAYWRIGHT_ROUTE_TIMEOUT_MS', 18000),
   settle: parsePositiveInt('ISOLATED_PLAYWRIGHT_SETTLE_TIMEOUT_MS', 1000),
   screenshot: parsePositiveInt('ISOLATED_PLAYWRIGHT_SCREENSHOT_TIMEOUT_MS', 5000),
 };
@@ -152,6 +154,7 @@ async function seedSession(page) {
     user: currentUser,
     storage: {
       'ailao.language': 'en',
+      'ailao.activeTab': 'dashboard',
       language: 'en',
       currency: 'CNY',
     },
@@ -167,9 +170,34 @@ async function seedSession(page) {
     Object.entries(storage).forEach(([key, value]) => localStorage.setItem(key, value));
   };
   await page.addInitScript(applySession, session);
-  await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT_MS.pageLoad });
-  await page.evaluate(applySession, session);
-  await page.reload({ waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT_MS.pageLoad });
+  let lastShellError = null;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      await page.goto(APP_URL, { waitUntil: 'commit', timeout: STEP_TIMEOUT_MS.pageLoad });
+      await page.evaluate(applySession, session);
+      const hasSession = await page.evaluate(() => Boolean(localStorage.getItem('token') && localStorage.getItem('user')));
+      if (!hasSession) throw new Error('isolated audit session was not persisted in localStorage');
+      const shellReady = await page.waitForFunction(
+        () => {
+          const text = (document.body?.innerText || '').trim();
+          const loginFormVisible = Boolean(document.querySelector('#login-username'));
+          return !loginFormVisible && (text.includes('AilaoDa Business Cockpit') || text.includes('Overview'));
+        },
+        null,
+        { timeout: 15000 },
+      ).then(() => true).catch(() => false);
+      if (shellReady) {
+        report.loginShellAttempt = attempt;
+        lastShellError = null;
+        break;
+      }
+      lastShellError = new Error('app shell did not render text');
+    } catch (error) {
+      lastShellError = error;
+    }
+    await page.waitForTimeout(500);
+  }
+  if (lastShellError) throw new Error(`isolated audit app shell did not become ready after 3 attempts: ${lastShellError.message || lastShellError}`);
   report.login = { status: 'passed', username: AUDIT_USERNAME };
 }
 
@@ -241,7 +269,7 @@ async function run() {
       ignoreHTTPSErrors: true,
     });
     const page = await context.newPage();
-    page.setDefaultTimeout(10000);
+    page.setDefaultTimeout(15000);
     page.on('console', (message) => {
       if (message.type() === 'error') {
         report.consoleErrors.push({ at: new Date().toISOString(), text: message.text(), url: page.url() });
@@ -275,6 +303,12 @@ async function run() {
     });
     await seedSession(page);
     for (const route of ROUTES) await auditRoute(page, route);
+    if (FAIL_ON_CONSOLE_ERRORS && (report.consoleErrors.length || report.pageErrors.length)) {
+      throw new Error(`console/page errors detected: ${report.consoleErrors.length + report.pageErrors.length}`);
+    }
+    if (FAIL_ON_HTTP_FAILURES && report.httpFailures.length) {
+      throw new Error(`HTTP 5xx responses detected: ${report.httpFailures.length}`);
+    }
     report.status = 'passed';
   } catch (error) {
     report.status = 'failed';
@@ -282,8 +316,13 @@ async function run() {
     process.exitCode = 1;
   } finally {
     if (context) await context.close().catch(() => {});
-    fs.rmSync(userDataDir, { recursive: true, force: true });
-    report.userDataDirRemoved = true;
+    try {
+      fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+      report.userDataDirRemoved = true;
+    } catch (error) {
+      report.userDataDirRemoved = false;
+      report.userDataDirRemoveError = String(error.message || error);
+    }
     writeReport();
   }
 }

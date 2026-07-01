@@ -105,7 +105,7 @@ async function login(page) {
       account: {
         username: 'browser_acceptance_admin',
         password: 'BrowserAcceptance123!',
-        role: 'super_admin',
+        role: 'admin',
       },
       defaultStorage: {
         language: 'zh',
@@ -256,8 +256,11 @@ async function createOrderRecordPaymentAndReadBack(page) {
   recordStep({ step: 'orders-refresh-readback-evidence', result: 'passed', rowText });
 
   await withTimebox(page, 'orders-record-payment', STEP_TIMEOUT_MS.save, async () => {
+    await page.getByTestId('sales-desk-payments').click();
+    await page.waitForTimeout(500);
+    row = await findRowByText(page, createdRowMarker, STEP_TIMEOUT_MS.readBack);
     await row.hover();
-    const paymentButton = row.locator('button[title*="Payment"], button[title*="\u56de\u6b3e"], button[title*="\u6536\u6b3e"]').first();
+    const paymentButton = row.getByTestId('sales-order-payment-button').first();
     if (!(await paymentButton.count())) throw new Error('payment action button not found');
     await paymentButton.click();
 
@@ -274,7 +277,7 @@ async function createOrderRecordPaymentAndReadBack(page) {
     await page.waitForTimeout(1500);
     row = await findRowByText(page, createdRowMarker, STEP_TIMEOUT_MS.readBack);
     await row.hover();
-    const historyButton = row.locator('button[title*="History"], button[title*="\u5386\u53f2"]').first();
+    const historyButton = row.getByTestId('sales-order-history-button').first();
     if (!(await historyButton.count())) throw new Error('history action button not found');
     await historyButton.click();
     await waitForText(page, TEST_DATA.paymentNote, STEP_TIMEOUT_MS.readBack);

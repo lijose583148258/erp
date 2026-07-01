@@ -164,24 +164,28 @@ function createBrowserHumanFlowAuditContext({
     return page.locator('body').innerText().catch(() => '');
   }
 
+  const cp = (...codes) => String.fromCodePoint(...codes);
   const mojibakeTokens = [
-    '\u93b6',
-    '\u5a34',
-    '\u934f',
-    '\u9416',
-    '\u7481',
-    '\u7eef',
-    '\u7039',
-    '\u9358',
-    '\u93c2',
-    '\u95b2',
-    '\u6d60\u6493',
-    '\u6434\u6493',
-    '\u6748',
-    '\u7b5b',
-    '\u6fb6\u8f81\u89e6',
-    '\u4e36\u74c5',
-    '\u5cb7',
+    '\u00e2\u20ac',
+    '\u951f\u65a4\u62f7',
+    cp(0x7f01, 0x5fda, 0x60c0),
+    cp(0x9416, 0x535e),
+    cp(0x7039, 0x3221),
+    cp(0x95bf, 0x20ac),
+    cp(0x9365, 0x70b4),
+    cp(0x6434, 0x65c0),
+    cp(0x7490, 0x3220),
+    cp(0x935a, 0x581d),
+    cp(0x690b, 0x5ea2),
+    cp(0x5a13, 0x72bb),
+    cp(0x93cd, 0x5cf0),
+    cp(0x9359, 0x6223),
+    cp(0x9422, 0x71b6),
+    cp(0x6d60, 0x64b3),
+    cp(0x95b2, 0x56ea),
+    cp(0x7039, 0x00a4),
+    cp(0x54, 0x69, 0x5cb7),
+    cp(0x54, 0x5cc4),
   ];
 
   function hasCorruption(text) {
