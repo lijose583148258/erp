@@ -126,39 +126,6 @@ async function safeScreenshot(page, fileName) {
 }
 
 async function seedSession(page) {
-  const response = await page.request.post(apiUrl('/auth/login'), {
-    data: { username: AUDIT_USERNAME, password: AUDIT_PASSWORD },
-  });
-  if (!response.ok()) {
-    throw new Error(`isolated audit login failed: ${response.status()}`);
-  }
-  const json = await response.json().catch(() => null);
-  const token = json?.data?.token;
-  const user = json?.data?.user;
-  if (!token || !user || user.mustChangePassword) {
-    throw new Error('isolated audit login returned invalid ready user');
-  }
-  const currentUser = {
-    id: String(user.id),
-    name: user.username,
-    role: user.role,
-    segment: user.segment || 'mixed',
-    avatar: user.avatar || '',
-    mustChangePassword: Boolean(user.mustChangePassword),
-    permissions: Array.isArray(user.permissions) ? user.permissions : [],
-    dataScopes: Array.isArray(user.dataScopes) ? user.dataScopes : [],
-  };
-  const session = {
-    token,
-    refreshToken: json?.data?.refreshToken || '',
-    user: currentUser,
-    storage: {
-      'ailao.language': 'en',
-      'ailao.activeTab': 'dashboard',
-      language: 'en',
-      currency: 'CNY',
-    },
-  };
   const applySession = ({ token: savedToken, refreshToken, user: savedUser, storage }) => {
     localStorage.setItem('token', savedToken);
     if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
@@ -169,11 +136,48 @@ async function seedSession(page) {
     localStorage.setItem('erp_current_user', JSON.stringify(savedUser));
     Object.entries(storage).forEach(([key, value]) => localStorage.setItem(key, value));
   };
-  await page.addInitScript(applySession, session);
+
+  async function createSession() {
+    const response = await page.request.post(apiUrl('/auth/login'), {
+      data: { username: AUDIT_USERNAME, password: AUDIT_PASSWORD },
+    });
+    if (!response.ok()) {
+      throw new Error(`isolated audit login failed: ${response.status()}`);
+    }
+    const json = await response.json().catch(() => null);
+    const token = json?.data?.token;
+    const user = json?.data?.user;
+    if (!token || !user || user.mustChangePassword) {
+      throw new Error('isolated audit login returned invalid ready user');
+    }
+    return {
+      token,
+      refreshToken: json?.data?.refreshToken || '',
+      user: {
+        id: String(user.id),
+        name: user.username,
+        role: user.role,
+        segment: user.segment || 'mixed',
+        avatar: user.avatar || '',
+        mustChangePassword: Boolean(user.mustChangePassword),
+        permissions: Array.isArray(user.permissions) ? user.permissions : [],
+        dataScopes: Array.isArray(user.dataScopes) ? user.dataScopes : [],
+      },
+      storage: {
+        'ailao.language': 'en',
+        'ailao.activeTab': 'dashboard',
+        language: 'en',
+        currency: 'CNY',
+      },
+    };
+  }
+
   let lastShellError = null;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
     try {
-      await page.goto(APP_URL, { waitUntil: 'commit', timeout: STEP_TIMEOUT_MS.pageLoad });
+      const session = await createSession();
+      await page.addInitScript(applySession, session);
+      await page.goto(`${APP_URL.replace(/\/?$/, '/')}#dashboard`, { waitUntil: 'commit', timeout: STEP_TIMEOUT_MS.pageLoad });
       await page.evaluate(applySession, session);
       const hasSession = await page.evaluate(() => Boolean(localStorage.getItem('token') && localStorage.getItem('user')));
       if (!hasSession) throw new Error('isolated audit session was not persisted in localStorage');

@@ -5,9 +5,14 @@ const { spawn } = require('child_process');
 const { ROUTES } = require('./lib/isolated-playwright-routes.cjs');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
-function parsePositiveInt(name, defaultValue) {
-  const value = Number(process.env[name] || defaultValue);
-  return Number.isFinite(value) && value > 0 ? Math.floor(value) : defaultValue;
+function parsePositiveInt(name, defaultValue, min = 1) {
+  const raw = process.env[name];
+  if (raw == null || raw === '') return defaultValue;
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < min) {
+    throw new Error(`${name} must be an integer >= ${min}`);
+  }
+  return value;
 }
 
 function defaultWorkerCount() {
@@ -16,10 +21,17 @@ function defaultWorkerCount() {
 }
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-const RUN_ID = process.env.ISOLATED_PLAYWRIGHT_RUN_ID || new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+function createRunId() {
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17);
+  const random = Math.random().toString(36).slice(2, 8);
+  return `${stamp}-${process.pid}-${random}`;
+}
+
+const RUN_ID = process.env.ISOLATED_PLAYWRIGHT_RUN_ID || createRunId();
 const OUTPUT_ROOT = path.resolve(process.env.ISOLATED_PLAYWRIGHT_OUTPUT_ROOT || path.join(process.cwd(), 'output', 'playwright', 'isolated-parallel', RUN_ID));
-const MAX_WORKERS = Math.max(1, Math.min(parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKERS', defaultWorkerCount()), ROUTES.length));
-const WORKER_TIMEOUT_MS = parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKER_TIMEOUT_MS', 180000);
+const MAX_WORKERS = Math.max(1, Math.min(parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKERS', defaultWorkerCount(), 1), ROUTES.length));
+const WORKER_TIMEOUT_MS = parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKER_TIMEOUT_MS', 180000, 1);
+const WORKER_START_STAGGER_MS = parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKER_START_STAGGER_MS', 3000, 0);
 const WORKER_SCRIPT = path.join(__dirname, 'lib', 'isolated-playwright-worker.cjs');
 const SANDBOX_TEMPLATE = (process.env.SANDBOX_RUNTIME_COMMAND || '').trim();
 const AUDIT_ACCOUNT_BASE = {
@@ -34,6 +46,7 @@ const report = {
   startedAt: new Date().toISOString(),
   outputRoot: OUTPUT_ROOT,
   maxWorkers: MAX_WORKERS,
+  workerStartStaggerMs: WORKER_START_STAGGER_MS,
   sandboxRuntimeEnabled: Boolean(SANDBOX_TEMPLATE),
   workers: [],
   routes: [],
@@ -42,6 +55,10 @@ const report = {
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function delay(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function chunkRoutes(routes, count) {
@@ -94,6 +111,23 @@ function applySandboxTemplate(template, vars) {
     .replaceAll('{workerId}', shellQuote(vars.workerId));
 }
 
+function validateSandboxTemplate(template) {
+  if (!template) return;
+  const hasWorkerCommand = template.includes('{workerCommand}');
+  const hasNodeAndWorkerScript = template.includes('{node}') && template.includes('{workerScript}');
+  if (!hasWorkerCommand && !hasNodeAndWorkerScript) {
+    throw new Error('SANDBOX_RUNTIME_COMMAND must include {workerCommand} or both {node} and {workerScript}');
+  }
+
+  const allowed = new Set(['{node}', '{workerScript}', '{workerCommand}', '{repo}', '{output}', '{outputRoot}', '{appUrl}', '{workerId}']);
+  const placeholders = template.match(/\{[^}]+\}/g) || [];
+  for (const placeholder of placeholders) {
+    if (!allowed.has(placeholder)) {
+      throw new Error(`SANDBOX_RUNTIME_COMMAND contains unsupported placeholder ${placeholder}`);
+    }
+  }
+}
+
 function readWorkerReport(workerReportPath) {
   if (!fs.existsSync(workerReportPath)) return { report: null, parseError: null };
   try {
@@ -115,11 +149,13 @@ function runWorker({ workerId, routes, outputDir }) {
     let settled = false;
     let timedOut = false;
     let timeout = null;
+    let killTimer = null;
 
     function settle(result) {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
+      if (killTimer) clearTimeout(killTimer);
       stdout.end();
       stderr.end();
       resolve(result);
@@ -137,6 +173,9 @@ function runWorker({ workerId, routes, outputDir }) {
     timeout = setTimeout(() => {
       timedOut = true;
       child.kill('SIGTERM');
+      killTimer = setTimeout(() => {
+        if (!settled) child.kill('SIGKILL');
+      }, 3000);
     }, WORKER_TIMEOUT_MS);
 
     child.stdout.pipe(stdout);
@@ -147,6 +186,7 @@ function runWorker({ workerId, routes, outputDir }) {
         routes: routes.map((route) => route.id),
         status: 'failed',
         error: String(error.message || error),
+        timedOut,
         durationMs: Date.now() - startedAt,
         stdoutPath,
         stderrPath,
@@ -169,6 +209,7 @@ function runWorker({ workerId, routes, outputDir }) {
         reportPath: workerReportPath,
         report: workerReport,
         reportParseError: parseError,
+        timedOut,
         error: timedOut ? `worker exceeded ${WORKER_TIMEOUT_MS}ms` : null,
       });
     });
@@ -194,16 +235,23 @@ function writeReport() {
 }
 
 async function run() {
+  validateSandboxTemplate(SANDBOX_TEMPLATE);
   ensureDir(OUTPUT_ROOT);
   const buckets = chunkRoutes(ROUTES, MAX_WORKERS);
   const workerJobs = buckets.map((routes, index) => ({
     workerId: `worker-${index + 1}`,
+    startDelayMs: index * WORKER_START_STAGGER_MS,
     routes,
     outputDir: path.join(OUTPUT_ROOT, `worker-${index + 1}`),
   }));
-  await Promise.all(workerJobs.map((job) => ensureUiAuditUser(accountForWorker(job.workerId))));
+  for (const job of workerJobs) {
+    await ensureUiAuditUser(accountForWorker(job.workerId));
+  }
 
-  const workers = await Promise.all(workerJobs.map(runWorker));
+  const workers = await Promise.all(workerJobs.map(async (job) => {
+    if (job.startDelayMs > 0) await delay(job.startDelayMs);
+    return runWorker(job);
+  }));
   const summary = summarize(workers);
   report.workers = workers.map((worker) => ({
     workerId: worker.workerId,
@@ -216,6 +264,7 @@ async function run() {
     reportPath: worker.reportPath,
     stdoutPath: worker.stdoutPath,
     stderrPath: worker.stderrPath,
+    timedOut: Boolean(worker.timedOut),
     error: worker.error || worker.reportParseError || (worker.report && worker.report.error) || null,
   }));
   report.routes = summary.routes;

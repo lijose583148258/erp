@@ -87,7 +87,7 @@ function parseConfig() {
       .map((item) => normalizeRoute(item))
       .filter(Boolean),
     maxRoutes: intEnv('UI_UX_AUDIT_MAX_ROUTES', 30, 1),
-    timeoutMs: intEnv('UI_UX_AUDIT_TIMEOUT_MS', 180000, 1000),
+    timeoutMs: intEnv('UI_UX_AUDIT_TIMEOUT_MS', 420000, 1000),
     pageTimeoutMs: intEnv('UI_UX_AUDIT_PAGE_TIMEOUT_MS', 15000, 1000),
     failOnWarnings: boolEnv('UI_UX_AUDIT_FAIL_ON_WARNINGS', false),
     failOnConsoleErrors: boolEnv('UI_UX_AUDIT_FAIL_ON_CONSOLE_ERRORS', true),
@@ -113,6 +113,7 @@ function regexEnv(name) {
 function normalizeRoute(value) {
   const route = String(value || '').trim();
   if (!route) return '';
+  if (route.startsWith('#/')) return `#${route.slice(2)}`;
   if (route.startsWith('#')) return route;
   if (route.startsWith('/#')) return route.slice(1);
   if (route.startsWith('/')) return `#${route}`;
@@ -138,7 +139,8 @@ function atomicWrite(filePath, content) {
 }
 
 function createRun(config) {
-  const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17);
+  const runId = `${stamp}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
   const root = path.join(process.cwd(), 'output', 'ui-ux-audit', runId);
   const report = {
     runId,
@@ -160,6 +162,7 @@ function createRun(config) {
       info: 0,
       screenshots: 0,
     },
+    results: [],
     findings: [],
     artifacts: {
       screenshots: [],
@@ -296,6 +299,12 @@ async function auditState(page, run, route, viewport, state, collectors) {
   const screenshot = await saveScreenshot(page, run, route, viewport, state);
   await writeRawDom(page, run, route, viewport, state);
   run.report.summary.stateRuns += 1;
+  run.report.results.push({
+    route,
+    viewport: viewport.id,
+    state,
+    screenshot: screenshot ? path.join(run.root, screenshot) : null,
+  });
 
   const findings = await page.evaluate(({ route, viewportId, state, isMobile }) => {
     const result = [];
@@ -772,6 +781,28 @@ async function run() {
     if (browser) await browser.close().catch(() => {});
   }
 
+  if (run.report.summary.viewportRuns === 0) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'runtime',
+      code: 'NO_VIEWPORTS_AUDITED',
+      message: 'UI/UX audit did not complete any route viewport run',
+      route: '',
+      viewport: '',
+      state: 'final',
+    });
+  }
+  if (run.report.summary.screenshots === 0) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'runtime',
+      code: 'NO_SCREENSHOTS_CAPTURED',
+      message: 'UI/UX audit completed without any screenshots',
+      route: '',
+      viewport: '',
+      state: 'final',
+    });
+  }
   const hasErrors = run.report.findings.some((item) => item.severity === 'error');
   const hasWarnings = run.report.findings.some((item) => item.severity === 'warning');
   const status = setupFailed || hasErrors || (config.failOnWarnings && hasWarnings) ? 'failed' : 'passed';
