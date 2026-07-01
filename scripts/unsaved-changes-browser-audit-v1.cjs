@@ -106,12 +106,7 @@ async function answerNextDialog(page, accept) {
 }
 
 async function verifySalesOrder(page) {
-  await page.goto(`${APP_URL}#orders`, { waitUntil: 'domcontentloaded' });
-  await page.evaluate(() => {
-    localStorage.setItem('ailao.activeTab', 'orders');
-    window.location.hash = '#orders';
-    window.dispatchEvent(new HashChangeEvent('hashchange'));
-  });
+  await openModule(page, 'orders', 'sales-order-create-button');
   await clickWhenStable(page.locator('[data-testid="sales-order-create-button"]'));
   const modal = page.locator('[data-testid="sales-order-editor-modal"]');
   await modal.waitFor({ state: 'visible', timeout: 10000 });

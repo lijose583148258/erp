@@ -9,7 +9,7 @@
                     "stop":  "powershell -NoProfile -ExecutionPolicy Bypass -File .\\scripts\\stop-runtime.ps1",
                     "dev":  "vite --configLoader native",
                     "dev:backend":  "npm --prefix backend run dev",
-                    "build:backend":  "npm --prefix backend run build",
+                    "build:backend":  "npm --prefix backend run prisma:generate && npm --prefix backend run build",
                     "start:backend":  "npm --prefix backend run start",
                     "build":  "node .\\scripts\\clean-dist-v1.cjs \u0026\u0026 vite build --configLoader native",
                     "typecheck":  "tsc --noEmit --pretty false",

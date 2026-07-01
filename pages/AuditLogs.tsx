@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect, useCallback } from 'react';
 import DataTable, { Column } from '../components/DataTable';
 import { ShieldCheck, User, Clock, Search, Filter } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
@@ -13,7 +13,7 @@ const AuditLogs = () => {
     const [isLoading, setIsLoading] = useState(false);
     const [loadError, setLoadError] = useState('');
 
-    const fetchLogs = (page = 1, signal?: AbortSignal) => {
+    const fetchLogs = useCallback((page = 1, signal?: AbortSignal) => {
         setIsLoading(true);
         setLoadError('');
         auditService.getLogs({ page, pageSize: 20 }, { signal })
@@ -31,13 +31,13 @@ const AuditLogs = () => {
             .finally(() => {
                 if (!signal?.aborted) setIsLoading(false);
             });
-    };
+    }, [notify]);
 
     useEffect(() => {
         const controller = new AbortController();
         fetchLogs(1, controller.signal);
         return () => controller.abort();
-    }, []);
+    }, [fetchLogs]);
 
     const columns: Column<AuditLog>[] = [
         {

@@ -20,7 +20,8 @@
     "db:seed": "npm run db:manage -- seed",
     "db:restore": "npm run db:manage -- restore",
     "seed": "npm run db:manage -- seed",
-    "db:pg": "npm run build && node dist/database/postgres-migration.js"
+    "db:pg": "npm run build && node dist/database/postgres-migration.js",
+    "postinstall": "prisma generate --schema prisma"
   },
   "keywords": [
     "erp",

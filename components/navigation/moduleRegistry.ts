@@ -15,6 +15,7 @@ import {
   PackageCheck,
   ReceiptText,
   RotateCcw,
+  Settings,
   ShieldAlert,
   ShieldCheck,
   Truck,
@@ -44,6 +45,7 @@ export const MODULE_ORDER = [
   'warehouse',
   'procurement',
   'audit',
+  'settings',
 ] as const;
 
 export type ModuleId = typeof MODULE_ORDER[number];
@@ -328,6 +330,19 @@ export const moduleRegistry: Record<ModuleId, ModuleDefinition> = {
     title: { zh: '系统审计与操作日志', en: 'System Audit and Operation Logs', vi: 'Nhat ky he thong va thao tac' },
     description: { zh: '查看系统操作、权限动作、异常和审计追踪。', en: 'View operations, permission actions, anomalies, and audit trails.', vi: 'Xem thao tac, quyen, bat thuong va dau vet kiem toan.' },
     aliases: { zh: ['审计', '日志', '操作记录'], en: ['audit', 'log'], vi: ['nhat ky', 'kiem toan'] },
+    roles: ['admin'],
+  },
+  settings: {
+    id: 'settings',
+    group: 'governance',
+    icon: Settings,
+    gradient: 'from-blue-700 via-slate-700 to-cyan-700',
+    accent: 'bg-blue-100',
+    ornament: 'ring',
+    shortLabel: { zh: '系统设置', en: 'Settings', vi: 'Cai dat' },
+    title: { zh: '系统设置与运行治理', en: 'System Settings and Runtime Governance', vi: 'Cai dat he thong va quan tri van hanh' },
+    description: { zh: '管理语言、主题、AI 隐私开关和发布前运行治理入口。', en: 'Manage language, theme, AI privacy, and release governance entry points.', vi: 'Quan ly ngon ngu, giao dien, rieng tu AI va diem vao quan tri phat hanh.' },
+    aliases: { zh: ['设置', '系统设置', 'AI 设置'], en: ['settings', 'system settings', 'ai settings'], vi: ['cai dat', 'he thong'] },
     roles: ['admin'],
   },
 };

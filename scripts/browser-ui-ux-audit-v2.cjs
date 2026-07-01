@@ -268,7 +268,9 @@ function installPageCollectors(page, run) {
   page.on('requestfailed', (request) => {
     const url = request.url();
     if (run.config.ignoreHttpPattern?.test(url)) return;
-    httpFailures.push({ url, failure: request.failure()?.errorText || 'request failed' });
+    const failure = request.failure()?.errorText || 'request failed';
+    if (/ERR_ABORTED/i.test(failure)) return;
+    httpFailures.push({ url, failure });
   });
 
   page.on('response', (response) => {
@@ -293,6 +295,25 @@ async function waitForAppSettled(page, timeoutMs) {
   await page.waitForLoadState('domcontentloaded', { timeout: timeoutMs }).catch(() => {});
   await page.waitForLoadState('networkidle', { timeout: Math.min(timeoutMs, 5000) }).catch(() => {});
   await page.waitForTimeout(250);
+}
+
+async function waitForRouteReady(page, route, timeoutMs) {
+  await page.waitForFunction((expectedRoute) => {
+    const text = document.body?.innerText || '';
+    const visible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+    };
+    const blockingLoading = Array.from(document.body.querySelectorAll('*')).some((node) => {
+      const nodeText = (node.textContent || '').trim();
+      return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
+    });
+    if (document.querySelector('input[type="password"]')) return true;
+    if (window.location.hash !== expectedRoute) return false;
+    if (blockingLoading) return false;
+    return text.trim().length > 100;
+  }, route, { timeout: Math.min(timeoutMs, 10000) }).catch(() => {});
 }
 
 async function auditState(page, run, route, viewport, state, collectors) {
@@ -363,6 +384,11 @@ async function auditState(page, run, route, viewport, state, collectors) {
     if (!document.querySelector('main, [role="main"]')) add('warning', 'accessibility', 'MISSING_MAIN_LANDMARK', 'Page lacks a main landmark', document.body);
     if (!document.querySelector('nav, [role="navigation"], aside, header')) add('error', 'interaction', 'MISSING_NAVIGATION', 'No stable navigation landmark was found', document.body);
     if (!document.querySelector('h1,h2,[data-page-title]')) add('error', 'accessibility', 'MISSING_VISIBLE_PAGE_TITLE', 'No visible page title or heading was found', document.body);
+    const blockingLoading = Array.from(document.body.querySelectorAll('*')).some((node) => {
+      const nodeText = (node.textContent || '').trim();
+      return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
+    });
+    if (blockingLoading) add('error', 'runtime', 'ROUTE_STILL_LOADING', 'Route was still showing a loading state when audited', document.body);
     if (document.documentElement.scrollWidth > window.innerWidth + 2 && !document.querySelector('[data-testid*="grid"], .overflow-x-auto, [class*="overflow-x-auto"]')) {
       add('error', 'layout', 'DOCUMENT_HORIZONTAL_OVERFLOW', 'Document has horizontal overflow outside a known scroll container', document.documentElement, {
         scrollWidth: document.documentElement.scrollWidth,
@@ -555,6 +581,7 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
     timeout: run.config.pageTimeoutMs,
   });
   await waitForAppSettled(page, run.config.pageTimeoutMs);
+  await waitForRouteReady(page, route, run.config.pageTimeoutMs);
 
   const bodyText = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
   if (!bodyText.trim() || /login|登录|sign in/i.test(bodyText.slice(0, 600))) {
