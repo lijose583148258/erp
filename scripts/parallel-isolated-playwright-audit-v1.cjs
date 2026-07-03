@@ -9,6 +9,7 @@ const ROOT = process.cwd();
 const WORKER_SCRIPT = path.join(__dirname, 'lib', 'isolated-playwright-worker.cjs');
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const SANDBOX_TEMPLATE = (process.env.SANDBOX_RUNTIME_COMMAND || '').trim();
+const AUDIT_USERNAME_MAX_LENGTH = 50;
 
 function createRunId() {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 15);
@@ -89,11 +90,14 @@ function applySandboxTemplate(template, vars) {
 }
 
 function auditAccountFor(workerId) {
-  const baseUsername = process.env.PLAYWRIGHT_USERNAME || process.env.ISOLATED_PLAYWRIGHT_USERNAME || 'ui_isolated_parallel_admin';
+  const rawBase = process.env.PLAYWRIGHT_USERNAME || process.env.ISOLATED_PLAYWRIGHT_USERNAME || 'ui_isolated_parallel_admin';
   const password = process.env.PLAYWRIGHT_PASSWORD || process.env.ISOLATED_PLAYWRIGHT_PASSWORD || 'AuditSmoke12345!';
   const safeWorkerId = String(workerId).replace(/[^a-zA-Z0-9_]/g, '_');
+  const suffix = `_${safeWorkerId}`;
+  const safeBase = String(rawBase).replace(/[^a-zA-Z0-9_]/g, '_');
+  const maxBaseLength = Math.max(1, AUDIT_USERNAME_MAX_LENGTH - suffix.length);
   return {
-    username: `${baseUsername}_${safeWorkerId}`.replace(/[^a-zA-Z0-9_]/g, '_').slice(0, 64),
+    username: `${safeBase.slice(0, maxBaseLength)}${suffix}`,
     password,
     role: 'admin',
     segment: 'mixed',

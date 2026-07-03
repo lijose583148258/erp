@@ -32,6 +32,11 @@ function toRelative(from, target) {
   return path.relative(from, target).replace(/\\/g, '/');
 }
 
+function isPathInside(parent, child) {
+  const relativePath = path.relative(parent, child);
+  return Boolean(relativePath) && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
 function apiUrl(appUrl, pathname) {
   return new URL(pathname.replace(/^\//, ''), new URL('api/', appUrl)).toString();
 }
@@ -249,7 +254,7 @@ async function run() {
   config.screenshotsDir = path.resolve(config.screenshotsDir || path.join(config.outputDir, 'screenshots'));
   config.appUrl = (config.appUrl || process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 
-  if (!config.userDataDir.startsWith(config.outputDir)) {
+  if (!isPathInside(config.outputDir, config.userDataDir)) {
     throw new Error('worker userDataDir must be inside worker outputDir');
   }
 
