@@ -1,8 +1,11 @@
 # Isolated Parallel Playwright Runner
 
-This runner is the browser execution foundation for ERP/CRM audits. It runs route-level Playwright checks in isolated worker processes and writes stable JSON evidence.
+This runner is the browser execution foundation for ERP/CRM audits.
+It runs route-level Playwright checks in isolated worker processes and writes stable JSON evidence.
 
-It intentionally does not implement the full commercial ERP/CRM UI/UX audit. Commercial scoring, ERP table judgment, form UX scoring, and dangerous-action product review are follow-up work that should reuse this runner.
+It intentionally does not implement the full commercial ERP/CRM UI/UX audit.
+Commercial scoring, ERP table judgment, form UX scoring, and dangerous-action product review are follow-up work.
+Those checks should reuse this runner.
 
 ## What It Does
 
@@ -33,7 +36,9 @@ screenshots/
 user-data/
 ```
 
-The Chromium `userDataDir` must live inside the worker output directory. This is deliberate: a sandbox runtime can grant the repository as read-only and grant only that worker output directory as writable.
+The Chromium `userDataDir` must live inside the worker output directory.
+This is deliberate: a sandbox runtime can grant the repository as read-only and grant only that worker output
+directory as writable.
 
 ## Usage
 
@@ -67,7 +72,8 @@ PLAYWRIGHT_USERNAME=ui_isolated_parallel_admin
 PLAYWRIGHT_PASSWORD=AuditSmoke12345!
 ```
 
-The runner creates per-worker audit users from those credentials through `scripts/lib/ui-audit-user.cjs`. It avoids default demo credentials in release mode.
+The runner creates per-worker audit users from those credentials through `scripts/lib/ui-audit-user.cjs`.
+It avoids default demo credentials in release mode.
 
 ## Route Files
 
@@ -103,7 +109,7 @@ Route schema:
   id: 'dashboard',
   hash: '#dashboard',
   title: 'Dashboard',
-  expected: ['Dashboard', '仪表盘'],
+  expected: ['Dashboard', 'Overview'],
   category: 'smoke',
   severity: 'error',
   tags: ['core', 'navigation'],
@@ -136,7 +142,8 @@ Template style B:
 sandbox-runtime run --read {repo} --write {output} --net 127.0.0.1 -- {node} {workerScript} {configFile}
 ```
 
-The runner substitutes only known safe values. Route data is written to `worker-config.json`; route content is never inlined into shell text.
+The runner substitutes only known safe values.
+Route data is written to `worker-config.json`; route content is never inlined into shell text.
 
 Supported placeholders:
 
@@ -152,7 +159,8 @@ Supported placeholders:
 {workerId}
 ```
 
-Invalid templates fail fast before workers start. Templates that omit `{repo}` or `{output}` produce warnings in the aggregate report.
+Invalid templates fail fast before workers start.
+Templates that omit `{repo}` or `{output}` produce warnings in the aggregate report.
 
 ## Reports
 
@@ -198,7 +206,8 @@ Aggregate schema summary:
 }
 ```
 
-Exit code is `0` only when workers complete and there are no failed `error` or `blocker` route results. Warning-only route findings do not fail the runner unless future strict warning policy is added.
+Exit code is `0` only when workers complete and there are no failed `error` or `blocker` route results.
+Warning-only route findings do not fail the runner unless future strict warning policy is added.
 
 ## Negative Tests
 
@@ -208,16 +217,19 @@ These commands should fail quickly with clear errors:
 $env:ISOLATED_PLAYWRIGHT_WORKERS = '0'; npm run test:browser:isolated:parallel
 $env:ISOLATED_PLAYWRIGHT_WORKERS = 'abc'; npm run test:browser:isolated:parallel
 $env:ISOLATED_PLAYWRIGHT_WORKER_TIMEOUT_MS = '1000'; npm run test:browser:isolated:parallel
-$env:SANDBOX_RUNTIME_COMMAND = 'sandbox-runtime run --read {repo} --write {output}'; npm run test:browser:isolated:parallel
+$env:SANDBOX_RUNTIME_COMMAND = 'sandbox-runtime run --read {repo} --write {output}'
+npm run test:browser:isolated:parallel
 ```
 
 Use a temporary invalid route file to verify route schema fail-fast behavior.
 
 ## Using This For Commercial ERP/CRM UI Audits
 
-The commercial audit should provide its own external route file through `ISOLATED_PLAYWRIGHT_ROUTES_FILE` and then layer ERP/CRM-specific checks on top of the isolated execution evidence.
+The commercial audit should provide its own external route file through `ISOLATED_PLAYWRIGHT_ROUTES_FILE`.
+It can then layer ERP/CRM-specific checks on top of the isolated execution evidence.
 
-This runner is responsible for isolation, browser execution, screenshots, failure capture, and machine-readable reports. It is not responsible for visual maturity scoring or product judgment.
+This runner is responsible for isolation, browser execution, screenshots, failure capture, and machine-readable
+reports. It is not responsible for visual maturity scoring or product judgment.
 
 ## Artifact Hygiene
 

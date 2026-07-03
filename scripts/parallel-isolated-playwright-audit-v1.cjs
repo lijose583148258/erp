@@ -50,9 +50,13 @@ function chunkRoutes(routes, workerCount) {
 function validateSandboxTemplate(template, warnings) {
   if (!template) return;
   const hasWorkerCommand = template.includes('{workerCommand}');
-  const hasConfigStyle = template.includes('{node}') && template.includes('{workerScript}') && template.includes('{configFile}');
+  const hasConfigStyle = template.includes('{node}') &&
+    template.includes('{workerScript}') &&
+    template.includes('{configFile}');
   if (!hasWorkerCommand && !hasConfigStyle) {
-    throw new Error('SANDBOX_RUNTIME_COMMAND must include {workerCommand}, or all of {node}, {workerScript}, and {configFile}');
+    throw new Error(
+      'SANDBOX_RUNTIME_COMMAND must include {workerCommand}, or all of {node}, {workerScript}, and {configFile}',
+    );
   }
   if (!template.includes('{repo}')) warnings.push('SANDBOX_RUNTIME_COMMAND does not include {repo}');
   if (!template.includes('{output}')) warnings.push('SANDBOX_RUNTIME_COMMAND does not include {output}');
@@ -90,7 +94,9 @@ function applySandboxTemplate(template, vars) {
 }
 
 function auditAccountFor(workerId) {
-  const rawBase = process.env.PLAYWRIGHT_USERNAME || process.env.ISOLATED_PLAYWRIGHT_USERNAME || 'ui_isolated_parallel_admin';
+  const rawBase = process.env.PLAYWRIGHT_USERNAME ||
+    process.env.ISOLATED_PLAYWRIGHT_USERNAME ||
+    'ui_isolated_parallel_admin';
   const password = process.env.PLAYWRIGHT_PASSWORD || process.env.ISOLATED_PLAYWRIGHT_PASSWORD || 'AuditSmoke12345!';
   const safeWorkerId = String(workerId).replace(/[^a-zA-Z0-9_]/g, '_');
   const suffix = `_${safeWorkerId}`;
@@ -220,7 +226,9 @@ function runWorker(job, settings) {
         reportPath,
         report: parsed.value,
         reportError: parsed.error,
-        error: timedOut ? `worker timeout after ${settings.workerTimeoutMs}ms` : parsed.error || parsed.value?.error || null,
+        error: timedOut
+          ? `worker timeout after ${settings.workerTimeoutMs}ms`
+          : parsed.error || parsed.value?.error || null,
       });
     });
   });
@@ -298,7 +306,8 @@ async function main() {
   );
   const startStaggerMs = parsePositiveInt('ISOLATED_PLAYWRIGHT_WORKER_START_STAGGER_MS', 3000, 0);
   const runId = process.env.ISOLATED_PLAYWRIGHT_RUN_ID || createRunId();
-  const outputRoot = path.resolve(process.env.ISOLATED_PLAYWRIGHT_OUTPUT_ROOT || path.join(ROOT, 'output', 'playwright', 'isolated-parallel', runId));
+  const defaultOutputRoot = path.join(ROOT, 'output', 'playwright', 'isolated-parallel', runId);
+  const outputRoot = path.resolve(process.env.ISOLATED_PLAYWRIGHT_OUTPUT_ROOT || defaultOutputRoot);
   ensureDir(outputRoot);
 
   const buckets = chunkRoutes(routes, workerCount);
@@ -374,7 +383,8 @@ async function main() {
 
 main().catch((error) => {
   const runId = process.env.ISOLATED_PLAYWRIGHT_RUN_ID || createRunId();
-  const outputRoot = path.resolve(process.env.ISOLATED_PLAYWRIGHT_OUTPUT_ROOT || path.join(ROOT, 'output', 'playwright', 'isolated-parallel', runId));
+  const defaultOutputRoot = path.join(ROOT, 'output', 'playwright', 'isolated-parallel', runId);
+  const outputRoot = path.resolve(process.env.ISOLATED_PLAYWRIGHT_OUTPUT_ROOT || defaultOutputRoot);
   const report = {
     schemaVersion: 1,
     runId,

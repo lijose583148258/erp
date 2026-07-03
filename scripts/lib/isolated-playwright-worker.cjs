@@ -84,12 +84,30 @@ async function safeScreenshot(page, outputDir, screenshotsDir, fileName, timeout
 
 async function tryUiLogin(page, appUrl, username, password, timeoutMs) {
   await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: timeoutMs });
-  const usernameInput = page.locator('input[name="username"]:not([readonly]), input[autocomplete="username"]:not([readonly]), input[type="text"]:not([readonly]):not([aria-hidden="true"])').first();
-  const passwordInput = page.locator('input[name="password"]:not([readonly]), input[autocomplete="current-password"]:not([readonly]), input[type="password"]:not([readonly])').first();
+  const usernameInput = page
+    .locator([
+      'input[name="username"]:not([readonly])',
+      'input[autocomplete="username"]:not([readonly])',
+      'input[type="text"]:not([readonly]):not([aria-hidden="true"])',
+    ].join(', '))
+    .first();
+  const passwordInput = page
+    .locator([
+      'input[name="password"]:not([readonly])',
+      'input[autocomplete="current-password"]:not([readonly])',
+      'input[type="password"]:not([readonly])',
+    ].join(', '))
+    .first();
   await usernameInput.fill(username, { timeout: timeoutMs });
   await passwordInput.fill(password, { timeout: timeoutMs });
 
-  const submit = page.locator('button[type="submit"], button:has-text("登录"), button:has-text("Login"), button:has-text("Sign in")').first();
+  const submit = page
+    .locator([
+      'button[type="submit"]',
+      'button:has-text("Login")',
+      'button:has-text("Sign in")',
+    ].join(', '))
+    .first();
   if (await submit.count()) {
     await submit.click({ timeout: timeoutMs });
   } else {
@@ -131,9 +149,14 @@ async function seedOrLogin(page, config, report, timeouts) {
     }
     const session = { token, refreshToken: json?.data?.refreshToken || '', user };
     await page.addInitScript(applySession, session);
-    await page.goto(`${appUrl.replace(/\/?$/, '/')}#dashboard`, { waitUntil: 'commit', timeout: timeouts.pageLoad }).catch((error) => {
-      report.navigationWarning = String(error.message || error);
-    });
+    await page
+      .goto(`${appUrl.replace(/\/?$/, '/')}#dashboard`, {
+        waitUntil: 'commit',
+        timeout: timeouts.pageLoad,
+      })
+      .catch((error) => {
+        report.navigationWarning = String(error.message || error);
+      });
     await page.evaluate(applySession, session).catch(() => {});
   } catch (error) {
     apiLoginError = error;
@@ -163,7 +186,8 @@ async function seedOrLogin(page, config, report, timeouts) {
   }
 
   if (!ready) {
-    throw new Error(`login did not reach app shell${apiLoginError ? `; API fallback was: ${apiLoginError.message}` : ''}`);
+    const apiMessage = apiLoginError ? `; API fallback was: ${apiLoginError.message}` : '';
+    throw new Error(`login did not reach app shell${apiMessage}`);
   }
 
   report.login = { status: 'passed', username };
@@ -332,7 +356,12 @@ async function run() {
         state.lastApiResponseStatus = response.status();
       }
       if (!shouldIgnoreHttpStatus(response.status())) {
-        report.httpFailures.push({ at: new Date().toISOString(), status: response.status(), url: response.url(), pageUrl: page.url() });
+        report.httpFailures.push({
+          at: new Date().toISOString(),
+          status: response.status(),
+          url: response.url(),
+          pageUrl: page.url(),
+        });
       }
     });
     await page.exposeBinding('__ailaoRecordClick', (_source, text) => {
@@ -342,7 +371,11 @@ async function run() {
       document.addEventListener('click', (event) => {
         const target = event.target && event.target.closest ? event.target.closest('button,a,[role="button"]') : null;
         if (target && window.__ailaoRecordClick) {
-          window.__ailaoRecordClick((target.innerText || target.getAttribute('aria-label') || target.getAttribute('data-testid') || '').trim());
+          const text = target.innerText ||
+            target.getAttribute('aria-label') ||
+            target.getAttribute('data-testid') ||
+            '';
+          window.__ailaoRecordClick(text.trim());
         }
       }, true);
     });
