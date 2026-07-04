@@ -16,6 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: file:./ci.db
+      npm_config_loglevel: error
 
     steps:
       - name: Checkout
@@ -28,10 +29,10 @@ jobs:
           cache: npm
 
       - name: Install frontend dependencies
-        run: npm ci
+        run: npm ci --silent
 
       - name: Install backend dependencies
-        run: npm --prefix backend ci
+        run: npm --prefix backend ci --silent
 
       - name: Validate Prisma schema
         run: npm run prisma:validate
