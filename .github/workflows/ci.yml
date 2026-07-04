@@ -6,6 +6,11 @@ on:
       - main
       - codex/release-usability-freeze-20260608
   pull_request:
+    types:
+      - opened
+      - synchronize
+      - reopened
+      - edited
     branches:
       - main
       - codex/release-usability-freeze-20260608
