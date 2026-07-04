@@ -38,7 +38,16 @@ jobs:
         run: npm run prisma:validate
 
       - name: Typecheck frontend
-        run: npm run typecheck
+        run: |
+          set -o pipefail
+          npm run typecheck 2>&1 | tee typecheck.log
+
+      - name: Upload typecheck log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: typecheck-log
+          path: typecheck.log
 
       - name: Build backend
         run: npm run build:backend
