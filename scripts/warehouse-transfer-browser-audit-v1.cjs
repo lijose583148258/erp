@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -88,56 +89,22 @@ async function loginApi(username, password) {
 }
 
 async function ensureWarehouseAuditUser() {
+  await ensureUiAuditUser({
+    username: AUDIT_USER.username,
+    password: AUDIT_USER.password,
+    role: 'warehouse',
+  });
+
   const existing = await apiFetch('/auth/login', {
     method: 'POST',
     data: { username: AUDIT_USER.username, password: AUDIT_USER.password },
   });
   const existingData = unwrapData(existing);
   if (existing.ok && existingData?.token && existingData.user?.mustChangePassword === false) {
-    recordStep({ step: 'audit-warehouse-user-ready', result: 'passed', mode: 'existing' });
+    recordStep({ step: 'audit-warehouse-user-ready', result: 'passed', mode: 'prepared' });
     return existingData;
   }
-
-  const admin = await loginApi('admin', 'admin123');
-  const register = await apiFetch('/auth/register', {
-    method: 'POST',
-    data: {
-      username: AUDIT_USER.username,
-      password: AUDIT_USER.tempPassword,
-      email: `${AUDIT_USER.username}@local.test`,
-      role: 'warehouse',
-      segment: 'mixed',
-    },
-  }, admin.token);
-  if (![201, 400].includes(register.status)) {
-    throw new Error(`audit warehouse user register failed: ${register.status} ${JSON.stringify(register.json)}`);
-  }
-
-  const tempLogin = await apiFetch('/auth/login', {
-    method: 'POST',
-    data: { username: AUDIT_USER.username, password: AUDIT_USER.tempPassword },
-  });
-  const tempData = unwrapData(tempLogin);
-  if (tempLogin.ok && tempData?.token) {
-    const change = await apiFetch('/auth/password', {
-      method: 'PUT',
-      data: { oldPassword: AUDIT_USER.tempPassword, newPassword: AUDIT_USER.password },
-    }, tempData.token);
-    if (!change.ok) {
-      throw new Error(`audit warehouse user password change failed: ${change.status} ${JSON.stringify(change.json)}`);
-    }
-  }
-
-  const ready = await expectOk('login ready audit warehouse user', apiFetch('/auth/login', {
-    method: 'POST',
-    data: { username: AUDIT_USER.username, password: AUDIT_USER.password },
-  }));
-  const readyData = unwrapData(ready);
-  if (!readyData?.token || readyData.user?.mustChangePassword) {
-    throw new Error('audit warehouse user is not ready after setup');
-  }
-  recordStep({ step: 'audit-warehouse-user-ready', result: 'passed', mode: register.status === 201 ? 'created' : 'reused' });
-  return readyData;
+  throw new Error(`audit warehouse user login failed after prepare: ${existing.status} ${JSON.stringify(existing.json)}`);
 }
 
 async function getDefaultLocations(token) {

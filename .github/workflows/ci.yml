@@ -20,7 +20,10 @@ jobs:
   source-checks:
     runs-on: ubuntu-latest
     env:
-      DATABASE_URL: file:./ci.db
+      DATABASE_URL: file:../runtime-data/ci.db
+      AILAODA_RUNTIME_DB_PATH: runtime-data/ci.db
+      AILAODA_ALLOW_RBAC_FALLBACK: "1"
+      BROWSER_GUARD_SKIP_PROBE: "1"
       npm_config_loglevel: error
 
     steps:
@@ -38,6 +41,9 @@ jobs:
 
       - name: Install backend dependencies
         run: npm --prefix backend ci --silent
+
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
 
       - name: Validate Prisma schema
         run: npm run prisma:validate
@@ -60,5 +66,28 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Static release gates
+      - name: Prepare CI database
+        run: |
+          mkdir -p backend/runtime-data
+          rm -f backend/runtime-data/ci.db backend/runtime-data/ci-init.sql
+          cd backend
+          npx prisma migrate diff --from-empty --to-schema-datamodel prisma --script > runtime-data/ci-init.sql
+          npx prisma db execute --schema prisma --file runtime-data/ci-init.sql
+          cd ..
+          npm --prefix backend run db:prepare
+
+      - name: Start CI runtime
+        run: |
+          npm --prefix backend run start > backend-ci.log 2>&1 &
+          echo $! > backend-ci.pid
+          for i in {1..60}; do
+            if curl -fsS http://127.0.0.1:5001/api/ready >/dev/null; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat backend-ci.log
+          exit 1
+
+      - name: Release gates
         run: npm run test

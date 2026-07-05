@@ -28,7 +28,7 @@ const getIntegrityMessages = (rows: IntegrityRow[]) =>
     .filter(Boolean);
 
 const runIntegrityCheck = async () =>
-  getIntegrityMessages(await prisma.$queryRawUnsafe<IntegrityRow[]>('PRAGMA integrity_check'));
+  getIntegrityMessages((await prisma.$queryRawUnsafe('PRAGMA integrity_check')) as IntegrityRow[]);
 
 const isIndexOnlyIntegrityMessage = (message: string) =>
   /^row \d+ missing from index [A-Za-z0-9_]+$/.test(message)
