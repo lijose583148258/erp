@@ -321,6 +321,15 @@ function buildRequirements() {
   ];
   const dashboardBackendMissingContractTokens = missingTokens(dashboardRoutes, dashboardContractBackendRequiredTokens);
   const backendDashboardSourceMatchesContract = dashboardBackendMissingContractTokens.length === 0;
+  const clientStateAuditScript = exists('scripts/client-state-store-audit-v1.cjs');
+  const scopedClientStoreFiles = frontendSourceFiles.filter((file) => {
+    const text = readText(file);
+    return /from\s+['"]zustand['"]/.test(text) && /create<\w+State>/.test(text);
+  });
+  const clientStoreAdoptionFiles = frontendSourceFiles.filter((file) => {
+    if (file.startsWith('stores/')) return false;
+    return /use[A-Z]\w*Store\s*\(/.test(readText(file));
+  });
   const backendDeps = {
     openApi: hasDependency(backendPackage, ['swagger-jsdoc', 'swagger-ui-express', 'openapi-typescript', '@asteasolutions/zod-to-openapi']),
     csrf: hasDependency(backendPackage, ['csrf', 'csurf']),
@@ -457,14 +466,23 @@ function buildRequirements() {
     id: 'client-state-management',
     category: 'engineering-architecture',
     severity: 'P1',
-    status: rootDeps.stores.length ? 'present' : 'gap',
+    status: rootDeps.stores.length && scopedClientStoreFiles.length > 0 && clientStoreAdoptionFiles.length > 0 && clientStateAuditScript
+      ? 'present'
+      : rootDeps.stores.length || scopedClientStoreFiles.length > 0 || clientStoreAdoptionFiles.length > 0
+        ? 'partial'
+        : 'gap',
     title: 'Client state is managed by a scoped store instead of only global React context',
     evidence: [
       `state deps=${rootDeps.stores.join(',') || 'none'}`,
       `AppContext=${exists('app/AppContext.tsx') || exists('contexts/AppContext.tsx') || exists('AppContext.tsx')}`,
       `createContext count=${listFiles('.', (file) => SOURCE_EXTENSIONS.has(path.extname(file))).reduce((sum, file) => sum + countMatches(readText(file), /createContext\s*</g), 0)}`,
+      `scoped store files=${scopedClientStoreFiles.join(', ') || 'none'}`,
+      `store adoption files=${clientStoreAdoptionFiles.join(', ') || 'none'}`,
+      `client state audit script=${clientStateAuditScript}`,
     ],
-    nextAction: 'Introduce a narrow Zustand/Jotai store for one high-churn module first, then migrate cross-cutting UI state gradually.',
+    nextAction: rootDeps.stores.length && scopedClientStoreFiles.length > 0 && clientStoreAdoptionFiles.length > 0
+      ? 'Keep Dashboard as the first scoped-store proof, then migrate another high-churn UI slice before reducing AppContext responsibilities.'
+      : 'Introduce a narrow Zustand/Jotai store for one high-churn module first, then migrate cross-cutting UI state gradually.',
   });
 
   add(requirements, {

@@ -230,6 +230,16 @@ Validation:
 Goal:
 Reduce global React context pressure and make server data predictable.
 
+Current baseline:
+- TanStack Query is mounted through `app/ServerStateProvider.tsx`.
+- Dashboard overview and trend reads use query keys instead of ad hoc
+  request state.
+- Dashboard UI snapshots, task list, inventory alerts, system status, chart
+  data, and chart layout are now owned by `stores/dashboardUiStore.ts`.
+- `audit:client-state` verifies that a state-library dependency is paired
+  with a real scoped store and Dashboard adoption. This avoids dependency-only
+  false positives.
+
 Deliverables:
 - TanStack Query provider; first baseline is mounted in `app/ServerStateProvider.tsx`
 - one read-heavy module migrated to query keys; first baseline covers Dashboard overview and trend reads
@@ -238,6 +248,7 @@ Deliverables:
 - no broad rewrites before module proof
 
 Validation:
+- `npm run audit:client-state`
 - frontend unit tests for query/store behavior
 - targeted browser read/write/read-back audit
 

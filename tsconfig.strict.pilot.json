@@ -7,6 +7,7 @@
     "scripts/business-filter-contract-audit-v1.ts",
     "services/dashboard.service.ts",
     "shared/contracts/dashboard.ts",
+    "stores/dashboardUiStore.ts",
     "utils/serverStateQuery.ts",
     "utils/webVitalsTelemetry.ts"
   ]

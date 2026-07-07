@@ -1,5 +1,5 @@
 ﻿
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   TrendingUp, AlertTriangle, Package, DollarSign, Users, ArrowUpRight,
@@ -8,7 +8,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAppContext } from '../app/AppContext';
 import { dashboardService } from '../services/dashboard.service';
-import type { DashboardOverview } from '../shared/contracts/dashboard';
+import { useDashboardUiStore, type DashboardTask } from '../stores/dashboardUiStore';
 
 const StatCard = ({ title, value, sub, icon: Icon, color, trend }: any) => (
   <div className="bg-white dark:bg-slate-900 p-6 lg:p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:shadow-slate-100 dark:hover:shadow-none transition-all duration-300 group overflow-hidden relative active-shrink">
@@ -49,21 +49,16 @@ const QuickAction = ({ icon: Icon, label, color, onClick }: any) => (
 
 const Dashboard = () => {
   const { t, theme, formatPrice, notify } = useAppContext();
-  const [stats, setStats] = useState({
-    monthlyRevenue: 0,
-    overdueAmount: 0,
-    activeShipments: 0,
-    totalCustomers: 0,
-    pendingCommissions: 0,
-    riskCustomers: 0
-  });
-  const [tasks, setTasks] = useState<any[]>([]);
-  type InventoryAlert = NonNullable<DashboardOverview['inventoryAlerts']>[number];
-  const [inventoryAlerts, setInventoryAlerts] = useState<InventoryAlert[]>([]);
-  const [systemStatus, setSystemStatus] = useState({ load: '0.0ms', sessions: 0 });
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
-  const [chartBox, setChartBox] = useState({ width: 0, height: 0 });
-  const [chartData, setChartData] = useState<any[]>([]);
+  const stats = useDashboardUiStore((state) => state.stats);
+  const tasks = useDashboardUiStore((state) => state.tasks);
+  const inventoryAlerts = useDashboardUiStore((state) => state.inventoryAlerts);
+  const systemStatus = useDashboardUiStore((state) => state.systemStatus);
+  const chartBox = useDashboardUiStore((state) => state.chartBox);
+  const chartData = useDashboardUiStore((state) => state.chartData);
+  const applyOverviewSnapshot = useDashboardUiStore((state) => state.applyOverviewSnapshot);
+  const setChartBox = useDashboardUiStore((state) => state.setChartBox);
+  const setChartDataFromTrends = useDashboardUiStore((state) => state.setChartDataFromTrends);
 
   const recommendations = [
     { title: t.reportOcr, detail: t.reportOcrDetail, impact: t.reportOcrImpact },
@@ -102,16 +97,7 @@ const Dashboard = () => {
 
     const { overview, monthly } = statsData;
 
-    setStats({
-      monthlyRevenue: monthly.revenue,
-      overdueAmount: overview.overdueAmount || 0,
-      activeShipments: overview.pendingShipments,
-      totalCustomers: overview.totalCustomers,
-      pendingCommissions: overview.pendingCommissions || 0,
-      riskCustomers: overview.riskCustomers || 0
-    });
-
-    const dynamicTasks = [];
+    const dynamicTasks: DashboardTask[] = [];
     if (overview.overdueAmount > 0) {
       dynamicTasks.push({ time: '09:00', title: t.taskCollection || '催收逾期款项', type: t.historyTab, color: 'bg-rose-100 text-rose-600' });
     }
@@ -124,23 +110,26 @@ const Dashboard = () => {
     if (overview.riskCustomers > 0) {
       dynamicTasks.push({ time: '16:00', title: t.taskRisk || '评估高风险客户', type: t.riskCheck, color: 'bg-purple-100 text-purple-600' });
     }
-    setTasks(dynamicTasks.length > 0 ? dynamicTasks : [
-      { time: '09:00', title: t.taskSystem || '检查系统更新', type: t.systemReady, color: 'bg-slate-100 text-slate-600' }
-    ]);
-
-    setInventoryAlerts(statsData.inventoryAlerts || []);
-    if (statsData.systemStatus) {
-      setSystemStatus(statsData.systemStatus);
-    }
-  }, [statsQuery.data, t]);
+    applyOverviewSnapshot({
+      stats: {
+        monthlyRevenue: monthly.revenue,
+        overdueAmount: overview.overdueAmount || 0,
+        activeShipments: overview.pendingShipments,
+        totalCustomers: overview.totalCustomers,
+        pendingCommissions: overview.pendingCommissions || 0,
+        riskCustomers: overview.riskCustomers || 0,
+      },
+      tasks: dynamicTasks.length > 0 ? dynamicTasks : [
+        { time: '09:00', title: t.taskSystem || '检查系统更新', type: t.systemReady, color: 'bg-slate-100 text-slate-600' },
+      ],
+      inventoryAlerts: statsData.inventoryAlerts || [],
+      systemStatus: statsData.systemStatus,
+    });
+  }, [applyOverviewSnapshot, statsQuery.data, t]);
 
   useEffect(() => {
-    const trendsData = trendsQuery.data || [];
-    setChartData(trendsData.map(item => ({
-      name: item.date.slice(5), // Show MM-DD only.
-      revenue: item.amount,
-    })));
-  }, [trendsQuery.data]);
+    setChartDataFromTrends(trendsQuery.data || []);
+  }, [setChartDataFromTrends, trendsQuery.data]);
 
   useEffect(() => {
     if (!statsQuery.isError && !trendsQuery.isError) return;
@@ -163,7 +152,7 @@ const Dashboard = () => {
     const observer = new ResizeObserver(() => update());
     observer.observe(el);
     return () => observer.disconnect();
-  }, []);
+  }, [setChartBox]);
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
