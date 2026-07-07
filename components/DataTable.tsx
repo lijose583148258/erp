@@ -19,6 +19,14 @@ export interface Column<T> {
   defaultVisible?: boolean;
 }
 
+export type DataTableMobileCardMetaTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+
+export interface DataTableMobileCardMetaItem {
+  label: React.ReactNode;
+  value: React.ReactNode;
+  tone?: DataTableMobileCardMetaTone;
+}
+
 interface DataTableProps<T> {
   tableId?: string;
   title: string;
@@ -28,6 +36,12 @@ interface DataTableProps<T> {
   onRowClick?: (row: T) => void;
   rowTestId?: (row: T, index: number) => string | undefined;
   actions?: (row: T) => React.ReactNode;
+  mobileCard?: (row: T, index: number) => React.ReactNode;
+  mobilePrimaryText?: (row: T, index: number) => React.ReactNode;
+  mobileSecondaryText?: (row: T, index: number) => React.ReactNode;
+  mobileStatus?: (row: T, index: number) => React.ReactNode;
+  mobileMeta?: (row: T, index: number) => DataTableMobileCardMetaItem[];
+  mobileActions?: (row: T, index: number) => React.ReactNode;
   onImport?: (newData: T[]) => void | Promise<void>;
   onExport?: () => void | Promise<void>;
   /** Optional export currency selector. */
@@ -84,6 +98,14 @@ const getCellTitle = (value: unknown): string | undefined => {
   return text.length > 18 ? text : undefined;
 };
 
+const mobileMetaToneClass: Record<DataTableMobileCardMetaTone, string> = {
+  neutral: 'text-slate-600 dark:text-slate-300',
+  info: 'text-blue-700 dark:text-blue-200',
+  success: 'text-emerald-700 dark:text-emerald-200',
+  warning: 'text-amber-700 dark:text-amber-200',
+  danger: 'text-rose-700 dark:text-rose-200',
+};
+
 const DataTable = <T extends Record<string, any>>({
   tableId,
   title,
@@ -93,6 +115,12 @@ const DataTable = <T extends Record<string, any>>({
   onRowClick,
   rowTestId,
   actions,
+  mobileCard,
+  mobilePrimaryText,
+  mobileSecondaryText,
+  mobileStatus,
+  mobileMeta,
+  mobileActions,
   onImport,
   onExport,
   exportCurrencies,
@@ -170,7 +198,9 @@ const DataTable = <T extends Record<string, any>>({
       try {
         const bstr = evt.target?.result as string;
         const wb = XLSX.read(bstr, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
+        const sheetName = wb.SheetNames[0];
+        const ws = sheetName ? wb.Sheets[sheetName] : undefined;
+        if (!ws) throw new Error('No worksheet found in imported file');
         const rawRows = XLSX.utils.sheet_to_json(ws) as Record<string, any>[];
         if (rawRows.length === 0) {
           notify('warning', `导入文件 ${file.name} 没有可读取的数据行`);
@@ -246,6 +276,85 @@ const DataTable = <T extends Record<string, any>>({
       <span className="truncate-cell" title={getCellTitle(raw)}>
         {renderSafeCellValue(raw)}
       </span>
+    );
+  };
+
+  const defaultMobilePrimaryColumn = visibleColumns[0];
+  const defaultMobileSecondaryColumn = visibleColumns.find((column, index) => index > 0 && !column.isStatus) || visibleColumns[1];
+  const defaultMobileStatusColumn = visibleColumns.find((column) => column.isStatus);
+  const getDefaultMobileMeta = (row: T): DataTableMobileCardMetaItem[] => {
+    const usedKeys = new Set([
+      defaultMobilePrimaryColumn?.key,
+      defaultMobileSecondaryColumn?.key,
+      defaultMobileStatusColumn?.key,
+    ].filter(Boolean));
+    return visibleColumns
+      .filter((column) => !usedKeys.has(column.key))
+      .slice(0, 4)
+      .map((column) => ({
+        label: column.header,
+        value: renderCell(row, column),
+        tone: column.isNumeric ? 'info' : 'neutral',
+      }));
+  };
+
+  const renderMobileCard = (row: T, index: number) => {
+    const testId = rowTestId?.(row, index);
+    const primary = mobilePrimaryText?.(row, index) ||
+      (defaultMobilePrimaryColumn ? renderCell(row, defaultMobilePrimaryColumn) : null);
+    const secondary = mobileSecondaryText?.(row, index) ||
+      (defaultMobileSecondaryColumn ? renderCell(row, defaultMobileSecondaryColumn) : null);
+    const status = mobileStatus?.(row, index) ||
+      (defaultMobileStatusColumn ? renderCell(row, defaultMobileStatusColumn) : null);
+    const metaItems = mobileMeta?.(row, index) || getDefaultMobileMeta(row);
+    const rowActions = mobileActions?.(row, index) || actions?.(row);
+
+    return (
+      <article
+        key={index}
+        data-testid={testId ? `${testId}-mobile-card` : undefined}
+        data-mobile-card="true"
+        onClick={() => onRowClick?.(row)}
+        onKeyDown={(event) => {
+          if (!onRowClick) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onRowClick(row);
+          }
+        }}
+        role={onRowClick ? 'button' : undefined}
+        tabIndex={onRowClick ? 0 : undefined}
+        className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-900 ${onRowClick ? 'cursor-pointer hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:hover:bg-slate-800/70 dark:focus:ring-blue-900/30' : ''}`}
+      >
+        {mobileCard ? mobileCard(row, index) : (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-black text-slate-800 dark:text-slate-100">{primary}</div>
+                {secondary ? (
+                  <div className="mt-1 truncate text-xs font-semibold text-slate-500 dark:text-slate-400">{secondary}</div>
+                ) : null}
+              </div>
+              {status ? <div className="shrink-0">{status}</div> : null}
+            </div>
+            {metaItems.length > 0 ? (
+              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                {metaItems.map((item, metaIndex) => (
+                  <div key={`${String(item.label)}-${metaIndex}`} className="min-w-0">
+                    <dt className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{item.label}</dt>
+                    <dd className={`mt-0.5 truncate text-xs font-bold ${mobileMetaToneClass[item.tone || 'neutral']}`}>{item.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {rowActions ? (
+              <div className="app-row-actions touch-actions-visible mt-3 flex items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap border-t border-slate-100 pt-3 dark:border-slate-800">
+                {rowActions}
+              </div>
+            ) : null}
+          </>
+        )}
+      </article>
     );
   };
 
@@ -382,7 +491,13 @@ const DataTable = <T extends Record<string, any>>({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
+      {!isLoading && displayedData.length > 0 ? (
+        <div data-mobile-card-view="true" className="space-y-2 p-3 md:hidden">
+          {displayedData.map((row, index) => renderMobileCard(row, index))}
+        </div>
+      ) : null}
+
+      <div className={`${!isLoading && displayedData.length > 0 ? 'hidden md:block' : ''} overflow-x-auto`}>
         <table className="app-density-table min-w-full text-left">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/95 dark:border-slate-800 dark:bg-slate-800/95">

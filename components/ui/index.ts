@@ -19,7 +19,7 @@ export type {
 export { ConfirmDialog } from './ConfirmDialog';
 export { EmptyState } from './EmptyState';
 export { EnterpriseDataGrid } from './EnterpriseDataGrid';
-export type { EnterpriseColumn } from './EnterpriseDataGrid';
+export type { EnterpriseColumn, MobileCardMetaItem, MobileCardMetaTone } from './EnterpriseDataGrid';
 export { adaptDataTableColumns, stringifyGridValue } from './dataTableAdapter';
 export { FormField } from './FormField';
 export { LoadingSkeleton } from './LoadingSkeleton';

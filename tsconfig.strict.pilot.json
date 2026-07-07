@@ -2,6 +2,7 @@
   "extends": "./tsconfig.strict.json",
   "include": [
     "app/ServerStateProvider.tsx",
+    "components/DataTable.tsx",
     "components/ui/ActionToolbar.tsx",
     "components/ui/EnterpriseDataGrid.tsx",
     "components/ui/StatusBadge.test.tsx",

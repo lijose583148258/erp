@@ -33,6 +33,14 @@ export type EnterpriseColumn<T> = {
   className?: string;
 };
 
+export type MobileCardMetaTone = 'neutral' | 'info' | 'success' | 'warning' | 'danger';
+
+export interface MobileCardMetaItem {
+  label: React.ReactNode;
+  value: React.ReactNode;
+  tone?: MobileCardMetaTone;
+}
+
 type Props<T> = {
   data: T[];
   columns: EnterpriseColumn<T>[];
@@ -62,6 +70,12 @@ type Props<T> = {
   onRowClick?: (row: T) => void;
   rowClassName?: (row: T) => string;
   getRowTestId?: (row: T) => string;
+  mobileCard?: (row: T) => React.ReactNode;
+  mobilePrimaryText?: (row: T) => React.ReactNode;
+  mobileSecondaryText?: (row: T) => React.ReactNode;
+  mobileStatus?: (row: T) => React.ReactNode;
+  mobileMeta?: (row: T) => MobileCardMetaItem[];
+  mobileActions?: (row: T) => React.ReactNode;
   defaultPageSize?: number;
   pageSizeOptions?: number[];
   manualPagination?: boolean;
@@ -116,6 +130,14 @@ const getAccessorValue = <T,>(row: T, column: EnterpriseColumn<T>): unknown => {
   return (row as Record<string, unknown>)[column.key];
 };
 
+const mobileMetaToneClass: Record<MobileCardMetaTone, string> = {
+  neutral: 'text-slate-600 dark:text-slate-300',
+  info: 'text-blue-700 dark:text-blue-200',
+  success: 'text-emerald-700 dark:text-emerald-200',
+  warning: 'text-amber-700 dark:text-amber-200',
+  danger: 'text-rose-700 dark:text-rose-200',
+};
+
 export function EnterpriseDataGrid<T>({
   data,
   columns,
@@ -145,6 +167,12 @@ export function EnterpriseDataGrid<T>({
   onRowClick,
   rowClassName,
   getRowTestId,
+  mobileCard,
+  mobilePrimaryText,
+  mobileSecondaryText,
+  mobileStatus,
+  mobileMeta,
+  mobileActions,
   defaultPageSize = 10,
   pageSizeOptions = [10, 20, 50],
   manualPagination = false,
@@ -435,6 +463,96 @@ export function EnterpriseDataGrid<T>({
     );
   };
 
+  const renderCellContent = (row: T, column: EnterpriseColumn<T>) => {
+    const value = column.render ? column.render(row) : getAccessorValue(row, column);
+    if (column.isStatus) return <StatusBadge status={stringifyCell(value)} />;
+    if (React.isValidElement(value)) return value;
+    return (
+      <span className="truncate-cell" title={getCellTitle(value)}>
+        {renderCellValue(value)}
+      </span>
+    );
+  };
+
+  const defaultMobilePrimaryColumn = visibleColumns[0];
+  const defaultMobileSecondaryColumn = visibleColumns.find((column, index) => index > 0 && !column.isStatus) || visibleColumns[1];
+  const defaultMobileStatusColumn = visibleColumns.find((column) => column.isStatus);
+  const getDefaultMobileMeta = (row: T): MobileCardMetaItem[] => {
+    const usedKeys = new Set([
+      defaultMobilePrimaryColumn?.key,
+      defaultMobileSecondaryColumn?.key,
+      defaultMobileStatusColumn?.key,
+    ].filter(Boolean));
+    return visibleColumns
+      .filter((column) => !usedKeys.has(column.key))
+      .slice(0, 4)
+      .map((column) => ({
+        label: stringifyCell(column.header) || column.key,
+        value: renderCellContent(row, column),
+        tone: column.isNumeric ? 'info' : 'neutral',
+      }));
+  };
+
+  const renderMobileCard = (row: T) => {
+    const rowTestId = getRowTestId?.(row);
+    const primary = mobilePrimaryText?.(row) ||
+      (defaultMobilePrimaryColumn ? renderCellContent(row, defaultMobilePrimaryColumn) : null);
+    const secondary = mobileSecondaryText?.(row) ||
+      (defaultMobileSecondaryColumn ? renderCellContent(row, defaultMobileSecondaryColumn) : null);
+    const status = mobileStatus?.(row) ||
+      (defaultMobileStatusColumn ? renderCellContent(row, defaultMobileStatusColumn) : null);
+    const metaItems = mobileMeta?.(row) || getDefaultMobileMeta(row);
+    const actions = mobileActions?.(row) || rowActions?.(row);
+
+    return (
+      <article
+        key={getKey(row)}
+        data-testid={rowTestId ? `${rowTestId}-mobile-card` : undefined}
+        data-mobile-card="true"
+        onClick={() => onRowClick?.(row)}
+        onKeyDown={(event) => {
+          if (!onRowClick) return;
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault();
+            onRowClick(row);
+          }
+        }}
+        role={onRowClick ? 'button' : undefined}
+        tabIndex={onRowClick ? 0 : undefined}
+        className={`rounded-lg border border-slate-200 bg-white p-3 shadow-sm transition-colors dark:border-slate-800 dark:bg-slate-900 ${onRowClick ? 'cursor-pointer hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:hover:bg-slate-800/70 dark:focus:ring-blue-900/30' : ''} ${rowClassName?.(row) || ''}`}
+      >
+        {mobileCard ? mobileCard(row) : (
+          <>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-black text-slate-800 dark:text-slate-100">{primary}</div>
+                {secondary ? (
+                  <div className="mt-1 truncate text-xs font-semibold text-slate-500 dark:text-slate-400">{secondary}</div>
+                ) : null}
+              </div>
+              {status ? <div className="shrink-0">{status}</div> : null}
+            </div>
+            {metaItems.length > 0 ? (
+              <dl className="mt-3 grid grid-cols-2 gap-x-3 gap-y-2 border-t border-slate-100 pt-3 dark:border-slate-800">
+                {metaItems.map((item, index) => (
+                  <div key={`${String(item.label)}-${index}`} className="min-w-0">
+                    <dt className="truncate text-[10px] font-black uppercase tracking-[0.12em] text-slate-400">{item.label}</dt>
+                    <dd className={`mt-0.5 truncate text-xs font-bold ${mobileMetaToneClass[item.tone || 'neutral']}`}>{item.value}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : null}
+            {actions ? (
+              <div className="app-row-actions touch-actions-visible mt-3 flex items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap border-t border-slate-100 pt-3 dark:border-slate-800">
+                {actions}
+              </div>
+            ) : null}
+          </>
+        )}
+      </article>
+    );
+  };
+
   const renderDataRow = (row: T) => (
     <tr
       key={getKey(row)}
@@ -452,18 +570,9 @@ export function EnterpriseDataGrid<T>({
       className={`group border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:hover:bg-slate-800/70 dark:focus:ring-blue-900/30 ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName?.(row) || ''}`}
     >
       {visibleColumns.map((column, columnIndex) => {
-        const value = column.render ? column.render(row) : getAccessorValue(row, column);
         return (
           <td key={column.key} className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 ${columnIndex === 0 ? 'sticky left-0 z-[5] bg-white group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800' : ''} ${column.isNumeric ? 'text-right font-data' : ''} ${column.className || ''}`}>
-            {column.isStatus ? (
-              <StatusBadge status={stringifyCell(value)} />
-            ) : React.isValidElement(value) ? (
-              value
-            ) : (
-              <span className="truncate-cell" title={getCellTitle(value)}>
-                {renderCellValue(value)}
-              </span>
-            )}
+            {renderCellContent(row, column)}
           </td>
         );
       })}
@@ -593,11 +702,15 @@ export function EnterpriseDataGrid<T>({
         ) : pageData.length === 0 ? (
           <EmptyState title={emptyTitle} description={emptyDescription} className="m-4" />
         ) : (
+          <>
+          <div data-mobile-card-view="true" className="space-y-2 p-3 md:hidden">
+            {pageData.map((row) => renderMobileCard(row))}
+          </div>
           <div
             ref={tableScrollRef}
             data-virtualized={shouldVirtualizeRows ? 'true' : 'false'}
             data-virtual-row-count={shouldVirtualizeRows ? pageData.length : undefined}
-            className={`overflow-x-auto ${shouldVirtualizeRows ? 'max-h-[70vh] overflow-y-auto' : ''}`}
+            className={`hidden overflow-x-auto md:block ${shouldVirtualizeRows ? 'max-h-[70vh] overflow-y-auto' : ''}`}
           >
             <table className="app-density-table w-full min-w-[980px] table-fixed border-collapse">
               <thead>
@@ -656,6 +769,7 @@ export function EnterpriseDataGrid<T>({
               </tbody>
             </table>
           </div>
+          </>
         )}
       </div>
 

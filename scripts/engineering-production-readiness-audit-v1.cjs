@@ -283,6 +283,33 @@ function buildRequirements() {
     /shouldVirtualizeRows\s*=\s*virtualizeRows\s*&&\s*!isServerPaged\s*&&\s*pageData\.length\s*>=\s*virtualizationThreshold/.test(enterpriseGrid) &&
     /data-virtualized/.test(enterpriseGrid) &&
     /data-virtual-row-count/.test(enterpriseGrid);
+  const hasMobileCardDataViewAuditScript = exists('scripts/mobile-card-data-view-audit-v1.cjs') &&
+    Boolean(rootPackage.scripts?.['audit:mobile-card-data-view']);
+  const hasEnterpriseMobileCardBaseline =
+    /export\s+interface\s+MobileCardMetaItem/.test(enterpriseGrid) &&
+    /mobileCard\?:\s*\(row:\s*T\)\s*=>\s*React\.ReactNode/.test(enterpriseGrid) &&
+    /mobilePrimaryText\?:/.test(enterpriseGrid) &&
+    /mobileSecondaryText\?:/.test(enterpriseGrid) &&
+    /mobileStatus\?:/.test(enterpriseGrid) &&
+    /mobileMeta\?:/.test(enterpriseGrid) &&
+    /mobileActions\?:/.test(enterpriseGrid) &&
+    /data-mobile-card-view="true"/.test(enterpriseGrid) &&
+    /data-mobile-card="true"/.test(enterpriseGrid) &&
+    /md:hidden/.test(enterpriseGrid) &&
+    /hidden\s+overflow-x-auto\s+md:block/.test(enterpriseGrid);
+  const hasDataTableMobileCardBaseline =
+    /export\s+interface\s+DataTableMobileCardMetaItem/.test(dataTable) &&
+    /mobileCard\?:\s*\(row:\s*T,\s*index:\s*number\)\s*=>\s*React\.ReactNode/.test(dataTable) &&
+    /mobilePrimaryText\?:/.test(dataTable) &&
+    /mobileSecondaryText\?:/.test(dataTable) &&
+    /mobileStatus\?:/.test(dataTable) &&
+    /mobileMeta\?:/.test(dataTable) &&
+    /mobileActions\?:/.test(dataTable) &&
+    /data-mobile-card-view="true"/.test(dataTable) &&
+    /data-mobile-card="true"/.test(dataTable) &&
+    /md:hidden/.test(dataTable) &&
+    /hidden md:block/.test(dataTable);
+  const hasMobileCardDataViewBaseline = hasEnterpriseMobileCardBaseline && hasDataTableMobileCardBaseline && hasMobileCardDataViewAuditScript;
   const queryProviderMounted = /QueryClientProvider/.test(serverStateProvider) &&
     /serverStateQueryClient/.test(serverStateProvider) &&
     /<ServerStateProvider>/.test(readText('index.tsx'));
@@ -737,19 +764,21 @@ function buildRequirements() {
     nextAction: 'Add an import review step that previews rows, chooses duplicate handling, validates required fields, and exports rejected rows.',
   });
 
-  const hasMobileCardView = /CardView|mobileCard|mobileCards|lg:hidden|md:hidden|sm:hidden/.test(tableText);
+  const hasMobileCardView = hasEnterpriseMobileCardBaseline || hasDataTableMobileCardBaseline;
   add(requirements, {
     id: 'mobile-card-data-view',
     category: 'business-experience',
     severity: 'P0',
-    status: hasMobileCardView ? 'present' : 'gap',
+    status: hasMobileCardDataViewBaseline ? 'present' : hasMobileCardView ? 'partial' : 'gap',
     title: 'Mobile data tables have task-shaped card views',
     evidence: [
-      `mobile card evidence=${hasMobileCardView}`,
+      `EnterpriseDataGrid mobile card baseline=${hasEnterpriseMobileCardBaseline}`,
+      `DataTable mobile card baseline=${hasDataTableMobileCardBaseline}`,
+      `mobile card audit script=${hasMobileCardDataViewAuditScript}`,
       `horizontal table wrappers=${countMatches(tableText, /overflow-x-auto/g)}`,
       `minimum table width evidence=${/min-w-\[|min-w-full/.test(tableText)}`,
     ],
-    nextAction: 'Add mobile card rendering for DataTable and EnterpriseDataGrid so warehouse, sales, and travel workflows avoid horizontal scrolling.',
+    nextAction: 'Adopt route-specific mobile card slots for sales, warehouse, collections, and procurement, then add mobile screenshot evidence.',
   });
 
   const hasDarkMode = /dark:/.test(dashboardPage + dataTable + enterpriseGrid);

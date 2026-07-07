@@ -140,6 +140,7 @@
         "audit:client-state": "node ./scripts/client-state-store-audit-v1.cjs",
         "audit:frontend-tests": "node ./scripts/frontend-test-foundation-audit-v1.cjs",
         "audit:virtualized-lists": "node ./scripts/virtualized-list-audit-v1.cjs",
+        "audit:mobile-card-data-view": "node ./scripts/mobile-card-data-view-audit-v1.cjs",
         "audit:business-filters": "tsx ./scripts/business-filter-contract-audit-v1.ts",
         "audit:baseline:freeze": "node ./scripts/stable-baseline-freeze-v1.cjs",
         "audit:governance:ledger": "node ./scripts/governance-ledger-inventory-v1.cjs",

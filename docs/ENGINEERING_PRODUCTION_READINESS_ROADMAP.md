@@ -125,6 +125,16 @@ Validation:
 Goal:
 Stop treating mobile data views as squeezed desktop tables.
 
+Current baseline:
+- `EnterpriseDataGrid` and legacy `DataTable` now render automatic mobile
+  record cards on small viewports while keeping the desktop table at `md` and
+  wider breakpoints.
+- Both table primitives expose optional mobile slots for custom primary text,
+  secondary text, status, metadata, actions, and full custom card rendering.
+- `audit:mobile-card-data-view` verifies both primitives, interaction parity
+  markers, mobile/desktop viewport switching, exported mobile types, and
+  readiness-audit coverage.
+
 Deliverables:
 - `mobileCard` or equivalent renderer in `EnterpriseDataGrid`
 - default mobile card slots: primary, secondary, metadata, status, actions
@@ -132,6 +142,7 @@ Deliverables:
 - browser screenshots for desktop and mobile viewports
 
 Validation:
+- `npm run audit:mobile-card-data-view`
 - `npm run typecheck`
 - targeted browser screenshot audit for mobile record lists
 - no regression to desktop table behavior

@@ -17,6 +17,7 @@ operator-visible, and architecture-relevant changes.
 - Zustand Dashboard UI store and client-state audit.
 - Vitest, Testing Library, jsdom, and frontend test foundation audit.
 - EnterpriseDataGrid virtualized-row baseline and virtualized list audit.
+- Mobile card data-view baseline for `EnterpriseDataGrid` and legacy `DataTable`.
 
 ### Changed
 
@@ -47,3 +48,6 @@ operator-visible, and architecture-relevant changes.
 - Virtualized rows are now available in `EnterpriseDataGrid`, but adoption is
   intentionally limited to local client-side pages; server-paged business
   tables still need route-level browser evidence before broad rollout.
+- Mobile card rendering now exists at the shared table layer, but route-specific
+  card slots and mobile screenshots still need to be added for sales,
+  warehouse, collections, and procurement workflows.
