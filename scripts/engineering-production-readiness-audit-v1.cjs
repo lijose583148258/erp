@@ -85,6 +85,15 @@ function countMatches(text, regex) {
   return matches ? matches.length : 0;
 }
 
+function tokenPresent(text, token) {
+  const escaped = String(token || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`\\b${escaped}\\b\\s*[:},]`).test(text);
+}
+
+function missingTokens(text, tokens) {
+  return tokens.filter((token) => !tokenPresent(text, token));
+}
+
 function findFirstLine(text, needle) {
   const lines = String(text || '').split('\n');
   const index = lines.findIndex((line) => line.includes(needle));
@@ -258,6 +267,60 @@ function buildRequirements() {
   const hasServerStateQueryLayer = rootDeps.query.length > 0 &&
     queryProviderMounted &&
     queryUsageFiles.length > 0;
+  const sharedDashboardContract = readText('shared/contracts/dashboard.ts');
+  const hasSharedDashboardContract =
+    /export\s+interface\s+DashboardOverview\b/.test(sharedDashboardContract) &&
+    /export\s+interface\s+DashboardTrend\b/.test(sharedDashboardContract) &&
+    /dashboardOverviewMetricKeys/.test(sharedDashboardContract) &&
+    /dashboardTrendKeys/.test(sharedDashboardContract);
+  const frontendUsesSharedDashboardContract =
+    /from\s+['"]\.\.\/shared\/contracts\/dashboard['"]/.test(dashboardService) &&
+    /Promise<DashboardOverview>/.test(dashboardService) &&
+    /Promise<DashboardTrend\[]>/.test(dashboardService) &&
+    !/export\s+interface\s+Dashboard(?:Overview|Trend)\b/.test(dashboardService);
+  const backendUsesSharedDashboardContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(dashboardRoutes);
+  const dashboardContractAuditScript = exists('scripts/dashboard-shared-contract-audit-v1.cjs');
+  const dashboardContractBackendRequiredTokens = [
+    'overview',
+    'monthly',
+    'weekly',
+    'ordersByStatus',
+    'recentOrders',
+    'inventoryAlerts',
+    'systemStatus',
+    'totalCustomers',
+    'activeCustomers',
+    'totalOrders',
+    'totalRevenue',
+    'pendingOrders',
+    'deliveredOrders',
+    'pendingShipments',
+    'pendingRmas',
+    'riskCustomers',
+    'pendingCommissions',
+    'overdueAmount',
+    'orderCount',
+    'revenue',
+    'id',
+    'orderNo',
+    'customerName',
+    'amount',
+    'status',
+    'createdAt',
+    'sku',
+    'name',
+    'stock',
+    'reorderPoint',
+    'daysOfStock',
+    'priority',
+    'suggestion',
+    'load',
+    'sessions',
+    'date',
+    'count',
+  ];
+  const dashboardBackendMissingContractTokens = missingTokens(dashboardRoutes, dashboardContractBackendRequiredTokens);
+  const backendDashboardSourceMatchesContract = dashboardBackendMissingContractTokens.length === 0;
   const backendDeps = {
     openApi: hasDependency(backendPackage, ['swagger-jsdoc', 'swagger-ui-express', 'openapi-typescript', '@asteasolutions/zod-to-openapi']),
     csrf: hasDependency(backendPackage, ['csrf', 'csurf']),
@@ -367,15 +430,27 @@ function buildRequirements() {
     id: 'shared-types-contract',
     category: 'engineering-architecture',
     severity: 'P1',
-    status: exists('shared') || exists('packages/shared') ? 'present' : 'gap',
+    status: hasSharedDashboardContract && frontendUsesSharedDashboardContract && backendUsesSharedDashboardContract
+      ? 'present'
+      : hasSharedDashboardContract && frontendUsesSharedDashboardContract && dashboardContractAuditScript && backendDashboardSourceMatchesContract
+        ? 'partial'
+        : 'gap',
     title: 'Frontend and backend share generated or contract-owned types',
     evidence: [
       `root types.ts=${exists('types.ts')}`,
       `shared/=${exists('shared')}`,
       `packages/shared/=${exists('packages/shared')}`,
+      `Dashboard shared contract=${hasSharedDashboardContract}`,
+      `frontend imports Dashboard contract=${frontendUsesSharedDashboardContract}`,
+      `backend imports Dashboard contract=${backendUsesSharedDashboardContract}`,
+      `Dashboard contract audit script=${dashboardContractAuditScript}`,
+      `backend dashboard source coverage=${backendDashboardSourceMatchesContract}`,
+      `backend dashboard missing tokens=${dashboardBackendMissingContractTokens.join(',') || 'none'}`,
       `backend zod dependency=${hasDependency(backendPackage, ['zod']).join(',') || 'none'}`,
     ],
-    nextAction: 'Create a shared contract package generated from Prisma/Zod/OpenAPI instead of hand-maintained frontend-only types.',
+    nextAction: backendUsesSharedDashboardContract
+      ? 'Expand shared/generated contracts route by route and keep OpenAPI/Zod generation as the long-term source of truth.'
+      : 'Backend is still source-audited instead of compile-time bound because backend/tsconfig rootDir is scoped to backend/src; add a generated contract package or safe rootDirs change before marking this present.',
   });
 
   add(requirements, {

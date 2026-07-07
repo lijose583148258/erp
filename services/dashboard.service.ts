@@ -1,57 +1,5 @@
 import api, { ApiRequestOptions } from '../utils/api';
-
-export interface DashboardOverview {
-    overview: {
-        totalCustomers: number;
-        activeCustomers: number;
-        totalOrders: number;
-        totalRevenue: number;
-        pendingOrders: number;
-        deliveredOrders: number;
-        pendingShipments: number;
-        pendingRmas: number;
-        riskCustomers: number;
-        pendingCommissions: number;
-        overdueAmount: number;
-    };
-    monthly: {
-        orderCount: number;
-        revenue: number;
-    };
-    weekly: {
-        orderCount: number;
-        revenue: number;
-    };
-    ordersByStatus: Record<string, { count: number; amount: number }>;
-    recentOrders: Array<{
-        id: number;
-        orderNo: string;
-        customerName: string;
-        amount: number;
-        status: string;
-        createdAt: string;
-    }>;
-    inventoryAlerts?: Array<{
-        sku: string;
-        name: string;
-        stock: number;
-        reorderPoint: number;
-        pendingOrders: number;
-        daysOfStock: number;
-        priority: 'high' | 'medium' | 'low';
-        suggestion: string;
-    }>;
-    systemStatus?: {
-        load: string;
-        sessions: number;
-    };
-}
-
-export interface DashboardTrend {
-    date: string;
-    count: number;
-    amount: number;
-}
+import type { DashboardOverview, DashboardTrend } from '../shared/contracts/dashboard';
 
 const requestOptions = (options: ApiRequestOptions) =>
     options.signal ? { signal: options.signal } : {};

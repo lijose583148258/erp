@@ -135,6 +135,7 @@
                     "audit:phase3:feature-preservation":  "node ./scripts/phase3-feature-preservation-gate-v1.cjs",
                     "audit:commercial:platform":  "node ./scripts/commercial-platform-api-audit-v1.cjs",
                     "audit:engineering:readiness":  "node ./scripts/engineering-production-readiness-audit-v1.cjs",
+                    "audit:dashboard:contract":  "node ./scripts/dashboard-shared-contract-audit-v1.cjs",
                     "audit:business-filters":  "tsx ./scripts/business-filter-contract-audit-v1.ts",
                     "audit:baseline:freeze":  "node ./scripts/stable-baseline-freeze-v1.cjs",
                     "audit:governance:ledger":  "node ./scripts/governance-ledger-inventory-v1.cjs",

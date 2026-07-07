@@ -181,6 +181,19 @@ Validation:
 Goal:
 Stop relying on implicit frontend/backend contracts.
 
+Current baseline:
+- Dashboard now has a shared read-model contract in
+  `shared/contracts/dashboard.ts`.
+- `services/dashboard.service.ts` imports the shared Dashboard response types
+  instead of declaring frontend-only interfaces.
+- `audit:dashboard:contract` checks that the frontend adopts the shared
+  contract and that `backend/src/routes/dashboard.routes.ts` still emits the
+  expected fields.
+- This remains partial evidence until the backend also compiles against a
+  shared/generated contract package. The current backend tsconfig is scoped to
+  `backend/src`, so a safe generated package/rootDirs change should be handled
+  deliberately.
+
 Deliverables:
 - OpenAPI generation or maintained OpenAPI artifact
 - route inventory coverage
@@ -189,6 +202,7 @@ Deliverables:
 
 Validation:
 - OpenAPI lint/generation command
+- `npm run audit:dashboard:contract`
 - typecheck
 - one frontend service migrated to generated/shared contract types
 
