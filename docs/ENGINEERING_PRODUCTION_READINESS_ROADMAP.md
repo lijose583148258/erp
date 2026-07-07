@@ -217,8 +217,9 @@ Goal:
 Reduce global React context pressure and make server data predictable.
 
 Deliverables:
-- TanStack Query provider
-- one read-heavy module migrated to query keys and invalidation
+- TanStack Query provider; first baseline is mounted in `app/ServerStateProvider.tsx`
+- one read-heavy module migrated to query keys; first baseline covers Dashboard overview and trend reads
+- invalidation after writes for the next migrated business module
 - one scoped client store for high-churn UI state
 - no broad rewrites before module proof
 

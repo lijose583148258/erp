@@ -203,6 +203,12 @@ function buildRequirements() {
   const pageRegistry = readText('app/activePathRegistry.ts');
   const pageErrorBoundary = readText('components/PageErrorBoundary.tsx');
   const dashboardPage = readText('pages/Dashboard.tsx');
+  const serverStateProvider = readText('app/ServerStateProvider.tsx');
+  const frontendSourceFiles = listFiles('.', (file) =>
+    SOURCE_EXTENSIONS.has(path.extname(file)) &&
+    !file.startsWith('backend/') &&
+    !file.startsWith('scripts/') &&
+    !file.startsWith('utils/quarantine/'));
   const dashboardService = readText('services/dashboard.service.ts');
   const dashboardRoutes = readText('backend/src/routes/dashboard.routes.ts');
   const dataTable = readText('components/DataTable.tsx');
@@ -245,6 +251,13 @@ function buildRequirements() {
     websocketRoot: hasDependency(rootPackage, ['ws', 'socket.io']),
     searchRoot: hasDependency(rootPackage, ['@elastic/elasticsearch', 'meilisearch']),
   };
+  const queryProviderMounted = /QueryClientProvider/.test(serverStateProvider) &&
+    /serverStateQueryClient/.test(serverStateProvider) &&
+    /<ServerStateProvider>/.test(readText('index.tsx'));
+  const queryUsageFiles = frontendSourceFiles.filter((file) => /useQuery\s*\(/.test(readText(file)));
+  const hasServerStateQueryLayer = rootDeps.query.length > 0 &&
+    queryProviderMounted &&
+    queryUsageFiles.length > 0;
   const backendDeps = {
     openApi: hasDependency(backendPackage, ['swagger-jsdoc', 'swagger-ui-express', 'openapi-typescript', '@asteasolutions/zod-to-openapi']),
     csrf: hasDependency(backendPackage, ['csrf', 'csurf']),
@@ -383,13 +396,17 @@ function buildRequirements() {
     id: 'server-state-query-layer',
     category: 'engineering-architecture',
     severity: 'P1',
-    status: rootDeps.query.length ? 'present' : 'gap',
+    status: hasServerStateQueryLayer ? 'present' : rootDeps.query.length || queryProviderMounted ? 'partial' : 'gap',
     title: 'Server state uses a cache/query layer',
     evidence: [
       `query deps=${rootDeps.query.join(',') || 'none'}`,
+      `QueryClientProvider mounted=${queryProviderMounted}`,
+      `useQuery adoption=${queryUsageFiles.slice(0, 8).join(', ') || 'none'}`,
       `axios dependency=${hasDependency(rootPackage, ['axios']).join(',') || 'none'}`,
     ],
-    nextAction: 'Add TanStack Query for read-heavy modules, with query keys aligned to API filters and invalidation after writes.',
+    nextAction: hasServerStateQueryLayer
+      ? 'Migrate the next read-heavy modules to TanStack Query and add invalidation after business writes.'
+      : 'Add TanStack Query for read-heavy modules, with query keys aligned to API filters and invalidation after writes.',
   });
 
   add(requirements, {

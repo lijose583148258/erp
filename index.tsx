@@ -2,6 +2,7 @@
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
+import { ServerStateProvider } from './app/ServerStateProvider';
 import ErrorBoundary from './components/ErrorBoundary';
 import { startWebVitalsTelemetry } from './utils/webVitalsTelemetry';
 import './index.css';
@@ -15,7 +16,9 @@ const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
     <ErrorBoundary>
-      <App />
+      <ServerStateProvider>
+        <App />
+      </ServerStateProvider>
     </ErrorBoundary>
   </React.StrictMode>
 );

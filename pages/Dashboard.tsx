@@ -1,5 +1,6 @@
 ﻿
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   TrendingUp, AlertTriangle, Package, DollarSign, Users, ArrowUpRight,
   FileText, Clock, ShieldAlert, Zap
@@ -7,7 +8,6 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAppContext } from '../app/AppContext';
 import { dashboardService, DashboardOverview } from '../services/dashboard.service';
-import { useServerStateQuery } from '../utils/serverStateQuery';
 
 const StatCard = ({ title, value, sub, icon: Icon, color, trend }: any) => (
   <div className="bg-white dark:bg-slate-900 p-6 lg:p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:shadow-slate-100 dark:hover:shadow-none transition-all duration-300 group overflow-hidden relative active-shrink">
@@ -86,16 +86,14 @@ const Dashboard = () => {
     low: { color: 'bg-emerald-600', label: t.inventoryAlertPriorityLow }
   } as const;
 
-  const loadDashboardStats = useCallback(
-    (signal: AbortSignal) => dashboardService.getStats({ signal }),
-    [],
-  );
-  const loadDashboardTrends = useCallback(
-    (signal: AbortSignal) => dashboardService.getTrends({ signal }),
-    [],
-  );
-  const statsQuery = useServerStateQuery('dashboard:overview:v1', loadDashboardStats, { staleTimeMs: 30_000 });
-  const trendsQuery = useServerStateQuery('dashboard:trends:v1', loadDashboardTrends, { staleTimeMs: 30_000 });
+  const statsQuery = useQuery({
+    queryKey: ['dashboard', 'overview', 'v1'],
+    queryFn: ({ signal }) => dashboardService.getStats({ signal }),
+  });
+  const trendsQuery = useQuery({
+    queryKey: ['dashboard', 'trends', 'v1'],
+    queryFn: ({ signal }) => dashboardService.getTrends({ signal }),
+  });
 
   useEffect(() => {
     const statsData = statsQuery.data;
@@ -229,7 +227,7 @@ const Dashboard = () => {
                   <Tooltip
                     cursor={{ fill: theme === 'dark' ? '#0f172a' : '#f8fafc', radius: 8 }}
                     contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: theme === 'dark' ? '#1e293b' : '#fff', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }}
-                    formatter={(value: number) => [formatPrice(value), '']}
+                    formatter={(value?: number) => [formatPrice(value || 0), '']}
                   />
                   <Bar dataKey="revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={20} />
                 </BarChart>

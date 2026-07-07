@@ -121,6 +121,8 @@ Pattern for AilaoDa:
 
 - Stop expanding ad hoc `axios + useState` data fetching for read-heavy
   modules.
+- The first implementation baseline mounts a shared QueryClient provider and
+  moves Dashboard overview/trend reads to TanStack Query keys.
 - Use query keys that include route, filters, pagination, tenant/org scope, and
   permissions where relevant.
 - Invalidate after writes instead of manually refreshing unrelated components.

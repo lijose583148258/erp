@@ -53,12 +53,15 @@ export interface DashboardTrend {
     amount: number;
 }
 
+const requestOptions = (options: ApiRequestOptions) =>
+    options.signal ? { signal: options.signal } : {};
+
 export const dashboardService = {
     /**
      * 获取仪表盘统计概览
      */
     async getStats(options: ApiRequestOptions = {}): Promise<DashboardOverview> {
-        const response = await api.get<any, any>('/dashboard', { signal: options.signal });
+        const response = await api.get<any, any>('/dashboard', requestOptions(options));
         const data = response?.data ?? response;
         if (data?.overview) {
             return data as DashboardOverview;
@@ -76,7 +79,7 @@ export const dashboardService = {
      * 获取销售趋势数据
      */
     async getTrends(options: ApiRequestOptions = {}): Promise<DashboardTrend[]> {
-        const response = await api.get<any, any>('/dashboard/trends', { signal: options.signal });
+        const response = await api.get<any, any>('/dashboard/trends', requestOptions(options));
         const data = response?.data ?? response;
         return Array.isArray(data) ? data : [];
     }

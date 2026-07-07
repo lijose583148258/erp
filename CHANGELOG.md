@@ -12,10 +12,12 @@ operator-visible, and architecture-relevant changes.
 - Production-readiness roadmap.
 - ADR process seed for research-first operating brain work.
 - Contribution guide with validation expectations.
+- TanStack Query server-state provider and Dashboard query-key migration.
 
 ### Changed
 
-- No runtime behavior changes in this branch.
+- Dashboard overview and trend reads now use the shared server-state query layer.
+- Upgraded root `axios` to reduce production dependency audit findings.
 
 ### Known Gaps
 
@@ -24,3 +26,5 @@ operator-visible, and architecture-relevant changes.
 - Smart Filter contract is not implemented yet.
 - Mobile card data view is not implemented yet.
 - Executive dashboard metrics are still partial.
+- Client-side UI state is still mostly AppContext/useState; scoped store migration remains pending.
+- Production dependency audit still reports non-TanStack residual findings in `xlsx` and transitive packages from existing dependencies.
