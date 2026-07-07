@@ -128,6 +128,7 @@
                     "audit:phase3:soak:package":  "powershell -NoProfile -ExecutionPolicy Bypass -Command \"$env:AILAODA_DAILY_REQUIRE_PACKAGE=\u00271\u0027; $env:AILAODA_SOAK_REQUIRE_PACKAGE=\u00271\u0027; node ./scripts/phase3-local-soak-audit-v1.cjs\"",
                     "audit:phase3:feature-preservation":  "node ./scripts/phase3-feature-preservation-gate-v1.cjs",
                     "audit:commercial:platform":  "node ./scripts/commercial-platform-api-audit-v1.cjs",
+                    "audit:commercial:ui-ux":  "node ./scripts/commercial-erp-crm-ui-ux-audit-v1.cjs",
                     "audit:baseline:freeze":  "node ./scripts/stable-baseline-freeze-v1.cjs",
                     "audit:governance:ledger":  "node ./scripts/governance-ledger-inventory-v1.cjs",
                     "audit:release:worktree":  "node ./scripts/release-worktree-change-inventory-v1.cjs",

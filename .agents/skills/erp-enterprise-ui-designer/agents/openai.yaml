@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP Enterprise UI Designer"
+  short_description: "Commercial ERP UI screenshots and usability review."
+  default_prompt: "Use $erp-enterprise-ui-designer to review ERP/CRM screens against commercial dashboard, table, mobile, and accessibility expectations."
