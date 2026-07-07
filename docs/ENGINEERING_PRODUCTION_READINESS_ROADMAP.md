@@ -227,13 +227,15 @@ Current baseline:
   `shared/contracts/dashboard.ts`.
 - `services/dashboard.service.ts` imports the shared Dashboard response types
   instead of declaring frontend-only interfaces.
+- `backend/src/types/generated/dashboard.contract.ts` is generated from the
+  shared contract and `backend/src/routes/dashboard.routes.ts` compiles its
+  overview and trends responses against that generated contract.
 - `audit:dashboard:contract` checks that the frontend adopts the shared
-  contract and that `backend/src/routes/dashboard.routes.ts` still emits the
-  expected fields.
-- This remains partial evidence until the backend also compiles against a
-  shared/generated contract package. The current backend tsconfig is scoped to
-  `backend/src`, so a safe generated package/rootDirs change should be handled
-  deliberately.
+  contract, the backend generated mirror matches the shared source, and the
+  backend route has compile-time response type binding.
+- This is still the first high-value route only; full production readiness
+  requires expanding shared/generated contracts across more routes and keeping
+  OpenAPI/Zod generation as the long-term source of truth.
 
 Deliverables:
 - OpenAPI generation or maintained OpenAPI artifact
@@ -242,6 +244,7 @@ Deliverables:
 - generated or shared frontend types
 
 Validation:
+- `npm run contracts:dashboard:backend`
 - OpenAPI lint/generation command
 - `npm run audit:dashboard:contract`
 - typecheck

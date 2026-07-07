@@ -137,6 +137,7 @@
         "audit:commercial:platform": "node ./scripts/commercial-platform-api-audit-v1.cjs",
         "audit:engineering:readiness": "node ./scripts/engineering-production-readiness-audit-v1.cjs",
         "audit:dashboard:contract": "node ./scripts/dashboard-shared-contract-audit-v1.cjs",
+        "contracts:dashboard:backend": "node ./scripts/sync-dashboard-backend-contract-v1.cjs",
         "audit:client-state": "node ./scripts/client-state-store-audit-v1.cjs",
         "audit:frontend-tests": "node ./scripts/frontend-test-foundation-audit-v1.cjs",
         "audit:virtualized-lists": "node ./scripts/virtualized-list-audit-v1.cjs",

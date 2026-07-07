@@ -1,10 +1,13 @@
 import { Router } from 'express';
 import type { Prisma } from '@prisma/client';
+import type { DashboardOverview, DashboardTrend } from '../types/generated/dashboard.contract';
 import { authenticate, authorizePermission, authRoute } from '../middleware/auth';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 
 const router = Router();
+
+const toDashboardOverview = (overview: DashboardOverview): DashboardOverview => overview;
 
 router.use(authenticate, authorizePermission('dashboard.read'));
 
@@ -151,7 +154,7 @@ router.get('/', authRoute(async (req, res) => {
 
         res.json({
             success: true,
-            data: {
+            data: toDashboardOverview({
                 // 概览卡片
                 overview: {
                     totalCustomers: customerTotal,
@@ -191,7 +194,7 @@ router.get('/', authRoute(async (req, res) => {
                     customerName: o.customer.name,
                     amount: Number(o.finalAmount),
                     status: o.status,
-                    createdAt: o.createdAt,
+                    createdAt: o.createdAt.toISOString(),
                 })),
                 // 真实库存预警转换为前端格式
                 inventoryAlerts: inventoryAlerts.map(inv => ({
@@ -209,7 +212,7 @@ router.get('/', authRoute(async (req, res) => {
                     load: (process.uptime() / 60).toFixed(1) + 'min',
                     sessions: 0
                 }
-            },
+            }),
         });
     } catch (error) {
         logger.error('获取仪表盘数据错误:', error);
@@ -251,7 +254,7 @@ router.get('/trends', authRoute(async (req, res) => {
         });
 
         // 转换为数组
-        const trends = Object.entries(dailyData)
+        const trends: DashboardTrend[] = Object.entries(dailyData)
             .map(([date, data]) => ({
                 date,
                 count: data.count,

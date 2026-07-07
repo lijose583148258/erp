@@ -9,6 +9,7 @@ const MD_REPORT = path.join(OUTPUT_DIR, 'dashboard-shared-contract-audit-v1.md')
 const CONTRACT_PATH = path.join(ROOT, 'shared', 'contracts', 'dashboard.ts');
 const FRONTEND_SERVICE_PATH = path.join(ROOT, 'services', 'dashboard.service.ts');
 const BACKEND_ROUTE_PATH = path.join(ROOT, 'backend', 'src', 'routes', 'dashboard.routes.ts');
+const BACKEND_GENERATED_CONTRACT_PATH = path.join(ROOT, 'backend', 'src', 'types', 'generated', 'dashboard.contract.ts');
 
 const REQUIRED_ARRAYS = [
   'dashboardOverviewSectionKeys',
@@ -51,6 +52,12 @@ function missingTokens(text, tokens) {
   return tokens.filter((token) => !tokenPresent(text, token));
 }
 
+function stripGeneratedHeader(text) {
+  return String(text || '')
+    .replace(/^\/\*[\s\S]*?Generated from shared\/contracts\/dashboard\.ts[\s\S]*?\*\/\n*/, '')
+    .trim();
+}
+
 function check(id, passed, evidence) {
   return { id, passed: Boolean(passed), evidence };
 }
@@ -63,6 +70,7 @@ function renderMarkdown(report) {
     `- generated: ${report.generatedAt}`,
     `- adoption: ${report.adoptionLevel}`,
     `- contract: ${report.paths.contract}`,
+    `- backend generated contract: ${report.paths.backendGeneratedContract}`,
     `- frontend service: ${report.paths.frontendService}`,
     `- backend route: ${report.paths.backendRoute}`,
     '',
@@ -75,9 +83,12 @@ function renderMarkdown(report) {
 
 function main() {
   const contractText = read(CONTRACT_PATH);
+  const backendGeneratedContractText = read(BACKEND_GENERATED_CONTRACT_PATH);
   const frontendText = read(FRONTEND_SERVICE_PATH);
   const backendText = read(BACKEND_ROUTE_PATH);
   const arrays = Object.fromEntries(REQUIRED_ARRAYS.map((name) => [name, extractConstArray(contractText, name)]));
+  const generatedContractMatchesShared = Boolean(contractText) &&
+    stripGeneratedHeader(backendGeneratedContractText) === contractText.trim();
 
   const overviewSectionMissing = missingTokens(backendText, arrays.dashboardOverviewSectionKeys || []);
   const overviewMetricMissing = missingTokens(backendText, arrays.dashboardOverviewMetricKeys || []);
@@ -90,6 +101,9 @@ function main() {
   const frontendImportsSharedContract = /from\s+['"]\.\.\/shared\/contracts\/dashboard['"]/.test(frontendText);
   const frontendHasLocalDashboardInterfaces = /export\s+interface\s+Dashboard(?:Overview|Trend)\b/.test(frontendText);
   const backendImportsSharedContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(backendText);
+  const backendImportsGeneratedContract = /from\s+['"][^'"]*types\/generated\/dashboard\.contract['"]/.test(backendText);
+  const backendHasCompileTimeContract = backendImportsSharedContract ||
+    (backendImportsGeneratedContract && generatedContractMatchesShared);
 
   const checks = [
     check('contract-file', Boolean(contractText), `shared/contracts/dashboard.ts exists=${Boolean(contractText)}`),
@@ -115,6 +129,26 @@ function main() {
       'dashboard service promises use shared DashboardOverview and DashboardTrend',
     ),
     check('backend-route-file', Boolean(backendText), `backend route exists=${Boolean(backendText)}`),
+    check(
+      'backend-generated-contract-file',
+      Boolean(backendGeneratedContractText),
+      `backend generated contract exists=${Boolean(backendGeneratedContractText)}`,
+    ),
+    check(
+      'backend-generated-contract-matches-shared',
+      generatedContractMatchesShared,
+      `generated mirror matches shared contract=${generatedContractMatchesShared}`,
+    ),
+    check(
+      'backend-imports-compile-time-contract',
+      backendHasCompileTimeContract,
+      `shared import=${backendImportsSharedContract}; generated import=${backendImportsGeneratedContract}`,
+    ),
+    check(
+      'backend-response-types',
+      /DashboardOverview/.test(backendText) && /DashboardTrend\[]/.test(backendText),
+      'backend route response payload is bound to DashboardOverview and DashboardTrend[]',
+    ),
     check(
       'backend-overview-section-coverage',
       overviewSectionMissing.length === 0,
@@ -153,8 +187,10 @@ function main() {
   ];
 
   const failed = checks.filter((item) => !item.passed);
-  const adoptionLevel = backendImportsSharedContract && frontendImportsSharedContract
-    ? 'frontend-and-backend-compile-time'
+  const adoptionLevel = backendHasCompileTimeContract && frontendImportsSharedContract
+    ? backendImportsSharedContract
+      ? 'frontend-and-backend-compile-time'
+      : 'frontend-and-backend-compile-time-generated-contract'
     : frontendImportsSharedContract && failed.length === 0
       ? 'frontend-compile-time-backend-source-audited'
       : 'incomplete';
@@ -166,12 +202,16 @@ function main() {
     adoptionLevel,
     paths: {
       contract: toPosix(path.relative(ROOT, CONTRACT_PATH)),
+      backendGeneratedContract: toPosix(path.relative(ROOT, BACKEND_GENERATED_CONTRACT_PATH)),
       frontendService: toPosix(path.relative(ROOT, FRONTEND_SERVICE_PATH)),
       backendRoute: toPosix(path.relative(ROOT, BACKEND_ROUTE_PATH)),
     },
     facts: {
       frontendImportsSharedContract,
       backendImportsSharedContract,
+      backendImportsGeneratedContract,
+      generatedContractMatchesShared,
+      backendHasCompileTimeContract,
     },
     summary: {
       total: checks.length,

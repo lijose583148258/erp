@@ -94,6 +94,13 @@ function missingTokens(text, tokens) {
   return tokens.filter((token) => !tokenPresent(text, token));
 }
 
+function stripGeneratedHeader(text, sourcePath) {
+  const escaped = String(sourcePath || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return String(text || '')
+    .replace(new RegExp(`^/\\*[\\s\\S]*?Generated from ${escaped}[\\s\\S]*?\\*/\\n*`), '')
+    .trim();
+}
+
 function findFirstLine(text, needle) {
   const lines = String(text || '').split('\n');
   const index = lines.findIndex((line) => line.includes(needle));
@@ -318,6 +325,7 @@ function buildRequirements() {
     queryProviderMounted &&
     queryUsageFiles.length > 0;
   const sharedDashboardContract = readText('shared/contracts/dashboard.ts');
+  const backendGeneratedDashboardContract = readText('backend/src/types/generated/dashboard.contract.ts');
   const hasSharedDashboardContract =
     /export\s+interface\s+DashboardOverview\b/.test(sharedDashboardContract) &&
     /export\s+interface\s+DashboardTrend\b/.test(sharedDashboardContract) &&
@@ -329,6 +337,14 @@ function buildRequirements() {
     /Promise<DashboardTrend\[]>/.test(dashboardService) &&
     !/export\s+interface\s+Dashboard(?:Overview|Trend)\b/.test(dashboardService);
   const backendUsesSharedDashboardContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(dashboardRoutes);
+  const backendUsesGeneratedDashboardContract = /from\s+['"][^'"]*types\/generated\/dashboard\.contract['"]/.test(dashboardRoutes);
+  const backendGeneratedDashboardContractMatchesShared = Boolean(sharedDashboardContract) &&
+    stripGeneratedHeader(backendGeneratedDashboardContract, 'shared/contracts/dashboard.ts') === sharedDashboardContract.trim();
+  const backendUsesCompileTimeDashboardContract = backendUsesSharedDashboardContract ||
+    (backendUsesGeneratedDashboardContract && backendGeneratedDashboardContractMatchesShared);
+  const backendDashboardResponseTypesBound =
+    /DashboardOverview/.test(dashboardRoutes) &&
+    /DashboardTrend\[]/.test(dashboardRoutes);
   const dashboardContractAuditScript = exists('scripts/dashboard-shared-contract-audit-v1.cjs');
   const dashboardContractBackendRequiredTokens = [
     'overview',
@@ -489,7 +505,7 @@ function buildRequirements() {
     id: 'shared-types-contract',
     category: 'engineering-architecture',
     severity: 'P1',
-    status: hasSharedDashboardContract && frontendUsesSharedDashboardContract && backendUsesSharedDashboardContract
+    status: hasSharedDashboardContract && frontendUsesSharedDashboardContract && backendUsesCompileTimeDashboardContract && backendDashboardResponseTypesBound
       ? 'present'
       : hasSharedDashboardContract && frontendUsesSharedDashboardContract && dashboardContractAuditScript && backendDashboardSourceMatchesContract
         ? 'partial'
@@ -502,12 +518,15 @@ function buildRequirements() {
       `Dashboard shared contract=${hasSharedDashboardContract}`,
       `frontend imports Dashboard contract=${frontendUsesSharedDashboardContract}`,
       `backend imports Dashboard contract=${backendUsesSharedDashboardContract}`,
+      `backend imports generated Dashboard contract=${backendUsesGeneratedDashboardContract}`,
+      `backend generated Dashboard contract matches shared=${backendGeneratedDashboardContractMatchesShared}`,
+      `backend Dashboard response types bound=${backendDashboardResponseTypesBound}`,
       `Dashboard contract audit script=${dashboardContractAuditScript}`,
       `backend dashboard source coverage=${backendDashboardSourceMatchesContract}`,
       `backend dashboard missing tokens=${dashboardBackendMissingContractTokens.join(',') || 'none'}`,
       `backend zod dependency=${hasDependency(backendPackage, ['zod']).join(',') || 'none'}`,
     ],
-    nextAction: backendUsesSharedDashboardContract
+    nextAction: backendUsesCompileTimeDashboardContract
       ? 'Expand shared/generated contracts route by route and keep OpenAPI/Zod generation as the long-term source of truth.'
       : 'Backend is still source-audited instead of compile-time bound because backend/tsconfig rootDir is scoped to backend/src; add a generated contract package or safe rootDirs change before marking this present.',
   });
