@@ -28,6 +28,9 @@ operator-visible, and architecture-relevant changes.
 - Dashboard backend route now compiles overview and trend responses against the
   generated Dashboard contract mirror, including ISO string dates for recent
   order timestamps.
+- Backend cache dependencies now use `ioredis` as the single Redis client,
+  removing the unused duplicate `redis` package from the backend manifest and
+  lockfile.
 - Dashboard UI snapshots, tasks, inventory alerts, system status, chart data,
   and chart layout now use a scoped store instead of local component state.
 - Frontend unit testing now runs Vitest/Testing Library before the existing
@@ -49,6 +52,8 @@ operator-visible, and architecture-relevant changes.
   backend compile-time adoption through a generated mirror, but additional
   routes still need generated/shared response contracts.
 - Production dependency audit still reports non-TanStack residual findings in `xlsx` and transitive packages from existing dependencies.
+- Cache strategy is defined and the Redis client dependency is now unified, but
+  read-heavy module adoption and focused cache behavior tests are still pending.
 - Virtualized rows are now available in `EnterpriseDataGrid`, but adoption is
   intentionally limited to local client-side pages; server-paged business
   tables still need route-level browser evidence before broad rollout.

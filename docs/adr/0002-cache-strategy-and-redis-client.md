@@ -8,10 +8,10 @@ Accepted for incremental rollout.
 
 ## Context
 
-The backend package declared both `redis` and `ioredis`, but there was no
-single cache entry point, key naming policy, TTL policy, or failure-mode
-contract. That makes future dashboard, permission, reference-data, and
-read-model caching hard to review and easy to implement inconsistently.
+The backend package previously declared both `redis` and `ioredis`, but there
+was no single cache entry point, key naming policy, TTL policy, or
+failure-mode contract. That made future dashboard, permission, reference-data,
+and read-model caching hard to review and easy to implement inconsistently.
 
 ERP cache behavior must be conservative because stale order, receivable,
 inventory, approval, or permission data can cause business errors.
@@ -31,9 +31,9 @@ The initial cache service provides:
 - no Redis connection unless `CACHE_REDIS_URL` or `REDIS_URL` is configured
 - bypass-on-failure behavior instead of failing ERP reads or writes
 
-The duplicate `redis` package remains a cleanup item until dependency pruning
-is handled in a dedicated dependency maintenance step with lockfile review.
-Until then, readiness remains partial rather than complete.
+The duplicate `redis` package has been removed from the backend dependency
+manifest and lockfile. `ioredis` is now the single Redis client dependency for
+the backend cache path.
 
 ## Initial Strategies
 
@@ -57,6 +57,5 @@ Until then, readiness remains partial rather than complete.
 ## Consequences
 
 This creates a safe, reviewable cache path without changing business behavior
-yet. Follow-up work should adopt the cache in one read-heavy module, add
-focused tests, and remove the unused Redis client dependency once the lockfile
-change is isolated.
+yet. Follow-up work should adopt the cache in one read-heavy module and add
+focused tests around hit/miss, invalidation, and bypass-on-failure behavior.
