@@ -14,7 +14,8 @@
         "start:backend": "npm --prefix backend run start",
         "build": "node ./scripts/clean-dist-v1.cjs && vite build --configLoader native",
         "typecheck": "tsc --noEmit --pretty false",
-        "test:frontend:unit": "tsx ./scripts/frontend-unit-test-runner.ts",
+        "test:frontend:vitest": "vitest run --config vitest.config.ts",
+        "test:frontend:unit": "npm run test:frontend:vitest && tsx ./scripts/frontend-unit-test-runner.ts",
         "typecheck:strict": "tsc -p tsconfig.strict.json --pretty false",
         "typecheck:strict:pilot": "tsc -p tsconfig.strict.pilot.json --pretty false",
         "audit:openapi:contract": "node ./scripts/openapi-contract-audit-v1.cjs",
@@ -137,6 +138,7 @@
         "audit:engineering:readiness": "node ./scripts/engineering-production-readiness-audit-v1.cjs",
         "audit:dashboard:contract": "node ./scripts/dashboard-shared-contract-audit-v1.cjs",
         "audit:client-state": "node ./scripts/client-state-store-audit-v1.cjs",
+        "audit:frontend-tests": "node ./scripts/frontend-test-foundation-audit-v1.cjs",
         "audit:business-filters": "tsx ./scripts/business-filter-contract-audit-v1.ts",
         "audit:baseline:freeze": "node ./scripts/stable-baseline-freeze-v1.cjs",
         "audit:governance:ledger": "node ./scripts/governance-ledger-inventory-v1.cjs",
@@ -176,6 +178,9 @@
     },
     "devDependencies": {
         "@eslint/js": "^8.57.0",
+        "@testing-library/jest-dom": "^6.9.1",
+        "@testing-library/react": "^16.3.2",
+        "@testing-library/user-event": "^14.6.1",
         "@types/node": "^22.14.0",
         "@types/react": "^19.2.14",
         "@types/react-dom": "^19.2.3",
@@ -186,6 +191,7 @@
         "eslint-plugin-react-hooks": "^4.6.2",
         "eslint-plugin-react-refresh": "^0.4.20",
         "globals": "^15.15.0",
+        "jsdom": "^29.1.1",
         "playwright": "^1.59.1",
         "postcss": "^8.5.9",
         "prisma": "^5.22.0",
@@ -193,6 +199,7 @@
         "tsx": "^4.21.0",
         "typescript": "~5.8.2",
         "typescript-eslint": "^8.36.0",
-        "vite": "^6.2.0"
+        "vite": "^6.2.0",
+        "vitest": "^4.1.10"
     }
 }

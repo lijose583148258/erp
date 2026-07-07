@@ -2,13 +2,16 @@
   "extends": "./tsconfig.strict.json",
   "include": [
     "app/ServerStateProvider.tsx",
+    "components/ui/StatusBadge.test.tsx",
     "components/ui/businessFilters.ts",
     "pages/Dashboard.tsx",
     "scripts/business-filter-contract-audit-v1.ts",
     "services/dashboard.service.ts",
     "shared/contracts/dashboard.ts",
     "stores/dashboardUiStore.ts",
+    "tests/setup.ts",
     "utils/serverStateQuery.ts",
-    "utils/webVitalsTelemetry.ts"
+    "utils/webVitalsTelemetry.ts",
+    "vitest.config.ts"
   ]
 }

@@ -15,6 +15,7 @@ operator-visible, and architecture-relevant changes.
 - TanStack Query server-state provider and Dashboard query-key migration.
 - Shared Dashboard read-model contract and dashboard contract audit.
 - Zustand Dashboard UI store and client-state audit.
+- Vitest, Testing Library, jsdom, and frontend test foundation audit.
 
 ### Changed
 
@@ -23,6 +24,8 @@ operator-visible, and architecture-relevant changes.
   declaring local response interfaces.
 - Dashboard UI snapshots, tasks, inventory alerts, system status, chart data,
   and chart layout now use a scoped store instead of local component state.
+- Frontend unit testing now runs Vitest/Testing Library before the existing
+  lightweight runner.
 - Upgraded root `axios` to reduce production dependency audit findings.
 
 ### Known Gaps
@@ -32,10 +35,10 @@ operator-visible, and architecture-relevant changes.
 - Smart Filter contract is not implemented yet.
 - Mobile card data view is not implemented yet.
 - Executive dashboard metrics are still partial.
-- Client-side UI state is still mostly AppContext/useState; broader scoped
-  store migration remains pending outside the Dashboard proof.
 - Scoped client state is only proven for Dashboard so far; broad AppContext
   responsibility reduction remains pending.
+- Frontend test foundation is present, but coverage is still narrow and must
+  expand to forms, table filters, mobile cards, and dashboard store behavior.
 - Shared contracts are still partial: Dashboard has frontend compile-time
   adoption and backend source-field audit, but backend route code does not yet
   compile against generated/shared response contracts.

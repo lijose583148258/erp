@@ -164,6 +164,16 @@ Validation:
 Goal:
 Add component-level regression coverage around shared UI primitives.
 
+Current baseline:
+- Vitest is configured in `vitest.config.ts` with jsdom and
+  `tests/setup.ts`.
+- `test:frontend:unit` now runs Vitest first, then the existing lightweight
+  unit-test runner so earlier StatusBadge regression checks are preserved.
+- `components/ui/StatusBadge.test.tsx` is the first Testing Library component
+  test and verifies semantic status/risk evidence in rendered DOM.
+- `audit:frontend-tests` verifies dependencies, config, setup, npm scripts,
+  and Testing Library adoption together.
+
 Deliverables:
 - Vitest
 - Testing Library
@@ -172,7 +182,8 @@ Deliverables:
   cards
 
 Validation:
-- `npm run test:frontend`
+- `npm run audit:frontend-tests`
+- `npm run test:frontend:unit`
 - `npm run typecheck`
 - existing browser audits remain green
 

@@ -233,6 +233,19 @@ function buildRequirements() {
   const jsonStringFields = countJsonStringFields();
   const frontendTests = findFrontendUnitTests();
   const runnableFrontendUnitTests = frontendTests.filter((file) => /\.unit\.test\.(tsx?|jsx?)$/.test(file));
+  const testingLibraryTestFiles = frontendTests.filter((file) => /@testing-library\/react/.test(readText(file)));
+  const modernFrontendTestDeps = hasDependency(rootPackage, ['vitest', '@testing-library/react', '@testing-library/jest-dom', '@testing-library/user-event', 'jsdom']);
+  const hasModernFrontendTestDeps = ['vitest', '@testing-library/react', '@testing-library/jest-dom', '@testing-library/user-event', 'jsdom']
+    .every((name) => modernFrontendTestDeps.includes(name));
+  const frontendVitestScript = String(rootPackage.scripts?.['test:frontend:vitest'] || '');
+  const frontendUnitScript = String(rootPackage.scripts?.['test:frontend:unit'] || '');
+  const hasVitestFrontendUnitScript = /\bvitest\s+run\b/.test(frontendVitestScript) &&
+    /test:frontend:vitest/.test(frontendUnitScript);
+  const hasVitestConfig = exists('vitest.config.ts') &&
+    /environment:\s*['"]jsdom['"]/.test(readText('vitest.config.ts')) &&
+    /setupFiles:\s*\[\s*['"]\.\/tests\/setup\.ts['"]/.test(readText('vitest.config.ts'));
+  const hasFrontendTestFoundationAudit = exists('scripts/frontend-test-foundation-audit-v1.cjs') &&
+    Boolean(rootPackage.scripts?.['audit:frontend-tests']);
   const apiMounts = countApiMounts(serverText);
   const redisDeps = hasDependency(backendPackage, ['redis', 'ioredis']);
   const hasCacheService = /interface\s+AppCache/.test(cacheService) &&
@@ -542,21 +555,29 @@ function buildRequirements() {
     id: 'frontend-unit-tests',
     category: 'engineering-architecture',
     severity: 'P1',
-    status: rootDeps.test.includes('vitest') && frontendTests.length > 0
+    status: hasModernFrontendTestDeps && hasVitestFrontendUnitScript && hasVitestConfig && hasFrontendTestFoundationAudit && testingLibraryTestFiles.length > 0
       ? 'present'
-      : rootPackage.scripts?.['test:frontend:unit'] && runnableFrontendUnitTests.length > 0
+      : rootPackage.scripts?.['test:frontend:unit'] && (runnableFrontendUnitTests.length > 0 || frontendTests.length > 0)
         ? 'partial'
         : 'gap',
     title: 'Frontend has component/unit test foundation',
     evidence: [
       `frontend test deps=${rootDeps.test.join(',') || 'none'}`,
+      `modern frontend test deps=${modernFrontendTestDeps.join(',') || 'none'}`,
+      `test:frontend:vitest script=${Boolean(rootPackage.scripts?.['test:frontend:vitest'])}`,
       `test:frontend:unit script=${Boolean(rootPackage.scripts?.['test:frontend:unit'])}`,
+      `vitest config=${hasVitestConfig}`,
+      `frontend test foundation audit=${hasFrontendTestFoundationAudit}`,
       `frontend test files=${frontendTests.length}`,
       `runnable frontend unit test files=${runnableFrontendUnitTests.length}`,
+      `Testing Library test files=${testingLibraryTestFiles.length}`,
       `sample frontend tests=${frontendTests.slice(0, 8).join(', ') || 'none'}`,
       `sample runnable unit tests=${runnableFrontendUnitTests.slice(0, 8).join(', ') || 'none'}`,
+      `sample Testing Library tests=${testingLibraryTestFiles.slice(0, 8).join(', ') || 'none'}`,
     ],
-    nextAction: 'Add Vitest, Testing Library, jsdom, and tests for status badges, forms, and critical table state rendering.',
+    nextAction: hasModernFrontendTestDeps && testingLibraryTestFiles.length > 0
+      ? 'Expand Vitest/Testing Library coverage from StatusBadge to forms, table filter state, mobile cards, and dashboard store behavior.'
+      : 'Add Vitest, Testing Library, jsdom, and tests for status badges, forms, and critical table state rendering.',
   });
 
   add(requirements, {
