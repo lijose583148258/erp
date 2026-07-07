@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import App from './App';
 import ErrorBoundary from './components/ErrorBoundary';
+import { startWebVitalsTelemetry } from './utils/webVitalsTelemetry';
 import './index.css';
 
 const rootElement = document.getElementById('root');
@@ -18,3 +19,5 @@ root.render(
     </ErrorBoundary>
   </React.StrictMode>
 );
+
+startWebVitalsTelemetry();

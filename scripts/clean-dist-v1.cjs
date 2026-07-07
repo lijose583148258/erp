@@ -61,6 +61,11 @@ function runPowerShellFallback() {
   return result.status === 0;
 }
 
+if (process.platform === 'win32' && fs.existsSync(path.join(ROOT, 'scripts', 'clean-dist-v1.ps1'))) {
+  if (runPowerShellFallback()) process.exit(0);
+  fail(`PowerShell clean failed on this Windows workspace: ${DIST_DIR}`);
+}
+
 if (fs.existsSync(DIST_DIR)) {
   try {
     removeDir(DIST_DIR);

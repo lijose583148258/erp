@@ -1,12 +1,10 @@
 import { Request, Response } from 'express';
-import fs from 'fs';
-import path from 'path';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
-import { getUploadDir } from '../config/runtime';
+import { objectStorage } from '../services/object-storage.service';
 import {
     buildCustomerDataScopeWhere,
     canUseCustomerForBusinessWrite,
@@ -15,7 +13,6 @@ import {
 } from '../utils/recordAccess';
 
 // H7修复：Base64 图片存磁盘，数据库只存路径
-const getContractUploadDir = () => path.join(getUploadDir(), 'contracts');
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB 限制
 
 /**
@@ -43,19 +40,18 @@ function persistBase64ToDisk(fileUrl: string | null | undefined): string | null 
     }
 
     // 确保目录存在
-    const uploadsDir = getContractUploadDir();
-    fs.mkdirSync(uploadsDir, { recursive: true });
-
     // 生成唯一文件名
     const ext = mimeType === 'application/pdf' ? '.pdf' : '.' + mimeType.split('/')[1];
     const filename = `contract_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
-    const filePath = path.join(uploadsDir, filename);
-
-    fs.writeFileSync(filePath, buffer);
+    const stored = objectStorage.putPublicObject({
+        key: `contracts/${filename}`,
+        body: buffer,
+        contentType: mimeType,
+    });
     logger.info(`H7: 合同文件已保存到磁盘: ${filename} (${(buffer.length / 1024).toFixed(1)}KB)`);
 
     // 返回相对路径给数据库
-    return `/uploads/contracts/${filename}`;
+    return stored.url;
 }
 
 const getCustomerDisplayName = (customer: {

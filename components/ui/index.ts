@@ -1,4 +1,21 @@
 export { ActionToolbar } from './ActionToolbar';
+export {
+  applyBusinessFilters,
+  createEmptyBusinessFilterState,
+  hasActiveBusinessFilters,
+  isEmptyBusinessFilterValue,
+  matchesBusinessFilter,
+} from './businessFilters';
+export type {
+  BusinessFilterDefinition,
+  BusinessFilterKind,
+  BusinessFilterMode,
+  BusinessFilterOperator,
+  BusinessFilterOption,
+  BusinessFilterRangeValue,
+  BusinessFilterState,
+  BusinessFilterValue,
+} from './businessFilters';
 export { ConfirmDialog } from './ConfirmDialog';
 export { EmptyState } from './EmptyState';
 export { EnterpriseDataGrid } from './EnterpriseDataGrid';

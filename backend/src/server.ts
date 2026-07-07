@@ -8,7 +8,7 @@ import fs from 'fs';
 import { logger } from './utils/logger';
 import { auditMiddleware } from './middleware/auditMiddleware';
 import { errorHandler } from './middleware/errorHandler';
-import { getAllowedOrigins, getBackupDir, getFrontendDistDir, getUploadDir, loadRuntimeEnv, runtime } from './config/runtime';
+import { getAllowedOrigins, getBackupDir, getFrontendDistDir, loadRuntimeEnv, runtime } from './config/runtime';
 import prisma, { configureRuntimeDatabase } from './config/database';
 import authRoutes from './routes/auth.routes';
 import customerRoutes from './routes/customer.routes';
@@ -35,8 +35,9 @@ import receiptDiscrepancyRoutes from './routes/receipt-discrepancy.routes';
 import roleRoutes from './routes/role.routes';
 import commercialPlatformRoutes from './routes/commercial-platform.routes';
 import { BackupService } from './services/backup.service';
-import { metricsMiddleware, renderPrometheusMetrics } from './middleware/metricsMiddleware';
+import { metricsMiddleware, recordWebVitalMetric, renderPrometheusMetrics } from './middleware/metricsMiddleware';
 import { authenticate, authorize } from './middleware/auth';
+import { objectStorage } from './services/object-storage.service';
 
 loadRuntimeEnv();
 
@@ -82,7 +83,10 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(metricsMiddleware);
 
-const uploadDir = getUploadDir();
+const uploadDir = objectStorage.getLocalPublicRoot();
+if (!uploadDir) {
+  throw new Error('Local /uploads static serving requires a storage adapter with a local public root.');
+}
 fs.mkdirSync(uploadDir, { recursive: true });
 app.use('/uploads', express.static(uploadDir, {
   fallthrough: false,
@@ -100,7 +104,28 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-app.get('/api/system/health-details', authenticate, authorize('admin'), async (_req: Request, res: Response) => {
+app.post(['/api/metrics/web-vitals', '/api/v1/metrics/web-vitals'], (req: Request, res: Response) => {
+  const body = req.body as Record<string, unknown> | null | undefined;
+  if (!body || typeof body !== 'object' || Array.isArray(body)) {
+    return res.status(400).json({ success: false, message: 'Invalid web vital payload' });
+  }
+
+  const accepted = recordWebVitalMetric({
+    name: String(body.name || ''),
+    value: Number(body.value),
+    rating: typeof body.rating === 'string' ? body.rating : undefined,
+    path: typeof body.path === 'string' ? body.path : undefined,
+    navigationType: typeof body.navigationType === 'string' ? body.navigationType : undefined,
+  });
+
+  if (!accepted) {
+    return res.status(400).json({ success: false, message: 'Invalid web vital metric' });
+  }
+
+  return res.status(202).json({ success: true, status: 'accepted' });
+});
+
+app.get(['/api/system/health-details', '/api/v1/system/health-details'], authenticate, authorize('admin'), async (_req: Request, res: Response) => {
   const minimumFreeDiskBytes = Number(process.env.MIN_FREE_DISK_BYTES || 512 * 1024 * 1024);
   const backupDir = getBackupDir();
   let freeDiskBytes: number | null = null;
@@ -131,11 +156,11 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-app.get(['/livez', '/api/livez'], (_req: Request, res: Response) => {
+app.get(['/livez', '/api/livez', '/api/v1/livez'], (_req: Request, res: Response) => {
   res.json({ status: 'alive', timestamp: new Date().toISOString(), uptime: process.uptime() });
 });
 
-app.get(['/ready', '/api/ready'], async (_req: Request, res: Response) => {
+app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Response) => {
   try {
     await prisma.$queryRaw`SELECT 1`;
     res.json({ status: 'ready', database: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
@@ -145,7 +170,7 @@ app.get(['/ready', '/api/ready'], async (_req: Request, res: Response) => {
   }
 });
 
-app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
+app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
   const checks = {
     database: 'ok',
     backupDir: 'ok',
@@ -226,6 +251,31 @@ app.use('/api/warehouses', warehouseRoutes);
 app.use('/api/receipt-discrepancies', receiptDiscrepancyRoutes);
 app.use('/api/roles', roleRoutes);
 app.use('/api/commercial', commercialPlatformRoutes);
+
+app.use('/api/v1/auth', authRoutes);
+app.use('/api/v1/customers', customerRoutes);
+app.use('/api/v1/orders', orderRoutes);
+app.use('/api/v1/samples', sampleRoutes);
+app.use('/api/v1/shipping', shippingRoutes);
+app.use('/api/v1/rma', rmaRoutes);
+app.use('/api/v1/team', teamRoutes);
+app.use('/api/v1/dashboard', dashboardRoutes);
+app.use('/api/v1/assets', assetRoutes);
+app.use('/api/v1/audit', auditRoutes);
+app.use('/api/v1/procurement', procurementRoutes);
+app.use('/api/v1/collections', collectionRoutes);
+app.use('/api/v1/adjustments', adjustmentRoutes);
+app.use('/api/v1/system', systemRoutes);
+app.use('/api/v1/barter', barterRoutes);
+app.use('/api/v1/timber', timberRoutes);
+app.use('/api/v1/contracts', contractRoutes);
+app.use('/api/v1/production', productionRoutes);
+app.use('/api/v1/finance', financeRoutes);
+app.use('/api/v1/currency', currencyRoutes);
+app.use('/api/v1/warehouses', warehouseRoutes);
+app.use('/api/v1/receipt-discrepancies', receiptDiscrepancyRoutes);
+app.use('/api/v1/roles', roleRoutes);
+app.use('/api/v1/commercial', commercialPlatformRoutes);
 
 const clientPath = getFrontendDistDir();
 const indexPath = path.join(clientPath, 'index.html');
@@ -333,6 +383,7 @@ const startServer = async () => {
       logger.info(`Server started successfully. Port: ${PORT}`);
       logger.info(`Environment: ${runtime.nodeEnv}`);
       logger.info(`CORS: ${allowedOrigins.join(',')}`);
+      logger.info(`Database engine: ${runtime.databaseEngine}; Prisma provider: ${runtime.prismaProvider}`);
       logger.info(`SQLite: ${runtime.sqliteDbPath || 'not configured'}`);
     });
   } catch (error) {

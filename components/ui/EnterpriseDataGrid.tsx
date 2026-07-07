@@ -2,6 +2,17 @@ import React, { useMemo, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, SlidersHorizontal, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ActionToolbar } from './ActionToolbar';
+import {
+  applyBusinessFilters,
+  createEmptyBusinessFilterState,
+  hasActiveBusinessFilters,
+  isEmptyBusinessFilterValue,
+  type BusinessFilterDefinition,
+  type BusinessFilterMode,
+  type BusinessFilterRangeValue,
+  type BusinessFilterState,
+  type BusinessFilterValue,
+} from './businessFilters';
 import { EmptyState } from './EmptyState';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { StatusBadge } from './StatusBadge';
@@ -33,6 +44,10 @@ type Props<T> = {
   searchInputTestId?: string;
   searchable?: boolean;
   manualSearch?: boolean;
+  filterDefinitions?: BusinessFilterDefinition<T>[];
+  filterState?: BusinessFilterState;
+  onFilterStateChange?: (state: BusinessFilterState) => void;
+  filterMode?: BusinessFilterMode;
   loading?: boolean;
   emptyTitle?: React.ReactNode;
   emptyDescription?: React.ReactNode;
@@ -110,6 +125,10 @@ export function EnterpriseDataGrid<T>({
   searchInputTestId,
   searchable = true,
   manualSearch = false,
+  filterDefinitions = [],
+  filterState,
+  onFilterStateChange,
+  filterMode = 'client',
   loading = false,
   emptyTitle = '暂无数据',
   emptyDescription,
@@ -142,6 +161,7 @@ export function EnterpriseDataGrid<T>({
   const [pageSize, setPageSize] = useState(() => readNumberPreference(pageSizeStorageKey, defaultPageSize, pageSizeOptions));
   const [page, setPage] = useState(1);
   const [internalSearch, setInternalSearch] = useState('');
+  const [internalFilterState, setInternalFilterState] = useState<BusinessFilterState>(() => createEmptyBusinessFilterState());
   const [visibleColumnKeys, setVisibleColumnKeys] = useState(() => readStringArrayPreference(columnStorageKey, defaultColumnKeys));
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -151,6 +171,8 @@ export function EnterpriseDataGrid<T>({
     return selected.length ? selected : columns.slice(0, 1);
   }, [columns, visibleColumnKeySet]);
   const effectiveSearchValue = typeof onSearchChange === 'function' ? searchValue : internalSearch;
+  const effectiveFilterState = filterState || internalFilterState;
+  const smartFiltersActive = hasActiveBusinessFilters(effectiveFilterState);
   const isServerPaged = manualPagination && Boolean(pagination);
   const handleSearchChange = (value: string) => {
     setPage(1);
@@ -172,6 +194,39 @@ export function EnterpriseDataGrid<T>({
     setVisibleColumnKeys(defaultColumnKeys);
     writeStringArrayPreference(columnStorageKey, defaultColumnKeys);
   };
+  const commitFilterState = (next: BusinessFilterState) => {
+    setPage(1);
+    if (onFilterStateChange) {
+      onFilterStateChange(next);
+      return;
+    }
+    setInternalFilterState(next);
+  };
+  const updateFilterValue = (key: string, value: BusinessFilterValue) => {
+    const nextValues = { ...(effectiveFilterState.values || {}) };
+    if (isEmptyBusinessFilterValue(value)) delete nextValues[key];
+    else nextValues[key] = value;
+    commitFilterState({
+      ...effectiveFilterState,
+      values: nextValues,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+  const updateRangeFilterValue = (key: string, bound: keyof BusinessFilterRangeValue, value: string) => {
+    const current = effectiveFilterState.values?.[key];
+    const range = current && typeof current === 'object' && !Array.isArray(current) && !(current instanceof Date)
+      ? current as BusinessFilterRangeValue
+      : {};
+    updateFilterValue(key, { ...range, [bound]: value });
+  };
+  const clearSmartFilters = () => {
+    const { quickPreset: _quickPreset, ...filterStateWithoutPreset } = effectiveFilterState;
+    commitFilterState({
+      ...filterStateWithoutPreset,
+      values: {},
+      updatedAt: new Date().toISOString(),
+    });
+  };
 
   const searchedData = useMemo(() => {
     const terms = effectiveSearchValue.trim().toLowerCase().split(/\s+/).filter(Boolean);
@@ -185,18 +240,23 @@ export function EnterpriseDataGrid<T>({
     });
   }, [columns, data, effectiveSearchValue, isServerPaged, manualSearch]);
 
+  const filteredData = useMemo(() => {
+    if (filterMode === 'manual' || isServerPaged) return searchedData;
+    return applyBusinessFilters(searchedData, filterDefinitions, effectiveFilterState);
+  }, [effectiveFilterState, filterDefinitions, filterMode, isServerPaged, searchedData]);
+
   const sortedData = useMemo(() => {
-    if (isServerPaged || !sortState) return searchedData;
+    if (isServerPaged || !sortState) return filteredData;
     const column = visibleColumns.find((item) => item.key === sortState.key);
-    if (!column) return searchedData;
-    return [...searchedData].sort((left, right) => {
+    if (!column) return filteredData;
+    return [...filteredData].sort((left, right) => {
       const a = column.searchText?.(left) ?? stringifyCell(getAccessorValue(left, column));
       const b = column.searchText?.(right) ?? stringifyCell(getAccessorValue(right, column));
       return sortState.direction === 'asc'
         ? a.localeCompare(b, 'zh-Hans-CN', { numeric: true })
         : b.localeCompare(a, 'zh-Hans-CN', { numeric: true });
     });
-  }, [isServerPaged, searchedData, sortState, visibleColumns]);
+  }, [filteredData, isServerPaged, sortState, visibleColumns]);
 
   const effectivePageSize = isServerPaged && pagination ? pagination.pageSize : pageSize;
   const totalRows = isServerPaged && pagination ? pagination.total : sortedData.length;
@@ -211,6 +271,7 @@ export function EnterpriseDataGrid<T>({
     ? Math.min((safePage - 1) * effectivePageSize + pageData.length, totalRows)
     : Math.min(safePage * effectivePageSize, totalRows);
   const exportData = isServerPaged ? pageData : sortedData;
+  const effectiveResultCount = isServerPaged && pagination ? pagination.total : filteredData.length;
   const effectiveExportLabel = isServerPaged ? '导出当前页' : exportLabel;
 
   const handleExport = () => {
@@ -234,7 +295,9 @@ export function EnterpriseDataGrid<T>({
     reader.onload = async (readerEvent) => {
       try {
         const workbook = XLSX.read(readerEvent.target?.result, { type: 'binary' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+        const sheetName = workbook.SheetNames[0];
+        const worksheet = sheetName ? workbook.Sheets[sheetName] : undefined;
+        if (!worksheet) throw new Error('No worksheet found in imported file');
         const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
         await onImport(rows);
       } catch (error) {
@@ -261,6 +324,98 @@ export function EnterpriseDataGrid<T>({
     });
   };
 
+  const renderFilterControl = (definition: BusinessFilterDefinition<T>) => {
+    const current = effectiveFilterState.values?.[definition.key];
+    const label = definition.label || definition.key;
+
+    if (definition.kind === 'dateRange' || definition.kind === 'numberRange' || definition.kind === 'amountRange') {
+      const range = current && typeof current === 'object' && !Array.isArray(current) && !(current instanceof Date)
+        ? current as BusinessFilterRangeValue
+        : {};
+      const inputType = definition.kind === 'dateRange' ? 'date' : 'number';
+      return (
+        <div key={definition.key} className="space-y-2">
+          <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</div>
+          <div className="grid grid-cols-2 gap-2">
+            <input
+              type={inputType}
+              value={String(range.from ?? range.min ?? '')}
+              onChange={(event) => updateRangeFilterValue(definition.key, 'from', event.target.value)}
+              aria-label={`${label} from`}
+              className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
+            />
+            <input
+              type={inputType}
+              value={String(range.to ?? range.max ?? '')}
+              onChange={(event) => updateRangeFilterValue(definition.key, 'to', event.target.value)}
+              aria-label={`${label} to`}
+              className="min-h-10 rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (definition.kind === 'multiSelect') {
+      const currentValues = new Set((Array.isArray(current) ? current : current ? [current] : []).map(String));
+      return (
+        <div key={definition.key} className="space-y-2">
+          <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</div>
+          <div className="flex max-h-28 flex-wrap gap-2 overflow-y-auto">
+            {(definition.options || []).map((option) => {
+              const checked = currentValues.has(option.value);
+              return (
+                <label key={option.value} className={`inline-flex min-h-9 cursor-pointer items-center gap-2 rounded-xl border px-3 text-xs font-bold ${checked ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-900 dark:bg-blue-950/30 dark:text-blue-200' : 'border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300'}`}>
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(event) => {
+                      const next = new Set(currentValues);
+                      if (event.target.checked) next.add(option.value);
+                      else next.delete(option.value);
+                      updateFilterValue(definition.key, Array.from(next));
+                    }}
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                  />
+                  {option.label}
+                </label>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (definition.kind === 'boolean') {
+      return (
+        <label key={definition.key} className="space-y-2">
+          <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</div>
+          <select
+            value={current === true || current === 'true' ? 'true' : current === false || current === 'false' ? 'false' : ''}
+            onChange={(event) => updateFilterValue(definition.key, event.target.value)}
+            className="min-h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
+          >
+            <option value="">Any</option>
+            <option value="true">Yes</option>
+            <option value="false">No</option>
+          </select>
+        </label>
+      );
+    }
+
+    return (
+      <label key={definition.key} className="space-y-2">
+        <div className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-400">{label}</div>
+        <input
+          value={String(current ?? '')}
+          onChange={(event) => updateFilterValue(definition.key, event.target.value)}
+          placeholder={definition.entity ? `Search ${definition.entity}` : 'Filter'}
+          className="min-h-10 w-full rounded-xl border border-slate-200 bg-white px-3 text-xs font-bold outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
+        />
+      </label>
+    );
+  };
+
   return (
     <div className={`space-y-4 ${className}`}>
       <ActionToolbar
@@ -270,7 +425,7 @@ export function EnterpriseDataGrid<T>({
         onSearchChange={searchable ? handleSearchChange : undefined}
         searchPlaceholder={searchPlaceholder}
         searchInputTestId={searchInputTestId}
-        resultCount={isServerPaged && pagination ? pagination.total : searchedData.length}
+        resultCount={effectiveResultCount}
         resultCountLabel={resultCountLabel || (isServerPaged && pagination ? `总 ${pagination.total}` : undefined)}
       >
         {onImport ? (
@@ -333,6 +488,37 @@ export function EnterpriseDataGrid<T>({
         </details>
         {toolbarActions}
       </ActionToolbar>
+
+      {filterDefinitions.length > 0 ? (
+        <details
+          open={smartFiltersActive || undefined}
+          className="rounded-2xl border border-slate-200 bg-slate-50/70 p-3 dark:border-slate-800 dark:bg-slate-900/40"
+        >
+          <summary className="flex min-h-9 cursor-pointer list-none items-center justify-between gap-3 text-xs font-black uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">
+            <span className="inline-flex items-center gap-2">
+              <SlidersHorizontal size={14} />
+              Smart filters
+            </span>
+            <span className={`rounded-full px-2 py-1 text-[10px] ${smartFiltersActive ? 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-200' : 'bg-white text-slate-400 dark:bg-slate-800'}`}>
+              {filterMode === 'manual' ? 'manual' : 'client'}
+            </span>
+          </summary>
+          <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {filterDefinitions.map(renderFilterControl)}
+          </div>
+          {smartFiltersActive ? (
+            <div className="mt-3 flex justify-end">
+              <button
+                type="button"
+                onClick={clearSmartFilters}
+                className="min-h-9 rounded-xl border border-slate-200 bg-white px-3 text-xs font-black uppercase tracking-[0.12em] text-slate-500 hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                Clear filters
+              </button>
+            </div>
+          ) : null}
+        </details>
+      ) : null}
 
       {importError ? (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">

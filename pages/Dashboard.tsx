@@ -1,5 +1,5 @@
 ﻿
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   TrendingUp, AlertTriangle, Package, DollarSign, Users, ArrowUpRight,
   FileText, Clock, ShieldAlert, Zap
@@ -7,7 +7,7 @@ import {
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { useAppContext } from '../app/AppContext';
 import { dashboardService, DashboardOverview } from '../services/dashboard.service';
-import { isCanceledApiError } from '../utils/api';
+import { useServerStateQuery } from '../utils/serverStateQuery';
 
 const StatCard = ({ title, value, sub, icon: Icon, color, trend }: any) => (
   <div className="bg-white dark:bg-slate-900 p-6 lg:p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:shadow-slate-100 dark:hover:shadow-none transition-all duration-300 group overflow-hidden relative active-shrink">
@@ -62,6 +62,7 @@ const Dashboard = () => {
   const [systemStatus, setSystemStatus] = useState({ load: '0.0ms', sessions: 0 });
   const chartWrapRef = useRef<HTMLDivElement | null>(null);
   const [chartBox, setChartBox] = useState({ width: 0, height: 0 });
+  const [chartData, setChartData] = useState<any[]>([]);
 
   const recommendations = [
     { title: t.reportOcr, detail: t.reportOcrDetail, impact: t.reportOcrImpact },
@@ -85,71 +86,67 @@ const Dashboard = () => {
     low: { color: 'bg-emerald-600', label: t.inventoryAlertPriorityLow }
   } as const;
 
+  const loadDashboardStats = useCallback(
+    (signal: AbortSignal) => dashboardService.getStats({ signal }),
+    [],
+  );
+  const loadDashboardTrends = useCallback(
+    (signal: AbortSignal) => dashboardService.getTrends({ signal }),
+    [],
+  );
+  const statsQuery = useServerStateQuery('dashboard:overview:v1', loadDashboardStats, { staleTimeMs: 30_000 });
+  const trendsQuery = useServerStateQuery('dashboard:trends:v1', loadDashboardTrends, { staleTimeMs: 30_000 });
+
   useEffect(() => {
-    const controller = new AbortController();
-    const loadStats = async () => {
-      try {
-        const [statsData, trendsData] = await Promise.all([
-          dashboardService.getStats({ signal: controller.signal }),
-          dashboardService.getTrends({ signal: controller.signal })
-        ]);
+    const statsData = statsQuery.data;
+    if (!statsData) return;
 
-        if (controller.signal.aborted) return;
+    const { overview, monthly } = statsData;
 
-        const { overview, monthly } = statsData;
+    setStats({
+      monthlyRevenue: monthly.revenue,
+      overdueAmount: overview.overdueAmount || 0,
+      activeShipments: overview.pendingShipments,
+      totalCustomers: overview.totalCustomers,
+      pendingCommissions: overview.pendingCommissions || 0,
+      riskCustomers: overview.riskCustomers || 0
+    });
 
-        // 设置统计卡片数据
-        setStats({
-          monthlyRevenue: monthly.revenue,
-          overdueAmount: overview.overdueAmount || 0,
-          activeShipments: overview.pendingShipments,
-          totalCustomers: overview.totalCustomers,
-          pendingCommissions: overview.pendingCommissions || 0,
-          riskCustomers: overview.riskCustomers || 0
-        });
+    const dynamicTasks = [];
+    if (overview.overdueAmount > 0) {
+      dynamicTasks.push({ time: '09:00', title: t.taskCollection || '催收逾期款项', type: t.historyTab, color: 'bg-rose-100 text-rose-600' });
+    }
+    if (overview.pendingShipments > 0) {
+      dynamicTasks.push({ time: '10:30', title: t.taskFollowUp || '跟进待发货订单', type: t.timelineShipping, color: 'bg-blue-100 text-blue-600' });
+    }
+    if (overview.pendingCommissions > 0) {
+      dynamicTasks.push({ time: '14:00', title: t.taskAudit || '审核提成申请', type: t.performanceReport, color: 'bg-amber-100 text-amber-600' });
+    }
+    if (overview.riskCustomers > 0) {
+      dynamicTasks.push({ time: '16:00', title: t.taskRisk || '评估高风险客户', type: t.riskCheck, color: 'bg-purple-100 text-purple-600' });
+    }
+    setTasks(dynamicTasks.length > 0 ? dynamicTasks : [
+      { time: '09:00', title: t.taskSystem || '检查系统更新', type: t.systemReady, color: 'bg-slate-100 text-slate-600' }
+    ]);
 
-        // 动态生成任务
-        const dynamicTasks = [];
-        if (overview.overdueAmount > 0) {
-          dynamicTasks.push({ time: '09:00', title: t.taskCollection || '催收逾期款项', type: t.historyTab, color: 'bg-rose-100 text-rose-600' });
-        }
-        if (overview.pendingShipments > 0) {
-          dynamicTasks.push({ time: '10:30', title: t.taskFollowUp || '跟进待发货订单', type: t.timelineShipping, color: 'bg-blue-100 text-blue-600' });
-        }
-        if (overview.pendingCommissions > 0) {
-          dynamicTasks.push({ time: '14:00', title: t.taskAudit || '审核提成申请', type: t.performanceReport, color: 'bg-amber-100 text-amber-600' });
-        }
-        if (overview.riskCustomers > 0) {
-          dynamicTasks.push({ time: '16:00', title: t.taskRisk || '评估高风险客户', type: t.riskCheck, color: 'bg-purple-100 text-purple-600' });
-        }
-        setTasks(dynamicTasks.length > 0 ? dynamicTasks : [
-          { time: '09:00', title: t.taskSystem || '检查系统更新', type: t.systemReady, color: 'bg-slate-100 text-slate-600' }
-        ]);
+    setInventoryAlerts(statsData.inventoryAlerts || []);
+    if (statsData.systemStatus) {
+      setSystemStatus(statsData.systemStatus);
+    }
+  }, [statsQuery.data, t]);
 
-        // 转换图表数据
-        const chartData = trendsData.map(item => ({
-          name: item.date.slice(5), // Show MM-DD only.
-          revenue: item.amount,
-        }));
+  useEffect(() => {
+    const trendsData = trendsQuery.data || [];
+    setChartData(trendsData.map(item => ({
+      name: item.date.slice(5), // Show MM-DD only.
+      revenue: item.amount,
+    })));
+  }, [trendsQuery.data]);
 
-        setChartData(chartData);
-
-        setInventoryAlerts(statsData.inventoryAlerts || []);
-        if (statsData.systemStatus) {
-          setSystemStatus(statsData.systemStatus);
-        }
-
-      } catch (error) {
-        if (isCanceledApiError(error)) return;
-        notify('error', '经营驾驶舱加载失败，请刷新后再核对收入、库存和待办数据。');
-      }
-    };
-    loadStats();
-    return () => controller.abort();
-  }, [t, notify]);
-
-  // 使用 state 存储图表数据
-  const [chartData, setChartData] = useState<any[]>([]);
+  useEffect(() => {
+    if (!statsQuery.isError && !trendsQuery.isError) return;
+    notify('error', '经营驾驶舱加载失败，请刷新后再核对收入、库存和待办数据。');
+  }, [notify, statsQuery.isError, trendsQuery.isError]);
 
   useEffect(() => {
     const el = chartWrapRef.current;

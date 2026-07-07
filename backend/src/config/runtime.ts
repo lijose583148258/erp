@@ -82,6 +82,12 @@ const detectDatabaseEngine = (value?: string) => {
   return 'unknown';
 };
 
+const normalizePrismaProvider = (value?: string) => {
+  const provider = String(value || 'sqlite').trim().toLowerCase();
+  if (provider === 'sqlite' || provider === 'postgresql') return provider;
+  throw new Error(`Invalid AILAODA_PRISMA_PROVIDER '${value}'. Use sqlite or postgresql.`);
+};
+
 const isForbiddenSqliteRuntimeDbPath = (candidatePath: string) => {
   const normalized = path.resolve(candidatePath).replace(/\\/g, '/').toLowerCase();
   const prismaRoot = path.join(backendRoot, 'prisma').replace(/\\/g, '/').toLowerCase();
@@ -124,6 +130,7 @@ export const runtime = {
   nodeEnv: process.env.NODE_ENV || 'development',
   deploymentMode: normalizeDeploymentMode(process.env.AILAODA_DEPLOYMENT_MODE),
   databaseEngine: detectDatabaseEngine(process.env.DATABASE_URL),
+  prismaProvider: normalizePrismaProvider(process.env.AILAODA_PRISMA_PROVIDER),
   port: Number(process.env.PORT || 5001),
   corsOrigins: parseList(process.env.CORS_ORIGIN),
   backupDir: resolveProjectRuntimePath(process.env.BACKUP_DIR || 'backups'),
@@ -142,8 +149,12 @@ export const assertRuntimeDeploymentPolicy = () => {
     throw new Error('SaaS deployment requires PostgreSQL DATABASE_URL. Refusing to start with SQLite.');
   }
 
-  if (runtime.databaseEngine === 'postgresql') {
+  if (runtime.databaseEngine === 'postgresql' && runtime.prismaProvider !== 'postgresql') {
     throw new Error('PostgreSQL DATABASE_URL is configured, but this runtime package is built with the SQLite Prisma provider. Build a PostgreSQL-specific server artifact before SaaS deployment.');
+  }
+
+  if (runtime.databaseEngine === 'sqlite' && runtime.prismaProvider === 'postgresql') {
+    throw new Error('PostgreSQL Prisma provider artifact requires a PostgreSQL DATABASE_URL. Refusing to start with SQLite.');
   }
 };
 

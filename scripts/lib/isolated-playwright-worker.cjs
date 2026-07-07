@@ -27,6 +27,29 @@ function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
 
+function writeReportFile(outputDir, report) {
+  ensureDir(outputDir);
+  fs.writeFileSync(path.join(outputDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+}
+
+function shouldCleanUserDataDir() {
+  const raw = process.env.ISOLATED_PLAYWRIGHT_CLEAN_USER_DATA;
+  if (raw != null && raw !== '') return raw === '1' || raw.toLowerCase() === 'true';
+  return process.platform !== 'win32';
+}
+
+function cleanupUserDataDir(userDataDir) {
+  if (!shouldCleanUserDataDir()) {
+    return {
+      status: 'skipped',
+      userDataDirRemoved: false,
+      reason: 'recursive Playwright profile deletion is skipped by default on Windows',
+    };
+  }
+  fs.rmSync(userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  return { status: 'completed', userDataDirRemoved: true };
+}
+
 function toRelative(from, target) {
   if (!target) return null;
   return path.relative(from, target).replace(/\\/g, '/');
@@ -399,15 +422,21 @@ async function run() {
     report.status = 'failed';
     report.error = String(error.message || error);
   } finally {
+    report.finishedAt = new Date().toISOString();
+    if (!report.cleanup) {
+      report.cleanup = { status: 'pending', userDataDirRemoved: false };
+    }
+    writeReportFile(config.outputDir, report);
+    report.preCleanupReportWritten = true;
+
     if (context) await context.close().catch(() => {});
     try {
-      fs.rmSync(config.userDataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
-      report.cleanup = { userDataDirRemoved: true };
+      report.cleanup = cleanupUserDataDir(config.userDataDir);
     } catch (error) {
-      report.cleanup = { userDataDirRemoved: false, error: String(error.message || error) };
+      report.cleanup = { status: 'failed', userDataDirRemoved: false, error: String(error.message || error) };
     }
     report.finishedAt = new Date().toISOString();
-    fs.writeFileSync(path.join(config.outputDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    writeReportFile(config.outputDir, report);
   }
 
   if (report.status !== 'passed') {

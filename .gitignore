@@ -5,6 +5,7 @@ backend/node_modules/
 # Build artifacts
 dist/
 backend/dist/
+backend/.generated/
 .vite-cache/
 
 # Runtime data and generated evidence

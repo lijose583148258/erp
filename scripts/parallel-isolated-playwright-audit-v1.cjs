@@ -212,9 +212,13 @@ function runWorker(job, settings) {
       clearTimeout(timeout);
       const reportPath = path.join(job.outputDir, 'report.json');
       const parsed = readJson(reportPath);
+      const reportPassed = parsed.value?.status === 'passed';
+      const exitWarning = reportPassed && code !== 0
+        ? `worker exited with code ${code} after writing a passed report`
+        : null;
       settle({
         workerId: job.workerId,
-        status: !timedOut && code === 0 && parsed.value?.status === 'passed' ? 'passed' : 'failed',
+        status: !timedOut && code === 0 && reportPassed ? 'passed' : 'failed',
         code,
         signal: signal || null,
         timedOut,
@@ -226,9 +230,10 @@ function runWorker(job, settings) {
         reportPath,
         report: parsed.value,
         reportError: parsed.error,
+        exitWarning,
         error: timedOut
           ? `worker timeout after ${settings.workerTimeoutMs}ms`
-          : parsed.error || parsed.value?.error || null,
+          : parsed.error || parsed.value?.error || exitWarning,
       });
     });
   });
@@ -368,6 +373,7 @@ async function main() {
       stdoutPath: worker.stdoutPath,
       stderrPath: worker.stderrPath,
       error: worker.error,
+      exitWarning: worker.exitWarning,
     })),
     routes: summary.routes,
     failures: summary.failures,
