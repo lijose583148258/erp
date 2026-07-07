@@ -13,15 +13,15 @@ type ActionToolbarAction = {
 type Props = {
   title?: React.ReactNode;
   description?: React.ReactNode;
-  searchValue?: string;
-  onSearchChange?: (value: string) => void;
-  searchPlaceholder?: string;
-  searchInputTestId?: string;
-  resultCount?: number;
-  resultCountLabel?: string;
-  actions?: ActionToolbarAction[];
+  searchValue?: string | undefined;
+  onSearchChange?: ((value: string) => void) | undefined;
+  searchPlaceholder?: string | undefined;
+  searchInputTestId?: string | undefined;
+  resultCount?: number | undefined;
+  resultCountLabel?: string | undefined;
+  actions?: ActionToolbarAction[] | undefined;
   children?: React.ReactNode;
-  className?: string;
+  className?: string | undefined;
 };
 
 const actionToneClass: Record<NonNullable<ActionToolbarAction['tone']>, string> = {

@@ -1,4 +1,5 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, SlidersHorizontal, Upload } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { ActionToolbar } from './ActionToolbar';
@@ -75,6 +76,8 @@ type Props<T> = {
   onPageSizeChange?: (pageSize: number) => void;
   paginationTestIdPrefix?: string;
   preferenceKey?: string;
+  virtualizeRows?: boolean;
+  virtualizationThreshold?: number;
   className?: string;
 };
 
@@ -151,6 +154,8 @@ export function EnterpriseDataGrid<T>({
   onPageSizeChange,
   paginationTestIdPrefix,
   preferenceKey,
+  virtualizeRows = true,
+  virtualizationThreshold = 30,
   className = '',
 }: Props<T>) {
   const tablePreferenceKey = preferenceKey || paginationTestIdPrefix || searchInputTestId || exportFileName || stringifyCell(title) || 'enterprise-grid';
@@ -165,6 +170,7 @@ export function EnterpriseDataGrid<T>({
   const [visibleColumnKeys, setVisibleColumnKeys] = useState(() => readStringArrayPreference(columnStorageKey, defaultColumnKeys));
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const tableScrollRef = useRef<HTMLDivElement>(null);
   const visibleColumnKeySet = useMemo(() => new Set(visibleColumnKeys), [visibleColumnKeys]);
   const visibleColumns = useMemo(() => {
     const selected = columns.filter((column) => visibleColumnKeySet.has(column.key));
@@ -272,6 +278,19 @@ export function EnterpriseDataGrid<T>({
     : Math.min(safePage * effectivePageSize, totalRows);
   const exportData = isServerPaged ? pageData : sortedData;
   const effectiveResultCount = isServerPaged && pagination ? pagination.total : filteredData.length;
+  const shouldVirtualizeRows = virtualizeRows && !isServerPaged && pageData.length >= virtualizationThreshold;
+  const rowVirtualizer = useVirtualizer({
+    count: pageData.length,
+    getScrollElement: () => tableScrollRef.current,
+    estimateSize: () => 52,
+    overscan: 8,
+  });
+  const virtualRows = shouldVirtualizeRows ? rowVirtualizer.getVirtualItems() : [];
+  const virtualPaddingTop = virtualRows[0]?.start || 0;
+  const lastVirtualRow = virtualRows.length > 0 ? virtualRows[virtualRows.length - 1] : undefined;
+  const virtualPaddingBottom = shouldVirtualizeRows && lastVirtualRow
+    ? Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualRow.end)
+    : 0;
   const effectiveExportLabel = isServerPaged ? '导出当前页' : exportLabel;
 
   const handleExport = () => {
@@ -416,6 +435,48 @@ export function EnterpriseDataGrid<T>({
     );
   };
 
+  const renderDataRow = (row: T) => (
+    <tr
+      key={getKey(row)}
+      data-testid={getRowTestId?.(row)}
+      onClick={() => onRowClick?.(row)}
+      onKeyDown={(event) => {
+        if (!onRowClick) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onRowClick(row);
+        }
+      }}
+      role={onRowClick ? 'button' : undefined}
+      tabIndex={onRowClick ? 0 : undefined}
+      className={`group border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:hover:bg-slate-800/70 dark:focus:ring-blue-900/30 ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName?.(row) || ''}`}
+    >
+      {visibleColumns.map((column, columnIndex) => {
+        const value = column.render ? column.render(row) : getAccessorValue(row, column);
+        return (
+          <td key={column.key} className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 ${columnIndex === 0 ? 'sticky left-0 z-[5] bg-white group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800' : ''} ${column.isNumeric ? 'text-right font-data' : ''} ${column.className || ''}`}>
+            {column.isStatus ? (
+              <StatusBadge status={stringifyCell(value)} />
+            ) : React.isValidElement(value) ? (
+              value
+            ) : (
+              <span className="truncate-cell" title={getCellTitle(value)}>
+                {renderCellValue(value)}
+              </span>
+            )}
+          </td>
+        );
+      })}
+      {rowActions ? (
+        <td className="sticky right-0 z-[5] w-[260px] bg-white px-3 py-2.5 text-right group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800">
+          <div className="app-row-actions touch-actions-visible ml-auto flex min-w-[120px] max-w-[236px] items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap pb-1">
+            {rowActions(row)}
+          </div>
+        </td>
+      ) : null}
+    </tr>
+  );
+
   return (
     <div className={`space-y-4 ${className}`}>
       <ActionToolbar
@@ -532,7 +593,12 @@ export function EnterpriseDataGrid<T>({
         ) : pageData.length === 0 ? (
           <EmptyState title={emptyTitle} description={emptyDescription} className="m-4" />
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            ref={tableScrollRef}
+            data-virtualized={shouldVirtualizeRows ? 'true' : 'false'}
+            data-virtual-row-count={shouldVirtualizeRows ? pageData.length : undefined}
+            className={`overflow-x-auto ${shouldVirtualizeRows ? 'max-h-[70vh] overflow-y-auto' : ''}`}
+          >
             <table className="app-density-table w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="bg-slate-50/95 dark:bg-slate-800/95 shadow-sm">
@@ -570,48 +636,23 @@ export function EnterpriseDataGrid<T>({
                   ) : null}
                 </tr>
               </thead>
-              <tbody>
-                {pageData.map((row) => (
-                  <tr
-                    key={getKey(row)}
-                    data-testid={getRowTestId?.(row)}
-                    onClick={() => onRowClick?.(row)}
-                    onKeyDown={(event) => {
-                      if (!onRowClick) return;
-                      if (event.key === 'Enter' || event.key === ' ') {
-                        event.preventDefault();
-                        onRowClick(row);
-                      }
-                    }}
-                    role={onRowClick ? 'button' : undefined}
-                    tabIndex={onRowClick ? 0 : undefined}
-                    className={`group border-b border-slate-100 transition-colors last:border-0 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:border-slate-800 dark:hover:bg-slate-800/70 dark:focus:ring-blue-900/30 ${onRowClick ? 'cursor-pointer' : ''} ${rowClassName?.(row) || ''}`}
-                  >
-                    {visibleColumns.map((column, columnIndex) => {
-                      const value = column.render ? column.render(row) : getAccessorValue(row, column);
-                      return (
-                        <td key={column.key} className={`px-3 py-2.5 text-sm text-slate-700 dark:text-slate-200 ${columnIndex === 0 ? 'sticky left-0 z-[5] bg-white group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800' : ''} ${column.isNumeric ? 'text-right font-data' : ''} ${column.className || ''}`}>
-                          {column.isStatus ? (
-                            <StatusBadge status={stringifyCell(value)} />
-                          ) : React.isValidElement(value) ? (
-                            value
-                          ) : (
-                            <span className="truncate-cell" title={getCellTitle(value)}>
-                              {renderCellValue(value)}
-                            </span>
-                          )}
-                        </td>
-                      );
-                    })}
-                    {rowActions ? (
-                      <td className="sticky right-0 z-[5] w-[260px] bg-white px-3 py-2.5 text-right group-hover:bg-slate-50 dark:bg-slate-900 dark:group-hover:bg-slate-800">
-                        <div className="app-row-actions touch-actions-visible ml-auto flex min-w-[120px] max-w-[236px] items-center justify-end gap-1.5 overflow-x-auto whitespace-nowrap pb-1">
-                          {rowActions(row)}
-                        </div>
-                      </td>
-                    ) : null}
+              <tbody data-virtualized={shouldVirtualizeRows ? 'true' : 'false'}>
+                {shouldVirtualizeRows && virtualPaddingTop > 0 ? (
+                  <tr aria-hidden="true">
+                    <td colSpan={visibleColumns.length + (rowActions ? 1 : 0)} style={{ height: virtualPaddingTop, padding: 0, border: 0 }} />
                   </tr>
-                ))}
+                ) : null}
+                {shouldVirtualizeRows
+                  ? virtualRows.map((virtualRow) => {
+                    const row = pageData[virtualRow.index];
+                    return row ? renderDataRow(row) : null;
+                  })
+                  : pageData.map((row) => renderDataRow(row))}
+                {shouldVirtualizeRows && virtualPaddingBottom > 0 ? (
+                  <tr aria-hidden="true">
+                    <td colSpan={visibleColumns.length + (rowActions ? 1 : 0)} style={{ height: virtualPaddingBottom, padding: 0, border: 0 }} />
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>

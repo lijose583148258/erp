@@ -136,6 +136,25 @@ Validation:
 - targeted browser screenshot audit for mobile record lists
 - no regression to desktop table behavior
 
+### PR-C2: Virtualized Dense Lists
+
+Goal:
+Keep dense local ERP/CRM lists responsive without replacing server-side
+pagination for large business datasets.
+
+Current baseline:
+- `EnterpriseDataGrid` uses `@tanstack/react-virtual` for local page data above
+  a configurable row threshold.
+- Virtualization is disabled when `manualPagination` and server paging are in
+  use, so customer/order-scale datasets still rely on backend paging.
+- `audit:virtualized-lists` verifies the dependency, component adoption,
+  scroll-container evidence, server-paging guard, and readiness-audit coverage.
+
+Validation:
+- `npm run audit:virtualized-lists`
+- `npm run audit:engineering:readiness`
+- `npm run typecheck`
+
 ### PR-D: Executive Operating Dashboard
 
 Goal:

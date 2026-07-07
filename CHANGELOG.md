@@ -16,6 +16,7 @@ operator-visible, and architecture-relevant changes.
 - Shared Dashboard read-model contract and dashboard contract audit.
 - Zustand Dashboard UI store and client-state audit.
 - Vitest, Testing Library, jsdom, and frontend test foundation audit.
+- EnterpriseDataGrid virtualized-row baseline and virtualized list audit.
 
 ### Changed
 
@@ -43,3 +44,6 @@ operator-visible, and architecture-relevant changes.
   adoption and backend source-field audit, but backend route code does not yet
   compile against generated/shared response contracts.
 - Production dependency audit still reports non-TanStack residual findings in `xlsx` and transitive packages from existing dependencies.
+- Virtualized rows are now available in `EnterpriseDataGrid`, but adoption is
+  intentionally limited to local client-side pages; server-paged business
+  tables still need route-level browser evidence before broad rollout.

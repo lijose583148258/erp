@@ -273,6 +273,16 @@ function buildRequirements() {
     websocketRoot: hasDependency(rootPackage, ['ws', 'socket.io']),
     searchRoot: hasDependency(rootPackage, ['@elastic/elasticsearch', 'meilisearch']),
   };
+  const hasVirtualizedListAuditScript = exists('scripts/virtualized-list-audit-v1.cjs') &&
+    Boolean(rootPackage.scripts?.['audit:virtualized-lists']);
+  const hasVirtualizedLargeListBaseline =
+    rootDeps.virtual.includes('@tanstack/react-virtual') &&
+    /import\s+\{\s*useVirtualizer\s*\}\s+from\s+['"]@tanstack\/react-virtual['"]/.test(enterpriseGrid) &&
+    /virtualizeRows\?:\s*boolean/.test(enterpriseGrid) &&
+    /virtualizationThreshold\?:\s*number/.test(enterpriseGrid) &&
+    /shouldVirtualizeRows\s*=\s*virtualizeRows\s*&&\s*!isServerPaged\s*&&\s*pageData\.length\s*>=\s*virtualizationThreshold/.test(enterpriseGrid) &&
+    /data-virtualized/.test(enterpriseGrid) &&
+    /data-virtual-row-count/.test(enterpriseGrid);
   const queryProviderMounted = /QueryClientProvider/.test(serverStateProvider) &&
     /serverStateQueryClient/.test(serverStateProvider) &&
     /<ServerStateProvider>/.test(readText('index.tsx'));
@@ -611,13 +621,22 @@ function buildRequirements() {
     id: 'virtualized-large-lists',
     category: 'performance-experience',
     severity: 'P1',
-    status: rootDeps.virtual.length ? 'present' : 'gap',
+    status: hasVirtualizedLargeListBaseline && hasVirtualizedListAuditScript
+      ? 'present'
+      : rootDeps.virtual.length || /useVirtualizer|data-virtualized/.test(enterpriseGrid)
+        ? 'partial'
+        : 'gap',
     title: 'Large tables/lists use virtualization where server paging is insufficient',
     evidence: [
       `virtualization deps=${rootDeps.virtual.join(',') || 'none'}`,
-      `EnterpriseDataGrid server paging=${/isServerPaged/.test(readText('components/ui/EnterpriseDataGrid.tsx'))}`,
+      `EnterpriseDataGrid imports virtualizer=${/useVirtualizer/.test(enterpriseGrid)}`,
+      `virtualizeRows prop=${/virtualizeRows\?:\s*boolean/.test(enterpriseGrid)}`,
+      `threshold prop=${/virtualizationThreshold\?:\s*number/.test(enterpriseGrid)}`,
+      `server paging guard=${/shouldVirtualizeRows\s*=\s*virtualizeRows\s*&&\s*!isServerPaged\s*&&\s*pageData\.length\s*>=\s*virtualizationThreshold/.test(enterpriseGrid)}`,
+      `virtual DOM evidence=${/data-virtualized/.test(enterpriseGrid) && /data-virtual-row-count/.test(enterpriseGrid)}`,
+      `audit script=${hasVirtualizedListAuditScript}`,
     ],
-    nextAction: 'Use @tanstack/react-virtual for dense local lists; preserve existing server paging for business tables.',
+    nextAction: 'Adopt EnterpriseDataGrid virtualization on dense local lists, keep server paging for large business datasets, and add browser evidence on a high-row route.',
   });
 
   const memoCount = listFiles('.', (file) => SOURCE_EXTENSIONS.has(path.extname(file)))
