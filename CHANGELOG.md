@@ -19,6 +19,8 @@ operator-visible, and architecture-relevant changes.
 - EnterpriseDataGrid virtualized-row baseline and virtualized list audit.
 - Mobile card data-view baseline for `EnterpriseDataGrid` and legacy `DataTable`.
 - Dashboard backend generated contract sync and compile-time response binding.
+- Dashboard backend repository/service read-model boundary.
+- Dashboard OpenAPI response schemas and frontend service contract tests.
 
 ### Changed
 
@@ -28,6 +30,12 @@ operator-visible, and architecture-relevant changes.
 - Dashboard backend route now compiles overview and trend responses against the
   generated Dashboard contract mirror, including ISO string dates for recent
   order timestamps.
+- Dashboard route now delegates overview and trend reads to
+  `dashboard-read.service.ts`, with Prisma query ownership isolated in
+  `dashboard.repository.ts`.
+- `docs/openapi.yaml` now documents concrete Dashboard overview and trend
+  response schemas, and `services/dashboard.service.test.ts` covers the
+  frontend Dashboard service contract/fallback behavior.
 - Backend cache dependencies now use `ioredis` as the single Redis client,
   removing the unused duplicate `redis` package from the backend manifest and
   lockfile.
@@ -51,6 +59,8 @@ operator-visible, and architecture-relevant changes.
 - Shared contracts are still route-limited: Dashboard now has frontend and
   backend compile-time adoption through a generated mirror, but additional
   routes still need generated/shared response contracts.
+- Backend layering is still partial: Dashboard reads have a repository/service
+  boundary, but broader controllers/routes still need direct-Prisma migration.
 - Production dependency audit still reports non-TanStack residual findings in `xlsx` and transitive packages from existing dependencies.
 - Cache strategy is defined and the Redis client dependency is now unified, but
   read-heavy module adoption and focused cache behavior tests are still pending.

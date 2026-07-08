@@ -43,6 +43,11 @@ function tagIsDocumented(contractText, tag) {
   return new RegExp(`^  - name: ${escaped}\\s*$`, 'm').test(contractText);
 }
 
+function schemaIsDocumented(contractText, schemaName) {
+  const escaped = schemaName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  return new RegExp(`^    ${escaped}:\\s*$`, 'm').test(contractText);
+}
+
 function buildChecks(contractText, serverText) {
   const requiredPaths = [
     '/api/health',
@@ -93,6 +98,18 @@ function buildChecks(contractText, serverText) {
     'Commercial',
     'Audit',
   ];
+  const dashboardSchemas = [
+    'DashboardOverviewResponse',
+    'DashboardTrendResponse',
+    'DashboardOverview',
+    'DashboardOverviewMetrics',
+    'DashboardPeriodSummary',
+    'DashboardOrderStatusSummary',
+    'DashboardRecentOrder',
+    'DashboardInventoryAlert',
+    'DashboardSystemStatus',
+    'DashboardTrend',
+  ];
 
   const checks = [
     {
@@ -137,6 +154,25 @@ function buildChecks(contractText, serverText) {
       evidence: `${tag} tag documented=${tagIsDocumented(contractText, tag)}`,
     });
   }
+
+  for (const schemaName of dashboardSchemas) {
+    checks.push({
+      id: `schema:${schemaName}`,
+      passed: schemaIsDocumented(contractText, schemaName),
+      evidence: `${schemaName} schema documented=${schemaIsDocumented(contractText, schemaName)}`,
+    });
+  }
+
+  checks.push({
+    id: 'dashboard-overview-response-ref',
+    passed: contractText.includes("$ref: '#/components/schemas/DashboardOverviewResponse'"),
+    evidence: 'GET /api/dashboard uses DashboardOverviewResponse',
+  });
+  checks.push({
+    id: 'dashboard-trend-response-ref',
+    passed: contractText.includes("$ref: '#/components/schemas/DashboardTrendResponse'"),
+    evidence: 'GET /api/dashboard/trends uses DashboardTrendResponse',
+  });
 
   const serverMounts = listServerMounts(serverText);
   checks.push({

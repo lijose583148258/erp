@@ -9,6 +9,7 @@ const MD_REPORT = path.join(OUTPUT_DIR, 'dashboard-shared-contract-audit-v1.md')
 const CONTRACT_PATH = path.join(ROOT, 'shared', 'contracts', 'dashboard.ts');
 const FRONTEND_SERVICE_PATH = path.join(ROOT, 'services', 'dashboard.service.ts');
 const BACKEND_ROUTE_PATH = path.join(ROOT, 'backend', 'src', 'routes', 'dashboard.routes.ts');
+const BACKEND_READ_SERVICE_PATH = path.join(ROOT, 'backend', 'src', 'services', 'dashboard-read.service.ts');
 const BACKEND_GENERATED_CONTRACT_PATH = path.join(ROOT, 'backend', 'src', 'types', 'generated', 'dashboard.contract.ts');
 
 const REQUIRED_ARRAYS = [
@@ -73,6 +74,7 @@ function renderMarkdown(report) {
     `- backend generated contract: ${report.paths.backendGeneratedContract}`,
     `- frontend service: ${report.paths.frontendService}`,
     `- backend route: ${report.paths.backendRoute}`,
+    `- backend read service: ${report.paths.backendReadService}`,
     '',
     '| check | status | evidence |',
     '|---|---|---|',
@@ -86,22 +88,24 @@ function main() {
   const backendGeneratedContractText = read(BACKEND_GENERATED_CONTRACT_PATH);
   const frontendText = read(FRONTEND_SERVICE_PATH);
   const backendText = read(BACKEND_ROUTE_PATH);
+  const backendServiceText = read(BACKEND_READ_SERVICE_PATH);
+  const backendContractText = `${backendText}\n${backendServiceText}`;
   const arrays = Object.fromEntries(REQUIRED_ARRAYS.map((name) => [name, extractConstArray(contractText, name)]));
   const generatedContractMatchesShared = Boolean(contractText) &&
     stripGeneratedHeader(backendGeneratedContractText) === contractText.trim();
 
-  const overviewSectionMissing = missingTokens(backendText, arrays.dashboardOverviewSectionKeys || []);
-  const overviewMetricMissing = missingTokens(backendText, arrays.dashboardOverviewMetricKeys || []);
-  const periodMissing = missingTokens(backendText, arrays.dashboardPeriodSummaryKeys || []);
-  const recentOrderMissing = missingTokens(backendText, arrays.dashboardRecentOrderKeys || []);
-  const inventoryAlertMissing = missingTokens(backendText, arrays.dashboardInventoryAlertKeys || []);
-  const systemStatusMissing = missingTokens(backendText, arrays.dashboardSystemStatusKeys || []);
-  const trendMissing = missingTokens(backendText, arrays.dashboardTrendKeys || []);
+  const overviewSectionMissing = missingTokens(backendContractText, arrays.dashboardOverviewSectionKeys || []);
+  const overviewMetricMissing = missingTokens(backendContractText, arrays.dashboardOverviewMetricKeys || []);
+  const periodMissing = missingTokens(backendContractText, arrays.dashboardPeriodSummaryKeys || []);
+  const recentOrderMissing = missingTokens(backendContractText, arrays.dashboardRecentOrderKeys || []);
+  const inventoryAlertMissing = missingTokens(backendContractText, arrays.dashboardInventoryAlertKeys || []);
+  const systemStatusMissing = missingTokens(backendContractText, arrays.dashboardSystemStatusKeys || []);
+  const trendMissing = missingTokens(backendContractText, arrays.dashboardTrendKeys || []);
 
   const frontendImportsSharedContract = /from\s+['"]\.\.\/shared\/contracts\/dashboard['"]/.test(frontendText);
   const frontendHasLocalDashboardInterfaces = /export\s+interface\s+Dashboard(?:Overview|Trend)\b/.test(frontendText);
-  const backendImportsSharedContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(backendText);
-  const backendImportsGeneratedContract = /from\s+['"][^'"]*types\/generated\/dashboard\.contract['"]/.test(backendText);
+  const backendImportsSharedContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(backendContractText);
+  const backendImportsGeneratedContract = /from\s+['"][^'"]*types\/generated\/dashboard\.contract['"]/.test(backendContractText);
   const backendHasCompileTimeContract = backendImportsSharedContract ||
     (backendImportsGeneratedContract && generatedContractMatchesShared);
 
@@ -129,6 +133,7 @@ function main() {
       'dashboard service promises use shared DashboardOverview and DashboardTrend',
     ),
     check('backend-route-file', Boolean(backendText), `backend route exists=${Boolean(backendText)}`),
+    check('backend-read-service-file', Boolean(backendServiceText), `backend read service exists=${Boolean(backendServiceText)}`),
     check(
       'backend-generated-contract-file',
       Boolean(backendGeneratedContractText),
@@ -146,8 +151,8 @@ function main() {
     ),
     check(
       'backend-response-types',
-      /DashboardOverview/.test(backendText) && /DashboardTrend\[]/.test(backendText),
-      'backend route response payload is bound to DashboardOverview and DashboardTrend[]',
+      /DashboardOverview/.test(backendContractText) && /DashboardTrend\[]/.test(backendContractText),
+      'backend route/service response payload is bound to DashboardOverview and DashboardTrend[]',
     ),
     check(
       'backend-overview-section-coverage',
@@ -205,6 +210,7 @@ function main() {
       backendGeneratedContract: toPosix(path.relative(ROOT, BACKEND_GENERATED_CONTRACT_PATH)),
       frontendService: toPosix(path.relative(ROOT, FRONTEND_SERVICE_PATH)),
       backendRoute: toPosix(path.relative(ROOT, BACKEND_ROUTE_PATH)),
+      backendReadService: toPosix(path.relative(ROOT, BACKEND_READ_SERVICE_PATH)),
     },
     facts: {
       frontendImportsSharedContract,

@@ -7,7 +7,7 @@ info:
     intentionally partial: it documents the active route families and a small
     set of high-value endpoints first, then must be expanded module by module
     before it is treated as the authoritative generated API contract.
-  x-contract-status: seed
+  x-contract-status: partial
   x-contract-owner: engineering-readiness
   x-source-evidence:
     - backend/src/server.ts
@@ -155,7 +155,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/DashboardOverviewResponse'
   /api/v1/dashboard:
     $ref: '#/paths/~1api~1dashboard'
   /api/dashboard/trends:
@@ -168,7 +168,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ApiResponse'
+                $ref: '#/components/schemas/DashboardTrendResponse'
   /api/v1/dashboard/trends:
     $ref: '#/paths/~1api~1dashboard~1trends'
   /api/customers:
@@ -382,6 +382,161 @@ components:
           type: string
         data:
           nullable: true
+    DashboardOverviewResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          $ref: '#/components/schemas/DashboardOverview'
+    DashboardTrendResponse:
+      type: object
+      required: [success, data]
+      properties:
+        success:
+          type: boolean
+          const: true
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardTrend'
+    DashboardOverview:
+      type: object
+      required: [overview, monthly, weekly, ordersByStatus, recentOrders]
+      properties:
+        overview:
+          $ref: '#/components/schemas/DashboardOverviewMetrics'
+        monthly:
+          $ref: '#/components/schemas/DashboardPeriodSummary'
+        weekly:
+          $ref: '#/components/schemas/DashboardPeriodSummary'
+        ordersByStatus:
+          type: object
+          additionalProperties:
+            $ref: '#/components/schemas/DashboardOrderStatusSummary'
+        recentOrders:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardRecentOrder'
+        inventoryAlerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/DashboardInventoryAlert'
+        systemStatus:
+          $ref: '#/components/schemas/DashboardSystemStatus'
+    DashboardOverviewMetrics:
+      type: object
+      required:
+        - totalCustomers
+        - activeCustomers
+        - totalOrders
+        - totalRevenue
+        - pendingOrders
+        - deliveredOrders
+        - pendingShipments
+        - pendingRmas
+        - riskCustomers
+        - pendingCommissions
+        - overdueAmount
+      properties:
+        totalCustomers:
+          type: number
+        activeCustomers:
+          type: number
+        totalOrders:
+          type: number
+        totalRevenue:
+          type: number
+        pendingOrders:
+          type: number
+        deliveredOrders:
+          type: number
+        pendingShipments:
+          type: number
+        pendingRmas:
+          type: number
+        riskCustomers:
+          type: number
+        pendingCommissions:
+          type: number
+        overdueAmount:
+          type: number
+    DashboardPeriodSummary:
+      type: object
+      required: [orderCount, revenue]
+      properties:
+        orderCount:
+          type: number
+        revenue:
+          type: number
+    DashboardOrderStatusSummary:
+      type: object
+      required: [count, amount]
+      properties:
+        count:
+          type: number
+        amount:
+          type: number
+    DashboardRecentOrder:
+      type: object
+      required: [id, orderNo, customerName, amount, status, createdAt]
+      properties:
+        id:
+          type: number
+        orderNo:
+          type: string
+        customerName:
+          type: string
+        amount:
+          type: number
+        status:
+          type: string
+        createdAt:
+          type: string
+          format: date-time
+    DashboardInventoryAlert:
+      type: object
+      required: [sku, name, stock, reorderPoint, pendingOrders, daysOfStock, priority, suggestion]
+      properties:
+        sku:
+          type: string
+        name:
+          type: string
+        stock:
+          type: number
+        reorderPoint:
+          type: number
+        pendingOrders:
+          type: number
+        daysOfStock:
+          type: number
+        priority:
+          type: string
+          enum: [high, medium, low]
+        suggestion:
+          type: string
+    DashboardSystemStatus:
+      type: object
+      required: [load, sessions]
+      properties:
+        load:
+          type: string
+        sessions:
+          type: number
+    DashboardTrend:
+      type: object
+      required: [date, count, amount]
+      properties:
+        date:
+          type: string
+        count:
+          type: number
+        amount:
+          type: number
+        risk:
+          type: number
     HealthResponse:
       type: object
       additionalProperties: true

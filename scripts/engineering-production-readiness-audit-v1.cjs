@@ -112,7 +112,7 @@ function extractPrismaProvider(schemaText) {
   return match ? match[1] : null;
 }
 
-function countDirectPrismaFiles() {
+function collectPrismaUsageFiles() {
   const backendFiles = listFiles('backend/src', (relativePath) => SOURCE_EXTENSIONS.has(path.extname(relativePath)));
   const candidates = backendFiles.filter((file) => {
     const text = readText(file);
@@ -123,9 +123,11 @@ function countDirectPrismaFiles() {
     const usesPrisma = /\bprisma\./.test(text);
     return importsPrisma || usesPrisma;
   });
+  const controllerRoute = candidates.filter((file) =>
+    file.startsWith('backend/src/routes/') || file.startsWith('backend/src/controllers/'));
   return {
-    count: candidates.length,
-    files: candidates.slice(0, 40),
+    all: candidates,
+    controllerRoute,
   };
 }
 
@@ -227,6 +229,8 @@ function buildRequirements() {
     !file.startsWith('utils/quarantine/'));
   const dashboardService = readText('services/dashboard.service.ts');
   const dashboardRoutes = readText('backend/src/routes/dashboard.routes.ts');
+  const dashboardReadService = readText('backend/src/services/dashboard-read.service.ts');
+  const dashboardBackendSource = `${dashboardRoutes}\n${dashboardReadService}`;
   const dataTable = readText('components/DataTable.tsx');
   const enterpriseGrid = readText('components/ui/EnterpriseDataGrid.tsx');
   const businessFilters = readText('components/ui/businessFilters.ts');
@@ -236,7 +240,7 @@ function buildRequirements() {
   const objectStorageService = readText('backend/src/services/object-storage.service.ts');
   const cacheService = readText('backend/src/services/cache.service.ts');
   const prismaProvider = extractPrismaProvider(schemaText);
-  const directPrisma = countDirectPrismaFiles();
+  const prismaUsageFiles = collectPrismaUsageFiles();
   const jsonStringFields = countJsonStringFields();
   const frontendTests = findFrontendUnitTests();
   const runnableFrontendUnitTests = frontendTests.filter((file) => /\.unit\.test\.(tsx?|jsx?)$/.test(file));
@@ -336,15 +340,15 @@ function buildRequirements() {
     /Promise<DashboardOverview>/.test(dashboardService) &&
     /Promise<DashboardTrend\[]>/.test(dashboardService) &&
     !/export\s+interface\s+Dashboard(?:Overview|Trend)\b/.test(dashboardService);
-  const backendUsesSharedDashboardContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(dashboardRoutes);
-  const backendUsesGeneratedDashboardContract = /from\s+['"][^'"]*types\/generated\/dashboard\.contract['"]/.test(dashboardRoutes);
+  const backendUsesSharedDashboardContract = /from\s+['"][^'"]*shared\/contracts\/dashboard['"]/.test(dashboardBackendSource);
+  const backendUsesGeneratedDashboardContract = /from\s+['"][^'"]*types\/generated\/dashboard\.contract['"]/.test(dashboardBackendSource);
   const backendGeneratedDashboardContractMatchesShared = Boolean(sharedDashboardContract) &&
     stripGeneratedHeader(backendGeneratedDashboardContract, 'shared/contracts/dashboard.ts') === sharedDashboardContract.trim();
   const backendUsesCompileTimeDashboardContract = backendUsesSharedDashboardContract ||
     (backendUsesGeneratedDashboardContract && backendGeneratedDashboardContractMatchesShared);
   const backendDashboardResponseTypesBound =
-    /DashboardOverview/.test(dashboardRoutes) &&
-    /DashboardTrend\[]/.test(dashboardRoutes);
+    /DashboardOverview/.test(dashboardBackendSource) &&
+    /DashboardTrend\[]/.test(dashboardBackendSource);
   const dashboardContractAuditScript = exists('scripts/dashboard-shared-contract-audit-v1.cjs');
   const dashboardContractBackendRequiredTokens = [
     'overview',
@@ -385,8 +389,19 @@ function buildRequirements() {
     'date',
     'count',
   ];
-  const dashboardBackendMissingContractTokens = missingTokens(dashboardRoutes, dashboardContractBackendRequiredTokens);
+  const dashboardBackendMissingContractTokens = missingTokens(dashboardBackendSource, dashboardContractBackendRequiredTokens);
   const backendDashboardSourceMatchesContract = dashboardBackendMissingContractTokens.length === 0;
+  const dashboardRouteHasDirectPrisma =
+    /\bprisma\./.test(dashboardRoutes) ||
+    /from\s+['"][^'"]*(?:config\/database|database\/prisma|@prisma\/client)['"]/.test(dashboardRoutes);
+  const dashboardRepositoryExists = exists('backend/src/repositories/dashboard.repository.ts');
+  const dashboardReadServiceExists = exists('backend/src/services/dashboard-read.service.ts');
+  const hasDashboardRepositoryBoundary = dashboardRepositoryExists && dashboardReadServiceExists && !dashboardRouteHasDirectPrisma;
+  const backendLayeringStatus = exists('backend/src/repositories') && prismaUsageFiles.controllerRoute.length === 0
+    ? 'present'
+    : hasDashboardRepositoryBoundary
+      ? 'partial'
+      : 'gap';
   const clientStateAuditScript = exists('scripts/client-state-store-audit-v1.cjs');
   const scopedClientStoreFiles = frontendSourceFiles.filter((file) => {
     const text = readText(file);
@@ -575,14 +590,20 @@ function buildRequirements() {
     id: 'backend-layering',
     category: 'engineering-architecture',
     severity: 'P1',
-    status: directPrisma.count === 0 && exists('backend/src/repositories') ? 'present' : directPrisma.count <= 5 ? 'partial' : 'gap',
+    status: backendLayeringStatus,
     title: 'Backend routes/controllers are separated from direct Prisma access',
     evidence: [
       `backend/src/repositories exists=${exists('backend/src/repositories')}`,
-      `direct prisma files=${directPrisma.count}`,
-      `sample direct prisma files=${directPrisma.files.slice(0, 8).join(', ') || 'none'}`,
+      `dashboard repository exists=${dashboardRepositoryExists}`,
+      `dashboard read service exists=${dashboardReadServiceExists}`,
+      `dashboard route direct prisma=${dashboardRouteHasDirectPrisma}`,
+      `route/controller direct prisma files=${prismaUsageFiles.controllerRoute.length}`,
+      `sample route/controller direct prisma files=${prismaUsageFiles.controllerRoute.slice(0, 8).join(', ') || 'none'}`,
+      `all prisma usage files=${prismaUsageFiles.all.length}`,
     ],
-    nextAction: 'Introduce repository/service boundaries module by module, starting with orders or collections, and keep controller tests around each migration.',
+    nextAction: hasDashboardRepositoryBoundary
+      ? 'Dashboard is the first repository/service read-model slice; migrate the remaining route/controller Prisma access module by module with focused controller/API tests.'
+      : 'Introduce repository/service boundaries module by module, starting with dashboard, orders, or collections, and keep controller tests around each migration.',
   });
 
   add(requirements, {

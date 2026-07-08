@@ -228,14 +228,29 @@ Current baseline:
 - `services/dashboard.service.ts` imports the shared Dashboard response types
   instead of declaring frontend-only interfaces.
 - `backend/src/types/generated/dashboard.contract.ts` is generated from the
-  shared contract and `backend/src/routes/dashboard.routes.ts` compiles its
-  overview and trends responses against that generated contract.
+  shared contract and `backend/src/services/dashboard-read.service.ts` compiles
+  the Dashboard overview and trends read models against that generated
+  contract.
+- `backend/src/routes/dashboard.routes.ts` is now a thin authenticated route
+  layer for Dashboard reads; direct Prisma query ownership for this slice lives
+  in `backend/src/repositories/dashboard.repository.ts`.
 - `audit:dashboard:contract` checks that the frontend adopts the shared
   contract, the backend generated mirror matches the shared source, and the
-  backend route has compile-time response type binding.
+  backend route/service pair has compile-time response type binding.
+- `docs/openapi.yaml` has been promoted from a seed inventory to a partial
+  contract for the Dashboard slice: `/api/dashboard` and
+  `/api/dashboard/trends` now point to concrete overview/trend response
+  schemas.
+- `services/dashboard.service.test.ts` adds frontend service-level regression
+  coverage for the shared Dashboard contract and zero-value fallback behavior.
 - This is still the first high-value route only; full production readiness
   requires expanding shared/generated contracts across more routes and keeping
   OpenAPI/Zod generation as the long-term source of truth.
+
+Backend layering note:
+- Dashboard is the first repository/service read-model slice.
+- The broader backend remains only partially layered because many existing
+  routes/controllers still touch Prisma directly.
 
 Deliverables:
 - OpenAPI generation or maintained OpenAPI artifact
