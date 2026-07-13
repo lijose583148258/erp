@@ -184,6 +184,7 @@ model StockEntry {
   @@index([warehouseId])
   @@index([locationId])
   @@index([createdAt])
+  @@unique([sourceType, sourceRef, status])
   @@map("stock_entries")
 }
 

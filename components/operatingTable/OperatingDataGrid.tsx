@@ -37,6 +37,7 @@ export type OperatingDataGridProps<T> = {
   rowActions?: (row: T) => OperatingAction<T>[];
   renderRowActions?: (row: T) => React.ReactNode;
   onRowClick?: (row: T) => void;
+  virtualized?: boolean;
 };
 
 export function OperatingDataGrid<T>({
@@ -65,6 +66,7 @@ export function OperatingDataGrid<T>({
   rowActions,
   renderRowActions,
   onRowClick,
+  virtualized = true,
 }: OperatingDataGridProps<T>) {
   return (
     <EnterpriseDataGrid
@@ -91,6 +93,7 @@ export function OperatingDataGrid<T>({
       )) : undefined)}
       onRowClick={onRowClick}
       paginationTestIdPrefix={preferenceKey}
+      virtualized={virtualized}
     />
   );
 }

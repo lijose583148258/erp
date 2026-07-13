@@ -11,7 +11,7 @@ import {
   CollectionDisputeRecord,
   CollectionHoldRecord,
   CollectionPromiseRecord,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
 import useCollectionCenterState, {
   DisputeFilter,
   HoldFilter,

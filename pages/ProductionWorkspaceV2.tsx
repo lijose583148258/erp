@@ -424,7 +424,8 @@ const ProductionWorkspaceV2 = () => {
   const handleCreateAdjustment = async () => {
     if (adjustmentSaving) return;
     const nextErrors: AdjustmentFormErrors = {};
-    if (!selectedBatch) nextErrors.batch = '请先选择批次';
+    const batch = selectedBatch;
+    if (!batch) nextErrors.batch = '请先选择批次';
     const value = Number(adjustmentQuantity);
     if (!Number.isFinite(value) || value <= 0) nextErrors.quantity = '请填写大于 0 的有效数量';
     if (!adjustmentReason.trim()) nextErrors.reason = '请填写调整原因';
@@ -440,9 +441,9 @@ const ProductionWorkspaceV2 = () => {
       await withSaveTimeout(() => adjustmentService.create({
         domain: 'production',
         targetType: 'productBatch',
-        batchId: selectedBatch.id,
-        targetId: selectedBatch.id,
-        targetRef: selectedBatch.batchNo,
+        batchId: batch?.id ?? 0,
+        targetId: batch?.id ?? 0,
+        targetRef: batch?.batchNo ?? '',
         quantityDelta: value * selectedTemplate.sign,
         reason: adjustmentReason.trim(),
         reasonCategory: selectedTemplate.reasonCategory,

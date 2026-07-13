@@ -55,13 +55,13 @@ const persistSession = (token: string, user: CurrentUser, refreshToken?: string)
 };
 
 export const authService = {
-    async login(username: string, password: string): Promise<CurrentUser> {
+    async login(username: string, password: string, mfaCode?: string): Promise<CurrentUser> {
         if (!username || !password) {
             throw new Error('请输入用户名和密码');
         }
 
         clearAuthStorage();
-        const response = await api.post<any, LoginResponse>('/auth/login', { username, password });
+        const response = await api.post<any, LoginResponse>('/auth/login', { username, password, mfaCode });
         const { token, refreshToken, user } = response.data;
         const currentUser = normalizeUser(user);
         persistSession(token, currentUser, refreshToken);
@@ -119,5 +119,9 @@ export const authService = {
 
     hasToken(): boolean {
         return Boolean(safeStorage.getItem('token'));
+    },
+
+    getToken(): string | null {
+        return safeStorage.getItem('token');
     },
 };

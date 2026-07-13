@@ -56,7 +56,7 @@ export const updateOrderSchema = z.object({
 
 export const orderQuerySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
-  pageSize: z.coerce.number().int().positive().max(1000).optional(),
+  pageSize: z.coerce.number().int().positive().max(100).optional(),
   search: z.string().trim().optional(),
   status: z.string().trim().optional(),
   customerId: z.coerce.number().int().positive().optional(),

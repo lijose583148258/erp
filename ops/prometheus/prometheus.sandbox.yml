@@ -1,0 +1,21 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+rule_files:
+  - C:/AilaoDaPostgresRehearsal/observability/ailaoda-alerts.yml
+
+scrape_configs:
+  - job_name: ailao-app
+    metrics_path: /metrics
+    scheme: http
+    authorization:
+      type: Bearer
+      credentials_file: C:/AilaoDaPostgresRehearsal/observability/metrics-bearer-token.txt
+    static_configs:
+      - targets:
+          - 127.0.0.1:5006
+          - 127.0.0.1:5008
+        labels:
+          service: ailao-erp-crm
+          runtime: windows-sandbox

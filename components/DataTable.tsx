@@ -1,7 +1,8 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { ChevronLeft, ChevronRight, DollarSign, FileSpreadsheet, Search, SlidersHorizontal, Upload, X } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { useAppContext } from '../app/AppContext';
+import { assertSafeSpreadsheetFile } from '../utils/spreadsheetSecurity';
+import { exportRowsToXlsx, parseSpreadsheetFileAsObjects } from '../utils/spreadsheetIO';
 import { StatusBadge as UnifiedStatusBadge } from './ui/StatusBadge';
 import { getStatusLabel } from './ui/statusBadgeLogic';
 import { readNumberPreference, readStringArrayPreference, writeNumberPreference, writeStringArrayPreference } from './ui/tablePreferences';
@@ -84,7 +85,7 @@ const getCellTitle = (value: unknown): string | undefined => {
   return text.length > 18 ? text : undefined;
 };
 
-const DataTable = <T extends Record<string, any>>({
+const DataTableInner = <T extends Record<string, any>>({
   tableId,
   title,
   columns,
@@ -164,14 +165,16 @@ const DataTable = <T extends Record<string, any>>({
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file || !onImport) return;
-
-    const reader = new FileReader();
-    reader.onload = async (evt) => {
+    try {
+      assertSafeSpreadsheetFile(file);
+    } catch (error) {
+      notify('error', getImportErrorMessage(error));
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    void (async () => {
       try {
-        const bstr = evt.target?.result as string;
-        const wb = XLSX.read(bstr, { type: 'binary' });
-        const ws = wb.Sheets[wb.SheetNames[0]];
-        const rawRows = XLSX.utils.sheet_to_json(ws) as Record<string, any>[];
+        const rawRows = await parseSpreadsheetFileAsObjects(file) as Record<string, any>[];
         if (rawRows.length === 0) {
           notify('warning', `导入文件 ${file.name} 没有可读取的数据行`);
           return;
@@ -204,12 +207,7 @@ const DataTable = <T extends Record<string, any>>({
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
-    };
-    reader.onerror = () => {
-      notify('error', `导入失败：无法读取文件 ${file.name}`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    reader.readAsBinaryString(file);
+    })();
   };
 
   const handleExport = useCallback(async () => {
@@ -232,10 +230,7 @@ const DataTable = <T extends Record<string, any>>({
         return '';
       })
     );
-    const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, title);
-    XLSX.writeFile(wb, `${title}_${exportCurrency}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    await exportRowsToXlsx([headers, ...rows], `${title}_${exportCurrency}_${new Date().toISOString().slice(0, 10)}.xlsx`, title);
   }, [data, visibleColumns, title, exportCurrency, notify, onExport]);
 
   const renderCell = (row: T, col: Column<T>) => {
@@ -527,5 +522,7 @@ const DataTable = <T extends Record<string, any>>({
     </div>
   );
 };
+
+export const DataTable = React.memo(DataTableInner) as typeof DataTableInner;
 
 export default DataTable;

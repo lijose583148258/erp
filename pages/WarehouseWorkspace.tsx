@@ -242,7 +242,8 @@ const WarehouseWorkspace = () => {
       return;
     }
     const nextErrors: LocationCreateErrors = {};
-    if (!selectedWarehouse) nextErrors.warehouse = '请先选择要维护的仓库';
+    const warehouse = selectedWarehouse;
+    if (!warehouse) nextErrors.warehouse = '请先选择要维护的仓库';
     if (!newLocation.code.trim()) nextErrors.code = '请填写库位编码';
     if (!newLocation.name.trim()) nextErrors.name = '请填写库位名称';
     if (Object.keys(nextErrors).length) {
@@ -252,7 +253,8 @@ const WarehouseWorkspace = () => {
     setLocationCreateErrors({});
     setLocationCreating(true);
     try {
-      await warehouseService.createLocation(selectedWarehouse.id, {
+      if (!warehouse) return;
+      await warehouseService.createLocation(warehouse.id, {
         ...newLocation,
         code: newLocation.code.trim(),
         name: newLocation.name.trim(),

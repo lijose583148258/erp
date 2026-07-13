@@ -53,11 +53,36 @@ model PurchaseOrder {
 
   supplier      Supplier @relation(fields: [supplierId], references: [id])
   salesOrder    Order?   @relation(fields: [salesOrderId], references: [id])
+  receipts      PurchaseReceipt[]
 
   @@index([supplierId])
   @@index([status])
   @@index([salesOrderId])
   @@map("purchase_orders")
+}
+
+model PurchaseReceipt {
+  id                Int           @id @default(autoincrement())
+  receiptNo         String        @unique @map("receipt_no")
+  purchaseOrderId   Int           @map("purchase_order_id")
+  quantity          Float
+  acceptedQuantity  Float         @default(0) @map("accepted_quantity")
+  rejectedQuantity  Float         @default(0) @map("rejected_quantity")
+  unit              String        @default("kg")
+  batchNo           String?       @map("batch_no")
+  stockEntryRef     String?       @map("stock_entry_ref")
+  discrepancyReason String?       @map("discrepancy_reason")
+  note              String?
+  receivedBy        Int?          @map("received_by")
+  receivedAt        DateTime      @default(now()) @map("received_at")
+  createdAt         DateTime      @default(now()) @map("created_at")
+
+  purchaseOrder     PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  receiver          User?         @relation("PurchaseReceiptReceiver", fields: [receivedBy], references: [id], onDelete: SetNull)
+
+  @@index([purchaseOrderId])
+  @@index([stockEntryRef])
+  @@map("purchase_receipts")
 }
 
 // 样品表

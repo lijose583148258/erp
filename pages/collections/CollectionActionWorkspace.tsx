@@ -6,7 +6,7 @@ import type {
   CollectionLedgerRecord,
   CollectionOverdueRecord,
   CollectionPromiseRecord,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
 import type { CollectionActionPermissions } from './useCollectionCenter';
 import {
   formatDate,

@@ -8,6 +8,7 @@ export type ApiRequestOptions = {
 
 export type ApiClientError = Error & {
     status?: number;
+    errorCode?: string;
     issues?: unknown[];
     isCanceled?: boolean;
     isTimeout?: boolean;
@@ -33,6 +34,9 @@ const resolveApiBaseUrl = () => {
 
     if (typeof window !== 'undefined') {
         const { protocol, hostname, port, origin } = window.location;
+        if (import.meta.env.PROD) {
+            return `${origin}/api`;
+        }
         if (port === '5001') {
             return `${origin}/api`;
         }
@@ -103,6 +107,7 @@ api.interceptors.response.use(
                 const staleAuthError = new Error(message) as Error & { status?: number; issues?: unknown[] };
                 staleAuthError.status = error.response?.status;
                 staleAuthError.issues = error.response?.data?.issues;
+                (staleAuthError as ApiClientError).errorCode = error.response?.data?.errorCode;
                 return Promise.reject(staleAuthError);
             }
             clearAuthStorage();
@@ -123,6 +128,7 @@ api.interceptors.response.use(
 
         const enrichedError = new Error(message) as ApiClientError;
         enrichedError.status = error.response?.status;
+        enrichedError.errorCode = error.response?.data?.errorCode;
         enrichedError.issues = error.response?.data?.issues;
         enrichedError.isTimeout = isTimeout;
         return Promise.reject(enrichedError);

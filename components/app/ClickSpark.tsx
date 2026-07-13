@@ -37,7 +37,7 @@ const ClickSpark: React.FC = () => {
       {sparks.map(spark => (
         <div
           key={spark.id}
-          className="absolute rounded-full"
+          className="click-spark-particle absolute rounded-full"
           style={{
             left: spark.x,
             top: spark.y,
@@ -45,18 +45,11 @@ const ClickSpark: React.FC = () => {
             height: spark.size,
             backgroundColor: spark.color,
             boxShadow: `0 0 6px ${spark.color}`,
-            animation: 'spark-jelly 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards',
             '--vx': `${spark.vx * 20}px`,
             '--vy': `${spark.vy * 20}px`,
           } as React.CSSProperties}
         />
       ))}
-      <style>{`
-        @keyframes spark-jelly {
-          0% { transform: translate(-50%, -50%) scale(1); opacity: 0.5; }
-          100% { transform: translate(calc(var(--vx) - 50%), calc(var(--vy) - 50%)) scale(0); opacity: 0; }
-        }
-      `}</style>
     </div>
   );
 };

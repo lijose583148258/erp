@@ -86,6 +86,8 @@ function createBrowserHumanFlowData(runId) {
       reverseNote: `人工冲销 ${runId}`,
     },
     shipping: {
+      productName: `HF-SHIP-STOCK-${runId}`,
+      batchNo: `HF-SHIP-BATCH-${runId}`,
       quantity: 3,
       acceptedQuantity: 2,
       rejectedQuantity: 1,
@@ -102,7 +104,6 @@ function createBrowserHumanFlowAuditContext({
   reportPath,
   runId,
   data,
-  rolePasswords,
   timeouts,
 }) {
   const report = {
@@ -288,65 +289,23 @@ function createBrowserHumanFlowAuditContext({
 
   async function loginRole(page, role) {
     await withTimeout(`login-${role}`, timeouts.login, async () => {
-      if (role === 'admin') {
-        await loginUiAuditUser(page, appUrl, {
-          storage: {
-            'ailao.language': 'zh',
-            language: 'zh',
-            'ailao.theme': 'light',
-            currency: 'CNY',
-            'ailao.activeTab': 'dashboard',
-          },
-        });
-        await page.goto(`${appUrl}#dashboard`, { waitUntil: 'domcontentloaded', timeout: timeouts.pageLoad });
-        await page.reload({ waitUntil: 'domcontentloaded', timeout: timeouts.pageLoad });
-        await page.getByTestId('theme-toggle').waitFor({ state: 'visible', timeout: timeouts.login });
-        return;
-      }
-
-      await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: timeouts.pageLoad });
-      await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-
-      if (!(await page.locator('#login-username').count())) {
-        await logoutIfNeeded(page);
-        await page.goto(appUrl, { waitUntil: 'domcontentloaded', timeout: timeouts.pageLoad });
-        await page.waitForLoadState('networkidle', { timeout: 5000 }).catch(() => {});
-      }
-
-      await page.locator('#login-username').fill(role);
-      await page.locator('#login-password').fill(rolePasswords[role]);
-      const roleSelect = page.locator('select').first();
-      if (await roleSelect.count()) {
-        await roleSelect.selectOption(role);
-      }
-      await page.locator('button[type="submit"]').click();
-      const started = Date.now();
-      while (Date.now() - started < timeouts.login) {
-        const body = await getBodyText(page);
-        if (/登录失败|Invalid credentials|用户名或密码错误/i.test(body)) {
-          throw new Error(`login-${role} rejected`);
-        }
-
-        const token = await page.evaluate(() => window.localStorage.getItem('token')).catch(() => null);
-        const loginInputCount = await page.locator('#login-username').count().catch(() => 1);
-        if (token && loginInputCount === 0) {
-          return;
-        }
-
-        await page.waitForTimeout(250);
-      }
-
-      throw new Error(`login-${role} did not reach authenticated shell`);
-    });
-    if (role === 'admin') {
-      return safeScreenshot(page, `login-${role}`);
-    }
-    await assertRouteText(page, `login-${role}`, ['Dashboard', '工作台', '安全退出系统', '仓储 / 物流']).catch(async () => {
-      const body = await getBodyText(page);
-      if (/登录失败|Invalid credentials|用户名或密码错误/i.test(body)) {
-        throw new Error(`login-${role} rejected`);
-      }
-      throw new Error(`login-${role} shell text not visible after authentication`);
+      await loginUiAuditUser(page, appUrl, {
+        account: {
+          username: `human_flow_${runId}_${role}`,
+          password: `HumanFlow-${role}-${runId}!`,
+          role,
+        },
+        storage: {
+          'ailao.language': 'zh',
+          language: 'zh',
+          'ailao.theme': 'light',
+          currency: 'CNY',
+          'ailao.activeTab': 'dashboard',
+        },
+      });
+      await page.goto(`${appUrl}#dashboard`, { waitUntil: 'domcontentloaded', timeout: timeouts.pageLoad });
+      await page.reload({ waitUntil: 'domcontentloaded', timeout: timeouts.pageLoad });
+      await page.locator('main').waitFor({ state: 'visible', timeout: timeouts.login });
     });
     return safeScreenshot(page, `login-${role}`);
   }

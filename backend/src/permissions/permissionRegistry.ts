@@ -79,8 +79,10 @@ export type Permission =
   | 'commercial.notification.write'
   | 'commercial.alert.run'
   | 'system.read'
+  | 'system.metrics.read'
   | 'system.backup.manage'
-  | 'audit.read';
+  | 'audit.read'
+  | 'ai.assistant.use';
 
 export interface PermissionDefinition {
   code: Permission;
@@ -157,8 +159,10 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'procurement.write', resource: 'procurement', action: 'write', label: '管理采购', group: '采购' },
   { code: 'procurement.b2b.read', resource: 'procurement.b2b', action: 'read', label: '查看 B2B 采购状态', group: '采购' },
   { code: 'audit.read', resource: 'audit', action: 'read', label: '查看审计日志', group: '审计' },
+  { code: 'ai.assistant.use', resource: 'ai.assistant', action: 'use', label: '使用受管 AI 助手', group: '智能助手', description: '仅允许发送经过隐私门禁的安全上下文，不授予业务明细读取权限' },
   { code: 'finance.currency.sync', resource: 'finance.currency', action: 'sync', label: 'Sync currency rates', group: 'finance' },
   { code: 'system.read', resource: 'system', action: 'read', label: 'Read system status', group: 'system' },
+  { code: 'system.metrics.read', resource: 'system.metrics', action: 'read', label: 'Read Prometheus metrics', group: 'system' },
   { code: 'system.backup.manage', resource: 'system.backup', action: 'manage', label: 'Manage system backups', group: 'system' },
   { code: 'commercial.read', resource: 'commercial', action: 'read', label: '查看商业化平台', group: '平台治理' },
   { code: 'commercial.workflow.manage', resource: 'commercial.workflow', action: 'manage', label: '管理审批工作流', group: '平台治理' },
@@ -247,13 +251,16 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'commercial.notification.write',
     'commercial.alert.run',
     'system.read',
+    'system.metrics.read',
     'system.backup.manage',
     'audit.read',
+    'ai.assistant.use',
     ],
   },
   manager: {
     dataScopes: ['team_customers', 'finance_visible', 'warehouse_visible', 'procurement_visible'],
     permissions: [
+    'ai.assistant.use',
     'dashboard.read',
     'customers.read',
     'customers.create',
@@ -326,6 +333,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
   sales: {
     dataScopes: ['own_customers'],
     permissions: [
+    'ai.assistant.use',
     'dashboard.read',
     'customers.read',
     'customers.create',
@@ -358,6 +366,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
   warehouse: {
     dataScopes: ['warehouse_visible', 'procurement_visible'],
     permissions: [
+    'ai.assistant.use',
     'dashboard.read',
     'orders.shippingReady.read',
     'barter.read',
@@ -389,6 +398,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
   finance: {
     dataScopes: ['finance_visible', 'procurement_visible'],
     permissions: [
+    'ai.assistant.use',
     'dashboard.read',
     'orders.read',
     'orders.export',

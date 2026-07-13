@@ -1,5 +1,7 @@
 // 多语言工具 - 自动回退和校正
 import { translations } from '../translations';
+
+const translationMap = translations as Record<Language, Record<string, string>>;
 import type { Language } from '../types';
 
 /**
@@ -8,14 +10,14 @@ import type { Language } from '../types';
  */
 export function t(key: string, lang: Language = 'zh'): string {
   // 优先使用目标语言
-  if (translations[lang]?.[key]) {
-    return translations[lang][key];
+  if (translationMap[lang]?.[key]) {
+    return translationMap[lang][key];
   }
   
   // 回退到中文
-  if (translations.zh?.[key]) {
+  if (translationMap.zh?.[key]) {
     console.warn(`[i18n] Missing ${lang}.${key}, fallback to zh`);
-    return translations.zh[key];
+    return translationMap.zh[key];
   }
   
   // 都不存在，返回键名（开发模式）
@@ -117,12 +119,12 @@ export function generateI18nReport(): string {
  * 自动补全翻译（使用中文作为后备）
  */
 export function autoFillTranslations(lang: Language): Record<string, string> {
-  const zhKeys = Object.keys(translations.zh);
-  const result: Record<string, string> = { ...translations[lang] };
+  const zhKeys = Object.keys(translationMap.zh);
+  const result: Record<string, string> = { ...translationMap[lang] };
   
   zhKeys.forEach(key => {
     if (!result[key]) {
-      result[key] = translations.zh[key]; // 使用中文作为后备
+      result[key] = translationMap.zh[key]; // 使用中文作为后备
     }
   });
   
@@ -133,13 +135,13 @@ export function autoFillTranslations(lang: Language): Record<string, string> {
  * 导出缺失的翻译键（用于翻译）
  */
 export function exportMissingKeys(lang: Language): { key: string; zh: string }[] {
-  const zhKeys = Object.keys(translations.zh);
-  const langKeys = Object.keys(translations[lang] || {});
+  const zhKeys = Object.keys(translationMap.zh);
+  const langKeys = Object.keys(translationMap[lang] || {});
   const missing = zhKeys.filter(k => !langKeys.includes(k));
   
   return missing.map(key => ({
     key,
-    zh: translations.zh[key],
+    zh: translationMap.zh[key],
   }));
 }
 

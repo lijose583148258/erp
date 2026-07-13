@@ -1,9 +1,9 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { orderService } from '../../services/order.service';
+import { orderService } from '../../src/services/order.service';
 import type { CurrentUser, PaymentRecord, SalesOrder } from '../../types';
 import { getOutstandingAmount, type PaymentForm } from './salesOrderFormHelpers';
 import { getSalesOrderCustomerLabelFromOrder } from './salesOrderLabels';
-import type { NotifyFn } from './useSalesOrderWorkspaceData';
+import { invalidateSalesOrderWorkspaceState, type NotifyFn } from './useSalesOrderWorkspaceData';
 
 type UseSalesOrderPaymentsOptions = {
     selectedOrder: SalesOrder | null;
@@ -50,6 +50,7 @@ export const useSalesOrderPayments = ({
         if (!selectedOrder) return;
         try {
             const updatedOrder = await orderService.verifyPayment(selectedOrder.id, paymentId);
+            invalidateSalesOrderWorkspaceState();
             upsertOrder(updatedOrder);
             setSelectedOrder(updatedOrder);
             notify('success', '收款已核验并同步到账本。');
@@ -86,6 +87,7 @@ export const useSalesOrderPayments = ({
 
         try {
             const updatedOrder = await orderService.recordPayment(selectedOrder.id, payment);
+            invalidateSalesOrderWorkspaceState();
             upsertOrder(updatedOrder);
             setSelectedOrder(updatedOrder);
             setIsPaymentOpen(false);

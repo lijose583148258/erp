@@ -12,6 +12,8 @@ import { withDbRetry } from '../utils/dbRetry';
 import { logger } from '../utils/logger';
 import { canUseOrderForBusinessWrite } from '../utils/recordAccess';
 import { requireFinanceCollectionScope } from './collection/collection-controller.helpers';
+import { publishRealtimeNotification } from '../services/realtime-notification.service';
+import { publishWebhookEvent } from '../services/webhook.service';
 
 export async function recordOrderPayment(req: AuthRequest, res: Response) {
     try {
@@ -210,6 +212,21 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
 
         const order = await OrderWorkspaceService.getOrderById(Number(id), req);
         logger.info(`Payment submitted: orderId=${id}, amount=${amount}`);
+        publishRealtimeNotification({
+            type: 'payment.submitted',
+            title: 'Payment submitted',
+            message: `订单 ${id} 新增待核销回款 ${paymentAmount}`,
+            resourceType: 'payment',
+            resourceId: id,
+            severity: 'warning',
+            audience: { roles: ['admin', 'manager', 'finance'] },
+        });
+        publishWebhookEvent({
+            type: 'payment.submitted',
+            resourceType: 'payment',
+            resourceId: id,
+            data: { orderId: Number(id), amount: paymentAmount, method },
+        });
 
         return res.json({
             success: true,
@@ -264,6 +281,20 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
 
         const result = await CollectionStateService.verifyPaymentRecord(payment.id, req.user!.userId);
         const order = await OrderWorkspaceService.getOrderById(Number(id), req);
+        publishRealtimeNotification({
+            type: 'payment.verified',
+            title: 'Payment verified',
+            message: `订单 ${id} 回款已核销`,
+            resourceType: 'payment',
+            resourceId: payment.id,
+            severity: 'success',
+        });
+        publishWebhookEvent({
+            type: 'payment.verified',
+            resourceType: 'payment',
+            resourceId: payment.id,
+            data: { orderId: Number(id), paymentId: payment.id },
+        });
 
         return res.json({
             success: true,

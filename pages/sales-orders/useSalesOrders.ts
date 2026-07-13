@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type ChangeEvent } from 'react';
 import { useAppContext } from '../../app/AppContext';
-import { orderService } from '../../services/order.service';
+import { orderService } from '../../src/services/order.service';
 import freeAIService from '../../services/freeAIService';
 import { ExtractedFormData, DocumentType, OcrDocumentData, parseOcrDocument } from '../../services/smartFormService';
 import { SalesOrder, Customer, SalesOrderItem } from '../../types';
@@ -42,7 +42,9 @@ export const useSalesOrders = () => {
     const {
         orders,
         setOrders,
+        orderPageMeta,
         customers,
+        customerLookupMeta,
         batches,
         contracts,
         upsertOrder,
@@ -206,7 +208,12 @@ export const useSalesOrders = () => {
                 return;
             }
             const result = await freeAIService.analyzeProductLabel(file);
-            const newItem = createProductScanOrderItem(result);
+            const newItem = createProductScanOrderItem({
+                name: result.name ?? undefined,
+                cas: result.cas ?? undefined,
+                grade: result.grade ?? undefined,
+                batchNo: result.batchNo ?? undefined,
+            });
             setFormData(prev => ({ ...prev, items: mergeOrderItemIntoDraft(prev.items, newItem) }));
             notify('success', t.scanSuccess || '扫描成功');
         } catch {
@@ -276,10 +283,12 @@ export const useSalesOrders = () => {
             let savedOrder: SalesOrder;
             if (isEditMode) {
                 savedOrder = await orderService.update(orderPayload, currentUser.name);
+                await loadOrderWorkspace({ force: true });
                 upsertOrder(savedOrder);
                 notify('success', '订单更新成功，变更已记录。');
             } else {
                 savedOrder = await orderService.create(orderPayload);
+                await loadOrderWorkspace({ force: true });
                 upsertOrder(savedOrder);
                 notify('success', '销售订单创建成功。');
             }
@@ -393,6 +402,8 @@ export const useSalesOrders = () => {
         importOrderItemsFromGrid: handleImportOrderItemsFromGrid,
         orderLineErrors,
         isSavingOrder,
+        orderPageMeta,
+        customerLookupMeta,
         displayedOrders,
         canAuditCommission,
         canRecordPayment,

@@ -281,6 +281,16 @@ const SalesOrders = () => {
             )}
 
             <div className="app-card p-6">
+            {activeDesk === 'orders' ? (
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-semibold text-slate-700 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200">
+                    <span>
+                        Showing server page {state.orderPageMeta.page} of {state.orderPageMeta.totalPages}, {state.displayedOrders.length} rows loaded from {state.orderPageMeta.total} matching orders.
+                    </span>
+                    <span className="text-xs uppercase tracking-wide text-slate-500 dark:text-slate-400">
+                        Search and export operate on the loaded page until full server-side table controls are enabled.
+                    </span>
+                </div>
+            ) : null}
             <OperatingDataGrid
                 labels={operatingLabels}
                 titleKey="order.title"

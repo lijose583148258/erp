@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import prisma from '../config/database';
+import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
@@ -90,7 +91,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
             let signedReceiptUrl: string | null = null;
             if (hasReceiptFile) {
                 try {
-                    signedReceiptUrl = storeReceiptFile(shipment.shipmentNo, req.body.fileName, req.body.mimeType, req.body.dataUrl);
+                    signedReceiptUrl = await storeReceiptFile(shipment.shipmentNo, req.body.fileName, req.body.mimeType, req.body.dataUrl);
                 } catch {
                     throw new AppError('INVALID_RECEIPT_FILE', 400, ErrorCode.VALIDATION_ERROR);
                 }
@@ -98,7 +99,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
 
             const receiptNo = buildBusinessNo('SPR');
             const receivedAt = new Date();
-            await tx.$executeRawUnsafe(
+            await executeRawCompat(tx, 
                 `INSERT INTO shipment_receipts
                   (receipt_no, shipment_id, quantity, accepted_quantity, rejected_quantity, unit, signed_receipt_url, discrepancy_reason, note, received_by, received_at, created_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
@@ -115,7 +116,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 receivedAt,
             );
 
-            const receiptRows = await tx.$queryRawUnsafe<Array<{ id: number }>>(
+            const receiptRows = await queryRawCompat<Array<{ id: number }>>(tx, 
                 `SELECT id FROM shipment_receipts WHERE receipt_no = ? LIMIT 1`,
                 receiptNo,
             );

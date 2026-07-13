@@ -1,7 +1,12 @@
 import type { Customer, Language } from '../types';
 import { splitCustomerTextList } from './customerAlias';
 
-type CustomerNameSource = Pick<Customer, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'displayName'> & {
+type CustomerNameSource = {
+  name?: string | null;
+  nameZh?: string | null;
+  nameEn?: string | null;
+  nameVi?: string | null;
+  displayName?: string | null;
   nameAliases?: string[] | string | null;
 };
 

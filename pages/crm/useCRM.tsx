@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Customer, RiskLevel, Contact, CustomerPoolHistoryEntry, CustomerAddress, TeamMember } from '../../types';
 import { getRiskInsight } from '../../services/geminiService';
-import { customerService } from '../../services/customer.service';
+import { customerService } from '../../src/services/customer.service';
 import teamService from '../../services/team.service';
 import { useAppContext } from '../../app/AppContext';
 import { getCustomerDisplayName } from '../../utils/customerName';

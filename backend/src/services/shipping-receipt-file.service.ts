@@ -1,6 +1,4 @@
-import fs from 'fs';
-import path from 'path';
-import { getUploadDir } from '../config/runtime';
+import { fileStorage } from './file-storage.service';
 
 const RECEIPT_MAX_BYTES = 5 * 1024 * 1024;
 
@@ -38,18 +36,10 @@ function decodeReceiptDataUrl(dataUrl: string, mimeType: string) {
   return buffer;
 }
 
-export function storeReceiptFile(shipmentNo: string, fileName: string, mimeType: string, dataUrl: string) {
+export async function storeReceiptFile(shipmentNo: string, fileName: string, mimeType: string, dataUrl: string) {
   const buffer = decodeReceiptDataUrl(dataUrl, mimeType);
-  const uploadRoot = path.join(getUploadDir(), 'pod');
-  fs.mkdirSync(uploadRoot, { recursive: true });
-
   const ext = RECEIPT_MIME_EXT[mimeType];
   const safeStem = sanitizeFileStem(fileName);
   const storedFileName = `${shipmentNo}-${Date.now()}-${safeStem}${ext}`;
-  const storedPath = path.join(uploadRoot, storedFileName);
-  if (!path.resolve(storedPath).startsWith(path.resolve(uploadRoot) + path.sep)) {
-    throw new Error('INVALID_STORED_PATH');
-  }
-  fs.writeFileSync(storedPath, buffer);
-  return `/uploads/pod/${encodeURIComponent(storedFileName)}`;
+  return (await fileStorage.save('pod', storedFileName, buffer)).publicUrl;
 }

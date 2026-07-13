@@ -4,11 +4,22 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'orders-api-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const SALES_ACCOUNT = {
+  username: process.env.AUDIT_SALES_USERNAME || 'orders_audit_sales',
+  password: process.env.AUDIT_SALES_PASSWORD || 'OrdersAuditSales12345!',
+  role: 'sales',
+};
+const MANAGER_ACCOUNT = {
+  username: process.env.AUDIT_MANAGER_USERNAME || 'orders_audit_manager',
+  password: process.env.AUDIT_MANAGER_PASSWORD || 'OrdersAuditManager12345!',
+  role: 'manager',
+};
 
 const DATA = {
   customerName: `ORD-API-CUST-${RUN_ID}`,
@@ -76,9 +87,11 @@ async function createCustomer(token, data) {
 
 async function run() {
   try {
+    await ensureUiAuditUser(SALES_ACCOUNT);
+    await ensureUiAuditUser(MANAGER_ACCOUNT);
     // 步骤 1：双角色登录
-    const sales = await login('sales', 'sales123');
-    const manager = await login('manager', 'manager123');
+    const sales = await login(SALES_ACCOUNT.username, SALES_ACCOUNT.password);
+    const manager = await login(MANAGER_ACCOUNT.username, MANAGER_ACCOUNT.password);
     recordStep({
       step: 'login-users',
       result: 'passed',

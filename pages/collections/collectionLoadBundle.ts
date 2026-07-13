@@ -7,7 +7,8 @@ import {
   CollectionPromiseRecord,
   CollectionSummary,
   collectionsService,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
+import { serverStateClient } from '../../app/serverState';
 import { reportClientIssue } from '../../utils/clientIssue';
 
 export type CollectionLoadOptions = {
@@ -25,14 +26,11 @@ type CollectionLoadBundle = {
   errors: string[];
 };
 
-let collectionLoadInflight: { key: string; promise: Promise<CollectionLoadBundle> } | null = null;
+export const COLLECTION_CENTER_TTL_MS = 20_000;
+export const COLLECTION_WORKBENCH_QUERY_KEY = ['collections', 'workbench'] as const;
 
-const getCollectionLoadKey = () => {
-  try {
-    return window.localStorage.getItem('token') || 'anonymous';
-  } catch {
-    return 'anonymous';
-  }
+export const invalidateCollectionCenterState = () => {
+  serverStateClient.invalidateQueries(['collections']);
 };
 
 const summarizeLoadError = (label: string, error: unknown) => {
@@ -46,13 +44,12 @@ const unwrapSettled = <T,>(label: string, result: PromiseSettledResult<T>, fallb
   return fallback;
 };
 
-export const requestCollectionLoadBundle = (force = false) => {
-  const key = getCollectionLoadKey();
-  if (!force && collectionLoadInflight?.key === key) {
-    return collectionLoadInflight.promise;
-  }
-
-  const promise = (async (): Promise<CollectionLoadBundle> => {
+export const requestCollectionLoadBundle = (force = false) => (
+  serverStateClient.fetchQuery({
+    key: COLLECTION_WORKBENCH_QUERY_KEY,
+    ttlMs: COLLECTION_CENTER_TTL_MS,
+    force,
+    queryFn: async (): Promise<CollectionLoadBundle> => {
     try {
       return await collectionsService.getWorkbench();
     } catch (error) {
@@ -88,21 +85,6 @@ export const requestCollectionLoadBundle = (force = false) => {
       holds: unwrapSettled('holds', holdResult, [], errors),
       errors,
     };
-  })();
-
-  collectionLoadInflight = { key, promise };
-  promise
-    .finally(() => {
-      window.setTimeout(() => {
-        if (collectionLoadInflight?.key === key && collectionLoadInflight.promise === promise) {
-          collectionLoadInflight = null;
-        }
-      }, 500);
-    })
-    .catch(() => {
-      // The original caller handles the load failure; this only prevents
-      // the cleanup branch from becoming an unhandled browser pageerror.
-    });
-
-  return promise;
-};
+  },
+  })
+);

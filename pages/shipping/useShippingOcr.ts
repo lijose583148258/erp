@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type Dispatch, type SetStateAction } from 'react';
 import type { Customer, Shipment } from '../../types';
 import { shipmentService } from '../../services/shipping.service';
-import { customerService } from '../../services/customer.service';
+import { customerService } from '../../src/services/customer.service';
 import { matchCustomer, OcrDocumentData, parseOcrDocument } from '../../services/smartFormService';
 import { reportClientIssue } from '../../utils/clientIssue';
 

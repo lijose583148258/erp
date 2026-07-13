@@ -37,6 +37,8 @@ model User {
   receivableAdjustmentsCreated ReceivableAdjustment[] @relation("ReceivableAdjustmentCreator")
   receivableAdjustmentsPosted ReceivableAdjustment[] @relation("ReceivableAdjustmentPoster")
   receivableAdjustmentsReversed ReceivableAdjustment[] @relation("ReceivableAdjustmentReverser")
+  purchaseReceiptsReceived PurchaseReceipt[] @relation("PurchaseReceiptReceiver")
+  shipmentReceiptsReceived ShipmentReceipt[] @relation("ShipmentReceiptReceiver")
 
   @@map("users")
 }
@@ -88,6 +90,15 @@ model AuthRolePermission {
   @@unique([roleCode, permissionCode])
   @@index([permissionCode])
   @@map("auth_role_permissions")
+}
+
+model AuthPolicyMigration {
+  id          Int      @id @default(autoincrement())
+  code        String   @unique
+  description String?
+  appliedAt   DateTime @default(now()) @map("applied_at")
+
+  @@map("auth_policy_migrations")
 }
 
 // 客户表

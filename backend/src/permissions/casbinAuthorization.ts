@@ -51,12 +51,17 @@ async function buildEnforcer(): Promise<Enforcer> {
   enforcer.enableAutoSave(false);
 
   try {
-    const rows = (await prisma.$queryRawUnsafe(
-      `SELECT rp.role_code AS roleCode, rp.permission_code AS permissionCode
-       FROM auth_role_permissions rp
-       INNER JOIN auth_roles r ON r.code = rp.role_code
-       WHERE r.is_active = 1`,
-    )) as RolePermissionRow[];
+    const rows = (await prisma.authRolePermission.findMany({
+      where: { role: { isActive: true } },
+      select: {
+        roleCode: true,
+        permissionCode: true,
+      },
+      orderBy: [
+        { roleCode: 'asc' },
+        { permissionCode: 'asc' },
+      ],
+    })) as RolePermissionRow[];
 
     if (rows.length === 0) {
       throw new Error('Dynamic RBAC table has no role permission rows.');

@@ -4,7 +4,7 @@ import { Contract, Customer } from '../types';
 import { FileText, Plus, Search, DollarSign, CheckCircle, Clock, FileUp, Zap, Link as LinkIcon, ShieldCheck } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { contractService } from '../services/contract.service';
-import { customerService } from '../services/customer.service';
+import { customerService } from '../src/services/customer.service';
 import { getCustomerDisplayName } from '../utils/customerName';
 
 const Contracts = () => {

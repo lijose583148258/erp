@@ -206,6 +206,8 @@ function makeRouteReport(route) {
     screenshot: null,
     consoleErrors: [],
     pageErrors: [],
+    cspViolations: [],
+    runtimeStyleElements: [],
     httpFailures: [],
     failedRequests: [],
     error: null,
@@ -236,8 +238,14 @@ async function auditRoute(page, route, state, config, report, timeouts) {
     await page.waitForLoadState('networkidle', { timeout: timeouts.networkIdle }).catch(() => {});
     await page.waitForTimeout(timeouts.settle);
 
-    const bodyText = await page.locator('body').innerText({ timeout: timeouts.route });
-    const expected = route.expected.find((item) => bodyText.includes(item));
+    const expected = await page.waitForFunction(
+      (expectedItems) => {
+        const bodyText = document.body?.innerText || '';
+        return expectedItems.find((item) => bodyText.includes(item)) || '';
+      },
+      route.expected,
+      { timeout: timeouts.route },
+    ).then((handle) => handle.jsonValue()).catch(() => '');
     if (!expected) {
       throw new Error(`missing expected text: ${route.expected.join(' | ')}`);
     }
@@ -309,6 +317,8 @@ async function run() {
     routes: [],
     consoleErrors: [],
     pageErrors: [],
+    cspViolations: [],
+    runtimeStyleElements: [],
     httpFailures: [],
     failedRequests: [],
     cleanup: null,
@@ -367,6 +377,13 @@ async function run() {
     await page.exposeBinding('__ailaoRecordClick', (_source, text) => {
       state.lastClickText = String(text || '').slice(0, 160);
     });
+    await page.exposeBinding('__ailaoRecordCspViolation', (_source, violation) => {
+      report.cspViolations.push({
+        at: new Date().toISOString(),
+        ...violation,
+        pageUrl: page.url(),
+      });
+    });
     await page.addInitScript(() => {
       document.addEventListener('click', (event) => {
         const target = event.target && event.target.closest ? event.target.closest('button,a,[role="button"]') : null;
@@ -378,11 +395,33 @@ async function run() {
           window.__ailaoRecordClick(text.trim());
         }
       }, true);
+      document.addEventListener('securitypolicyviolation', (event) => {
+        if (!window.__ailaoRecordCspViolation) return;
+        window.__ailaoRecordCspViolation({
+          effectiveDirective: event.effectiveDirective,
+          violatedDirective: event.violatedDirective,
+          blockedURI: event.blockedURI,
+          sample: event.sample,
+          sourceFile: event.sourceFile,
+          lineNumber: event.lineNumber,
+          columnNumber: event.columnNumber,
+          disposition: event.disposition,
+        });
+      });
     });
 
     await seedOrLogin(page, config, report, timeouts);
     for (const route of config.routes) {
       await auditRoute(page, route, state, config, report, timeouts);
+    }
+
+    if (report.cspViolations.length || report.consoleErrors.some((entry) => /Content Security Policy/i.test(entry.text))) {
+      report.runtimeStyleElements = await page.locator('style').evaluateAll((elements) => elements.map((element) => ({
+        nonce: element.nonce || element.getAttribute('nonce') || '',
+        media: element.media || '',
+        text: (element.textContent || '').slice(0, 2000),
+        parent: element.parentElement?.tagName || '',
+      }))).catch(() => []);
     }
 
     const blockingRouteFailure = report.routes.some((route) =>

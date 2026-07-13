@@ -3,7 +3,7 @@ import { ArrowUpRight, Beaker, BellRing, ClipboardCheck, FlaskConical, Plus, Shi
 import DataTable, { Column } from '../components/DataTable';
 import { StatusBadge } from '../components/ui/StatusBadge';
 import { useAppContext } from '../app/AppContext';
-import { customerService } from '../services/customer.service';
+import { customerService } from '../src/services/customer.service';
 import { sampleService } from '../services/sample.service';
 import { SampleRecord, SampleStatus } from '../types';
 import { getCustomerDisplayName } from '../utils/customerName';

@@ -97,7 +97,7 @@ const originalWindow = (globalThis as any).window;
 };
 try {
   const safeExternal = canSendToExternalAI('explain how to navigate the dashboard');
-  assert.equal(safeExternal.allowed, true);
+  assert.equal(safeExternal.allowed, false, 'browser-local consent must not override the production build policy');
   assert.equal(safeExternal.sensitive, false);
 
   const sensitiveExternal = canSendToExternalAI('send customer phone and supplier bank account to the model');
