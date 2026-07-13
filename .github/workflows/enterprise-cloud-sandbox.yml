@@ -173,6 +173,7 @@ jobs:
       AUDIT_DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
       AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
       BROWSER_AUDIT_VISIBLE: "0"
+      BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@v4
 
@@ -187,8 +188,8 @@ jobs:
           npm ci
           npm --prefix backend ci
 
-      - name: Install Chromium in cloud runner
-        run: npx playwright install --with-deps chromium
+      - name: Verify cloud runner Chrome
+        run: google-chrome --version
 
       - name: Start dependency topology
         run: |
