@@ -83,6 +83,30 @@ services:
     ports:
       - "9010:9000"
       - "9011:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio-primary:
+        condition: service_healthy
+      minio-secondary:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set primary http://minio-primary:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+        mc alias set secondary http://minio-secondary:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing primary/ailaoda-files
+        mc mb --ignore-existing secondary/ailaoda-files
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
 
   meilisearch-primary:
     image: getmeili/meilisearch:v1.15.2
@@ -180,8 +204,8 @@ services:
         condition: service_healthy
       redis-replica:
         condition: service_started
-      minio-primary:
-        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
       meilisearch-primary:
         condition: service_started
       otel-collector:
