@@ -419,6 +419,7 @@ async function main() {
   } catch (error) {
     report.error = String(error?.message || error);
     markReportFromLaunchError(report, error);
+    console.error(`Unsaved changes browser audit failed: ${report.error}`);
     if (report.status !== 'blocked_env') process.exitCode = 1;
   } finally {
     report.finishedAt = new Date().toISOString();
