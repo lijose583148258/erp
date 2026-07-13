@@ -96,13 +96,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:9000/minio/health/live
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:9010/minio/health/live
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:7700/health
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:7710/health
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:9090/-/ready
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:3001/api/health
-          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:8888/metrics
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:9000/minio/health/live
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:9010/minio/health/live
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:7700/health
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:7710/health
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:9090/-/ready
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:3001/api/health
+          curl --fail --retry 30 --retry-delay 2 --retry-all-errors http://127.0.0.1:8888/metrics
           docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
           docker compose exec -T redis-primary redis-cli ping | grep -Fx PONG
           docker compose exec -T redis-replica redis-cli INFO replication | tr -d '\r' | grep -Fx role:slave
