@@ -116,9 +116,20 @@ jobs:
           docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
           docker compose exec -T redis-primary redis-cli ping | grep -Fx PONG
           docker compose exec -T redis-replica redis-cli INFO replication | tr -d '\r' | grep -Fx role:slave
-          docker compose exec -T sentinel-1 redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK
-          docker compose exec -T sentinel-2 redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK
-          docker compose exec -T sentinel-3 redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK
+          wait_for_sentinel_quorum() {
+            local service="$1"
+            for attempt in {1..30}; do
+              if docker compose exec -T "${service}" redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK; then
+                return 0
+              fi
+              echo "Waiting for Sentinel quorum on ${service} (attempt ${attempt}/30)"
+              sleep 1
+            done
+            return 1
+          }
+          wait_for_sentinel_quorum sentinel-1
+          wait_for_sentinel_quorum sentinel-2
+          wait_for_sentinel_quorum sentinel-3
           node -e 'const fs=require("fs"); fs.writeFileSync("cloud-evidence/runtime-stack.json", JSON.stringify({name:"Enterprise cloud dependency stack",status:"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,dependencies:{postgres:"ready",redisPrimary:"ready",redisReplica:"replicating",sentinelQuorum:3,minioEndpoints:2,meilisearchEndpoints:2,prometheus:"ready",grafana:"ready",otelCollector:"ready"},checkedAt:new Date().toISOString()},null,2)+"\n")'
 
       - name: Capture diagnostics
