@@ -66,7 +66,7 @@ jobs:
     name: Provision and audit enterprise dependencies
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env: &sandbox-env
+    env:
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
       POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
       MINIO_ROOT_USER: ailaoda-sandbox
@@ -145,7 +145,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
-      <<: *sandbox-env
+      COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
+      POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
+      MINIO_ROOT_USER: ailaoda-sandbox
+      MINIO_ROOT_PASSWORD: sandbox-${{ github.run_id }}-minio-secret
+      MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
+      GRAFANA_ADMIN_USER: sandbox-admin
+      GRAFANA_ADMIN_PASSWORD: sandbox-${{ github.run_id }}-grafana
+      JWT_SECRET: sandbox-${{ github.run_id }}-jwt-signing-secret
+      METRICS_BEARER_TOKEN: sandbox-${{ github.run_id }}-metrics-token
+      AILAODA_IMAGE_TAG: ${{ github.run_id }}
       DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
       APP_URL: http://127.0.0.1:5006/
       SECONDARY_APP_URL: http://127.0.0.1:5008/
