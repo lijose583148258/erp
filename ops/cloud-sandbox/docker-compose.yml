@@ -200,6 +200,8 @@ services:
       OTEL_SERVICE_NAME: ailaoda-erp-crm
       AILAODA_METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?required}
       AI_GATEWAY_EXTERNAL_ENABLED: "false"
+      AI_DAILY_TOKEN_BUDGET: "50000"
+      AI_CIRCUIT_FAILURE_THRESHOLD: "5"
       CORS_ORIGIN: http://127.0.0.1:5006,http://localhost:5006,http://127.0.0.1:5008,http://localhost:5008
     ports:
       - "5006:5001"
