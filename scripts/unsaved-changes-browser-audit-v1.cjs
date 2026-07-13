@@ -324,6 +324,7 @@ async function verifyWarehouseForms(page) {
   recordStep('warehouse-create-confirm-close');
 
   const locationOpen = page.locator('[data-testid="warehouse-location-create-open"]');
+  let createdEmptyDatabaseFixture = false;
   if (await locationOpen.count() === 0) {
     await page.locator('[data-testid="warehouse-create-open"]').click();
     await warehouseModal.waitFor({ state: 'visible', timeout: 10000 });
@@ -332,6 +333,7 @@ async function verifyWarehouseForms(page) {
     await page.locator('[data-testid="warehouse-create-confirm"]').click();
     await warehouseModal.waitFor({ state: 'hidden', timeout: 20000 });
     await locationOpen.waitFor({ state: 'visible', timeout: 20000 });
+    createdEmptyDatabaseFixture = true;
     recordStep('warehouse-empty-database-fixture-created');
   }
 
@@ -351,6 +353,16 @@ async function verifyWarehouseForms(page) {
   await locationAcceptDialog;
   await locationModal.waitFor({ state: 'hidden', timeout: 10000 });
   recordStep('warehouse-location-create-confirm-close');
+
+  if (createdEmptyDatabaseFixture) {
+    await locationOpen.click();
+    await locationModal.waitFor({ state: 'visible', timeout: 10000 });
+    await page.locator('[data-testid="warehouse-location-create-code-input"]').fill('LOC-RAW');
+    await page.locator('[data-testid="warehouse-location-create-name-input"]').fill('Raw Material Audit Location');
+    await page.locator('[data-testid="warehouse-location-create-confirm"]').click();
+    await locationModal.waitFor({ state: 'hidden', timeout: 20000 });
+    recordStep('warehouse-empty-database-location-fixture-created');
+  }
 
   await page.locator('[data-testid="warehouse-tab-inbound"]').click();
   await page.locator('[data-testid="warehouse-inbound-product-input"]').fill('UNSAVED-INBOUND-AUDIT');
