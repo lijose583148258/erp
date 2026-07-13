@@ -95,7 +95,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 } catch (error) {
                     const storageError = error instanceof Error ? error.message : '';
                     if (storageError.startsWith('S3_')) {
-                        throw new AppError('RECEIPT_STORAGE_UNAVAILABLE', 503, ErrorCode.SERVICE_UNAVAILABLE);
+                        throw new AppError('RECEIPT_STORAGE_UNAVAILABLE', 503, ErrorCode.INTERNAL_ERROR);
                     }
                     throw new AppError('INVALID_RECEIPT_FILE', 400, ErrorCode.VALIDATION_ERROR);
                 }
