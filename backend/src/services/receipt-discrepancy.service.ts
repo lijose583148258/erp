@@ -1,5 +1,6 @@
 import { buildBusinessNo } from '../utils/businessNo';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
+import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import type { TransactionClient } from './stock-movement.service';
 import type {
   CreateReceiptDiscrepancyActionInput,
@@ -80,7 +81,7 @@ export class ReceiptDiscrepancyService {
       });
     }
 
-    const existing = await tx.$queryRawUnsafe<RawRow[]>(
+    const existing = await queryRawCompat<RawRow[]>(tx, 
       `${CASE_SELECT_SQL} WHERE source_type = ? AND source_ref = ? LIMIT 1`,
       input.sourceType,
       input.sourceRef,
@@ -94,7 +95,7 @@ export class ReceiptDiscrepancyService {
     const resolvedBy = status === 'resolved' ? (input.createdBy ?? null) : null;
     const resolvedAtSql = status === 'resolved' ? 'CURRENT_TIMESTAMP' : 'NULL';
     const resolution = status === 'resolved' ? 'Auto resolved by receipt tolerance rule' : null;
-    await tx.$executeRawUnsafe(
+    await executeRawCompat(tx, 
       `INSERT INTO receipt_discrepancy_cases
         (case_no, source_type, source_ref, source_id, related_module, related_id, business_ref,
          counterparty_type, counterparty_id, counterparty_name, product_name, quantity, unit,
@@ -124,8 +125,8 @@ export class ReceiptDiscrepancyService {
       decision.tolerancePercent,
       decision.toleranceQuantity,
       decision.varianceRate,
-      decision.withinTolerance ? 1 : 0,
-      decision.requiresQualityCheck ? 1 : 0,
+      decision.withinTolerance,
+      decision.requiresQualityCheck,
       input.suggestedAction ?? resolveDefaultSuggestedAction(discrepancyType, input.sourceType),
       resolution,
       input.note ?? null,
@@ -133,7 +134,7 @@ export class ReceiptDiscrepancyService {
       resolvedBy,
     );
 
-    const rows = await tx.$queryRawUnsafe<RawRow[]>(
+    const rows = await queryRawCompat<RawRow[]>(tx, 
       `${CASE_SELECT_SQL} WHERE case_no = ? LIMIT 1`,
       caseNo,
     );
@@ -174,13 +175,13 @@ export class ReceiptDiscrepancyService {
     const offset = (page - 1) * pageSize;
 
     const [items, countRows] = await Promise.all([
-      tx.$queryRawUnsafe<RawRow[]>(
+      queryRawCompat<RawRow[]>(tx, 
         `${RULE_SELECT_SQL}${whereSql} ORDER BY priority ASC, id DESC LIMIT ? OFFSET ?`,
         ...params,
         pageSize,
         offset,
       ),
-      tx.$queryRawUnsafe(
+      queryRawCompat(tx, 
         `SELECT COUNT(*) AS count FROM receipt_tolerance_rules${whereSql}`,
         ...params,
       ) as Promise<Array<{ count: unknown }>>,
@@ -206,7 +207,7 @@ export class ReceiptDiscrepancyService {
     const actionOutsideTolerance = normalizeToleranceAction(input.actionOutsideTolerance, 'manual_review');
     const ruleNo = buildBusinessNo('DTR');
 
-    await tx.$executeRawUnsafe(
+    await executeRawCompat(tx, 
       `INSERT INTO receipt_tolerance_rules
         (rule_no, name, source_type, discrepancy_type, counterparty_type, counterparty_id, product_name,
          quantity_tolerance_percent, quantity_tolerance_abs, action_within_tolerance, action_outside_tolerance,
@@ -226,14 +227,14 @@ export class ReceiptDiscrepancyService {
       actionOutsideTolerance,
       input.severityWithinTolerance || 'low',
       input.severityOutsideTolerance || 'normal',
-      input.requiresQualityCheck ? 1 : 0,
+      Boolean(input.requiresQualityCheck),
       input.status || 'active',
       Number(input.priority || 100),
       input.note || null,
       createdBy ?? null,
     );
 
-    const rows = await tx.$queryRawUnsafe<RawRow[]>(
+    const rows = await queryRawCompat<RawRow[]>(tx, 
       `${RULE_SELECT_SQL} WHERE rule_no = ? LIMIT 1`,
       ruleNo,
     );
@@ -241,7 +242,7 @@ export class ReceiptDiscrepancyService {
   }
 
   static async listActions(tx: TransactionClient, caseId: number) {
-    const rows = await tx.$queryRawUnsafe<RawRow[]>(
+    const rows = await queryRawCompat<RawRow[]>(tx, 
       `${ACTION_SELECT_SQL} WHERE case_id = ? ORDER BY id DESC`,
       Number(caseId),
     );
@@ -249,7 +250,7 @@ export class ReceiptDiscrepancyService {
   }
 
   static async createAction(tx: TransactionClient, caseId: number, input: CreateReceiptDiscrepancyActionInput) {
-    const caseRows = await tx.$queryRawUnsafe<RawRow[]>(
+    const caseRows = await queryRawCompat<RawRow[]>(tx, 
       `${CASE_SELECT_SQL} WHERE id = ? LIMIT 1`,
       Number(caseId),
     );
@@ -263,7 +264,7 @@ export class ReceiptDiscrepancyService {
     let targetRef: string | null = null;
     let postedAtSql = 'NULL';
 
-    const existingRows = await tx.$queryRawUnsafe<RawRow[]>(
+    const existingRows = await queryRawCompat<RawRow[]>(tx, 
       `${ACTION_SELECT_SQL} WHERE case_id = ? AND action_type = ? AND status <> 'cancelled' ORDER BY id DESC LIMIT 1`,
       discrepancyCase.id,
       actionType,
@@ -281,7 +282,7 @@ export class ReceiptDiscrepancyService {
         throw new Error('只有客户签收差异单才能转售后处理。');
       }
 
-      const customerRows = await tx.$queryRawUnsafe(
+      const customerRows = await queryRawCompat(tx, 
         'SELECT id, status FROM customers WHERE id = ? LIMIT 1',
         discrepancyCase.counterpartyId,
       ) as Array<{ id: number; status: string }>;
@@ -293,7 +294,7 @@ export class ReceiptDiscrepancyService {
       }
 
       const rmaNo = buildBusinessNo('RMA');
-      await tx.$executeRawUnsafe(
+      await executeRawCompat(tx, 
         `INSERT INTO rmas
           (rma_no, customer_id, product_name, quantity, unit, reason, status, created_by, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -306,7 +307,7 @@ export class ReceiptDiscrepancyService {
         input.createdBy ?? discrepancyCase.createdBy ?? 1,
       );
 
-      const rmaRows = await tx.$queryRawUnsafe(
+      const rmaRows = await queryRawCompat(tx, 
         'SELECT id, rma_no AS rmaNo FROM rmas WHERE rma_no = ? LIMIT 1',
         rmaNo,
       ) as Array<{ id: number; rmaNo: string }>;
@@ -322,7 +323,7 @@ export class ReceiptDiscrepancyService {
     }
 
     const actionNo = buildBusinessNo('DCA');
-    await tx.$executeRawUnsafe(
+    await executeRawCompat(tx, 
       `INSERT INTO receipt_discrepancy_actions
         (action_no, case_id, action_type, status, source_module, source_ref, target_module, target_id, target_ref,
          quantity, unit, amount, currency, reason_code, disposition_code, note, created_by, approved_by, posted_at,
@@ -348,7 +349,7 @@ export class ReceiptDiscrepancyService {
       status === 'posted' ? (input.createdBy ?? null) : null,
     );
 
-    await tx.$executeRawUnsafe(
+    await executeRawCompat(tx, 
       `UPDATE receipt_discrepancy_cases
        SET action_ref = ?,
            status = CASE WHEN status = 'pending' THEN 'in_review' ELSE status END,
@@ -358,7 +359,7 @@ export class ReceiptDiscrepancyService {
       discrepancyCase.id,
     );
 
-    const rows = await tx.$queryRawUnsafe<RawRow[]>(
+    const rows = await queryRawCompat<RawRow[]>(tx, 
       `${ACTION_SELECT_SQL} WHERE action_no = ? LIMIT 1`,
       actionNo,
     );
@@ -422,13 +423,13 @@ export class ReceiptDiscrepancyService {
     const offset = (page - 1) * pageSize;
 
     const [items, countRows] = await Promise.all([
-      tx.$queryRawUnsafe<RawRow[]>(
+      queryRawCompat<RawRow[]>(tx, 
         `${CASE_SELECT_SQL}${whereSql} ORDER BY id DESC LIMIT ? OFFSET ?`,
         ...params,
         pageSize,
         offset,
       ),
-      tx.$queryRawUnsafe(
+      queryRawCompat(tx, 
         `SELECT COUNT(*) AS count FROM receipt_discrepancy_cases${whereSql}`,
         ...params,
       ) as Promise<Array<{ count: unknown }>>,
@@ -454,7 +455,7 @@ export class ReceiptDiscrepancyService {
       throw new Error(`Invalid status: ${input.status}`);
     }
 
-    const rows = await tx.$queryRawUnsafe<RawRow[]>(
+    const rows = await queryRawCompat<RawRow[]>(tx, 
       `${CASE_SELECT_SQL} WHERE id = ? LIMIT 1`,
       Number(input.id),
     );
@@ -463,7 +464,7 @@ export class ReceiptDiscrepancyService {
     }
 
     const isTerminal = input.status === 'resolved' || input.status === 'cancelled';
-    await tx.$executeRawUnsafe(
+    await executeRawCompat(tx, 
       `UPDATE receipt_discrepancy_cases
        SET status = ?,
            resolution = COALESCE(?, resolution),
@@ -477,13 +478,13 @@ export class ReceiptDiscrepancyService {
       input.resolution ?? null,
       input.actionRef ?? null,
       input.note ?? null,
-      isTerminal ? 1 : 0,
+      isTerminal,
       input.resolvedBy ?? null,
-      isTerminal ? 1 : 0,
+      isTerminal,
       Number(input.id),
     );
 
-    const updated = await tx.$queryRawUnsafe<RawRow[]>(
+    const updated = await queryRawCompat<RawRow[]>(tx, 
       `${CASE_SELECT_SQL} WHERE id = ? LIMIT 1`,
       Number(input.id),
     );

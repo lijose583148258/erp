@@ -1,0 +1,10 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: ailaoda-prometheus
+    type: prometheus
+    access: proxy
+    url: ${AILAODA_PROMETHEUS_URL}
+    isDefault: true
+    editable: false

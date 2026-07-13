@@ -17,6 +17,7 @@
     "moduleResolution": "bundler",
     "isolatedModules": true,
     "moduleDetection": "force",
+    "strict": true,
     "jsx": "react-jsx",
     "paths": {
       "@/*": [
@@ -37,6 +38,7 @@
     "runtime-db",
     "scratchdb",
     "src",
+    "AilaoDa_Stable_Package*",
     "temp_compare_cleanmigration",
     "tempdb",
     "utils/quarantine",

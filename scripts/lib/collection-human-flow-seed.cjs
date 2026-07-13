@@ -1,8 +1,16 @@
+const { ensureUiAuditUser } = require('./ui-audit-user.cjs');
+
 async function loginAdmin(runtime, { admin, stepTimeoutMs }) {
   return runtime.withTimeout('api-login-admin', stepTimeoutMs, async () => {
+    const account = {
+      username: admin.username || 'ui_smoke_admin',
+      password: admin.password || 'AuditSmoke12345!',
+      role: admin.role || 'admin',
+    };
+    await ensureUiAuditUser(account);
     const response = await runtime.apiFetch('/auth/login', {
       method: 'POST',
-      data: admin,
+      data: account,
     });
     runtime.expectStatus(response, [200], 'admin login');
     const data = runtime.dataOf(response);

@@ -1,4 +1,5 @@
 import { logger } from '../utils/logger';
+import { cacheService } from './cache.service';
 
 /**
  * 三国货币服务 (中国 CNY / 越南 VND / 美国 USD)
@@ -29,6 +30,7 @@ export interface MultiCurrencyAmount {
 export class CurrencyService {
     private static _cache: RateCache | null = null;
     private static readonly CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 小时刷新周期
+    private static readonly CACHE_KEY = 'currency:rate-snapshot';
 
     // 默认兜底汇率（BOC 和备用接口均失败时使用）
     private static readonly FALLBACK_RATES: Record<SupportedCurrency, number> = {
@@ -52,6 +54,12 @@ export class CurrencyService {
         const base = this._cache?.rates ?? { ...this.FALLBACK_RATES };
         const merged = { ...base, ...updates } as Record<SupportedCurrency, number>;
         this._cache = { rates: merged, lastUpdated: new Date() };
+        cacheService.setJson(this.CACHE_KEY, {
+            rates: merged,
+            lastUpdated: this._cache.lastUpdated.toISOString(),
+        }, Math.floor(this.CACHE_TTL_MS / 1000)).catch(error => {
+            logger.warn('[CurrencyService] 汇率写入统一缓存失败', error);
+        });
         logger.info(`[CurrencyService] 汇率缓存更新 - USD=${merged.USD?.toFixed(6)}, VND=${merged.VND?.toFixed(2)}, EUR=${merged.EUR?.toFixed(6)}, HKD=${merged.HKD?.toFixed(6)}`);
     }
 
@@ -181,6 +189,31 @@ export class CurrencyService {
         return {
             rates: { ...this.rates },
             lastUpdated: this._cache?.lastUpdated ?? null,
+        };
+    }
+
+    static async getRateSnapshotCached(): Promise<{ rates: Record<SupportedCurrency, number>; lastUpdated: Date | null; cache: ReturnType<typeof cacheService.status> }> {
+        const cached = await cacheService.getJson<{ rates: Record<SupportedCurrency, number>; lastUpdated: string | null }>(this.CACHE_KEY);
+        if (cached?.rates) {
+            this._cache = {
+                rates: { ...this.FALLBACK_RATES, ...cached.rates },
+                lastUpdated: cached.lastUpdated ? new Date(cached.lastUpdated) : new Date(),
+            };
+            return {
+                rates: { ...this._cache.rates },
+                lastUpdated: this._cache.lastUpdated,
+                cache: cacheService.status(),
+            };
+        }
+
+        const snapshot = this.getRateSnapshot();
+        await cacheService.setJson(this.CACHE_KEY, {
+            rates: snapshot.rates,
+            lastUpdated: snapshot.lastUpdated?.toISOString() || null,
+        }, Math.floor(this.CACHE_TTL_MS / 1000));
+        return {
+            ...snapshot,
+            cache: cacheService.status(),
         };
     }
 

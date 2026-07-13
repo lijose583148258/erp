@@ -15,3 +15,4 @@ export * from './inventory';
 export * from './procurement';
 export * from './barter';
 export * from './receivable-adjustment';
+export * from './ai';

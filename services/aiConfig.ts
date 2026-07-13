@@ -1,4 +1,4 @@
-import { canSendToExternalAI } from './aiSecurity';
+import { canSendToExternalAI, isBrowserExternalAIPolicyEnabled } from './aiSecurity';
 import { reportClientIssue } from '../utils/clientIssue';
 
 export type AIModelType = 'local' | 'ollama' | 'deepseek' | 'groq' | 'openrouter' | 'custom';
@@ -100,7 +100,23 @@ export const isLocalAIEndpoint = (endpoint?: string): boolean => {
 export const getAIConfig = (): AIConfigState => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) return { ...defaultState, ...JSON.parse(stored) };
+    if (stored) {
+      const parsed = { ...defaultState, ...JSON.parse(stored) } as AIConfigState;
+      if (!isBrowserExternalAIPolicyEnabled()) {
+        const configs = Object.fromEntries(Object.entries(parsed.configs).map(([type, config]) => {
+          const { apiKey: _discardedApiKey, ...safeConfig } = config || {};
+          return [type, safeConfig];
+        })) as AIConfigState['configs'];
+        const selectedModel = parsed.selectedModel === 'local' || parsed.selectedModel === 'ollama'
+          ? parsed.selectedModel
+          : 'local';
+        const sanitized = { ...parsed, selectedModel, configs };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+        localStorage.setItem('ailao.ai.externalEnabled', 'false');
+        return sanitized;
+      }
+      return parsed;
+    }
   } catch (error) {
     reportClientIssue('ai-config-load', error, 'warning');
   }
@@ -134,12 +150,15 @@ export const setCurrentModel = (type: AIModelType): void => {
 };
 
 export const updateModelConfig = (type: AIModelType, config: Partial<AIModelConfig>): void => {
+  const safeConfig = !isBrowserExternalAIPolicyEnabled() && type !== 'ollama'
+    ? { ...config, apiKey: undefined }
+    : config;
   const current = getAIConfig();
   saveAIConfig({
     ...current,
     configs: {
       ...current.configs,
-      [type]: { ...current.configs[type], ...config },
+      [type]: { ...current.configs[type], ...safeConfig },
     },
   });
 };

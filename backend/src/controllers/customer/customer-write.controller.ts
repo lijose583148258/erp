@@ -5,6 +5,7 @@ import { AuthRequest } from '../../middleware/auth';
 import { ApiResponse } from '../../types/api.types';
 import { logger } from '../../utils/logger';
 import { withDbRetry } from '../../utils/dbRetry';
+import { SearchIndexService } from '../../services/search-index.service';
 import { getPrimaryCustomerAddress } from '../../utils/customerAddressV2';
 import {
   canCreateCustomer,
@@ -142,6 +143,7 @@ export async function createCustomer(req: AuthRequest, res: Response) {
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
       });
+      SearchIndexService.scheduleCustomerSync(created.id);
 
       return res.status(201).json({
         success: true,
@@ -288,6 +290,7 @@ export async function updateCustomer(req: AuthRequest, res: Response) {
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
       });
+      SearchIndexService.scheduleCustomerSync(updated.id);
 
       const statsMap = await loadOrderStats([updated.id]);
 
@@ -354,6 +357,7 @@ export async function deleteCustomer(req: AuthRequest, res: Response) {
         ipAddress: req.ip,
         userAgent: req.get('user-agent'),
       });
+      SearchIndexService.scheduleCustomerSync(updated.id);
 
       return res.json({
         success: true,

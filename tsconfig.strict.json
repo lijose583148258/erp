@@ -1,0 +1,30 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noEmit": true
+  },
+  "include": [
+    "app/serverState.ts",
+    "app/clientState.ts",
+    "components/ErrorBoundary.tsx",
+    "components/PageErrorBoundary.tsx",
+    "components/ui/EnterpriseDataGrid.tsx",
+    "services/realtime.service.ts",
+    "shared/api-contract.ts",
+    "sdk/ailaoda-api-client.ts"
+  ],
+  "exclude": [
+    "backend",
+    "node_modules",
+    "dist",
+    ".vite-cache",
+    "backups",
+    "logs",
+    "output"
+  ]
+}

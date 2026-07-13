@@ -8,7 +8,7 @@ const purchaseStatusSchema = z.enum(['pending', 'approved', 'in_transit', 'recei
 
 export const querySchema = z.object({
   page: z.coerce.number().int().positive().optional(),
-  pageSize: z.coerce.number().int().positive().max(1000).optional(),
+  pageSize: z.coerce.number().int().positive().max(100).optional(),
   search: z.string().trim().optional(),
   status: z.string().trim().optional(),
   riskLevel: riskLevelSchema.optional(),

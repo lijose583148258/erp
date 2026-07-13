@@ -148,9 +148,9 @@ export const assertRuntimeDeploymentPolicy = () => {
 };
 
 export const getAllowedOrigins = () => {
-  const stableOrigins = [
-    'http://127.0.0.1:5001',
-    'http://localhost:5001',
+  const runtimeOrigins = [
+    `http://127.0.0.1:${runtime.port}`,
+    `http://localhost:${runtime.port}`,
   ];
   const devOrigins = [
     'http://localhost:3000',
@@ -159,8 +159,11 @@ export const getAllowedOrigins = () => {
   const allowDevOrigins = runtime.nodeEnv !== 'production'
     || ['1', 'true', 'yes'].includes(String(process.env.AILAODA_ALLOW_DEV_ORIGINS || '').toLowerCase());
 
-  if (runtime.corsOrigins.length > 0) return runtime.corsOrigins;
-  return Array.from(new Set([...stableOrigins, ...(allowDevOrigins ? devOrigins : [])]));
+  return Array.from(new Set([
+    ...runtimeOrigins,
+    ...runtime.corsOrigins,
+    ...(allowDevOrigins ? devOrigins : []),
+  ]));
 };
 
 export const getBackupDir = () => runtime.backupDir;

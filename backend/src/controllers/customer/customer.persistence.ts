@@ -11,7 +11,6 @@ type CustomerOrderStatSource = Parameters<typeof buildOrderStats>[0][number];
 type CustomerOrderStatRow = CustomerOrderStatSource & { customerId: number };
 type CustomerAddressesInput = Parameters<typeof serializeCustomerAddresses>[0];
 
-let customerContactsColumnReady: Promise<void> | null = null;
 const CUSTOMER_RELATION_QUERY_CHUNK_SIZE = 250;
 
 function getValidCustomerIds(customerIds: number[]) {
@@ -134,23 +133,6 @@ export async function loadOrderStats(customerIds: number[]) {
   return statsMap;
 }
 
-async function ensureCustomerContactsColumn() {
-  if (!customerContactsColumnReady) {
-    customerContactsColumnReady = (async () => {
-      const columns = await prisma.$queryRawUnsafe<Array<{ name: string }>>('PRAGMA table_info(customers)');
-      const hasContactsJson = columns.some(column => String(column.name).toLowerCase() === 'contacts_json');
-      if (!hasContactsJson) {
-        await prisma.$executeRawUnsafe('ALTER TABLE customers ADD COLUMN contacts_json TEXT');
-      }
-    })().catch((error) => {
-      customerContactsColumnReady = null;
-      throw error;
-    });
-  }
-
-  await customerContactsColumnReady;
-}
-
 export async function loadCustomerAddressMap(customerIds: number[]) {
   const chunks = chunkCustomerIds(customerIds);
   if (chunks.length === 0) {
@@ -176,11 +158,10 @@ export async function loadCustomerAddressMap(customerIds: number[]) {
 }
 
 export async function persistCustomerAddresses(tx: Prisma.TransactionClient, customerId: number, addresses: CustomerAddressesInput) {
-  await tx.$executeRawUnsafe(
-    'UPDATE customers SET addresses_json = ? WHERE id = ?',
-    serializeCustomerAddresses(addresses),
-    customerId,
-  );
+  await tx.customer.update({
+    where: { id: customerId },
+    data: { addressesJson: serializeCustomerAddresses(addresses) },
+  });
 }
 
 export async function loadCustomerContactMap(customerIds: number[]) {
@@ -188,8 +169,6 @@ export async function loadCustomerContactMap(customerIds: number[]) {
   if (chunks.length === 0) {
     return new Map<number, { contactsJson: string | null }>();
   }
-
-  await ensureCustomerContactsColumn();
 
   const rows: Array<{ id: number; contactsJson: string | null }> = [];
   for (const ids of chunks) {
@@ -209,10 +188,8 @@ export async function loadCustomerContactMap(customerIds: number[]) {
 }
 
 export async function persistCustomerContacts(tx: Prisma.TransactionClient, customerId: number, contacts: unknown) {
-  await ensureCustomerContactsColumn();
-  await tx.$executeRawUnsafe(
-    'UPDATE customers SET contacts_json = ? WHERE id = ?',
-    serializeCustomerContacts(contacts),
-    customerId,
-  );
+  await tx.customer.update({
+    where: { id: customerId },
+    data: { contactsJson: serializeCustomerContacts(contacts) },
+  });
 }

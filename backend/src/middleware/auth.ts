@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction, RequestHandler } from 'express';
 import { verifyToken } from '../utils/jwt';
-import { isTokenBlacklisted } from '../services/auth-token-store.service';
+import { AuthTokenStoreUnavailableError, isTokenBlacklisted } from '../services/auth-token-store.service';
 import { logger } from '../utils/logger';
 import { DataScope, Permission } from '../permissions/permissionRegistry';
 import { casbinAllowsAllPermissions } from '../permissions/casbinAuthorization';
@@ -15,6 +15,7 @@ export interface AuthRequest extends Request {
     role: string;
     segment?: 'direct' | 'channel' | 'mixed';
     dataScopes?: DataScope[];
+    mustChangePassword?: boolean;
   };
 }
 
@@ -28,6 +29,20 @@ export const authRoute = (handler: AuthRouteHandler): RequestHandler =>
   (req: Request, res: Response, next: NextFunction) => {
     Promise.resolve(handler(req as AuthRequest, res, next)).catch(next);
   };
+
+const passwordChangeAllowedRoutes = new Set([
+  'GET /api/auth/me',
+  'GET /api/v1/auth/me',
+  'POST /api/auth/logout',
+  'POST /api/v1/auth/logout',
+  'PUT /api/auth/password',
+  'PUT /api/v1/auth/password',
+]);
+
+export const isPasswordChangeRequiredAllowedRoute = (method: string, originalUrl: string) => {
+  const pathname = originalUrl.split('?')[0].replace(/\/+$/, '') || '/';
+  return passwordChangeAllowedRoutes.has(`${method.toUpperCase()} ${pathname}`);
+};
 
 /**
  * JWT 认证中间件（含 Token 黑名单检查）
@@ -52,7 +67,7 @@ export const authenticate = async (
     }
 
     // C3修复：检查 Token 是否已被加入黑名单（登出/密码修改后失效）
-    if (isTokenBlacklisted(token)) {
+    if (await isTokenBlacklisted(token)) {
       return res.status(401).json({
         success: false,
         message: '认证令牌已失效，请重新登录',
@@ -69,6 +84,7 @@ export const authenticate = async (
         segment: true,
         isActive: true,
         updatedAt: true,
+        mustChangePassword: true,
       },
     });
 
@@ -102,10 +118,31 @@ export const authenticate = async (
       role: currentUser.role,
       segment,
       dataScopes: await getDataScopesForRole(currentUser.role),
+      mustChangePassword: currentUser.mustChangePassword,
     };
+
+    if (
+      currentUser.mustChangePassword
+      && !isPasswordChangeRequiredAllowedRoute(req.method, req.originalUrl || req.url)
+    ) {
+      return res.status(423).json({
+        success: false,
+        message: 'Please change the initial password before accessing business APIs.',
+        errorCode: 'PASSWORD_CHANGE_REQUIRED',
+        timestamp: new Date().toISOString(),
+      });
+    }
 
     next();
   } catch (error) {
+    if (error instanceof AuthTokenStoreUnavailableError) {
+      logger.error('认证令牌仓库不可用:', error);
+      return res.status(503).json({
+        success: false,
+        message: '认证服务暂时不可用，请稍后重试',
+        errorCode: 'AUTH_TOKEN_STORE_UNAVAILABLE',
+      });
+    }
     logger.error('认证失败:', error);
     return res.status(401).json({
       success: false,

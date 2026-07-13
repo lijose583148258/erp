@@ -1,0 +1,8 @@
+interface:
+  display_name: "ERP Timer Judge"
+  short_description: "Timeouts and stuck verdicts"
+  default_prompt: "Use $erp-timer-judge to execute this role with strict timeboxes, evidence capture, and minimal-risk fixes."
+
+policy:
+  allow_implicit_invocation: true
+

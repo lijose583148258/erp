@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '/');
 const REQUEST_TIMEOUT_MS = Number(process.env.AUDIT_REQUEST_TIMEOUT_MS || 10000);
@@ -83,7 +84,12 @@ async function login(username, password) {
 
 async function run() {
   try {
-    const admin = await login('admin', 'admin123');
+    const account = await ensureUiAuditUser({
+      username: process.env.AUDIT_UI_USERNAME || 'ui_backup_restore_admin',
+      password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
+      role: 'admin',
+    });
+    const admin = await login(account.username, account.password);
     recordStep({ step: 'login-admin', result: 'passed', userId: admin.user.id });
 
     const statusBefore = await apiFetch('/system/status', {}, admin.token);
@@ -186,7 +192,7 @@ async function run() {
     };
     recordStep({ step: 'get-system-status-after', result: 'passed', databaseExists: dbAfter.databaseExists });
 
-    const loginAfterRestore = await login('admin', 'admin123');
+    const loginAfterRestore = await login(account.username, account.password);
     recordStep({ step: 'verify-login-after-restore', result: 'passed', userId: loginAfterRestore.user.id });
 
     report.status = 'passed';

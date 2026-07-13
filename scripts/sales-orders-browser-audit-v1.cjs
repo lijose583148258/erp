@@ -22,7 +22,13 @@ const TIMEOUTS = {
 };
 
 const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const AUDIT_ACCOUNT = {
+  username: process.env.AUDIT_SALES_ORDERS_USERNAME || 'sales_orders_browser_admin',
+  password: process.env.AUDIT_SALES_ORDERS_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 const TEST_DATA = {
+  customerName: `SO-AUDIT-CUST-${runId}`,
   productName: `SO-AUDIT-PROD-${runId}`,
   packaging: `BOX-${runId.slice(-4)}`,
   quantity: 5,
@@ -74,7 +80,13 @@ async function withTimebox(page, step, timeout, task) {
       result: 'failed',
       durationMs: Date.now() - started,
       error: String(error.message || error),
-      screenshot,
+    screenshot,
+      pageHash: await page.evaluate(() => window.location.hash).catch(() => ''),
+      lastClickText: report.lastClickText || null,
+      lastApiRequestUrl: report.lastApiRequestUrl || null,
+      lastApiResponseUrl: report.lastApiResponseUrl || null,
+      lastApiResponseStatus: report.lastApiResponseStatus || null,
+      consoleErrors: report.consoleErrors || [],
     });
     throw error;
   }
@@ -83,6 +95,7 @@ async function withTimebox(page, step, timeout, task) {
 async function seedLoginState(page) {
   return withTimebox(page, 'seed-login-state', TIMEOUTS.login, async () => {
     const { token, user } = await loginUiAuditUser(page, APP_URL, {
+      account: AUDIT_ACCOUNT,
       defaultStorage: {
         'ailao.activeTab': 'orders',
         'ailao.language': 'zh',
@@ -119,7 +132,7 @@ async function seedLoginState(page) {
 
 async function apiFetch(page, endpoint, options = {}) {
   const method = options.method || 'GET';
-  const response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+  let response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
     ...options,
     method,
     headers: {
@@ -128,6 +141,18 @@ async function apiFetch(page, endpoint, options = {}) {
       ...(options.headers || {}),
     },
   });
+  if (response.status() === 401) {
+    await seedLoginState(page);
+    response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
+      ...options,
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        ...(options.headers || {}),
+      },
+    });
+  }
   const text = await response.text();
   let json = null;
   try {
@@ -136,6 +161,66 @@ async function apiFetch(page, endpoint, options = {}) {
     json = { raw: text };
   }
   return { ok: response.ok(), status: response.status(), json };
+}
+
+async function seedAuditCustomer(page) {
+  return withTimebox(page, 'seed-sales-order-customer', TIMEOUTS.api, async () => {
+    const payload = {
+      name: TEST_DATA.customerName,
+      nameZh: TEST_DATA.customerName,
+      creditLimit: 100000,
+      usedCredit: 0,
+      termsDays: 30,
+      riskLevel: 'low',
+      segment: 'direct',
+      poolState: 'internal',
+      contacts: [],
+      addresses: [],
+      status: 'active',
+    };
+    const response = await apiFetch(page, '/customers', { method: 'POST', data: payload });
+    if (!response.ok) {
+      throw new Error(`seed customer failed: ${response.status} ${JSON.stringify(response.json || {})}`);
+    }
+    const customer = response.json?.data;
+    if (!customer?.id) throw new Error('seed customer response missing id');
+    report.seedCustomer = {
+      id: String(customer.id),
+      label: customer.displayName || customer.nameZh || customer.name || TEST_DATA.customerName,
+    };
+    return report.seedCustomer;
+  });
+}
+
+async function clickAndRemember(locator, fallbackText = '') {
+  report.lastClickText = fallbackText || (await locator.innerText().catch(() => ''));
+  await locator.click();
+}
+
+async function waitForInputValue(locator, expected, label) {
+  for (let attempt = 0; attempt < 30; attempt += 1) {
+    const actual = await locator.inputValue().catch(() => '');
+    if (String(actual) === String(expected)) return;
+    await locator.page().waitForTimeout(100);
+  }
+  const actual = await locator.inputValue().catch(() => '');
+  throw new Error(`${label} did not settle: expected ${expected}, got ${actual}`);
+}
+
+async function waitForModalClosedOrSaveError(page, modal) {
+  const started = Date.now();
+  const errorSummary = modal.locator('[data-testid="sales-order-line-error-summary"]').first();
+  const lineError = modal.locator('[data-testid="sales-order-line-0-errors"]').first();
+  while (Date.now() - started < TIMEOUTS.save) {
+    if (!(await modal.isVisible().catch(() => false))) return;
+    if (await errorSummary.isVisible().catch(() => false)) {
+      const summary = await errorSummary.innerText().catch(() => '');
+      const line = await lineError.innerText().catch(() => '');
+      throw new Error(`sales order save blocked by validation: ${summary} ${line}`.trim());
+    }
+    await page.waitForTimeout(300);
+  }
+  throw new Error('sales order editor did not close after save');
 }
 
 function assertNoMojibake(text, scopeName) {
@@ -229,6 +314,24 @@ async function selectFirstRealOption(selectLocator) {
   throw new Error('no selectable option found');
 }
 
+async function selectSeedCustomer(selectLocator) {
+  const seed = report.seedCustomer;
+  if (!seed?.id) {
+    return selectFirstRealOption(selectLocator);
+  }
+
+  await selectLocator.fill(seed.label || TEST_DATA.customerName);
+  await selectLocator.click();
+  const option = selectLocator.page().locator(`[data-testid="sales-order-customer-option-${seed.id}"]`);
+  await option.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
+  const label = (await option.innerText()).trim();
+  await option.click();
+  if (await selectLocator.getAttribute('aria-expanded') !== 'false') {
+    throw new Error('seed customer combobox did not close after selection');
+  }
+  return { value: seed.id, label };
+}
+
 function extractMarker(rowText) {
   const line = String(rowText || '').split('\n').find(Boolean) || '';
   const hashMatch = line.match(/#\d+/);
@@ -256,7 +359,7 @@ async function createOrder(page) {
     const beforeFirstRow = await readFirstOrderRowSnapshot(page);
     const createButton = page.locator('[data-testid="sales-order-create-button"]').first();
     if (!(await createButton.count())) throw new Error('new order button not found');
-    await createButton.click();
+    await clickAndRemember(createButton, 'new sales order');
 
     const modal = page.locator('[data-testid="sales-order-editor-modal"]').first();
     await modal.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
@@ -266,7 +369,7 @@ async function createOrder(page) {
     }
 
     const customerSelect = modal.locator('[data-testid="sales-order-customer-select"]').first();
-    const selectedCustomer = await selectFirstRealOption(customerSelect);
+    const selectedCustomer = await selectSeedCustomer(customerSelect);
     report.selectedCustomer = selectedCustomer;
 
     const saveButton = modal.locator('[data-testid="sales-order-save-button"]').first();
@@ -277,7 +380,7 @@ async function createOrder(page) {
     if (await notes.getAttribute('aria-invalid') !== 'true') {
       throw new Error('order notes did not expose the over-limit state');
     }
-    await saveButton.click();
+    await clickAndRemember(saveButton, 'save sales order with over-limit notes');
     if (!(await modal.isVisible())) throw new Error('over-limit order notes did not block save');
     await notes.fill('');
     recordStep({
@@ -286,7 +389,7 @@ async function createOrder(page) {
       evidence: '1001/1000 characters blocked before save',
     });
 
-    await saveButton.click();
+    await clickAndRemember(saveButton, 'save sales order with incomplete line');
     const errorSummary = modal.locator('[data-testid="sales-order-line-error-summary"]').first();
     await errorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
     const lineError = modal.locator('[data-testid="sales-order-line-0-errors"]').first();
@@ -302,16 +405,30 @@ async function createOrder(page) {
       evidence: validationText,
     });
 
-    await modal.locator('[data-testid="sales-order-line-0-product"]').fill(TEST_DATA.productName);
-    await modal.locator('[data-testid="sales-order-line-0-packaging"]').fill(TEST_DATA.packaging);
-    await modal.locator('[data-testid="sales-order-line-0-quantity"]').fill(String(TEST_DATA.quantity));
-    await modal.locator('[data-testid="sales-order-line-0-unit"]').fill(TEST_DATA.unit);
-    await modal.locator('[data-testid="sales-order-line-0-unit-price"]').fill(String(TEST_DATA.unitPrice));
-    await modal.locator('[data-testid="sales-order-line-0-discount"]').fill('0');
-    await modal.locator('[data-testid="sales-order-line-0-tax"]').fill(String(TEST_DATA.taxAmount));
+    const productInput = modal.locator('[data-testid="sales-order-line-0-product"]');
+    const packagingInput = modal.locator('[data-testid="sales-order-line-0-packaging"]');
+    const quantityInput = modal.locator('[data-testid="sales-order-line-0-quantity"]');
+    const unitInput = modal.locator('[data-testid="sales-order-line-0-unit"]');
+    const priceInput = modal.locator('[data-testid="sales-order-line-0-unit-price"]');
+    const discountInput = modal.locator('[data-testid="sales-order-line-0-discount"]');
+    const taxInput = modal.locator('[data-testid="sales-order-line-0-tax"]');
+    await productInput.fill(TEST_DATA.productName);
+    await packagingInput.fill(TEST_DATA.packaging);
+    await quantityInput.fill(String(TEST_DATA.quantity));
+    await unitInput.fill(TEST_DATA.unit);
+    await priceInput.fill(String(TEST_DATA.unitPrice));
+    await discountInput.fill('0');
+    await taxInput.fill(String(TEST_DATA.taxAmount));
+    await waitForInputValue(productInput, TEST_DATA.productName, 'product input');
+    await waitForInputValue(packagingInput, TEST_DATA.packaging, 'packaging input');
+    await waitForInputValue(quantityInput, String(TEST_DATA.quantity), 'quantity input');
+    await waitForInputValue(unitInput, TEST_DATA.unit, 'unit input');
+    await waitForInputValue(priceInput, String(TEST_DATA.unitPrice), 'unit price input');
+    await waitForInputValue(discountInput, '0', 'discount input');
+    await waitForInputValue(taxInput, String(TEST_DATA.taxAmount), 'tax input');
 
-    await saveButton.click();
-    await modal.waitFor({ state: 'hidden', timeout: TIMEOUTS.save });
+    await clickAndRemember(saveButton, 'save completed sales order');
+    await waitForModalClosedOrSaveError(page, modal);
 
     for (let attempt = 0; attempt < 20; attempt += 1) {
       const afterFirstRow = await readFirstOrderRowSnapshot(page);
@@ -573,7 +690,28 @@ async function main() {
     browser = launched.browser;
     report.launcher = launched.launcher;
     page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
+    report.consoleErrors = [];
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        report.consoleErrors.push(message.text());
+      }
+    });
+    page.on('request', (request) => {
+      if (request.url().includes('/api/')) report.lastApiRequestUrl = request.url();
+    });
+    page.on('response', (response) => {
+      if (response.url().includes('/api/')) {
+        report.lastApiResponseUrl = response.url();
+        report.lastApiResponseStatus = response.status();
+        if (response.status() >= 400) {
+          response.text()
+            .then((text) => { report.lastApiResponseBody = text.slice(0, 1000); })
+            .catch(() => {});
+        }
+      }
+    });
     await seedLoginState(page);
+    await seedAuditCustomer(page);
     await openOrders(page);
     await createOrder(page);
     const created = await findCreatedOrderByApi(page);

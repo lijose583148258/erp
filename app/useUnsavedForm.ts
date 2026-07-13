@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAppContext } from './AppContext';
 
 type Options<T> = {
@@ -6,19 +6,35 @@ type Options<T> = {
   label: string;
   open: boolean;
   value: T;
+  enabled?: boolean;
+  touched?: boolean;
   resetKey?: string | number | null;
 };
 
-export const useUnsavedForm = <T,>({ sourceId, label, open, value, resetKey = null }: Options<T>) => {
+export const useUnsavedForm = <T,>({
+  sourceId,
+  label,
+  open,
+  value,
+  enabled = true,
+  touched = true,
+  resetKey = null,
+}: Options<T>) => {
   const { registerUnsavedChanges, confirmDiscardChanges } = useAppContext();
   const snapshot = useMemo(() => JSON.stringify(value), [value]);
+  const snapshotRef = useRef(snapshot);
   const [baseline, setBaseline] = useState<string | null>(null);
+  const isEnabled = open && enabled;
 
   useEffect(() => {
-    setBaseline(open ? snapshot : null);
-  }, [open, resetKey]);
+    snapshotRef.current = snapshot;
+  }, [snapshot]);
 
-  const dirty = open && baseline !== null && snapshot !== baseline;
+  useEffect(() => {
+    setBaseline(isEnabled ? snapshotRef.current : null);
+  }, [isEnabled, resetKey]);
+
+  const dirty = isEnabled && touched && baseline !== null && snapshot !== baseline;
 
   useEffect(() => {
     registerUnsavedChanges(sourceId, label, dirty);

@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP Codebase Scout"
+  short_description: "Read-only ERP route and script reconnaissance."
+  default_prompt: "Use $erp-codebase-scout to map ERP/CRM routes, components, scripts, and audit evidence before editing."

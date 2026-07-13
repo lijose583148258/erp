@@ -173,7 +173,7 @@ export function ProductionWorkOrderSection({
           ))}
         </div>
         <div className="flex flex-wrap gap-3">
-          <button data-testid="production-work-order-create" onClick={handleCreateWorkOrder} disabled={loading || workOrderSaving} aria-busy={workOrderSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">{workOrderSaving ? '创建中...' : '创建工单'}</button>
+          <button data-testid="production-work-order-save" onClick={handleCreateWorkOrder} disabled={loading || workOrderSaving} aria-busy={workOrderSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">{workOrderSaving ? '保存中...' : '创建工单'}</button>
           <button onClick={() => void loadData()} className="px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 rounded-[24px] font-black text-xs uppercase tracking-widest active-shrink flex items-center gap-2"><RefreshCcw size={14} />刷新</button>
         </div>
       </div>
@@ -305,7 +305,7 @@ export function ProductionWorkOrderSection({
                 />
                 <TextareaField dataTestId="production-quality-note" label="" value={qcNote} onChange={setQcNote} placeholder="质检备注" />
                 <div className="flex flex-wrap gap-3">
-                  <button data-testid="production-quality-save" onClick={handleCreateQc} disabled={qualitySaving} aria-busy={qualitySaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{qualitySaving ? '保存中...' : '保存质检'}</button>
+                  <button data-testid="production-qc-save" onClick={handleCreateQc} disabled={qualitySaving} aria-busy={qualitySaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{qualitySaving ? '保存中...' : '保存质检'}</button>
                   <button onClick={() => void handleWorkOrderStatus('qc_pending')} className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">标记待质检</button>
                   <button onClick={() => void handleWorkOrderStatus('completed')} className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest">直接完工</button>
                 </div>

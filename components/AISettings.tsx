@@ -13,7 +13,7 @@ import {
     testAIConnection,
     isLocalAIEndpoint
 } from '../services/aiConfig';
-import { isExternalAIEnabled, setExternalAIEnabled } from '../services/aiSecurity';
+import { isBrowserExternalAIPolicyEnabled, isExternalAIEnabled, setExternalAIEnabled } from '../services/aiSecurity';
 
 interface AISettingsProps {
     isOpen: boolean;
@@ -35,6 +35,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
     const [externalEnabled, setExternalEnabled] = useState(false);
     const [isTesting, setIsTesting] = useState(false);
     const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+    const browserExternalAllowed = isBrowserExternalAIPolicyEnabled();
 
     // 加载当前配置
     useEffect(() => {
@@ -153,6 +154,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
                                     <input
                                         type="checkbox"
                                         checked={externalEnabled}
+                                        disabled={!browserExternalAllowed}
                                         onChange={(e) => setExternalEnabled(e.target.checked)}
                                         className="h-5 w-5 accent-blue-600"
                                     />
@@ -160,7 +162,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
                             </div>
 
                             {/* API Key */}
-                            {selectedModel !== 'ollama' && (
+                            {selectedModel !== 'ollama' && browserExternalAllowed && (
                                 <div>
                                     <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest ml-2 mb-1 block">
                                         {t.apiKey}

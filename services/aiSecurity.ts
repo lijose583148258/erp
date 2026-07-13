@@ -19,6 +19,15 @@ export interface AISafetyDecision {
 
 export const AI_EXTERNAL_ENABLED_KEY = 'ailao.ai.externalEnabled';
 
+export const isBrowserExternalAIPolicyEnabled = (): boolean => {
+  try {
+    const env = (import.meta as ImportMeta & { env?: Record<string, string | boolean | undefined> }).env;
+    return String(env?.VITE_AILAODA_ALLOW_BROWSER_EXTERNAL_AI || '').toLowerCase() === 'true';
+  } catch {
+    return false;
+  }
+};
+
 const normalizeForSafety = (value: string): string =>
   value
     .normalize('NFKD')
@@ -220,6 +229,7 @@ const DANGEROUS_CONTEXT_KEYS = new Set([
 ]);
 
 export const isExternalAIEnabled = (): boolean => {
+  if (!isBrowserExternalAIPolicyEnabled()) return false;
   try {
     return window.localStorage.getItem(AI_EXTERNAL_ENABLED_KEY) === 'true';
   } catch {
@@ -229,7 +239,7 @@ export const isExternalAIEnabled = (): boolean => {
 
 export const setExternalAIEnabled = (enabled: boolean): void => {
   try {
-    window.localStorage.setItem(AI_EXTERNAL_ENABLED_KEY, enabled ? 'true' : 'false');
+    window.localStorage.setItem(AI_EXTERNAL_ENABLED_KEY, enabled && isBrowserExternalAIPolicyEnabled() ? 'true' : 'false');
   } catch {
     // Keep local-only mode if storage is unavailable.
   }

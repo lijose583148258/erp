@@ -1,5 +1,5 @@
 ﻿import React from 'react';
-import { ArrowRightLeft, Camera, ClipboardList, Image as ImageIcon, Truck } from 'lucide-react';
+import { ArrowRightLeft, Image as ImageIcon } from 'lucide-react';
 import { Column } from '../../components/DataTable';
 import { Shipment } from '../../types';
 
@@ -16,9 +16,6 @@ const getMsdsMeta = (row: Shipment, t: Record<string, string>) => {
 
 export const buildShipmentColumns = (
     t: Record<string, string>,
-    onUploadReceipt: (id: string) => void,
-    onUpdateStatus: (id: string, status: 'in_transit' | 'exception') => void,
-    onOpenReceiptEvents: (shipment: Shipment) => void,
     canWrite: boolean,
 ): Column<Shipment>[] => [
     {
@@ -107,20 +104,6 @@ export const buildShipmentColumns = (
                 >
                     {row.status === 'delivered' ? t.delivered : row.status === 'in_transit' ? t.activeTransit : row.status === 'pending' ? t.dispatchPending : (t.exception || '异常')}
                 </span>
-                {row.status === 'pending' && canWrite && (
-                    <button
-                        type="button"
-                        data-testid={`shipment-dispatch-${row.id}`}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onUpdateStatus(row.id, 'in_transit');
-                        }}
-                        className="inline-flex items-center justify-center rounded-xl bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-600 border border-blue-100 hover:bg-blue-100 transition-all"
-                    >
-                        <Truck size={12} className="mr-1" />
-                        {t.arrangeDispatch || '发运'}
-                    </button>
-                )}
             </div>
         )
     },
@@ -145,24 +128,13 @@ export const buildShipmentColumns = (
                         <span className="text-xs font-bold">{t.viewReceipt}</span>
                     </a>
                 ) : canWrite ? (
-                    <button data-testid={`shipment-receipt-button-${row.id}`} onClick={(e) => { e.stopPropagation(); onUploadReceipt(row.id); }} className="flex items-center text-blue-600 bg-blue-50 px-2 py-1 rounded-xl border border-blue-100 hover:bg-blue-100 transition-all">
-                        <Camera size={14} className="mr-1.5" />
-                        <span className="text-xs font-bold tracking-wide">{t.capturePod}</span>
-                    </button>
+                    <span className="inline-flex items-center rounded-xl border border-blue-100 bg-blue-50 px-2 py-1 text-xs font-bold text-blue-600">
+                        {row.status === 'pending' ? (t.dispatchPending || '待发货') : (t.capturePod || '待上传 POD')}
+                    </span>
                 ) : (
                     <span className="inline-flex items-center rounded-xl border border-slate-200 bg-slate-50 px-2 py-1 text-xs font-bold text-slate-400">
                         只读凭证
                     </span>
-                )}
-                {row.status !== 'pending' && (
-                    <button
-                        data-testid={`shipment-receipts-button-${row.id}`}
-                        onClick={(e) => { e.stopPropagation(); onOpenReceiptEvents(row); }}
-                        className="flex items-center text-indigo-600 bg-indigo-50 px-2 py-1 rounded-xl border border-indigo-100 hover:bg-indigo-100 transition-all"
-                    >
-                        <ClipboardList size={14} className="mr-1.5" />
-                        <span className="text-xs font-bold tracking-wide">签收批次</span>
-                    </button>
                 )}
             </div>
         )

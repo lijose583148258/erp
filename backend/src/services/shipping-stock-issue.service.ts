@@ -10,11 +10,11 @@ export type ShippingIssueShipment = {
 };
 
 async function hasShippingIssuePosted(tx: TransactionClient, shipmentNo: string) {
-  const rows = await tx.$queryRawUnsafe<Array<{ id: number }>>(
-    `SELECT id FROM stock_entries WHERE source_type = 'shipping_issue' AND source_ref = ? LIMIT 1`,
-    shipmentNo,
-  );
-  return rows.length > 0;
+  const entry = await tx.stockEntry.findFirst({
+    where: { sourceType: 'shipping_issue', sourceRef: shipmentNo },
+    select: { id: true },
+  });
+  return Boolean(entry);
 }
 
 async function resolveShippingIssueStock(tx: TransactionClient, shipment: ShippingIssueShipment) {

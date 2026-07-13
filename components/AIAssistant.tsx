@@ -1,13 +1,16 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import { BarChart2, Bot, PlusCircle, Send, Sparkles, Upload, X } from 'lucide-react';
 import { processAICmd } from '../services/geminiService';
-import { customerService } from '../services/customer.service';
-import { orderService } from '../services/order.service';
+import { customerService } from '../src/services/customer.service';
+import { orderService } from '../src/services/order.service';
 import { sampleService } from '../services/sample.service';
 import { shipmentService } from '../services/shipping.service';
 import TableImport from './TableImport';
 import { useAppContext } from '../app/AppContext';
 import { buildSafeAIContext, isHiddenDataRequest, unauthorizedDataRefusal } from '../services/aiSecurity';
+import { aiGatewayService } from '../services/aiGateway.service';
+
+const LOCAL_ASSISTANT_INTENTS = /上传|导入|表格|excel|批量|sample|样品|order|订单|下单|分析|销售|业绩|风险|逾期|催收|crm|客户|帮助|help|功能/i;
 
 const AIAssistant = ({ context }: { context: any }) => {
   const { t, currentUser } = useAppContext();
@@ -67,7 +70,23 @@ const AIAssistant = ({ context }: { context: any }) => {
       return;
     }
 
-    const aiResponse = await processAICmd(userMsg, buildSafeAIContext({ ...context, currentUser, t }));
+    const safeContext = buildSafeAIContext({ ...context, currentUser, t });
+    let aiResponse: string;
+    if (LOCAL_ASSISTANT_INTENTS.test(userMsg)) {
+      aiResponse = await processAICmd(userMsg, safeContext);
+    } else {
+      try {
+        const result = await aiGatewayService.assist({
+          prompt: userMsg,
+          language: safeContext.language === 'en' ? 'en-US' : safeContext.language === 'vi' ? 'vi-VN' : 'zh-CN',
+          currentPage: safeContext.currentPage,
+          visibleCounts: safeContext.visibleCounts,
+        });
+        aiResponse = result.answer;
+      } catch {
+        aiResponse = await processAICmd(userMsg, safeContext);
+      }
+    }
     setMessages((prev) => [...prev, { role: 'ai', text: aiResponse }]);
     setIsLoading(false);
   };
@@ -148,6 +167,7 @@ const AIAssistant = ({ context }: { context: any }) => {
       {/* FAB 按钮：移动端上移，避免与底部 Dock 重叠 */}
       <button
         onClick={() => setIsOpen(true)}
+        data-testid="ai-assistant-open"
         aria-label={t.aiAssistantTitle || 'AI Assistant'}
         className="fixed bottom-28 right-4 lg:bottom-6 lg:right-6 w-14 h-14 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[24px] shadow-2xl shadow-blue-500/40 flex items-center justify-center text-white z-40 hover:scale-110 transition-all active:scale-95 duration-300 bouncy"
       >
@@ -160,7 +180,7 @@ const AIAssistant = ({ context }: { context: any }) => {
 
       {/* 聊天抽屉 */}
       {isOpen && (
-        <div className="fixed inset-0 z-[60] flex flex-col justify-end sm:justify-center sm:items-end sm:p-6 bg-slate-900/30 backdrop-blur-md animate-in fade-in duration-300">
+        <div data-testid="ai-assistant-dialog" className="fixed inset-0 z-[60] flex flex-col justify-end sm:justify-center sm:items-end sm:p-6 bg-slate-900/30 backdrop-blur-md animate-in fade-in duration-300">
           <div className="w-full sm:w-[400px] h-[85vh] sm:h-[600px] bg-white dark:bg-slate-900 rounded-t-[32px] sm:rounded-[32px] shadow-2xl flex flex-col overflow-hidden border border-white/20 animate-in slide-in-from-bottom duration-500">
             {/* 头部 */}
             <div className="bg-slate-50 dark:bg-slate-950 p-6 flex items-center justify-between border-b border-slate-100 dark:border-slate-800">

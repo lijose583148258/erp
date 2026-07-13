@@ -5,7 +5,7 @@ import { can } from '../app/permissions';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
 import { PageShell } from '../components/ui';
 import { procurementService, PurchaseOrder, PurchaseReceiptBundle, Supplier } from '../services/procurement.service';
-import { orderService } from '../services/order.service';
+import { orderService } from '../src/services/order.service';
 import { CustomerAddress, SalesOrder } from '../types';
 import { buildPurchaseOrderColumns, buildSupplierColumns } from './procurement/ProcurementColumns';
 import {

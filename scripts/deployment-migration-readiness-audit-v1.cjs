@@ -12,6 +12,20 @@ function readText(relativePath) {
   return fs.readFileSync(fullPath, 'utf8').replace(/\r\n/g, '\n');
 }
 
+function readJson(relativePath) {
+  const text = readText(relativePath);
+  if (text === null) return null;
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    return { __parseError: String(error.message || error) };
+  }
+}
+
+function toPortablePath(value) {
+  return value.replace(/\\/g, '/');
+}
+
 function addFinding(findings, level, area, file, message) {
   findings.push({ level, area, file, message });
 }
@@ -130,6 +144,27 @@ function checkDockerCompose(findings) {
   }
 }
 
+function checkPostgresDeploymentBoundary(findings) {
+  const text = requireFile(findings, 'docker-compose.postgres.yml', 'postgres-deployment-boundary');
+  if (!text) return;
+  for (const token of [
+    'postgres:16-bookworm',
+    'POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set before PostgreSQL rehearsal}',
+    '${POSTGRES_PORT:-5432}:5432',
+    'ailao-postgres-data:/var/lib/postgresql/data',
+    'pg_isready',
+    'current app',
+    'SQLite Prisma artifact',
+  ]) {
+    if (!text.includes(token)) {
+      addFinding(findings, 'P1', 'postgres-deployment-boundary', 'docker-compose.postgres.yml', `missing expected token: ${token}`);
+    }
+  }
+  if (/ailao-app:|DATABASE_URL:/.test(text)) {
+    addFinding(findings, 'P0', 'postgres-deployment-boundary', 'docker-compose.postgres.yml', 'PostgreSQL rehearsal compose must not start the current SQLite app artifact.');
+  }
+}
+
 function checkPackaging(findings) {
   const text = requireFile(findings, 'scripts/package-stable.ps1', 'stable-package');
   if (!text) return;
@@ -174,6 +209,313 @@ function checkBackupAndMigrationEvidence(findings) {
       }
     }
   }
+
+  const postgresArtifact = requireFile(findings, 'scripts/postgres-prisma-artifact-v1.cjs', 'postgres-artifact');
+  if (postgresArtifact) {
+    for (const token of ['generate-postgres-prisma-client', 'GENERATED_CLIENT_DIR', 'provider = "postgresql"', 'output          = "../generated-client"']) {
+      if (!postgresArtifact.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-artifact', 'scripts/postgres-prisma-artifact-v1.cjs', `PostgreSQL artifact probe should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresServerArtifact = requireFile(findings, 'scripts/build-postgres-server-artifact-v1.cjs', 'postgres-server-artifact');
+  if (postgresServerArtifact) {
+    for (const token of ['postgres-server-artifact', 'require("../../prisma/generated-client")', 'AILAODA_PRISMA_PROVIDER', 'Does not perform data migration.']) {
+      if (!postgresServerArtifact.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-server-artifact', 'scripts/build-postgres-server-artifact-v1.cjs', `PostgreSQL server artifact build should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresServerArtifactAudit = requireFile(findings, 'scripts/postgres-server-artifact-audit-v1.cjs', 'postgres-server-artifact');
+  if (postgresServerArtifactAudit) {
+    for (const token of ['output/postgres-server-artifact', 'AILAODA_PRISMA_PROVIDER', 'require("@prisma/client")', 'provider = "postgresql"']) {
+      if (!postgresServerArtifactAudit.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-server-artifact', 'scripts/postgres-server-artifact-audit-v1.cjs', `PostgreSQL server artifact audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresRawSqlAudit = requireFile(findings, 'scripts/postgres-raw-sql-compat-audit-v1.cjs', 'postgres-raw-sql');
+  if (postgresRawSqlAudit) {
+    for (const token of ['sqliteMaintenancePrefixes', 'knownPostgresMigrationBlockers', 'Unclassified SQLite-only SQL', 'PostgreSQL Raw SQL Compatibility Audit']) {
+      if (!postgresRawSqlAudit.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-raw-sql', 'scripts/postgres-raw-sql-compat-audit-v1.cjs', `PostgreSQL raw SQL audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresMigrationRehearsalAudit = requireFile(findings, 'scripts/postgres-migration-rehearsal-audit-v1.cjs', 'postgres-migration-rehearsal');
+  if (postgresMigrationRehearsalAudit) {
+    for (const token of ['PostgreSQL Migration Rehearsal Audit', 'backup-restore:fingerprint', 'runtime:write-backup-restore', 'reviewRawSqlFiles', 'audit:db:postgres-import-rehearsal', 'audit:db:postgres-portable-rehearsal', 'run:db:postgres-import-rehearsal', 'live PostgreSQL service migration was not executed by this audit']) {
+      if (!postgresMigrationRehearsalAudit.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-migration-rehearsal', 'scripts/postgres-migration-rehearsal-audit-v1.cjs', `PostgreSQL migration rehearsal audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresJsonAudit = requireFile(findings, 'scripts/postgres-json-normalization-audit-v1.cjs', 'postgres-json-normalization');
+  if (postgresJsonAudit) {
+    for (const token of ['JSON Normalization Audit', 'normalizeJsonFieldsInPostgres', 'postgres-json-normalization-v1']) {
+      if (!postgresJsonAudit.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-json-normalization', 'scripts/postgres-json-normalization-audit-v1.cjs', `JSON normalization audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresImportRehearsalAudit = requireFile(findings, 'scripts/postgres-import-rehearsal-audit-v1.cjs', 'postgres-import-rehearsal');
+  if (postgresImportRehearsalAudit) {
+    for (const token of ['PostgreSQL Import Rehearsal Audit', 'postgres-migration-import-v1.json', 'snapshot checksum', 'verification rows all match', 'rollback evidence is still required']) {
+      if (!postgresImportRehearsalAudit.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-import-rehearsal', 'scripts/postgres-import-rehearsal-audit-v1.cjs', `PostgreSQL import rehearsal audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresImportRehearsalRunner = requireFile(findings, 'scripts/run-postgres-import-rehearsal-v1.cjs', 'postgres-import-rehearsal');
+  if (postgresImportRehearsalRunner) {
+    for (const token of ['POSTGRES_URL is required', 'prisma db push', 'npm run db:pg -- import', 'npm run audit:db:postgres-import-rehearsal']) {
+      if (!postgresImportRehearsalRunner.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-import-rehearsal', 'scripts/run-postgres-import-rehearsal-v1.cjs', `PostgreSQL import rehearsal runner should assert: ${token}`);
+      }
+    }
+  }
+
+  const postgresMigrationRunbook = requireFile(findings, 'docs/runbooks/POSTGRESQL_MIGRATION_REHEARSAL.md', 'postgres-migration-rehearsal');
+  if (postgresMigrationRunbook) {
+    for (const token of ['Preflight', 'Final SQLite backup', 'Snapshot export', 'PostgreSQL rehearsal', 'db:pg:start-rehearsal', 'db:pg:stop-rehearsal', 'audit:db:postgres-portable-rehearsal', 'npm run db:pg -- import', 'npm run db:pg -- normalize-json', 'postgres-json-normalization-v1.json', 'npm run audit:db:postgres-import-rehearsal', 'npm run run:db:postgres-import-rehearsal', 'Cutover smoke tests', 'Rollback', 'Do not claim production cutover']) {
+      if (!postgresMigrationRunbook.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-migration-rehearsal', 'docs/runbooks/POSTGRESQL_MIGRATION_REHEARSAL.md', `PostgreSQL migration runbook should include: ${token}`);
+      }
+    }
+  }
+
+  const packageJson = requireFile(findings, 'package.json', 'postgres-artifact');
+  if (packageJson) {
+    for (const token of ['audit:db:postgres-artifact', 'audit:db:postgres-raw-sql', 'audit:db:postgres-json-normalization', 'audit:db:postgres-migration-rehearsal', 'audit:db:postgres-import-rehearsal', 'audit:db:postgres-portable-rehearsal', 'run:db:postgres-import-rehearsal', 'db:pg:start-rehearsal', 'db:pg:stop-rehearsal', 'audit:api:openapi', 'audit:api:sdk', 'audit:frontend:production-readiness', 'audit:security:production-readiness', 'build:backend:postgres-artifact', 'build:backend:postgres-server-artifact', 'audit:db:postgres-server-artifact']) {
+      if (!packageJson.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-artifact', 'package.json', `missing ${token} script`);
+      }
+    }
+  }
+
+  const postgresPortableStart = requireFile(findings, 'scripts/start-postgres-rehearsal-v1.ps1', 'postgres-portable-rehearsal');
+  if (postgresPortableStart) {
+    for (const token of ['POSTGRES_PORTABLE_DIR', 'POSTGRES_WINDOWS_BIN_ZIP', 'POSTGRES_PASSWORD', 'initdb.exe', 'pg_ctl.exe', 'createdb.exe', 'connectionString']) {
+      if (!postgresPortableStart.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-portable-rehearsal', 'scripts/start-postgres-rehearsal-v1.ps1', `Portable PostgreSQL rehearsal start script should include: ${token}`);
+      }
+    }
+  }
+
+  const postgresPortableStop = requireFile(findings, 'scripts/stop-postgres-rehearsal-v1.ps1', 'postgres-portable-rehearsal');
+  if (postgresPortableStop) {
+    for (const token of ['pg_ctl.exe', 'PG_VERSION', 'stop -D']) {
+      if (!postgresPortableStop.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-portable-rehearsal', 'scripts/stop-postgres-rehearsal-v1.ps1', `Portable PostgreSQL rehearsal stop script should include: ${token}`);
+      }
+    }
+  }
+
+  const postgresPortableAudit = requireFile(findings, 'scripts/postgres-portable-rehearsal-audit-v1.cjs', 'postgres-portable-rehearsal');
+  if (postgresPortableAudit) {
+    for (const token of ['PostgreSQL Portable Rehearsal Audit', 'POSTGRES_WINDOWS_BIN_ZIP', 'db:pg:start-rehearsal', 'db:pg:stop-rehearsal', 'official PostgreSQL Windows binary archive']) {
+      if (!postgresPortableAudit.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-portable-rehearsal', 'scripts/postgres-portable-rehearsal-audit-v1.cjs', `Portable PostgreSQL rehearsal audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const openApiAudit = requireFile(findings, 'scripts/openapi-contract-audit-v1.cjs', 'api-contract');
+  if (openApiAudit) {
+    for (const token of ['OpenAPI Contract Audit', '/api/v1/openapi.json', '/api/v1/docs', '/api/rum/vitals', '/metrics', 'openapiRoutes.test.ts']) {
+      if (!openApiAudit.includes(token)) {
+        addFinding(findings, 'P1', 'api-contract', 'scripts/openapi-contract-audit-v1.cjs', `OpenAPI contract audit should assert: ${token}`);
+      }
+    }
+  }
+
+  const frontendReadinessRunner = requireFile(findings, 'scripts/run-frontend-production-readiness-v1.cjs', 'frontend-production-readiness');
+  if (frontendReadinessRunner) {
+    for (const token of ['Frontend Production Readiness Audit v1', 'audit:frontend:server-state', 'audit:frontend:client-state', 'audit:frontend:runtime-resilience', 'audit:ui:virtualized-grid', 'audit:pwa:offline', 'audit:observability:rum', 'test:unit:frontend', 'audit:frontend:bundle-budget']) {
+      if (!frontendReadinessRunner.includes(token)) {
+        addFinding(findings, 'P1', 'frontend-production-readiness', 'scripts/run-frontend-production-readiness-v1.cjs', `frontend readiness runner should assert: ${token}`);
+      }
+    }
+  }
+
+  const securityReadinessRunner = requireFile(findings, 'scripts/run-security-production-readiness-v1.cjs', 'security-production-readiness');
+  if (securityReadinessRunner) {
+    for (const token of ['Security Production Readiness Audit v1', 'audit:security:csp', 'audit:security:csrf-boundary', 'audit:security:mfa', 'audit:security:secrets', 'audit:security:dependencies']) {
+      if (!securityReadinessRunner.includes(token)) {
+        addFinding(findings, 'P1', 'security-production-readiness', 'scripts/run-security-production-readiness-v1.cjs', `security readiness runner should assert: ${token}`);
+      }
+    }
+  }
+}
+
+function checkLivePostgresImportEvidence(findings) {
+  const importAuditPath = 'output/audit/postgres-import-rehearsal-audit-v1.json';
+  const importReportPath = 'output/audit/postgres-migration-import-v1.json';
+  const runnerPath = 'output/audit/postgres-import-rehearsal-run-v1.json';
+  const importAudit = readJson(importAuditPath);
+  const importReport = readJson(importReportPath);
+  const runner = readJson(runnerPath);
+
+  if (!importAudit || importAudit.__parseError) {
+    addFinding(
+      findings,
+      'P1',
+      'live-postgres-evidence',
+      importAuditPath,
+      importAudit?.__parseError
+        ? `PostgreSQL import rehearsal audit report is not valid JSON: ${importAudit.__parseError}`
+        : 'PostgreSQL import rehearsal has not produced a live evidence report; run the rehearsal against an isolated PostgreSQL database.',
+    );
+  } else if (importAudit.status !== 'passed') {
+    addFinding(
+      findings,
+      'P0',
+      'live-postgres-evidence',
+      importAuditPath,
+      `PostgreSQL import rehearsal audit is ${importAudit.status}; deployment readiness cannot be passed while the import evidence gate is red.`,
+    );
+  }
+
+  if (!importReport || importReport.__parseError) {
+    addFinding(
+      findings,
+      'P1',
+      'live-postgres-evidence',
+      importReportPath,
+      importReport?.__parseError
+        ? `PostgreSQL import report is not valid JSON: ${importReport.__parseError}`
+        : 'PostgreSQL import report is missing; a dry-run report is not sufficient for deployment readiness.',
+    );
+  } else {
+    if (importReport.summary?.verificationPassed !== true) {
+      addFinding(
+        findings,
+        'P0',
+        'live-postgres-evidence',
+        importReportPath,
+        'PostgreSQL import report does not confirm row-count verificationPassed=true.',
+      );
+    }
+    if (importReport.snapshot?.checksumVerified !== true) {
+      addFinding(
+        findings,
+        'P0',
+        'live-postgres-evidence',
+        importReportPath,
+        'PostgreSQL import report does not confirm snapshot checksum verification.',
+      );
+    }
+  }
+
+  if (!runner || runner.__parseError) {
+    addFinding(
+      findings,
+      'P1',
+      'live-postgres-evidence',
+      runnerPath,
+      runner?.__parseError
+        ? `PostgreSQL import rehearsal runner report is not valid JSON: ${runner.__parseError}`
+        : 'The orchestrated PostgreSQL import rehearsal has not completed successfully.',
+    );
+  } else if (runner.status !== 'passed') {
+    addFinding(
+      findings,
+      'P0',
+      'live-postgres-evidence',
+      runnerPath,
+      `PostgreSQL import rehearsal runner is ${runner.status}; schema push, import, and audit must pass in one recorded window.`,
+    );
+  } else {
+    const requiredSteps = [
+      'validate-environment',
+      'push-postgres-schema',
+      'import-postgres-snapshot',
+      'audit-postgres-import-rehearsal',
+    ];
+    const stepMap = new Map((Array.isArray(runner.steps) ? runner.steps : []).map((step) => [step.name, step]));
+    const failedSteps = requiredSteps.filter((name) => stepMap.get(name)?.status !== 'passed');
+    if (failedSteps.length > 0) {
+      addFinding(
+        findings,
+        'P0',
+        'live-postgres-evidence',
+        runnerPath,
+        `PostgreSQL import rehearsal runner is missing passed steps: ${failedSteps.join(', ')}.`,
+      );
+    }
+
+    const windowStart = Date.parse(runner.startedAt || '');
+    const windowEnd = Date.parse(runner.finishedAt || '');
+    const evidenceTimes = [
+      ['postgres-migration-import-v1.json', importReport?.generatedAt],
+      ['postgres-import-rehearsal-audit-v1.json', importAudit?.generatedAt],
+    ];
+    const outsideWindow = evidenceTimes
+      .filter(([, generatedAt]) => {
+        const timestamp = Date.parse(generatedAt || '');
+        return !Number.isFinite(windowStart)
+          || !Number.isFinite(windowEnd)
+          || !Number.isFinite(timestamp)
+          || timestamp < windowStart
+          || timestamp > windowEnd;
+      })
+      .map(([name]) => name);
+    if (outsideWindow.length > 0) {
+      addFinding(
+        findings,
+        'P0',
+        'live-postgres-evidence',
+        runnerPath,
+        `PostgreSQL import evidence is outside the orchestrated run window: ${outsideWindow.join(', ')}.`,
+      );
+    }
+  }
+}
+
+function checkPostgresProductionTopology(findings) {
+  const dockerfile = requireFile(findings, 'Dockerfile.postgres', 'postgres-production-topology');
+  if (dockerfile) {
+    for (const token of [
+      'build:backend:postgres-server-artifact',
+      'AILAODA_PRISMA_PROVIDER=postgresql',
+      'COPY --from=build --chown=node:node /app/output/postgres-server-artifact/backend/dist ./backend/dist',
+      'VOLUME ["/data"]',
+      'USER node',
+    ]) {
+      if (!dockerfile.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-production-topology', 'Dockerfile.postgres', `missing ${token}`);
+      }
+    }
+    if (dockerfile.includes('DATABASE_URL=file:')) {
+      addFinding(findings, 'P0', 'postgres-production-topology', 'Dockerfile.postgres', 'PostgreSQL Dockerfile must not default to SQLite');
+    }
+  }
+
+  const compose = requireFile(findings, 'docker-compose.production-postgres.yml', 'postgres-production-topology');
+  if (compose) {
+    for (const token of [
+      'dockerfile: Dockerfile.postgres',
+      'AILAODA_PRISMA_PROVIDER: postgresql',
+      'DATABASE_URL: postgresql://',
+      'POSTGRES_PASSWORD must be set',
+      'condition: service_healthy',
+      'postgres:16-bookworm',
+    ]) {
+      if (!compose.includes(token)) {
+        addFinding(findings, 'P1', 'postgres-production-topology', 'docker-compose.production-postgres.yml', `missing ${token}`);
+      }
+    }
+    if (compose.includes('DATABASE_URL: ${DATABASE_URL:-file:')) {
+      addFinding(findings, 'P0', 'postgres-production-topology', 'docker-compose.production-postgres.yml', 'PostgreSQL compose must not fall back to SQLite');
+    }
+  }
 }
 
 function checkRuntimeDbGuard(findings) {
@@ -212,8 +554,11 @@ function main() {
   checkRootDocker(findings);
   checkBackendDocker(findings);
   checkDockerCompose(findings);
+  checkPostgresProductionTopology(findings);
+  checkPostgresDeploymentBoundary(findings);
   checkPackaging(findings);
   checkBackupAndMigrationEvidence(findings);
+  checkLivePostgresImportEvidence(findings);
   checkRuntimeDbGuard(findings);
 
   const hasP0 = findings.some(finding => finding.level === 'P0');
@@ -222,15 +567,15 @@ function main() {
     status: hasP0 ? 'failed' : findings.length ? 'warning' : 'passed',
     scope: 'local-stable-runtime-to-server-migration-readiness',
     findings,
-    jsonReport: JSON_REPORT,
-    markdownReport: MD_REPORT,
+    jsonReport: toPortablePath(JSON_REPORT),
+    markdownReport: toPortablePath(MD_REPORT),
   };
   writeReports(report);
   console.log(JSON.stringify({
     status: report.status,
     findings: findings.length,
-    jsonReport: JSON_REPORT,
-    markdownReport: MD_REPORT,
+    jsonReport: toPortablePath(JSON_REPORT),
+    markdownReport: toPortablePath(MD_REPORT),
   }, null, 2));
   if (report.status === 'failed') process.exitCode = 1;
 }

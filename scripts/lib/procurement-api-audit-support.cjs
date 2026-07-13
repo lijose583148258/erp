@@ -255,19 +255,21 @@ async function apiFetch(endpoint, options = {}, token = '') {
   }
   
   async function verifyProcurementReceiptCost(batchNo, expectedQuantity, expectedUnitCost, expectedCost) {
+    const postgresql = String(process.env.AUDIT_PRISMA_PROVIDER || '').toLowerCase() === 'postgresql';
+    const parameter = postgresql ? '$1' : '?';
     const rows = await prisma.$queryRawUnsafe(
       `SELECT l.id,
-              l.ledger_no AS ledgerNo,
-              l.source_type AS sourceType,
-              l.source_ref AS sourceRef,
-              l.quantity_delta AS quantityDelta,
-              l.cost_amount_delta AS costAmountDelta,
-              l.unit_cost AS unitCost,
-              b.batch_no AS batchNo,
-              b.product_name AS productName
+              l.ledger_no AS "ledgerNo",
+              l.source_type AS "sourceType",
+              l.source_ref AS "sourceRef",
+              l.quantity_delta AS "quantityDelta",
+              l.cost_amount_delta AS "costAmountDelta",
+              l.unit_cost AS "unitCost",
+              b.batch_no AS "batchNo",
+              b.product_name AS "productName"
          FROM inventory_cost_ledgers l
          JOIN product_batches b ON b.id = l.batch_id
-        WHERE b.batch_no = ?
+        WHERE b.batch_no = ${parameter}
         ORDER BY l.id ASC`,
       batchNo,
     );

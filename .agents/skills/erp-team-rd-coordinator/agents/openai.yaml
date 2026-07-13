@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP Team R&D Coordinator"
+  short_description: "Scoped ERP PR planning and validation gates."
+  default_prompt: "Use $erp-team-rd-coordinator to plan a scoped ERP/CRM PR with validation gates and role handoffs."

@@ -1,7 +1,7 @@
 import type { Dispatch, SetStateAction } from 'react';
-import { orderService } from '../../services/order.service';
+import { orderService } from '../../src/services/order.service';
 import { CommissionStatus, OrderStatus, type SalesOrder } from '../../types';
-import type { NotifyFn } from './useSalesOrderWorkspaceData';
+import { invalidateSalesOrderWorkspaceState, type NotifyFn } from './useSalesOrderWorkspaceData';
 
 type UseSalesOrderActionsOptions = {
     canAuditCommission: boolean;
@@ -22,12 +22,14 @@ export const useSalesOrderActions = ({
             return;
         }
         await orderService.auditCommission(id, status);
+        invalidateSalesOrderWorkspaceState();
         setOrders(prev => prev.map(order => order.id === id ? { ...order, commissionStatus: status } : order));
         notify(status === CommissionStatus.APPROVED ? 'success' : 'warning', '佣金审核状态已更新：' + status);
     };
 
     const handleStatusUpdate = async (id: string, newStatus: OrderStatus) => {
         const updatedOrder = await orderService.updateStatus(id, newStatus);
+        invalidateSalesOrderWorkspaceState();
         upsertOrder(updatedOrder);
         notify('success', '订单状态已更新为：' + newStatus);
     };
@@ -47,6 +49,7 @@ export const useSalesOrderActions = ({
     const handleManualComplete = async (id: string) => {
         try {
             const completed = await orderService.complete(id);
+            invalidateSalesOrderWorkspaceState();
             upsertOrder(completed);
             notify('success', '订单结案成功。');
         } catch (error) {

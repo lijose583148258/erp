@@ -3,7 +3,7 @@ import { logger } from '../utils/logger';
 
 type AuthAuditInput = {
   userId: number;
-  action: 'LOGIN' | 'REGISTER' | 'LOGOUT' | 'CHANGE_PASSWORD';
+  action: 'LOGIN' | 'LOGIN_MFA_BLOCKED' | 'REGISTER' | 'LOGOUT' | 'CHANGE_PASSWORD';
   details: string;
   ipAddress?: string;
   userAgent?: string;

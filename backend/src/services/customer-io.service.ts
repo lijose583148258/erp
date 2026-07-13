@@ -2,6 +2,7 @@
 import prisma from '../config/database';
 import type { Prisma } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
+import { buildCustomerSearchWhere } from './search.service';
 import {
   addImportLimitError,
   BATCH_EXPORT_LIMIT,
@@ -257,23 +258,7 @@ export async function buildCustomerExportWorkbook(
   if (filters.segment) filterWhere.segment = String(filters.segment);
   if (filters.viewMode === 'public') filterWhere.poolState = 'public';
   if (filters.viewMode === 'my') filterWhere.NOT = { poolState: 'public' };
-  if (filters.search) {
-    const search = String(filters.search);
-    filterWhere.OR = [
-      { name: { contains: search } },
-      { nameZh: { contains: search } },
-      { nameEn: { contains: search } },
-      { nameVi: { contains: search } },
-      { nameAliases: { contains: search } },
-      { licenseNumber: { contains: search } },
-      { contactName: { contains: search } },
-      { contactPhone: { contains: search } },
-      { contactEmail: { contains: search } },
-      { address: { contains: search } },
-      { addressesJson: { contains: search } },
-      { contactsJson: { contains: search } },
-    ];
-  }
+  Object.assign(filterWhere, buildCustomerSearchWhere(filters.search));
   const where: Prisma.CustomerWhereInput = Object.keys(filterWhere).length > 0
     ? { AND: [accessWhere, filterWhere] }
     : accessWhere;

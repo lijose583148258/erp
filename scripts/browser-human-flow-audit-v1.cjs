@@ -12,13 +12,6 @@ const SHOT_DIR = path.join(OUTPUT_DIR, 'browser-human-flow-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'browser-human-flow-audit-report-v1.json');
 const GLOBAL_TIMEOUT_MS = Number(process.env.AUDIT_TIMEOUT_MS || 240000);
 
-const ROLE_PASSWORDS = {
-  admin: 'admin123',
-  sales: 'sales123',
-  warehouse: 'warehouse123',
-  finance: 'finance123',
-};
-
 const TIMEOUTS = {
   pageLoad: 15000,
   login: 20000,
@@ -82,7 +75,6 @@ const {
   reportPath: REPORT_PATH,
   runId: RUN_ID,
   data: DATA,
-  rolePasswords: ROLE_PASSWORDS,
   timeouts: TIMEOUTS,
 });
 
@@ -225,9 +217,16 @@ async function run() {
     }
 
     const failed = report.modules.filter((module) => module.status !== 'passed');
-    if (failed.length > 0) {
+    if (failed.length > 0 || report.consoleErrors.length > 0) {
       report.status = 'failed';
-      report.error = `modules not passed: ${failed.map((item) => `${item.name}:${item.status}`).join(', ')}`;
+      const reasons = [];
+      if (failed.length > 0) {
+        reasons.push(`modules not passed: ${failed.map((item) => `${item.name}:${item.status}`).join(', ')}`);
+      }
+      if (report.consoleErrors.length > 0) {
+        reasons.push(`console errors: ${report.consoleErrors.length}`);
+      }
+      report.error = reasons.join('; ');
       process.exitCode = 1;
     } else {
       report.status = 'passed';

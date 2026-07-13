@@ -8,9 +8,9 @@ import { StatusBadge } from '../components/ui/StatusBadge';
 import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
 import { WorkspaceTaskNavigator } from '../components/ui/WorkspaceTaskNavigator';
 import barterService, { BarterAgreement, BarterItem, BarterSettlement, BarterSummary, CreateBarterAgreementInput, CreateBarterBatchInput } from '../services/barter.service';
-import { customerService } from '../services/customer.service';
+import { customerService } from '../src/services/customer.service';
 import procurementService, { Supplier } from '../services/procurement.service';
-import { orderService } from '../services/order.service';
+import { orderService } from '../src/services/order.service';
 import { getCustomerDisplayName } from '../utils/customerName';
 import { isCanceledApiError } from '../utils/api';
 import type { Customer, SalesOrder } from '../types';
@@ -369,16 +369,16 @@ const BarterWorkspaceClean: React.FC = () => {
           )}
 
           <div className="grid gap-4 md:grid-cols-2">
-            <select value={agreementForm.customerId} onChange={(e) => setAgreementForm({ ...agreementForm, customerId: e.target.value })} className={barterFieldClass}>
+            <select aria-label="货抵协议客户" title="货抵协议客户" value={agreementForm.customerId} onChange={(e) => setAgreementForm({ ...agreementForm, customerId: e.target.value })} className={barterFieldClass}>
               <option value="">选择客户</option>
               {customerOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
-            <input value={agreementForm.counterpartyName} onChange={(e) => setAgreementForm({ ...agreementForm, counterpartyName: e.target.value })} placeholder="对方名称" className={barterFieldClass} />
-            <select value={agreementForm.supplierId} onChange={(e) => setAgreementForm({ ...agreementForm, supplierId: e.target.value })} className={barterFieldClass}>
+            <input aria-label="货抵协议对方名称" title="货抵协议对方名称" value={agreementForm.counterpartyName} onChange={(e) => setAgreementForm({ ...agreementForm, counterpartyName: e.target.value })} placeholder="对方名称" className={barterFieldClass} />
+            <select aria-label="货抵协议供应商" title="货抵协议供应商" value={agreementForm.supplierId} onChange={(e) => setAgreementForm({ ...agreementForm, supplierId: e.target.value })} className={barterFieldClass}>
               <option value="">选择供应商（可选）</option>
               {suppliers.map((supplier) => <option key={supplier.id} value={supplier.id}>{supplier.supplierDisplayName || supplier.name}</option>)}
             </select>
-            <select value={agreementForm.orderId} onChange={(e) => setAgreementForm({ ...agreementForm, orderId: e.target.value })} className={barterFieldClass}>
+            <select aria-label="货抵协议关联订单" title="货抵协议关联订单" value={agreementForm.orderId} onChange={(e) => setAgreementForm({ ...agreementForm, orderId: e.target.value })} className={barterFieldClass}>
               <option value="">选择关联订单（可选）</option>
               {orders.map((order) => <option key={order.id} value={order.id}>{order.label}</option>)}
             </select>
@@ -387,17 +387,19 @@ const BarterWorkspaceClean: React.FC = () => {
           <div className="mt-4 rounded-[28px] border border-blue-100 bg-blue-50/60 p-4">
             <div className="mb-3 text-sm font-black text-slate-800">协议主档字段</div>
             <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <select value={agreementForm.settlementMode} onChange={(e) => setAgreementForm({ ...agreementForm, settlementMode: e.target.value as typeof agreementForm.settlementMode })} className={barterFieldClass}>
+              <select aria-label="货抵协议结算方式" title="货抵协议结算方式" value={agreementForm.settlementMode} onChange={(e) => setAgreementForm({ ...agreementForm, settlementMode: e.target.value as typeof agreementForm.settlementMode })} className={barterFieldClass}>
                 <option value="mixed">货抵 + 差额</option>
                 <option value="barter">纯货抵</option>
                 <option value="cash_top_up">现金补差</option>
                 <option value="cash_refund">现金退款</option>
               </select>
-              <input value={agreementForm.currency} onChange={(e) => setAgreementForm({ ...agreementForm, currency: e.target.value.toUpperCase() })} placeholder="币种，如 CNY" className={barterFieldClass} />
-              <input type="date" value={agreementForm.agreementDate} onChange={(e) => setAgreementForm({ ...agreementForm, agreementDate: e.target.value })} className={barterFieldClass} />
-              <input type="date" value={agreementForm.valuationDate} onChange={(e) => setAgreementForm({ ...agreementForm, valuationDate: e.target.value })} className={barterFieldClass} />
+              <input aria-label="货抵协议币种" title="货抵协议币种" value={agreementForm.currency} onChange={(e) => setAgreementForm({ ...agreementForm, currency: e.target.value.toUpperCase() })} placeholder="币种，如 CNY" className={barterFieldClass} />
+              <input aria-label="货抵协议日期" title="货抵协议日期" type="date" value={agreementForm.agreementDate} onChange={(e) => setAgreementForm({ ...agreementForm, agreementDate: e.target.value })} className={barterFieldClass} />
+              <input aria-label="货抵协议估值日期" title="货抵协议估值日期" type="date" value={agreementForm.valuationDate} onChange={(e) => setAgreementForm({ ...agreementForm, valuationDate: e.target.value })} className={barterFieldClass} />
             </div>
             <textarea
+              aria-label="货抵协议备注"
+              title="货抵协议备注"
               value={agreementForm.note}
               onChange={(e) => setAgreementForm({ ...agreementForm, note: e.target.value })}
               placeholder="协议备注：记录估值依据、质量折扣、补差约定或双方确认口径"
@@ -442,6 +444,8 @@ const BarterWorkspaceClean: React.FC = () => {
                 {selectedAgreement && <StatusBadge status={selectedAgreement.status} label={barterStatusLabelMap[selectedAgreement.status] || selectedAgreement.status} />}
               </div>
               <select
+                aria-label="货抵执行批次协议"
+                title="货抵执行批次协议"
                 value={selectedAgreement?.id ? String(selectedAgreement.id) : ''}
                 onChange={(e) => {
                   if (!e.target.value) {
@@ -475,13 +479,15 @@ const BarterWorkspaceClean: React.FC = () => {
                 <div className="mb-4 rounded-[24px] border border-blue-100 bg-blue-50/70 p-4">
                   <div className="mb-3 text-sm font-black text-slate-800">分批抵扣明细字段</div>
                   <div className="grid gap-4 md:grid-cols-2">
-                    <select value={batchForm.orderId} onChange={(e) => setBatchForm({ ...batchForm, orderId: e.target.value })} className={barterFieldClass}>
+                    <select aria-label="货抵执行批次关联订单" title="货抵执行批次关联订单" value={batchForm.orderId} onChange={(e) => setBatchForm({ ...batchForm, orderId: e.target.value })} className={barterFieldClass}>
                       <option value="">沿用协议订单或暂不关联订单</option>
                       {orders.map((order) => <option key={order.id} value={order.id}>{order.label}</option>)}
                     </select>
-                    <input type="date" value={batchForm.valuationDate} onChange={(e) => setBatchForm({ ...batchForm, valuationDate: e.target.value })} className={barterFieldClass} />
+                    <input aria-label="货抵执行批次估值日期" title="货抵执行批次估值日期" type="date" value={batchForm.valuationDate} onChange={(e) => setBatchForm({ ...batchForm, valuationDate: e.target.value })} className={barterFieldClass} />
                   </div>
                   <textarea
+                    aria-label="货抵执行批次备注"
+                    title="货抵执行批次备注"
                     value={batchForm.note}
                     onChange={(e) => setBatchForm({ ...batchForm, note: e.target.value })}
                     placeholder="本批备注：记录交付单号、验收口径、库存闭环或本次抵扣说明"

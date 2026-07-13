@@ -1,0 +1,74 @@
+groups:
+  - name: ailaoda-runtime
+    rules:
+      - alert: AilaoDaMetricsTargetDown
+        expr: up{job="ailao-app"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: AilaoDa metrics target is down
+          description: Prometheus cannot scrape the AilaoDa ERP/CRM metrics endpoint.
+
+      - alert: AilaoDaHighHttp5xx
+        expr: increase(ailaoda_http_errors_total[5m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa HTTP 5xx responses increased
+          description: More than five server errors were observed in the last five minutes.
+
+      - alert: AilaoDaPoorWebVitals
+        expr: increase(ailaoda_browser_web_vitals_total{rating="poor"}[10m]) > 10
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa browser Web Vitals are poor
+          description: Browser RUM is reporting poor Web Vitals samples.
+
+      - alert: AilaoDaSearchFallbackSpike
+        expr: increase(ailaoda_search_operations_total{action="invalid"}[10m]) > 5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa external search failures increased
+          description: Search provider failures are causing fallback or invalid search operations.
+
+      - alert: AilaoDaAIProviderFailureSpike
+        expr: increase(ailaoda_ai_operations_total{outcome="fallback_provider_error"}[10m]) > 5
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa governed AI provider failures increased
+          description: Remote AI calls are failing and the assistant is using its local fallback.
+
+      - alert: AilaoDaAIRateLimitSpike
+        expr: increase(ailaoda_ai_operations_total{outcome="rate_limited"}[10m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa governed AI rate limiting increased
+          description: AI usage may be abusive, automated, or exceeding the approved capacity envelope.
+
+      - alert: AilaoDaAIBudgetExhausted
+        expr: increase(ailaoda_ai_operations_total{outcome="fallback_budget_exhausted"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa governed AI daily budget is exhausted
+          description: Remote AI calls are blocked until the shared UTC daily token budget resets or governance approves a new limit.
+
+      - alert: AilaoDaAICircuitOpen
+        expr: increase(ailaoda_ai_operations_total{outcome="fallback_circuit_open"}[10m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: AilaoDa governed AI provider circuit is open
+          description: Consecutive provider failures opened the shared Redis circuit and remote calls are using local fallback.

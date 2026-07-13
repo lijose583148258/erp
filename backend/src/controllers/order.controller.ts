@@ -8,6 +8,10 @@ import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { publishRealtimeNotification } from '../services/realtime-notification.service';
+import { SearchIndexService } from '../services/search-index.service';
+import { publishWebhookEvent } from '../services/webhook.service';
+import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
     buildOrderDataScopeWhere,
@@ -41,6 +45,17 @@ async function writeOrderAuditLog(req: AuthRequest, input: {
         });
     } catch (error) {
         logger.warn('订单审计日志写入失败，业务操作已保留', error);
+    }
+}
+
+class OrderCreationRejectedError extends Error {
+    constructor(
+        readonly statusCode: number,
+        message: string,
+        readonly data?: Record<string, unknown>,
+    ) {
+        super(message);
+        this.name = 'OrderCreationRejectedError';
     }
 }
 
@@ -108,39 +123,6 @@ export class OrderController {
         try {
             const { customerId, items, paymentTerms = 30, notes, discountAmount = 0, contractId } = req.body;
 
-            const customer = await prisma.customer.findUnique({
-                where: { id: Number(customerId) },
-                select: {
-                    id: true,
-                    name: true,
-                    nameZh: true,
-                    nameEn: true,
-                    nameVi: true,
-                    status: true,
-                    salespersonId: true,
-                    poolState: true,
-                    segment: true,
-                },
-            });
-            if (!customer) {
-                return res.status(400).json({
-                    success: false,
-                    message: '客户不存在，请刷新后重试。',
-                } as ApiResponse);
-            }
-            if (customer.status !== 'active') {
-                return res.status(400).json({
-                    success: false,
-                    message: '只能为启用状态的客户创建订单。',
-                } as ApiResponse);
-            }
-            if (!canUseCustomerForBusinessWrite(req, customer)) {
-                return res.status(403).json({
-                    success: false,
-                    message: '无权为该客户创建订单。',
-                } as ApiResponse);
-            }
-
             const orderNo = buildBusinessNo('ORD');
             const { orderItems, totalAmount } = buildOrderItemsAndTotals(items);
 
@@ -152,16 +134,46 @@ export class OrderController {
                 } as ApiResponse);
             }
 
-            const creditCheck = await CreditEngine.checkOrder(customerId, finalAmount);
-            if (!creditCheck.allow) {
-                return res.status(403).json({
-                    success: false,
-                    message: creditCheck.reason,
-                    data: { exposure: creditCheck.exposure },
-                } as ApiResponse);
-            }
-
             const createdOrder = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                // Serialize credit decisions for one customer before reading exposure.
+                // Rejections throw so this row touch is rolled back with the attempt.
+                const customer = await tx.customer.update({
+                    where: { id: Number(customerId) },
+                    data: { updatedAt: new Date() },
+                    select: {
+                        id: true,
+                        name: true,
+                        nameZh: true,
+                        nameEn: true,
+                        nameVi: true,
+                        status: true,
+                        salespersonId: true,
+                        poolState: true,
+                        segment: true,
+                    },
+                }).catch((error) => {
+                    if ((error as { code?: string }).code === 'P2025') {
+                        throw new OrderCreationRejectedError(400, '客户不存在，请刷新后重试。');
+                    }
+                    throw error;
+                });
+
+                if (customer.status !== 'active') {
+                    throw new OrderCreationRejectedError(400, '只能为启用状态的客户创建订单。');
+                }
+                if (!canUseCustomerForBusinessWrite(req, customer)) {
+                    throw new OrderCreationRejectedError(403, '无权为该客户创建订单。');
+                }
+
+                const creditCheck = await CreditEngine.checkOrder(Number(customerId), finalAmount, tx);
+                if (!creditCheck.allow) {
+                    throw new OrderCreationRejectedError(
+                        403,
+                        creditCheck.reason || '客户授信校验未通过。',
+                        { exposure: creditCheck.exposure },
+                    );
+                }
+
                 const newOrder = await tx.order.create({
                     data: {
                         orderNo,
@@ -194,8 +206,23 @@ export class OrderController {
                     finalAmount,
                 }),
             });
+            SearchIndexService.scheduleOrderSync(createdOrder.id);
 
             const order = await OrderWorkspaceService.getOrderById(createdOrder.id, req);
+            publishRealtimeNotification({
+                type: 'order.created',
+                title: 'Order created',
+                message: `订单 ${orderNo} 已创建`,
+                resourceType: 'order',
+                resourceId: createdOrder.id,
+                severity: 'success',
+            });
+            publishWebhookEvent({
+                type: 'order.created',
+                resourceType: 'order',
+                resourceId: createdOrder.id,
+                data: { orderNo, finalAmount },
+            });
 
             logger.info(`Order created: ${orderNo}`);
             return res.status(201).json({
@@ -204,6 +231,13 @@ export class OrderController {
                 message: '订单创建成功。',
             } as ApiResponse);
         } catch (error) {
+            if (error instanceof OrderCreationRejectedError) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: error.message,
+                    data: error.data,
+                } as ApiResponse);
+            }
             const err = error instanceof Error ? { message: error.message, stack: error.stack } : error;
             logger.error('Create order error:', err);
             return res.status(500).json({
@@ -262,8 +296,23 @@ export class OrderController {
                 resourceId: updatedOrder.id,
                 details: `更新订单: ${updatedOrder.orderNo}`,
             });
+            SearchIndexService.scheduleOrderSync(updatedOrder.id);
 
             const order = await OrderWorkspaceService.getOrderById(updatedOrder.id, req);
+            publishRealtimeNotification({
+                type: 'order.updated',
+                title: 'Order updated',
+                message: `订单 ${updatedOrder.orderNo} 已更新`,
+                resourceType: 'order',
+                resourceId: updatedOrder.id,
+                severity: 'info',
+            });
+            publishWebhookEvent({
+                type: 'order.updated',
+                resourceType: 'order',
+                resourceId: updatedOrder.id,
+                data: { orderNo: updatedOrder.orderNo },
+            });
 
             return res.json({
                 success: true,
@@ -345,10 +394,19 @@ export class OrderController {
                 }
             }
 
-            const updatedOrder = await prisma.order.update({
-                where: { id: Number(id) },
-                data: { status: targetStatus },
+            const transitioned = await compareAndSetOrderStatus(prisma, {
+                orderId: Number(id),
+                expectedStatus: existing.status,
+                targetStatus,
             });
+            if (!transitioned) {
+                return res.status(409).json({
+                    success: false,
+                    message: '订单状态已被其他操作更新，请刷新后重试。',
+                    errorCode: 'ORDER_STATUS_CONFLICT',
+                } as ApiResponse);
+            }
+            const updatedOrder = await prisma.order.findUniqueOrThrow({ where: { id: Number(id) } });
 
             await writeOrderAuditLog(req, {
                 action: 'STATUS_CHANGE',
@@ -357,6 +415,20 @@ export class OrderController {
             });
 
             const order = await OrderWorkspaceService.getOrderById(updatedOrder.id, req);
+            publishRealtimeNotification({
+                type: 'order.status_changed',
+                title: 'Order status changed',
+                message: `订单 ${updatedOrder.orderNo} 状态已更新为 ${targetStatus}`,
+                resourceType: 'order',
+                resourceId: updatedOrder.id,
+                severity: 'info',
+            });
+            publishWebhookEvent({
+                type: 'order.status_changed',
+                resourceType: 'order',
+                resourceId: updatedOrder.id,
+                data: { orderNo: updatedOrder.orderNo, status: targetStatus },
+            });
 
             return res.json({
                 success: true,
@@ -469,10 +541,20 @@ export class OrderController {
                 });
             }
 
-            const updatedOrder = await prisma.order.update({
-                where: { id: Number(id) },
-                data: { status: 'completed' }, // H2修复：手动结案使用独立的 completed 状态
+            const completed = await compareAndSetOrderStatus(prisma, {
+                orderId: Number(id),
+                expectedStatus: order.status,
+                targetStatus: 'completed',
+                requiredWhere: { paymentStatus: 'paid' },
             });
+            if (!completed) {
+                return res.status(409).json({
+                    success: false,
+                    message: '订单状态或回款状态已变化，请刷新后重试。',
+                    errorCode: 'ORDER_COMPLETION_CONFLICT',
+                } as ApiResponse);
+            }
+            const updatedOrder = await prisma.order.findUniqueOrThrow({ where: { id: Number(id) } });
 
             await writeOrderAuditLog(req, {
                 action: 'COMPLETE',
@@ -481,6 +563,20 @@ export class OrderController {
             });
 
             const orderDetail = await OrderWorkspaceService.getOrderById(updatedOrder.id, req);
+            publishRealtimeNotification({
+                type: 'order.completed',
+                title: 'Order completed',
+                message: `订单 ${updatedOrder.id} 已结案`,
+                resourceType: 'order',
+                resourceId: updatedOrder.id,
+                severity: 'success',
+            });
+            publishWebhookEvent({
+                type: 'order.completed',
+                resourceType: 'order',
+                resourceId: updatedOrder.id,
+                data: { status: 'completed' },
+            });
 
             return res.json({
                 success: true,

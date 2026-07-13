@@ -13,13 +13,14 @@ const router = Router();
  */
 router.get('/rates', authenticate, async (_req: Request, res: Response) => {
     try {
-        const snapshot = CurrencyService.getRateSnapshot();
+        const snapshot = await CurrencyService.getRateSnapshotCached();
         return res.json({
             success: true,
             data: {
                 baseCurrency: 'CNY',
                 rates: snapshot.rates,
                 lastUpdated: snapshot.lastUpdated,
+                cache: snapshot.cache,
                 note: '汇率基准: 1 CNY = X 外币 (中国银行现汇买入价)',
             }
         });
@@ -43,7 +44,7 @@ router.post('/sync', authenticate, authorizePermission('finance.currency.sync'),
         }
     }
 
-    const snapshot = CurrencyService.getRateSnapshot();
+    const snapshot = await CurrencyService.getRateSnapshotCached();
     return res.json({
         success: true,
         message: bocOk ? 'BOC 官网实时牌价同步成功' : '备用接口同步成功（非银行官方牌价）',

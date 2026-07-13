@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP Evidence-First Reasoning"
+  short_description: "Planner/verifier reasoning for ERP audits."
+  default_prompt: "Use $erp-evidence-first-reasoning to plan, execute, verify, and report ERP audit work without false-green claims."

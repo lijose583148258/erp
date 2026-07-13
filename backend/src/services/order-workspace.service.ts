@@ -14,11 +14,21 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
+import { buildOrderSearchWhereAsync } from './search.service';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
 export const MAX_EXPORT_SIZE = BATCH_EXPORT_LIMIT;
 export const MAX_IMPORT_SIZE = BATCH_IMPORT_LIMIT;
+const ORDER_SORT_KEY_MAP: Record<string, keyof Prisma.OrderOrderByWithRelationInput> = {
+    createdAt: 'createdAt',
+    updatedAt: 'updatedAt',
+    orderNo: 'orderNo',
+    finalAmount: 'finalAmount',
+    paidAmount: 'paidAmount',
+    status: 'status',
+    paymentStatus: 'paymentStatus',
+};
 
 const ORDER_DETAIL_INCLUDE = {
     customer: {
@@ -194,19 +204,14 @@ export const OrderWorkspaceService = {
             sortOrder = 'desc',
         } = query;
 
+        const resolvedPage = Math.max(1, Number(page) || 1);
         const limit = Math.min(Number(pageSize) || DEFAULT_PAGE_SIZE, MAX_PAGE_SIZE);
-        const offset = (Number(page) - 1) * limit;
+        const offset = (resolvedPage - 1) * limit;
         const filters: Prisma.OrderWhereInput = {};
+        const resolvedSortBy = ORDER_SORT_KEY_MAP[String(sortBy)] || 'createdAt';
+        const resolvedSortOrder = String(sortOrder) === 'asc' ? 'asc' : 'desc';
 
-        if (search) {
-            filters.OR = [
-                { orderNo: { contains: search } },
-                { customer: { name: { contains: search } } },
-                { customer: { nameZh: { contains: search } } },
-                { customer: { nameEn: { contains: search } } },
-                { customer: { nameVi: { contains: search } } },
-            ];
-        }
+        Object.assign(filters, await buildOrderSearchWhereAsync(search));
         if (status) filters.status = status;
         if (customerId) filters.customerId = Number(customerId);
         if (startDate || endDate) {
@@ -258,7 +263,7 @@ export const OrderWorkspaceService = {
                     creator: { select: { id: true, username: true } },
                     _count: { select: { items: true, shipments: true } },
                 },
-                orderBy: { [sortBy as string]: sortOrder } as Prisma.OrderOrderByWithRelationInput,
+                orderBy: { [resolvedSortBy]: resolvedSortOrder } as Prisma.OrderOrderByWithRelationInput,
                 skip: offset,
                 take: limit,
             }),
@@ -288,7 +293,7 @@ export const OrderWorkspaceService = {
         return {
             data: formattedOrders,
             meta: {
-                page: Number(page),
+                page: resolvedPage,
                 pageSize: limit,
                 total,
                 totalPages: Math.ceil(total / limit),

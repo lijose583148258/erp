@@ -96,22 +96,37 @@ export const postBarterStockReversalEntries = async (
   reason: string,
 ) => {
   const sourceRef = buildBarterStockSourceRef(settlement.id);
-  const originalMovements = await tx.$queryRawUnsafe(
-    `SELECT
-       e.source_type AS sourceType,
-       m.location_id AS locationId,
-       m.product_name AS productName,
-       m.batch_no AS batchNo,
-       m.unit,
-       m.quantity_delta AS quantityDelta
-     FROM stock_entries e
-     JOIN stock_movements m ON m.entry_id = e.id
-     WHERE e.source_ref = ?
-       AND e.source_type IN ('barter_receipt', 'barter_issue')
-       AND e.status = 'posted'
-     ORDER BY e.id ASC, m.id ASC`,
-    sourceRef,
-  ) as Array<Record<string, unknown>>;
+  const originalEntries = await tx.stockEntry.findMany({
+    where: {
+      sourceRef,
+      sourceType: { in: ['barter_receipt', 'barter_issue'] },
+      status: 'posted',
+    },
+    select: {
+      sourceType: true,
+      movements: {
+        select: {
+          locationId: true,
+          productName: true,
+          batchNo: true,
+          unit: true,
+          quantityDelta: true,
+        },
+        orderBy: { id: 'asc' },
+      },
+    },
+    orderBy: { id: 'asc' },
+  });
+  const originalMovements = originalEntries.flatMap(entry =>
+    entry.movements.map(movement => ({
+      sourceType: entry.sourceType,
+      locationId: movement.locationId,
+      productName: movement.productName,
+      batchNo: movement.batchNo,
+      unit: movement.unit,
+      quantityDelta: movement.quantityDelta,
+    })),
+  );
 
   if (originalMovements.length === 0) {
     return;

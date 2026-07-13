@@ -1,9 +1,17 @@
 import { useCallback, useEffect, useState, type Dispatch, type SetStateAction } from 'react';
 import { assetService, ProductBatch } from '../../services/asset.service';
 import { contractService } from '../../services/contract.service';
-import { customerService } from '../../services/customer.service';
-import { orderService } from '../../services/order.service';
+import { customerService } from '../../src/services/customer.service';
+import { orderService } from '../../src/services/order.service';
 import { Customer, SalesOrder } from '../../types';
+import { serverStateClient } from '../../app/serverState';
+
+type ListMeta = {
+    page: number;
+    pageSize: number;
+    total: number;
+    totalPages: number;
+};
 
 type NotifyLevel = 'success' | 'error' | 'warning' | 'info';
 export type NotifyFn = (level: NotifyLevel, message: string) => void;
@@ -20,6 +28,17 @@ type UseSalesOrderWorkspaceDataOptions = {
     setSelectedOrder: Dispatch<SetStateAction<SalesOrder | null>>;
 };
 
+const SALES_ORDER_WORKSPACE_TTL_MS = 20_000;
+const ORDER_PAGE_QUERY_KEY = ['sales-orders', 'page', 1, 30] as const;
+const CUSTOMER_LOOKUP_QUERY_KEY = ['customers', 'lookup', 1, 100] as const;
+const ACTIVE_CONTRACTS_QUERY_KEY = ['contracts', 'active'] as const;
+
+export const invalidateSalesOrderWorkspaceState = () => {
+    serverStateClient.invalidateQueries(['sales-orders']);
+    serverStateClient.invalidateQueries(['customers']);
+    serverStateClient.invalidateQueries(['contracts']);
+};
+
 export const useSalesOrderWorkspaceData = ({
     notify,
     t,
@@ -30,6 +49,8 @@ export const useSalesOrderWorkspaceData = ({
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [batches, setBatches] = useState<ProductBatch[]>([]);
     const [contracts, setContracts] = useState<any[]>([]);
+    const [orderPageMeta, setOrderPageMeta] = useState<ListMeta>({ page: 1, pageSize: 30, total: 0, totalPages: 1 });
+    const [customerLookupMeta, setCustomerLookupMeta] = useState<ListMeta>({ page: 1, pageSize: 100, total: 0, totalPages: 1 });
 
     const upsertOrder = useCallback((nextOrder: SalesOrder) => {
         setOrders(prev => {
@@ -59,20 +80,52 @@ export const useSalesOrderWorkspaceData = ({
         return detailedOrder;
     }, [selectedOrder?.id, setSelectedOrder, upsertOrder]);
 
-    const loadOrderWorkspace = useCallback(async () => {
+    const loadOrderWorkspace = useCallback(async (options: { force?: boolean } = {}) => {
+        const force = Boolean(options.force);
         const [ordersResult, customersResult, contractsResult] = await Promise.allSettled([
-            orderService.getAll(),
-            customerService.getAll(),
-            contractService.getContracts({ status: 'active' }),
+            serverStateClient.fetchQuery({
+                key: ORDER_PAGE_QUERY_KEY,
+                ttlMs: SALES_ORDER_WORKSPACE_TTL_MS,
+                force,
+                queryFn: ({ signal }) => orderService.getPage({ page: 1, pageSize: 30 }, { signal }),
+            }),
+            serverStateClient.fetchQuery({
+                key: CUSTOMER_LOOKUP_QUERY_KEY,
+                ttlMs: SALES_ORDER_WORKSPACE_TTL_MS,
+                force,
+                queryFn: ({ signal }) => customerService.getPage({ page: 1, pageSize: 100 }, { signal }),
+            }),
+            serverStateClient.fetchQuery({
+                key: ACTIVE_CONTRACTS_QUERY_KEY,
+                ttlMs: SALES_ORDER_WORKSPACE_TTL_MS,
+                force,
+                queryFn: () => contractService.getContracts({ status: 'active' }),
+            }),
         ]);
 
-        const nextOrders = ordersResult.status === 'fulfilled' ? ordersResult.value : [];
-        const nextCustomers = customersResult.status === 'fulfilled' ? customersResult.value : [];
+        const nextOrders = ordersResult.status === 'fulfilled' ? ordersResult.value.rows : [];
+        const nextCustomers = customersResult.status === 'fulfilled' ? customersResult.value.rows : [];
         const nextContracts = contractsResult.status === 'fulfilled' ? (contractsResult.value?.contracts || []) : [];
 
         setOrders(nextOrders);
         setCustomers(nextCustomers);
         setContracts(nextContracts);
+        if (ordersResult.status === 'fulfilled') {
+            setOrderPageMeta({
+                page: ordersResult.value.page,
+                pageSize: ordersResult.value.pageSize,
+                total: ordersResult.value.total,
+                totalPages: ordersResult.value.totalPages,
+            });
+        }
+        if (customersResult.status === 'fulfilled') {
+            setCustomerLookupMeta({
+                page: customersResult.value.page,
+                pageSize: customersResult.value.pageSize,
+                total: customersResult.value.total,
+                totalPages: customersResult.value.totalPages,
+            });
+        }
 
         if (ordersResult.status === 'rejected' || customersResult.status === 'rejected' || contractsResult.status === 'rejected') {
             notify('warning', t.orderWorkspacePartialLoadFailed || '订单工作台部分数据加载失败，已显示可用数据。');
@@ -94,7 +147,9 @@ export const useSalesOrderWorkspaceData = ({
     return {
         orders,
         setOrders,
+        orderPageMeta,
         customers,
+        customerLookupMeta,
         batches,
         contracts,
         upsertOrder,

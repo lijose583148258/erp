@@ -1,5 +1,7 @@
 import {
   addColumnIfMissing,
+  createIndexIfMissing,
+  createTableIfMissing,
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
 
@@ -10,6 +12,33 @@ export const repairCoreSchema = async (report: SchemaRepairReport) => {
 
   await addColumnIfMissing(report, 'customers', 'contacts_json', 'TEXT');
   await addColumnIfMissing(report, 'customers', 'addresses_json', 'TEXT');
+
+  await createTableIfMissing(report, 'payment_records', `
+    CREATE TABLE "payment_records" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "order_id" INTEGER NOT NULL,
+      "amount" REAL NOT NULL,
+      "currency" TEXT NOT NULL DEFAULT 'CNY',
+      "exchange_rate" REAL NOT NULL DEFAULT 1.0,
+      "base_amount" REAL NOT NULL DEFAULT 0,
+      "method" TEXT NOT NULL,
+      "date" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "payer_name" TEXT,
+      "is_proxy" BOOLEAN NOT NULL DEFAULT false,
+      "note" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'pending',
+      "verified_by" INTEGER,
+      "milestone_id" INTEGER,
+      "barter_metadata" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "payment_records_order_id_fkey"
+        FOREIGN KEY ("order_id") REFERENCES "orders" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `);
+  await createIndexIfMissing(report, 'payment_records_order_id_idx', 'CREATE INDEX "payment_records_order_id_idx" ON "payment_records"("order_id")');
+  await createIndexIfMissing(report, 'payment_records_status_idx', 'CREATE INDEX "payment_records_status_idx" ON "payment_records"("status")');
+  await createIndexIfMissing(report, 'payment_records_milestone_id_idx', 'CREATE INDEX "payment_records_milestone_id_idx" ON "payment_records"("milestone_id")');
 
   await addColumnIfMissing(report, 'payment_records', 'currency', `TEXT NOT NULL DEFAULT 'CNY'`);
   await addColumnIfMissing(report, 'payment_records', 'exchange_rate', 'REAL NOT NULL DEFAULT 1.0');

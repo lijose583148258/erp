@@ -1,0 +1,11 @@
+apiVersion: 1
+
+providers:
+  - name: AilaoDa
+    orgId: 1
+    folder: AilaoDa ERP CRM
+    type: file
+    disableDeletion: false
+    editable: true
+    options:
+      path: ${AILAODA_GRAFANA_DASHBOARD_PATH}

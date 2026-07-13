@@ -1,12 +1,10 @@
 import { Request, Response } from 'express';
-import fs from 'fs';
-import path from 'path';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
-import { getUploadDir } from '../config/runtime';
+import { fileStorage } from '../services/file-storage.service';
 import {
     buildCustomerDataScopeWhere,
     canUseCustomerForBusinessWrite,
@@ -14,20 +12,25 @@ import {
     mergeWhereAnd,
 } from '../utils/recordAccess';
 
-// H7修复：Base64 图片存磁盘，数据库只存路径
-const getContractUploadDir = () => path.join(getUploadDir(), 'contracts');
+// H7修复：Base64 图片存储走统一文件存储抽象，数据库只存访问路径
+const CONTRACT_MIME_EXT: Record<string, string> = {
+    'image/jpeg': '.jpg',
+    'image/png': '.png',
+    'image/webp': '.webp',
+    'application/pdf': '.pdf',
+};
 const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB 限制
 
 /**
  * 检测 fileUrl 是否为 base64 编码，若是则保存到磁盘并返回文件路径
  */
-function persistBase64ToDisk(fileUrl: string | null | undefined): string | null | undefined {
+async function persistBase64ToDisk(fileUrl: string | null | undefined): Promise<string | null | undefined> {
     if (!fileUrl || !fileUrl.startsWith('data:')) {
         return fileUrl; // 非 base64，原样返回
     }
 
     // 解析 MIME 类型和数据
-    const match = fileUrl.match(/^data:(image\/\w+|application\/pdf);base64,(.+)$/);
+    const match = fileUrl.match(/^data:([^;,]+);base64,(.+)$/);
     if (!match) {
         logger.warn('H7: 无法解析 base64 文件格式，跳过磁盘持久化');
         return fileUrl;
@@ -35,6 +38,12 @@ function persistBase64ToDisk(fileUrl: string | null | undefined): string | null 
 
     const mimeType = match[1];
     const base64Data = match[2];
+    const ext = CONTRACT_MIME_EXT[mimeType];
+    if (!ext) {
+        logger.warn(`H7: 合同文件 MIME 不支持: ${mimeType}`);
+        return fileUrl;
+    }
+
     const buffer = Buffer.from(base64Data, 'base64');
 
     // 文件大小限制
@@ -42,20 +51,13 @@ function persistBase64ToDisk(fileUrl: string | null | undefined): string | null 
         logger.warn(`H7: 文件超过 ${MAX_FILE_SIZE / 1024 / 1024}MB 限制 (${(buffer.length / 1024 / 1024).toFixed(1)}MB), 仍保存但记录警告`);
     }
 
-    // 确保目录存在
-    const uploadsDir = getContractUploadDir();
-    fs.mkdirSync(uploadsDir, { recursive: true });
-
     // 生成唯一文件名
-    const ext = mimeType === 'application/pdf' ? '.pdf' : '.' + mimeType.split('/')[1];
     const filename = `contract_${Date.now()}_${Math.random().toString(36).slice(2, 8)}${ext}`;
-    const filePath = path.join(uploadsDir, filename);
-
-    fs.writeFileSync(filePath, buffer);
+    const storedFile = await fileStorage.save('contracts', filename, buffer);
     logger.info(`H7: 合同文件已保存到磁盘: ${filename} (${(buffer.length / 1024).toFixed(1)}KB)`);
 
     // 返回相对路径给数据库
-    return `/uploads/contracts/${filename}`;
+    return storedFile.publicUrl;
 }
 
 const getCustomerDisplayName = (customer: {
@@ -255,6 +257,7 @@ export class ContractController {
                 return res.status(403).json({ success: false, message: '无权为该客户创建合同' });
             }
 
+            const persistedFileUrl = await persistBase64ToDisk(fileUrl);
             const contract = await withDbRetry(() => prisma.contract.create({
                 data: {
                     contractNo,
@@ -266,7 +269,7 @@ export class ContractController {
                     signedAt: signedAt ? new Date(signedAt) : null,
                     expiredAt: expiredAt ? new Date(expiredAt) : null,
                     notes,
-                    fileUrl: persistBase64ToDisk(fileUrl),
+                    fileUrl: persistedFileUrl,
                     ocrMetadata: normalizeOcrMetadata(ocrMetadata),
                     status: 'draft',
                     createdBy: req.user!.userId,
@@ -329,7 +332,7 @@ export class ContractController {
             if (data.signedAt) data.signedAt = new Date(data.signedAt);
             if (data.expiredAt) data.expiredAt = new Date(data.expiredAt);
             if ('ocrMetadata' in data) data.ocrMetadata = normalizeOcrMetadata(data.ocrMetadata);
-            if ('fileUrl' in data) data.fileUrl = persistBase64ToDisk(data.fileUrl);
+            if ('fileUrl' in data) data.fileUrl = await persistBase64ToDisk(data.fileUrl);
 
             const contract = await prisma.contract.update({
                 where: { id: Number(id) },

@@ -1,10 +1,11 @@
-/**
- * CRM 权限与 AI 数据隔离审计（纯 fetch，不依赖浏览器）
- * 链路：login → 创建私海/公海/内部池客户 → 销售视角回读 → 敏感子接口 → 导出隔离
+﻿/**
+ * CRM permission and AI-data isolation audit using fetch only.
+ * Covers login, customer-pool visibility, role read-back, sensitive AI
+ * boundaries, and export isolation.
  */
 const fs = require('fs');
 const path = require('path');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -90,7 +91,7 @@ async function login(username, password) {
     data: { username, password },
   });
   if (!response.ok) {
-    throw new Error(`登录失败 (${username}): ${response.status} ${JSON.stringify(response.json)}`);
+    throw new Error(`Login failed (${username}): ${response.status} ${JSON.stringify(response.json)}`);
   }
   return response.json.data;
 }
@@ -98,7 +99,7 @@ async function login(username, password) {
 async function createCustomer(token, data) {
   const response = await apiFetch('/customers', { method: 'POST', data }, token);
   if (!response.ok || !response.json?.data?.id) {
-    throw new Error(`客户创建失败: ${response.status} ${JSON.stringify(response.json)}`);
+    throw new Error(`Customer creation failed: ${response.status} ${JSON.stringify(response.json)}`);
   }
   return response.json.data;
 }
@@ -106,7 +107,7 @@ async function createCustomer(token, data) {
 async function createTeamMember(token, data) {
   const response = await apiFetch('/team', { method: 'POST', data }, token);
   if (!response.ok || !response.json?.data?.id) {
-    throw new Error(`团队成员创建失败: ${response.status} ${JSON.stringify(response.json)}`);
+    throw new Error(`Team member creation failed: ${response.status} ${JSON.stringify(response.json)}`);
   }
   return response.json.data;
 }
@@ -114,16 +115,33 @@ async function createTeamMember(token, data) {
 async function searchCustomers(token, search) {
   const response = await apiFetch(`/customers?search=${encodeURIComponent(search)}&pageSize=20`, {}, token);
   if (!response.ok) {
-    throw new Error(`客户搜索失败: ${response.status} ${JSON.stringify(response.json)}`);
+    throw new Error(`Customer search failed: ${response.status} ${JSON.stringify(response.json)}`);
   }
   return unwrapList(response);
 }
 
-function workbookNames(buffer) {
-  const workbook = XLSX.read(buffer, { type: 'buffer' });
-  const sheetName = workbook.SheetNames[0];
-  const rows = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName] || {}, { defval: '' });
-  return rows.map((row) => String(row['客户名称'] || row['中文名称'] || row.name || '').trim()).filter(Boolean);
+function normalizeExcelValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object' && 'text' in value) return String(value.text || '');
+  if (typeof value === 'object' && 'result' in value) return String(value.result || '');
+  return String(value);
+}
+
+async function workbookNames(buffer) {
+  const workbook = new ExcelJS.Workbook();
+  await workbook.xlsx.load(buffer);
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet) return [];
+
+  const names = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    row.eachCell({ includeEmpty: false }, (cell) => {
+      const value = normalizeExcelValue(cell.value).trim();
+      if (value.includes('CRM-AUDIT-')) names.push(value);
+    });
+  });
+  return names;
 }
 
 async function run() {
@@ -157,10 +175,10 @@ async function run() {
     });
 
     if (sales.user.segment !== 'direct') {
-      throw new Error(`销售用户业务线异常，期望 direct，实际 ${sales.user.segment}`);
+      throw new Error(`Sales user segment mismatch: expected direct, actual ${sales.user.segment}`);
     }
     if (channelSales.user.segment !== 'channel') {
-      throw new Error(`分销销售用户业务线异常，期望 channel，实际 ${channelSales.user.segment}`);
+      throw new Error(`Channel sales user segment mismatch: expected channel, actual ${channelSales.user.segment}`);
     }
 
     const ownedCustomer = await createCustomer(sales.token, {
@@ -309,22 +327,22 @@ async function run() {
     const channelPrivateSearchFromDirect = await searchCustomers(sales.token, DATA.channelPrivateCustomerName);
     const mixedAssignedSearch = await searchCustomers(sales.token, DATA.mixedAssignedCustomerName);
     if (!listContains(ownedSearch, DATA.ownedCustomerName)) {
-      throw new Error('销售未能回读自己创建的私海客户');
+      throw new Error('Sales user could not read back its own private-pool customer');
     }
     if (!listContains(publicSearch, DATA.publicCustomerName)) {
-      throw new Error('销售未能看到同业务线公海客户');
+      throw new Error('Sales user could not see the same-segment public-pool customer');
     }
     if (!listContains(mixedAssignedSearch, DATA.mixedAssignedCustomerName)) {
-      throw new Error('销售未能看到已分配给自己的 mixed 私海客户');
+      throw new Error('Sales user could not see its assigned mixed private-pool customer');
     }
     if (listContains(internalSearch, DATA.internalCustomerName)) {
-      throw new Error('销售不应在列表中看到内部池客户');
+      throw new Error('Sales user must not see internal-pool customers in the list');
     }
     if (listContains(channelPublicSearchFromDirect, DATA.channelCustomerName)) {
-      throw new Error('内销销售不应看到分销公海客户');
+      throw new Error('Direct sales user must not see channel public-pool customers');
     }
     if (listContains(channelPrivateSearchFromDirect, DATA.channelPrivateCustomerName)) {
-      throw new Error('内销销售不应看到分销私海客户');
+      throw new Error('Direct sales user must not see channel private-pool customers');
     }
     recordStep({
       step: 'verify-sales-list-scope',
@@ -342,16 +360,16 @@ async function run() {
     const directPublicSearchFromChannel = await searchCustomers(channelSales.token, DATA.publicCustomerName);
     const directPrivateSearchFromChannel = await searchCustomers(channelSales.token, DATA.ownedCustomerName);
     if (!listContains(channelPublicSearch, DATA.channelCustomerName)) {
-      throw new Error('分销销售未能看到分销公海客户');
+      throw new Error('Channel sales user could not see channel public-pool customers');
     }
     if (!listContains(channelPrivateSearch, DATA.channelPrivateCustomerName)) {
-      throw new Error('分销销售未能看到自己的分销私海客户');
+      throw new Error('Channel sales user could not see its own channel private-pool customers');
     }
     if (listContains(directPublicSearchFromChannel, DATA.publicCustomerName)) {
-      throw new Error('分销销售不应看到内销公海客户');
+      throw new Error('Channel sales user must not see direct public-pool customers');
     }
     if (listContains(directPrivateSearchFromChannel, DATA.ownedCustomerName)) {
-      throw new Error('分销销售不应看到内销私海客户');
+      throw new Error('Channel sales user must not see direct private-pool customers');
     }
     recordStep({
       step: 'verify-channel-sales-scope',
@@ -364,17 +382,17 @@ async function run() {
 
     const internalDetail = await apiFetch(`/customers/${internalCustomer.id}`, {}, sales.token);
     if (internalDetail.status !== 404) {
-      throw new Error(`销售访问内部池详情应为 404，实际 ${internalDetail.status}`);
+      throw new Error(`Sales access to an internal-pool detail must be 404, actual ${internalDetail.status}`);
     }
     recordStep({ step: 'verify-internal-detail-hidden-from-sales', result: 'passed', status: internalDetail.status });
 
     const channelPrivateDetailFromDirect = await apiFetch(`/customers/${channelPrivateCustomer.id}`, {}, sales.token);
     if (channelPrivateDetailFromDirect.status !== 404) {
-      throw new Error(`内销销售访问分销私海详情应为 404，实际 ${channelPrivateDetailFromDirect.status}`);
+      throw new Error(`Direct sales access to a channel private-pool detail must be 404, actual ${channelPrivateDetailFromDirect.status}`);
     }
     const mixedAssignedDetail = await apiFetch(`/customers/${mixedAssignedCustomer.id}`, {}, sales.token);
     if (!mixedAssignedDetail.ok || displayName(mixedAssignedDetail.json?.data) !== DATA.mixedAssignedCustomerName) {
-      throw new Error(`销售访问已分配 mixed 私海详情失败: ${mixedAssignedDetail.status}`);
+      throw new Error(`Sales access to the assigned mixed private-pool detail failed: ${mixedAssignedDetail.status}`);
     }
     recordStep({
       step: 'verify-cross-segment-detail-and-mixed-assigned-detail',
@@ -388,13 +406,13 @@ async function run() {
     const financeCustomerDetail = await apiFetch(`/customers/${ownedCustomer.id}`, {}, finance.token);
     const warehouseCustomerExport = await apiFetchBuffer('/customers/export', warehouse.token);
     if (financeCustomerList.status !== 403 || warehouseCustomerList.status !== 403) {
-      throw new Error(`财务/仓库不应访问 CRM 客户列表，finance=${financeCustomerList.status}, warehouse=${warehouseCustomerList.status}`);
+      throw new Error(`Finance/warehouse must not access the CRM customer list, finance=${financeCustomerList.status}, warehouse=${warehouseCustomerList.status}`);
     }
     if (financeCustomerDetail.status !== 403) {
-      throw new Error(`财务不应访问 CRM 客户详情，实际 ${financeCustomerDetail.status}`);
+      throw new Error(`Finance must not access CRM customer detail, actual ${financeCustomerDetail.status}`);
     }
     if (warehouseCustomerExport.status !== 403) {
-      throw new Error(`仓库不应导出 CRM 客户，实际 ${warehouseCustomerExport.status}`);
+      throw new Error(`Warehouse must not export CRM customers, actual ${warehouseCustomerExport.status}`);
     }
     recordStep({
       step: 'verify-non-crm-roles-forbidden',
@@ -410,17 +428,17 @@ async function run() {
       data: { notes: `sales should not edit public customer ${RUN_ID}` },
     }, sales.token);
     if (publicUpdate.status !== 403) {
-      throw new Error(`销售编辑公海客户应为 403，实际 ${publicUpdate.status}`);
+      throw new Error(`Sales editing a public-pool customer must be 403, actual ${publicUpdate.status}`);
     }
     recordStep({ step: 'verify-sales-cannot-edit-public-profile', result: 'passed', status: publicUpdate.status });
 
     const publicAssets = await apiFetch(`/customers/${publicCustomer.id}/assets`, {}, sales.token);
     if (publicAssets.status !== 403) {
-      throw new Error(`销售查看公海客户资产明细应为 403，实际 ${publicAssets.status}`);
+      throw new Error(`Sales access to public-pool assets must be 403, actual ${publicAssets.status}`);
     }
     const publicPoolHistory = await apiFetch(`/customers/${publicCustomer.id}/pool-history`, {}, sales.token);
     if (publicPoolHistory.status !== 403) {
-      throw new Error(`销售查看公海客户池历史应为 403，实际 ${publicPoolHistory.status}`);
+      throw new Error(`Sales access to public-pool history must be 403, actual ${publicPoolHistory.status}`);
     }
     recordStep({
       step: 'verify-public-sensitive-subresources-forbidden',
@@ -432,7 +450,7 @@ async function run() {
     const managerAssets = await apiFetch(`/customers/${publicCustomer.id}/assets`, {}, manager.token);
     const managerPoolHistory = await apiFetch(`/customers/${publicCustomer.id}/pool-history`, {}, manager.token);
     if (!managerAssets.ok || !managerPoolHistory.ok) {
-      throw new Error(`经理应可查看公海敏感明细，assets=${managerAssets.status}, poolHistory=${managerPoolHistory.status}`);
+      throw new Error(`Manager should access public-pool sensitive details, assets=${managerAssets.status}, poolHistory=${managerPoolHistory.status}`);
     }
     recordStep({
       step: 'verify-manager-sensitive-subresources',
@@ -443,14 +461,14 @@ async function run() {
 
     const salesExport = await apiFetchBuffer('/customers/export', sales.token);
     if (!salesExport.ok) {
-      throw new Error(`销售导出失败: ${salesExport.status}`);
+      throw new Error(`Sales export failed: ${salesExport.status}`);
     }
-    const salesExportNames = workbookNames(salesExport.buffer);
+    const salesExportNames = await workbookNames(salesExport.buffer);
     if (!salesExportNames.includes(DATA.ownedCustomerName)) {
-      throw new Error('销售导出应包含自己的私海客户');
+      throw new Error('Sales export must include the user-owned private-pool customer');
     }
     if (!salesExportNames.includes(DATA.mixedAssignedCustomerName)) {
-      throw new Error('销售导出应包含已分配给自己的 mixed 私海客户');
+      throw new Error('Sales export must include the assigned mixed private-pool customer');
     }
     if (
       salesExportNames.includes(DATA.publicCustomerName) ||
@@ -458,7 +476,7 @@ async function run() {
       salesExportNames.includes(DATA.channelCustomerName) ||
       salesExportNames.includes(DATA.channelPrivateCustomerName)
     ) {
-      throw new Error('销售导出不应包含公海、内部池或其他业务线客户');
+      throw new Error('Sales export must not include public-pool, internal-pool, or other-segment customers');
     }
     recordStep({
       step: 'verify-sales-export-private-only',
@@ -468,16 +486,16 @@ async function run() {
 
     const managerExport = await apiFetchBuffer('/customers/export', manager.token);
     if (!managerExport.ok) {
-      throw new Error(`经理导出失败: ${managerExport.status}`);
+      throw new Error(`Manager export failed: ${managerExport.status}`);
     }
-    const managerExportNames = workbookNames(managerExport.buffer);
+    const managerExportNames = await workbookNames(managerExport.buffer);
     if (
       !managerExportNames.includes(DATA.publicCustomerName) ||
       !managerExportNames.includes(DATA.internalCustomerName) ||
       !managerExportNames.includes(DATA.channelCustomerName) ||
       !managerExportNames.includes(DATA.mixedAssignedCustomerName)
     ) {
-      throw new Error('经理导出应包含 mixed 管理视角下的公海、内部池、分销和混合客户');
+      throw new Error('Manager export must include public, internal, channel, and mixed customers in the manager view');
     }
     recordStep({
       step: 'verify-manager-export-scope',
@@ -497,7 +515,7 @@ async function run() {
   }
 
   if (report.status !== 'passed') {
-    console.error(report.error || 'CRM 权限与 AI 数据隔离审计失败');
+    console.error(report.error || 'CRM permission and AI-data isolation audit failed');
     process.exit(1);
   }
 

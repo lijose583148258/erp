@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -7,9 +8,9 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'legacy-interface-disconnect-audit-rep
 const REQUEST_TIMEOUT_MS = 8000;
 
 const ACCOUNTS = [
-  { role: 'admin', username: 'admin', password: 'admin123' },
-  { role: 'manager', username: 'manager', password: 'manager123' },
-  { role: 'sales', username: 'sales', password: 'sales123' },
+  { role: 'admin', username: 'legacy_admin_audit', password: 'AuditLegacyAdmin123!' },
+  { role: 'manager', username: 'legacy_manager_audit', password: 'AuditLegacyManager123!' },
+  { role: 'sales', username: 'legacy_sales_audit', password: 'AuditLegacySales123!' },
 ];
 
 const LEGACY_ENDPOINTS = [
@@ -80,6 +81,7 @@ async function apiJson(endpoint, options = {}) {
 }
 
 async function login(account) {
+  await ensureUiAuditUser(account);
   const response = await apiJson('/auth/login', {
     method: 'POST',
     body: { username: account.username, password: account.password },

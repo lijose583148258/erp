@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Clock3, FileText, Info, Sparkles, X } from 'lucide-react';
 import { useAppContext } from '../../app/AppContext';
-import { collectionsService } from '../../services/collections.service';
+import { collectionsService } from '../../src/services/collections.service';
 import {
   buildCollectionActionDraft,
   CollectionActionTemplateId,

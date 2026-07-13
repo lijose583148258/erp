@@ -7,6 +7,7 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -15,7 +16,11 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const SCRIPT_TIMEOUT_MS = 290_000;
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
-const ADMIN = { username: 'admin', password: 'admin123' };
+const ADMIN = {
+  username: process.env.AUDIT_UI_USERNAME || 'ui_role_assignment_admin',
+  password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
+  role: 'admin',
+};
 const ROLE_CODE = `team_writer_no_auth_${RUN_ID}`;
 const DELEGATED_ROLE_CODE = `delegated_role_admin_${RUN_ID}`;
 const OPERATOR = {
@@ -204,6 +209,7 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
+    await ensureUiAuditUser(ADMIN);
     const admin = await login(ADMIN, 'admin');
     await createRole(admin.token);
     const delegatedRole = await createDelegatedRoleAdmin(admin.token);

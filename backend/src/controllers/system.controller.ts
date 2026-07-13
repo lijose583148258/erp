@@ -3,10 +3,12 @@ import { BackupService, getBackupOperationConflictMessage } from '../services/ba
 import { logger } from '../utils/logger';
 import prisma from '../config/database';
 import { runtime } from '../config/runtime';
+import { SearchIndexService } from '../services/search-index.service';
 
 async function writeSystemAuditLog(req: Request, input: {
     action: string;
     details: string;
+    resource?: string;
 }) {
     const userId = (req as any).user?.userId;
     if (!userId) return;
@@ -15,7 +17,7 @@ async function writeSystemAuditLog(req: Request, input: {
             data: {
                 userId,
                 action: input.action,
-                resource: 'database',
+                resource: input.resource || 'database',
                 details: input.details,
                 ipAddress: req.ip,
                 userAgent: req.get('user-agent'),
@@ -48,6 +50,26 @@ export class SystemController {
         } catch (error) {
             logger.error('Failed to get system status', error);
             res.status(500).json({ success: false, message: 'Failed to get system status' });
+        }
+    }
+
+    async getSearchStatus(_req: Request, res: Response) {
+        res.json({ success: true, data: SearchIndexService.getStatus() });
+    }
+
+    async reindexSearch(req: Request, res: Response) {
+        try {
+            const result = await SearchIndexService.reindexAll();
+            await writeSystemAuditLog(req, {
+                action: 'SYSTEM_SEARCH_REINDEX',
+                resource: 'search',
+                details: `Rebuilt external search indexes: customers=${result.indexes.customers.documents}, orders=${result.indexes.orders.documents}`,
+            });
+            res.json({ success: true, data: result, message: 'Search indexes rebuilt successfully' });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Search reindex failed';
+            logger.error('Search reindex controller error', error);
+            res.status(message === 'SEARCH_REINDEX_IN_PROGRESS' ? 409 : 503).json({ success: false, message });
         }
     }
 

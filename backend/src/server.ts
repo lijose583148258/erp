@@ -1,3 +1,4 @@
+import './observability/instrumentation';
 import express, { Application, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -10,33 +11,23 @@ import { auditMiddleware } from './middleware/auditMiddleware';
 import { errorHandler } from './middleware/errorHandler';
 import { getAllowedOrigins, getBackupDir, getFrontendDistDir, getUploadDir, loadRuntimeEnv, runtime } from './config/runtime';
 import prisma, { configureRuntimeDatabase } from './config/database';
-import authRoutes from './routes/auth.routes';
-import customerRoutes from './routes/customer.routes';
-import orderRoutes from './routes/order.routes';
-import sampleRoutes from './routes/sample.routes';
-import shippingRoutes from './routes/shipping.routes';
-import rmaRoutes from './routes/rma.routes';
-import teamRoutes from './routes/team.routes';
-import dashboardRoutes from './routes/dashboard.routes';
-import assetRoutes from './routes/asset.routes';
-import auditRoutes from './routes/audit.routes';
-import procurementRoutes from './routes/procurement.routes';
-import collectionRoutes from './routes/collection.routes';
-import systemRoutes from './routes/system.routes';
-import timberRoutes from './routes/timber.routes';
-import contractRoutes from './routes/contract.routes';
-import adjustmentRoutes from './routes/adjustment.routes';
-import productionRoutes from './routes/production.routes';
-import financeRoutes from './routes/finance.routes';
-import barterRoutes from './routes/barter.routes';
-import currencyRoutes from './routes/currency.routes';
-import warehouseRoutes from './routes/warehouse.routes';
-import receiptDiscrepancyRoutes from './routes/receipt-discrepancy.routes';
-import roleRoutes from './routes/role.routes';
-import commercialPlatformRoutes from './routes/commercial-platform.routes';
+import { buildOpenApiDocument, renderOpenApiDocsHtml } from './openapi/openapiDocument';
+import { mountApiRoutes } from './routes/apiRegistry';
 import { BackupService } from './services/backup.service';
-import { metricsMiddleware, renderPrometheusMetrics } from './middleware/metricsMiddleware';
-import { authenticate, authorize } from './middleware/auth';
+import { fileStorage, getFileStorageStatus } from './services/file-storage.service';
+import { cacheService } from './services/cache.service';
+import { getSearchStatus } from './services/search.service';
+import { createCsrfBoundary } from './security/csrfBoundary';
+import { getJwtSecretStatus } from './security/secretManagement';
+import { hasValidMetricsBearerToken } from './security/metricsAccess';
+import { metricsMiddleware, recordRumVital, renderPrometheusMetrics } from './middleware/metricsMiddleware';
+import { authenticate, authorize, authorizePermission, type AuthRequest } from './middleware/auth';
+import { attachRealtimeNotifications, getRealtimeNotificationStatus } from './services/realtime-notification.service';
+import { getTraceContext, traceContextMiddleware } from './middleware/traceContext';
+import { createApiRateLimitStore, getRateLimitStoreStatus } from './services/distributed-rate-limit.service';
+import { getAuthTokenStoreStatus } from './services/auth-token-store.service';
+import { probeRedis } from './infrastructure/redis-runtime';
+import { getTelemetryStatus, shutdownTelemetry } from './observability/instrumentation';
 
 loadRuntimeEnv();
 
@@ -54,6 +45,10 @@ const cspConnectSources = Array.from(new Set([
   'ws:',
   'wss:',
 ]));
+const allowUnsafeInlineCsp = String(process.env.AILAODA_ALLOW_UNSAFE_INLINE_CSP || '').toLowerCase() === 'true';
+const cspScriptSources = allowUnsafeInlineCsp ? ["'self'", "'unsafe-inline'"] : ["'self'"];
+const cspStyleSources = allowUnsafeInlineCsp ? ["'self'", "'unsafe-inline'"] : ["'self'"];
+const cspStyleAttributeSources = ["'unsafe-inline'"];
 
 app.set('trust proxy', runtime.trustProxy);
 
@@ -61,8 +56,10 @@ app.use(helmet({
   contentSecurityPolicy: {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
-      styleSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: cspScriptSources,
+      styleSrc: cspStyleSources,
+      styleSrcElem: cspStyleSources,
+      styleSrcAttr: cspStyleAttributeSources,
       fontSrc: ["'self'", 'data:'],
       imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
       connectSrc: cspConnectSources,
@@ -80,14 +77,41 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(createCsrfBoundary({ allowedOrigins }));
+app.use(traceContextMiddleware);
 app.use(metricsMiddleware);
 
 const uploadDir = getUploadDir();
 fs.mkdirSync(uploadDir, { recursive: true });
-app.use('/uploads', express.static(uploadDir, {
-  fallthrough: false,
-  maxAge: runtime.nodeEnv === 'production' ? '1d' : 0,
-}));
+
+const sendUploadFile = async (subdir: string, filename: string, res: Response) => {
+  if (subdir !== 'contracts' && subdir !== 'pod') {
+    return res.status(400).json({ success: false, message: 'Invalid file path.' });
+  }
+  const target = await fileStorage.resolveDownload(subdir, filename);
+  if (!target) {
+    return res.status(404).json({ success: false, message: 'File not found.' });
+  }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(target.fileName)}"`);
+  return res.sendFile(target.localPath);
+};
+
+app.get('/uploads/contracts/:filename', authenticate, authorizePermission('contracts.read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await sendUploadFile('contracts', req.params.filename, res);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get('/uploads/pod/:filename', authenticate, authorizePermission('shipping.receipts.read'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    await sendUploadFile('pod', req.params.filename, res);
+  } catch (error) {
+    next(error);
+  }
+});
 
 const rateLimitWindowMs = Number(process.env.API_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000);
 const rateLimitMax = Number(process.env.API_RATE_LIMIT_MAX || (runtime.nodeEnv === 'production' ? 2000 : 5000));
@@ -96,11 +120,12 @@ const limiter = rateLimit({
   max: rateLimitMax,
   standardHeaders: true,
   legacyHeaders: false,
+  store: createApiRateLimitStore(),
   message: '请求过于频繁，请稍后再试',
 });
 app.use('/api/', limiter);
 
-app.get('/api/system/health-details', authenticate, authorize('admin'), async (_req: Request, res: Response) => {
+app.get(['/api/system/health-details', '/api/v1/system/health-details'], authenticate, authorize('admin'), async (_req: Request, res: Response) => {
   const minimumFreeDiskBytes = Number(process.env.MIN_FREE_DISK_BYTES || 512 * 1024 * 1024);
   const backupDir = getBackupDir();
   let freeDiskBytes: number | null = null;
@@ -116,6 +141,17 @@ app.get('/api/system/health-details', authenticate, authorize('admin'), async (_
     status: freeDiskBytes === null || freeDiskBytes < minimumFreeDiskBytes ? 'degraded' : 'ok',
     freeDiskBytes,
     minimumFreeDiskBytes,
+    redis: await probeRedis(),
+    cache: cacheService.status(),
+    authTokens: getAuthTokenStoreStatus(),
+    rateLimits: getRateLimitStoreStatus(),
+    search: getSearchStatus(),
+    objectStorage: getFileStorageStatus(),
+    realtime: getRealtimeNotificationStatus(),
+    telemetry: getTelemetryStatus(),
+    secrets: {
+      jwt: getJwtSecretStatus(),
+    },
     timestamp: new Date().toISOString(),
   });
 });
@@ -124,28 +160,45 @@ app.get('/api/system/health-details', authenticate, authorize('admin'), async (_
 app.use('/api', auditMiddleware);
 
 app.use((req: Request, res: Response, next: NextFunction) => {
+  const traceContext = getTraceContext(req);
   logger.info(`${req.method} ${req.path}`, {
     ip: req.ip,
     userAgent: req.get('user-agent'),
+    traceId: traceContext?.traceId,
+    spanId: traceContext?.spanId,
+    requestId: traceContext?.requestId,
   });
   next();
 });
 
-app.get(['/livez', '/api/livez'], (_req: Request, res: Response) => {
+app.get(['/livez', '/api/livez', '/api/v1/livez'], (_req: Request, res: Response) => {
   res.json({ status: 'alive', timestamp: new Date().toISOString(), uptime: process.uptime() });
 });
 
-app.get(['/ready', '/api/ready'], async (_req: Request, res: Response) => {
+app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Response) => {
+  const dependencyPolicy = {
+    critical: ['database', 'redis'],
+    degradable: ['search', 'objectStorage', 'telemetry'],
+  };
+  const degradable = {
+    search: getSearchStatus(),
+    objectStorage: getFileStorageStatus(),
+    telemetry: getTelemetryStatus(),
+  };
   try {
     await prisma.$queryRaw`SELECT 1`;
-    res.json({ status: 'ready', database: 'ok', timestamp: new Date().toISOString(), uptime: process.uptime() });
+    const redis = await probeRedis();
+    if (!redis.ready) {
+      return res.status(503).json({ status: 'not-ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString() });
+    }
+    return res.json({ status: 'ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString(), uptime: process.uptime() });
   } catch (error) {
     logger.error('Readiness database probe failed', error);
-    res.status(503).json({ status: 'not-ready', database: 'unavailable', timestamp: new Date().toISOString() });
+    return res.status(503).json({ status: 'not-ready', database: 'unavailable', dependencyPolicy, degradable, timestamp: new Date().toISOString() });
   }
 });
 
-app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
+app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
   const checks = {
     database: 'ok',
     backupDir: 'ok',
@@ -178,11 +231,29 @@ app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
     logger.error('Health check disk probe failed', error);
   }
 
-  const healthy = Object.values(checks).every((value) => value === 'ok');
+  const redis = await probeRedis();
+  const healthy = Object.values(checks).every((value) => value === 'ok') && redis.ready;
+  const cache = cacheService.status();
+  const jwtSecret = getJwtSecretStatus();
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'ok' : 'degraded',
     mode: runtime.nodeEnv,
     database: checks.database === 'ok' ? 'ok' : 'unavailable',
+    redis,
+    cache,
+    authTokens: getAuthTokenStoreStatus(),
+    rateLimits: getRateLimitStoreStatus(),
+    search: getSearchStatus(),
+    objectStorage: getFileStorageStatus(),
+    realtime: getRealtimeNotificationStatus(),
+    telemetry: getTelemetryStatus(),
+    secrets: {
+      jwt: {
+        configured: jwtSecret.configured,
+        source: jwtSecret.source,
+        issues: jwtSecret.issues,
+      },
+    },
     checks: {
       database: checks.database,
       backupDir: checks.backupDir,
@@ -193,44 +264,69 @@ app.get(['/health', '/api/health'], async (_req: Request, res: Response) => {
   });
 });
 
-app.get('/metrics', (_req: Request, res: Response) => {
+const authorizeMetricsAccess = (req: Request, res: Response, next: NextFunction) => {
+  if (hasValidMetricsBearerToken(req.headers.authorization)) return next();
+  return authenticate(req as AuthRequest, res, () => authorizePermission('system.metrics.read')(req as AuthRequest, res, next));
+};
+
+app.get('/metrics', authorizeMetricsAccess, (_req: Request, res: Response) => {
   res.type('text/plain; version=0.0.4');
   res.send(renderPrometheusMetrics());
 });
 
-app.get('/sw.js', (_req: Request, res: Response) => {
-  res.status(404).type('text/plain').send('service worker is disabled');
+app.post(['/api/rum/vitals', '/api/v1/rum/vitals'], (req: Request, res: Response) => {
+  const body = req.body as { vitals?: unknown };
+  if (!Array.isArray(body.vitals) || body.vitals.length === 0 || body.vitals.length > 20) {
+    return res.status(400).json({ success: false, message: 'Invalid Web Vitals payload.' });
+  }
+
+  let accepted = 0;
+  for (const item of body.vitals) {
+    if (!item || typeof item !== 'object') continue;
+    const vital = item as { name?: unknown; value?: unknown; rating?: unknown; path?: unknown };
+    const wasAccepted = recordRumVital({
+      name: typeof vital.name === 'string' ? vital.name : '',
+      value: typeof vital.value === 'number' ? vital.value : Number.NaN,
+      rating: typeof vital.rating === 'string' ? vital.rating : 'unknown',
+      path: typeof vital.path === 'string' ? vital.path : '/',
+    });
+    if (wasAccepted) accepted += 1;
+  }
+
+  if (accepted === 0) {
+    return res.status(400).json({ success: false, message: 'No valid Web Vitals samples were accepted.' });
+  }
+
+  return res.status(202).json({ success: true, accepted });
 });
 
-app.use('/api/auth', authRoutes);
-app.use('/api/customers', customerRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/samples', sampleRoutes);
-app.use('/api/shipping', shippingRoutes);
-app.use('/api/rma', rmaRoutes);
-app.use('/api/team', teamRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-app.use('/api/assets', assetRoutes);
-app.use('/api/audit', auditRoutes);
-app.use('/api/procurement', procurementRoutes);
-app.use('/api/collections', collectionRoutes);
-app.use('/api/adjustments', adjustmentRoutes);
-app.use('/api/system', systemRoutes);
-app.use('/api/barter', barterRoutes);
-app.use('/api/timber', timberRoutes);
-app.use('/api/contracts', contractRoutes);
-app.use('/api/production', productionRoutes);
-app.use('/api/finance', financeRoutes);
-app.use('/api/currency', currencyRoutes);
-app.use('/api/warehouses', warehouseRoutes);
-app.use('/api/receipt-discrepancies', receiptDiscrepancyRoutes);
-app.use('/api/roles', roleRoutes);
-app.use('/api/commercial', commercialPlatformRoutes);
+app.get(['/api/openapi.json', '/api/v1/openapi.json'], (_req: Request, res: Response) => {
+  res.json(buildOpenApiDocument());
+});
+
+app.get('/api/docs', (_req: Request, res: Response) => {
+  res.type('html').send(renderOpenApiDocsHtml('/api/openapi.json'));
+});
+
+app.get('/api/v1/docs', (_req: Request, res: Response) => {
+  res.type('html').send(renderOpenApiDocsHtml('/api/v1/openapi.json'));
+});
+
+mountApiRoutes(app);
 
 const clientPath = getFrontendDistDir();
 const indexPath = path.join(clientPath, 'index.html');
+const serviceWorkerPath = path.join(clientPath, 'sw.js');
 
 if (runtime.serveFrontend && fs.existsSync(indexPath)) {
+  app.get('/sw.js', (_req: Request, res: Response) => {
+    if (!fs.existsSync(serviceWorkerPath)) {
+      return res.status(404).type('text/plain').send('service worker is not built');
+    }
+    res.setHeader('Cache-Control', 'no-cache');
+    return res.sendFile(serviceWorkerPath);
+  });
+
   app.use(express.static(clientPath));
 
   app.get('*', (req: Request, res: Response, next: NextFunction) => {
@@ -274,6 +370,12 @@ const shutdownGracefully = (reason: string) => {
   forceExitTimer.unref();
 
   const closeDatabaseAndExit = async (code: number) => {
+    try {
+      await shutdownTelemetry();
+      logger.info('OpenTelemetry exporter closed');
+    } catch (error) {
+      logger.error('OpenTelemetry shutdown failed', error);
+    }
     try {
       await prisma.$disconnect();
       logger.info('数据库连接已关闭');
@@ -330,6 +432,7 @@ const startServer = async () => {
     startShutdownSignalWatcher();
 
     server = app.listen(PORT, () => {
+      if (server) attachRealtimeNotifications(server);
       logger.info(`Server started successfully. Port: ${PORT}`);
       logger.info(`Environment: ${runtime.nodeEnv}`);
       logger.info(`CORS: ${allowedOrigins.join(',')}`);

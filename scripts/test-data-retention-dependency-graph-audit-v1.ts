@@ -94,14 +94,14 @@ function normalizePath(filePath: string | null) {
 }
 
 async function getTables() {
-  const rows = await prisma.$queryRawUnsafe<TableRow[]>(
+  const rows = (await prisma.$queryRawUnsafe(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-  );
+  )) as TableRow[];
   return rows.map(row => row.name).filter(name => name !== '_prisma_migrations');
 }
 
 async function getForeignKeys(table: string) {
-  return prisma.$queryRawUnsafe<ForeignKeyRow[]>(`PRAGMA foreign_key_list(${quoteIdentifier(table)})`);
+  return (await prisma.$queryRawUnsafe(`PRAGMA foreign_key_list(${quoteIdentifier(table)})`)) as ForeignKeyRow[];
 }
 
 function loadInventory() {

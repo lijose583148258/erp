@@ -21,6 +21,20 @@ router.get(
     (req, res) => controller.getBackups(req, res)
 );
 
+router.get(
+    '/search/status',
+    authenticate,
+    authorizePermission('system.read'),
+    (req, res) => controller.getSearchStatus(req, res)
+);
+
+router.post(
+    '/search/reindex',
+    authenticate,
+    authorizePermission('system.backup.manage'),
+    (req, res) => controller.reindexSearch(req, res)
+);
+
 router.post(
     '/backups',
     authenticate,

@@ -4,7 +4,7 @@ import {
   CollectionHoldRecord,
   CollectionOverdueRecord,
   collectionsService,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
 import { CollectionActionMode, CollectionActionTarget } from '../../components/collections/CollectionActionModal';
 import { reportClientIssue } from '../../utils/clientIssue';
 import { getCollectionCustomerLabel } from './collectionCenter.helpers';

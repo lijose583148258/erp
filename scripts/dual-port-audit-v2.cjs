@@ -1,6 +1,7 @@
 ﻿const http = require('http');
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const BACKEND = 'http://127.0.0.1:5001';
 const LEGACY_FRONTEND = process.env.LEGACY_FRONTEND_URL || 'http://localhost:3000';
@@ -8,7 +9,7 @@ const REQUIRE_FRONTEND_PORT = process.env.REQUIRE_FRONTEND_PORT === 'true';
 const COMPARE_LEGACY_FRONTEND = process.env.COMPARE_LEGACY_FRONTEND === 'true' || REQUIRE_FRONTEND_PORT;
 
 const API_ENDPOINTS = [
-  { method: 'POST', path: '/api/auth/login', body: JSON.stringify({ username: 'admin', password: 'admin123' }) },
+  { method: 'POST', path: '/api/auth/login', body: JSON.stringify({ username: 'dual_port_audit_admin', password: 'DualPortAudit123!' }) },
   { method: 'GET', path: '/api/dashboard' },
   { method: 'GET', path: '/api/dashboard/trends' },
   { method: 'GET', path: '/api/customers' },
@@ -134,6 +135,12 @@ function request(base, endpoint, token) {
 
 async function fetchToken() {
   try {
+    const account = {
+      username: 'dual_port_audit_admin',
+      password: 'DualPortAudit123!',
+      role: 'admin',
+    };
+    await ensureUiAuditUser(account);
     const body = await new Promise((resolve) => {
       const url = new URL('/api/auth/login', BACKEND);
       const req = http.request(
@@ -158,7 +165,7 @@ async function fetchToken() {
         resolve(null);
       });
       req.setTimeout(8000);
-      req.write(JSON.stringify({ username: 'admin', password: 'admin123' }));
+      req.write(JSON.stringify({ username: account.username, password: account.password }));
       req.end();
     });
     return body?.data?.token || '';

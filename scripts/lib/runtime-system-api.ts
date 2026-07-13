@@ -1,4 +1,13 @@
 import { resolveRuntimeAppUrl } from './runtime-stable-restart';
+import { createRequire } from 'module';
+
+const requireFromScript = createRequire(import.meta.url);
+const { ensureUiAuditUser } = requireFromScript('../lib/ui-audit-user.cjs') as {
+  ensureUiAuditUser: (account?: { username: string; password: string; role: string }) => Promise<{ username: string; password: string; role: string }>;
+};
+const { getSqliteDbPath } = requireFromScript('../../backend/src/config/runtime.ts') as {
+  getSqliteDbPath: () => string | null;
+};
 
 export type ApiResponse = {
   ok: boolean;
@@ -44,9 +53,18 @@ export async function apiFetch(
 }
 
 export async function loginAsAdmin(appUrl: string, requestTimeoutMs = 10_000) {
+  const runtimeDbPath = getSqliteDbPath();
+  if (runtimeDbPath) {
+    process.env.DATABASE_URL = `file:${runtimeDbPath.replace(/\\/g, '/')}`;
+  }
+  const account = await ensureUiAuditUser({
+    username: process.env.AUDIT_UI_USERNAME || 'ui_runtime_system_admin',
+    password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
+    role: 'admin',
+  });
   const response = await apiFetch(appUrl, '/auth/login', {
     method: 'POST',
-    data: { username: 'admin', password: 'admin123' },
+    data: { username: account.username, password: account.password },
   }, '', requestTimeoutMs);
 
   if (!response.ok) {
