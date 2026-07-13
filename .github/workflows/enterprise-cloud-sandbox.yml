@@ -66,7 +66,7 @@ jobs:
     name: Provision and audit enterprise dependencies
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
+    env: &sandbox-env
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
       POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
       MINIO_ROOT_USER: ailaoda-sandbox
@@ -74,6 +74,9 @@ jobs:
       MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
       GRAFANA_ADMIN_USER: sandbox-admin
       GRAFANA_ADMIN_PASSWORD: sandbox-${{ github.run_id }}-grafana
+      JWT_SECRET: sandbox-${{ github.run_id }}-jwt-signing-secret
+      METRICS_BEARER_TOKEN: sandbox-${{ github.run_id }}-metrics-token
+      AILAODA_IMAGE_TAG: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
 
@@ -87,7 +90,7 @@ jobs:
           } | tee cloud-evidence/toolchain.txt
 
       - name: Pull fixed dependency images
-        run: docker compose pull
+        run: docker compose pull --ignore-buildable
 
       - name: Start dependency topology
         run: docker compose up -d --wait --wait-timeout 180
@@ -135,3 +138,130 @@ jobs:
       - name: Stop sandbox
         if: always()
         run: docker compose down -v --remove-orphans
+
+  cloud-application-audit:
+    name: Deploy dual app and simulate human workflows
+    needs: source-evidence-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      <<: *sandbox-env
+      DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
+      APP_URL: http://127.0.0.1:5006/
+      SECONDARY_APP_URL: http://127.0.0.1:5008/
+      AUDIT_PRISMA_PROVIDER: postgresql
+      AUDIT_DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
+      AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
+      BROWSER_AUDIT_VISIBLE: "0"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install application dependencies
+        run: |
+          npm ci
+          npm --prefix backend ci
+
+      - name: Install Chromium in cloud runner
+        run: npx playwright install --with-deps chromium
+
+      - name: Start dependency topology
+        run: |
+          mkdir -p cloud-evidence
+          docker compose pull --ignore-buildable
+          docker compose up -d --wait --wait-timeout 180
+
+      - name: Build PostgreSQL schema and application image
+        run: |
+          npm run build:backend:postgres-artifact
+          node node_modules/prisma/build/index.js db push --schema=output/postgres-prisma-artifact/prisma --skip-generate
+          docker compose --profile application build app-primary
+
+      - name: Start dual application instances
+        run: docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+
+      - name: Verify application readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5006 5008; do
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/health" | tee "cloud-evidence/health-${port}.json"
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" | tee "cloud-evidence/ready-${port}.json"
+          done
+
+      - name: Simulate human ERP workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run audit:ui:unsaved-changes
+          npm run audit:ui:complex-input-governance
+          npm run audit:orders:browser
+          npm run audit:procurement:browser
+          npm run audit:warehouse:transfer:browser
+          npm run audit:shipping:browser
+          npm run audit:collection:human-flow
+
+      - name: Verify shared session across app instances
+        run: |
+          node - <<'NODE'
+          const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
+          (async () => {
+            const account = await ensureUiAuditUser({ username: 'cloud_ha_admin', password: 'CloudHaAudit12345!', role: 'admin' });
+            const login = await fetch(process.env.APP_URL + 'api/v1/auth/login', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(account),
+            });
+            if (!login.ok) throw new Error('Primary login failed: ' + login.status);
+            const body = await login.json();
+            const token = body?.data?.token;
+            if (!token) throw new Error('Primary login returned no token');
+            const secondary = await fetch(process.env.SECONDARY_APP_URL + 'api/v1/auth/me', {
+              headers: { authorization: 'Bearer ' + token },
+            });
+            if (!secondary.ok) throw new Error('Secondary rejected primary token: ' + secondary.status);
+            require('fs').writeFileSync('cloud-evidence/shared-session.json', JSON.stringify({
+              status: 'passed',
+              primaryLogin: login.status,
+              secondaryReadback: secondary.status,
+              checkedAt: new Date().toISOString(),
+            }, null, 2) + '\n');
+          })().catch(error => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Verify telemetry ingestion
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:8888/metrics > cloud-evidence/otel-collector-metrics.txt
+          docker compose logs --no-color otel-collector > cloud-evidence/otel-collector.log 2>&1
+          grep -E "Traces|ResourceSpans|ailaoda-erp-crm" cloud-evidence/otel-collector.log > cloud-evidence/otel-trace-proof.txt
+
+      - name: Capture application evidence
+        if: always()
+        shell: bash
+        run: |
+          docker compose --profile application ps -a > cloud-evidence/application-compose-ps.txt || true
+          docker compose --profile application logs --no-color > cloud-evidence/application-compose.log 2>&1 || true
+          cp -r output/audit cloud-evidence/audit 2>/dev/null || true
+          cp -r output/playwright cloud-evidence/playwright 2>/dev/null || true
+          node -e 'const fs=require("fs"); fs.mkdirSync("cloud-evidence",{recursive:true}); const failed=process.env.JOB_STATUS!=="success"; fs.writeFileSync("cloud-evidence/application-audit-summary.json",JSON.stringify({name:"Enterprise cloud application audit",status:failed?"failed":"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,checkedAt:new Date().toISOString()},null,2)+"\n")'
+        env:
+          JOB_STATUS: ${{ job.status }}
+
+      - name: Upload application evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-cloud-application-evidence
+          path: cloud-evidence/
+          retention-days: 14
+
+      - name: Stop sandbox
+        if: always()
+        run: docker compose --profile application down -v --remove-orphans
