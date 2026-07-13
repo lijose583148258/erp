@@ -1,8 +1,14 @@
-FROM node:20-bookworm-slim AS build
+FROM node:20-bookworm-slim AS base
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates openssl \
+  && rm -rf /var/lib/apt/lists/*
+
+FROM base AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package-lock.json ./backend/
+COPY backend/prisma ./backend/prisma
 RUN npm ci
 RUN cd backend && npm ci
 
@@ -10,7 +16,7 @@ COPY . .
 RUN npm run build
 RUN npm run build:backend:postgres-server-artifact
 
-FROM node:20-bookworm-slim AS production
+FROM base AS production
 WORKDIR /app
 
 ENV NODE_ENV=production
