@@ -167,6 +167,7 @@ async function loginBrowser(page) {
   await page.waitForFunction(() => {
     return window.localStorage.getItem('token') && !document.querySelector('#login-username');
   }, null, { timeout: 20000 });
+  return page.evaluate(() => window.localStorage.getItem('token') || '');
 }
 
 async function selectLocation(page, testId, locationName) {
@@ -236,7 +237,8 @@ async function run() {
       stockResponses.push({ url, status: response.status() });
     });
 
-    await loginBrowser(page);
+    warehouseUser.token = await loginBrowser(page);
+    if (!warehouseUser.token) throw new Error('browser login returned no current token');
     recordStep({ step: 'browser-login-warehouse', result: 'passed' });
 
     await page.evaluate(() => { window.location.hash = '#warehouse'; });
