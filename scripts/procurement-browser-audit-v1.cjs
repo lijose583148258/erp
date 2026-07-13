@@ -147,6 +147,41 @@ function assertNoMojibake(text, scopeName) {
   }
 }
 
+async function ensureReceiptLocation(page) {
+  return withTimebox(page, 'ensure-procurement-receipt-location', TIMEOUTS.api, async () => {
+    const listPayload = await apiFetch(page, '/warehouses');
+    if (!listPayload.ok) throw new Error(`warehouse fixture read failed: ${listPayload.status}`);
+    const warehouses = unwrapList(listPayload);
+    const existingLocation = warehouses
+      .flatMap((warehouse) => Array.isArray(warehouse.locations) ? warehouse.locations : [])
+      .find((location) => String(location.code) === 'LOC-RAW' && String(location.status || 'active') === 'active');
+    if (existingLocation) return existingLocation;
+
+    let warehouse = warehouses[0];
+    if (!warehouse) {
+      const warehousePayload = await apiFetch(page, '/warehouses', {
+        method: 'POST',
+        data: {
+          code: `WH-PROC-${RUN_ID}`,
+          name: `Procurement Audit Warehouse ${RUN_ID}`,
+          type: 'physical',
+        },
+      });
+      if (!warehousePayload.ok) throw new Error(`warehouse fixture create failed: ${warehousePayload.status}`);
+      warehouse = warehousePayload.json?.data;
+    }
+    if (!warehouse?.id) throw new Error('warehouse fixture id missing');
+
+    const locationPayload = await apiFetch(page, `/warehouses/${warehouse.id}/locations`, {
+      method: 'POST',
+      data: { code: 'LOC-RAW', name: 'Raw Material Receiving', type: 'internal' },
+    });
+    if (!locationPayload.ok) throw new Error(`receipt location fixture create failed: ${locationPayload.status}`);
+    recordStep({ step: 'receipt-location-fixture-created', result: 'passed', warehouseId: String(warehouse.id) });
+    return locationPayload.json?.data;
+  });
+}
+
 async function ensureLinkedSalesOrder(page) {
   return withTimebox(page, 'ensure-linked-sales-order', TIMEOUTS.api, async () => {
     const customerPayload = await apiFetch(page, '/customers', {
@@ -590,6 +625,7 @@ async function run() {
     report.launcher = launched.launcher;
     page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     await seedLoginState(page);
+    await ensureReceiptLocation(page);
     await ensureLinkedSalesOrder(page);
     await openProcurement(page);
     await createSupplier(page);
