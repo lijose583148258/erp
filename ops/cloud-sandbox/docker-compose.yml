@@ -1,0 +1,125 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ailaoda
+      POSTGRES_USER: ailaoda
+      POSTGRES_PASSWORD: cloud-sandbox-postgres
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailaoda -d ailaoda"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-primary:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-replica:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes"]
+    ports:
+      - "6381:6379"
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  sentinel-1: &sentinel
+    image: redis:7.4-alpine
+    command:
+      - sh
+      - -ec
+      - |
+        printf 'port 26379\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 3000\nsentinel failover-timeout ailaoda-primary 15000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
+        exec redis-server /tmp/sentinel.conf --sentinel
+    ports:
+      - "26379:26379"
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_started
+
+  sentinel-2:
+    <<: *sentinel
+    ports:
+      - "26380:26379"
+
+  sentinel-3:
+    <<: *sentinel
+    ports:
+      - "26381:26379"
+
+  minio-primary:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ailaoda
+      MINIO_ROOT_PASSWORD: cloud-sandbox-minio-secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio-secondary:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ailaoda
+      MINIO_ROOT_PASSWORD: cloud-sandbox-minio-secret
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+
+  meilisearch-primary:
+    image: getmeili/meilisearch:v1.15
+    environment:
+      MEILI_MASTER_KEY: cloud-sandbox-meilisearch-master-key
+    ports:
+      - "7700:7700"
+
+  meilisearch-secondary:
+    image: getmeili/meilisearch:v1.15
+    environment:
+      MEILI_MASTER_KEY: cloud-sandbox-meilisearch-master-key
+    ports:
+      - "7710:7700"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "4318:4318"
+      - "8888:8888"
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: cloud-sandbox-grafana
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "3001:3000"
