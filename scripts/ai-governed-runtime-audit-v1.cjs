@@ -65,6 +65,7 @@ async function main() {
 
 main().catch(error => {
   report.error = String(error.message || error);
+  console.error(`Governed AI failure: ${report.error}`);
   process.exitCode = 1;
 }).finally(() => {
   report.finishedAt = new Date().toISOString();
