@@ -26,6 +26,10 @@ const sentinelMaster = () => {
   const [host, port] = output.split(/\r?\n/).filter(Boolean);
   return { host, port: Number(port) };
 };
+const redisRole = service => {
+  const info = compose('exec', '-T', service, 'redis-cli', 'INFO', 'replication');
+  return /role:master/.test(info) ? 'master' : (/role:(slave|replica)/.test(info) ? 'replica' : 'unknown');
+};
 const tokenAccepted = async token => {
   const results = await Promise.all(instances.map(async instance => {
     const response = await fetch(`${instance}/api/v1/auth/me`, {
@@ -57,11 +61,15 @@ async function main() {
   const token = loginBody?.data?.token;
   check('baseline-login', login.ok && Boolean(token));
   check('baseline-shared-token', await tokenAccepted(token));
-  check('baseline-master', sentinelMaster().host === 'redis-primary', { master: sentinelMaster() });
+  check('baseline-master', redisRole('redis-primary') === 'master' && redisRole('redis-replica') === 'replica', {
+    sentinel: sentinelMaster(),
+    primaryRole: redisRole('redis-primary'),
+    replicaRole: redisRole('redis-replica'),
+  });
 
   compose('stop', 'redis-primary');
-  const promoted = await waitFor(() => sentinelMaster().host === 'redis-replica');
-  check('replica-promoted', promoted, { master: sentinelMaster() });
+  const promoted = await waitFor(() => redisRole('redis-replica') === 'master');
+  check('replica-promoted', promoted, { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica') });
   check('apps-ready-after-promotion', await waitFor(appsReady, 30_000));
   check('shared-token-survives-promotion', await tokenAccepted(token));
 
@@ -78,7 +86,10 @@ async function main() {
 
 main().catch(error => {
   report.error = String(error?.message || error);
-  console.error(`Cloud Redis failover failure: ${report.error}`);
+  let diagnostics = {};
+  try { diagnostics = { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica') }; } catch {}
+  report.diagnostics = diagnostics;
+  console.error(`Cloud Redis failover failure: ${report.error} ${JSON.stringify(diagnostics)}`);
   process.exitCode = 1;
 }).finally(async () => {
   try { compose('start', 'redis-primary'); } catch {}
