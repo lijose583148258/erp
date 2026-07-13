@@ -263,6 +263,23 @@ jobs:
           docker compose logs --no-color otel-collector > cloud-evidence/otel-collector.log 2>&1
           grep -E "Traces|ResourceSpans|ailaoda-erp-crm" cloud-evidence/otel-collector.log > cloud-evidence/otel-trace-proof.txt
 
+      - name: Verify governed AI runtime
+        run: npm run audit:ai:governed-runtime
+
+      - name: Run dual-instance load gate
+        run: npm run audit:load:ha
+        env:
+          AILAODA_LOAD_USERNAME: cloud_ha_admin
+          AILAODA_LOAD_PASSWORD: CloudHaAudit12345!
+          AILAODA_LOAD_REQUESTS: "1000"
+          AILAODA_LOAD_CONCURRENCY: "25"
+
+      - name: Run short HA soak gate
+        run: npm run audit:soak:ha
+        env:
+          HA_SOAK_DURATION_MS: "45000"
+          HA_SOAK_CONCURRENCY: "8"
+
       - name: Capture application evidence
         if: always()
         shell: bash
