@@ -1,6 +1,6 @@
 const fs = require('fs');
 const path = require('path');
-const { chromium } = require('playwright');
+const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
@@ -110,12 +110,39 @@ async function ensureWarehouseAuditUser() {
 async function getDefaultLocations(token) {
   const response = await expectOk('list warehouses', apiFetch('/warehouses', {}, token));
   const warehouses = unwrapList(response);
-  const main = warehouses.find(item => String(item.code) === 'WH-MAIN');
-  if (!main) throw new Error('WH-MAIN warehouse not found');
-  const raw = (main.locations || []).find(item => String(item.code) === 'LOC-RAW');
-  const wip = (main.locations || []).find(item => String(item.code) === 'LOC-WIP');
-  if (!raw) throw new Error('LOC-RAW location not found');
-  if (!wip) throw new Error('LOC-WIP location not found');
+  let main = warehouses.find(item => (
+    Array.isArray(item.locations)
+    && item.locations.some(location => String(location.code) === 'LOC-RAW')
+  )) || warehouses.find(item => String(item.code) === 'WH-MAIN') || warehouses[0];
+
+  if (!main) {
+    const created = await expectOk('create warehouse fixture', apiFetch('/warehouses', {
+      method: 'POST',
+      data: { code: 'WH-MAIN', name: 'Main Audit Warehouse', type: 'physical' },
+    }, token));
+    main = unwrapData(created);
+  }
+  if (!main?.id) throw new Error('warehouse fixture id missing');
+
+  let raw = (main.locations || []).find(item => String(item.code) === 'LOC-RAW');
+  if (!raw) {
+    const created = await expectOk('create raw location fixture', apiFetch(`/warehouses/${main.id}/locations`, {
+      method: 'POST',
+      data: { code: 'LOC-RAW', name: 'Raw Material Location', type: 'internal' },
+    }, token));
+    raw = unwrapData(created);
+  }
+
+  let wip = (main.locations || []).find(item => String(item.code) === 'LOC-WIP');
+  if (!wip) {
+    const created = await expectOk('create wip location fixture', apiFetch(`/warehouses/${main.id}/locations`, {
+      method: 'POST',
+      data: { code: 'LOC-WIP', name: 'Work In Progress Location', type: 'production' },
+    }, token));
+    wip = unwrapData(created);
+  }
+
+  if (!raw?.id || !wip?.id) throw new Error('warehouse transfer location fixtures are incomplete');
   return { raw, wip };
 }
 
@@ -200,7 +227,7 @@ async function run() {
     if (!sourceBalance?.id) throw new Error('seed stock returned no source balance id');
     recordStep({ step: 'api-seed-source-stock', result: 'passed', stockBalanceId: sourceBalance.id });
 
-    browser = await chromium.launch({ headless: true });
+    browser = (await launchBrowserWithGuard({ recordStep, retryLimit: 1, waitMs: 800 })).browser;
     const page = await browser.newPage({ viewport: { width: 1440, height: 980 } });
     const stockResponses = [];
     page.on('response', async response => {
