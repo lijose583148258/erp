@@ -135,6 +135,9 @@ async function main() {
     if (browser) await browser.close().catch(() => {});
     if (prisma) await prisma.$disconnect().catch(() => {});
     await runtime.saveReport();
+    if (report.status !== 'passed' && report.failure) {
+      console.error(`Collection center failure: ${JSON.stringify(report.failure)}`);
+    }
     console.log(`Collection center human-flow audit ${report.status}. Report: ${REPORT_PATH}`);
   }
 }
