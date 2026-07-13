@@ -92,7 +92,11 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
             if (hasReceiptFile) {
                 try {
                     signedReceiptUrl = await storeReceiptFile(shipment.shipmentNo, req.body.fileName, req.body.mimeType, req.body.dataUrl);
-                } catch {
+                } catch (error) {
+                    const storageError = error instanceof Error ? error.message : '';
+                    if (storageError.startsWith('S3_')) {
+                        throw new AppError('RECEIPT_STORAGE_UNAVAILABLE', 503, ErrorCode.SERVICE_UNAVAILABLE);
+                    }
                     throw new AppError('INVALID_RECEIPT_FILE', 400, ErrorCode.VALIDATION_ERROR);
                 }
             }
@@ -219,6 +223,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
             SHIPMENT_ALREADY_FULLY_RECEIVED: '发货单已完成全部签收',
             SHIPMENT_RECEIPT_EXCEEDS_REMAINING: '签收数量超过剩余未签收数量',
             INVALID_RECEIPT_FILE: '签收文件格式不支持或文件过大',
+            RECEIPT_STORAGE_UNAVAILABLE: '签收凭证存储暂不可用，请稍后重试',
             RECEIPT_DISCREPANCY_BLOCKED_BY_TOLERANCE: '签收差异超过容差规则，已阻止处理',
         };
         return res.status(statusCode).json({
