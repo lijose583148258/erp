@@ -8,6 +8,7 @@ const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { createAuditRuntime, ensureDir } = require('./lib/audit-runtime-utils.cjs');
 const { loginAdmin, seedBusinessChain } = require('./lib/collection-human-flow-seed.cjs');
+const { createAuditPrismaClient } = require('./lib/ui-audit-user.cjs');
 const {
   assertNoBrowserRuntimeErrors,
   clickTabsAndSelectOrder,
@@ -36,7 +37,6 @@ const ADMIN = {
 
 const runtimeDbPath = process.env.AILAODA_RUNTIME_DB_PATH || 'D:/AilaoDaRuntime/stable.db';
 process.env.DATABASE_URL = process.env.DATABASE_URL || `file:${runtimeDbPath.replace(/\\/g, '/')}`;
-const { PrismaClient } = require(path.join(process.cwd(), 'backend', 'node_modules', '@prisma', 'client'));
 
 const copy = {
   workbench: '\u56de\u6b3e\u5de5\u4f5c\u53f0',
@@ -99,7 +99,7 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
-    prisma = new PrismaClient();
+    prisma = createAuditPrismaClient();
     const admin = await loginAdmin(runtime, { admin: ADMIN, stepTimeoutMs: STEP_TIMEOUT_MS });
     const seed = await seedBusinessChain(runtime, { token: admin.token, prisma, runId: RUN_ID, testData, report, stepTimeoutMs: STEP_TIMEOUT_MS });
     const launched = await launchBrowserWithGuard({ recordStep: runtime.recordStep, retryLimit: 1, waitMs: 800 });
