@@ -123,3 +123,72 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     ports:
       - "3001:3000"
+
+  app-primary: &app
+    profiles: ["application"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile.postgres
+    image: ailaoda-enterprise-cloud:${AILAODA_IMAGE_TAG:-sandbox}
+    environment: &app-environment
+      NODE_ENV: production
+      AILAODA_DEPLOYMENT_MODE: saas
+      AILAODA_PRISMA_PROVIDER: postgresql
+      AILAODA_BLOCK_DEMO_CREDENTIALS: "true"
+      SERVE_FRONTEND: "true"
+      PORT: "5001"
+      DATABASE_URL: postgresql://ailaoda:${POSTGRES_PASSWORD:?required}@postgres:5432/ailaoda?schema=public
+      JWT_SECRET: ${JWT_SECRET:?required}
+      REDIS_URL: ""
+      REDIS_SENTINELS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+      REDIS_MASTER_NAME: ailaoda-primary
+      CACHE_DRIVER: redis
+      AUTH_TOKEN_STORE_DRIVER: redis
+      LOGIN_RATE_LIMIT_STORE: redis
+      API_RATE_LIMIT_MAX: "10000"
+      API_RATE_LIMIT_WINDOW_MS: "900000"
+      REALTIME_BUS_DRIVER: redis
+      FILE_STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio-primary:9000
+      S3_ENDPOINTS: http://minio-secondary:9000
+      S3_MIN_WRITE_SUCCESSES: "2"
+      S3_REQUEST_TIMEOUT_MS: "2000"
+      S3_REGION: us-east-1
+      S3_BUCKET: ailaoda-files
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?required}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required}
+      S3_FORCE_PATH_STYLE: "true"
+      SEARCH_DRIVER: meilisearch
+      SEARCH_ENDPOINT: http://meilisearch-primary:7700
+      SEARCH_ENDPOINTS: http://meilisearch-secondary:7700
+      MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:?required}
+      SEARCH_REQUEST_TIMEOUT_MS: "2000"
+      SEARCH_RESULT_CACHE_TTL_SECONDS: "5"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: ailaoda-erp-crm
+      AILAODA_METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?required}
+      AI_GATEWAY_EXTERNAL_ENABLED: "false"
+      CORS_ORIGIN: http://127.0.0.1:5006,http://localhost:5006,http://127.0.0.1:5008,http://localhost:5008
+    ports:
+      - "5006:5001"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_started
+      minio-primary:
+        condition: service_healthy
+      meilisearch-primary:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+
+  app-secondary:
+    <<: *app
+    environment:
+      <<: *app-environment
+      OTEL_SERVICE_INSTANCE_ID: github-sandbox-secondary
+    ports:
+      - "5008:5001"
