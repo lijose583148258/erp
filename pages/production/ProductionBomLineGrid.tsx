@@ -1,12 +1,7 @@
 import React, { useState } from 'react';
-import { Calculator, ChevronRight, ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
+import { ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { ActionToolbar } from '../../components/ui';
-import {
-  getBomOperatingMetrics,
-  getBomOperatingSummary,
-  ProductionBomOperatingFields,
-} from './ProductionBomOperatingFields';
-
+import { getBomOperatingMetrics, getBomOperatingSummary, ProductionBomOperatingFields } from './ProductionBomOperatingFields';
 export type BomItemDraft = {
   materialName: string;
   materialCode: string;
@@ -26,21 +21,15 @@ export type BomItemDraft = {
   unitCost?: string;
   currency?: string;
 };
-
 type Props = {
   items: BomItemDraft[];
   setItems: React.Dispatch<React.SetStateAction<BomItemDraft[]>>;
   standardBatchSize: number;
 };
-
 const baseInputClass =
   'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-100 dark:focus:bg-slate-900 border-none';
-const baseSelectClass =
-  'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none border-none cursor-pointer';
-
 const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
 const commonSelectClass = 'w-full rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30 cursor-pointer';
-
 const CHEMICAL_ROLE_OPTIONS = [
   { value: 'main_resin', label: '主树脂' },
   { value: 'modifier_resin', label: '改性树脂' },
@@ -61,18 +50,14 @@ const CHEMICAL_ROLE_OPTIONS = [
   { value: 'package', label: '包材' },
   { value: 'other', label: '其他' },
 ] as const;
-
 const DOSAGE_MODE_OPTIONS = [
   { value: 'fixed', label: '固定单耗' },
   { value: 'percentage', label: '按百分比' },
 ] as const;
-
 type ChemicalRoleValue = (typeof CHEMICAL_ROLE_OPTIONS)[number]['value'];
 type DosageModeValue = (typeof DOSAGE_MODE_OPTIONS)[number]['value'];
-
 const ROLE_VALUE_SET = new Set(CHEMICAL_ROLE_OPTIONS.map((option) => option.value));
 const DOSAGE_VALUE_SET = new Set(DOSAGE_MODE_OPTIONS.map((option) => option.value));
-
 const ROLE_VALUE_ALIASES: Record<string, ChemicalRoleValue> = {
   主树脂: 'main_resin',
   改性树脂: 'modifier_resin',
@@ -104,7 +89,6 @@ const ROLE_VALUE_ALIASES: Record<string, ChemicalRoleValue> = {
   包装: 'package',
   其他: 'other',
 };
-
 const DOSAGE_VALUE_ALIASES: Record<string, DosageModeValue> = {
   固定: 'fixed',
   固定单耗: 'fixed',
@@ -112,7 +96,6 @@ const DOSAGE_VALUE_ALIASES: Record<string, DosageModeValue> = {
   百分比: 'percentage',
   按百分比: 'percentage',
 };
-
 const normalizeRoleValue = (value?: string): ChemicalRoleValue => {
   const raw = (value || '').trim();
   if (!raw) return 'other';
@@ -120,7 +103,6 @@ const normalizeRoleValue = (value?: string): ChemicalRoleValue => {
   const alias = ROLE_VALUE_ALIASES[raw];
   return alias || 'other';
 };
-
 const normalizeDosageValue = (value?: string): DosageModeValue => {
   const raw = (value || '').trim();
   if (!raw) return 'fixed';
@@ -128,7 +110,6 @@ const normalizeDosageValue = (value?: string): DosageModeValue => {
   const alias = DOSAGE_VALUE_ALIASES[raw];
   return alias || 'fixed';
 };
-
 const createEmptyItem = (): BomItemDraft => ({
   materialName: '',
   materialCode: '',
@@ -144,7 +125,6 @@ const createEmptyItem = (): BomItemDraft => ({
   yieldContribution: '',
   notes: '',
 });
-
 const GLUE_FORMULA_SKELETON: BomItemDraft[] = [
   { ...createEmptyItem(), ingredientRole: 'main_resin', processStage: '预混', notes: '主体成膜/粘结原料，填写具体牌号' },
   { ...createEmptyItem(), ingredientRole: 'modifier_resin', processStage: '预混', notes: '改性树脂或共聚体系，按实际配方填写' },
@@ -157,25 +137,20 @@ const GLUE_FORMULA_SKELETON: BomItemDraft[] = [
   { ...createEmptyItem(), ingredientRole: 'defoamer', processStage: '调漆', notes: '消泡剂，通常小比例后添加' },
   { ...createEmptyItem(), ingredientRole: 'thickener', processStage: '调粘', notes: '增稠/流变控制，影响施工手感' },
 ];
-
 const getPasteLines = (text: string) =>
   text
     .split(/\r?\n/)
     .map((line) => line.replace(/\r$/, ''))
     .filter((line) => line.trim().length > 0);
-
 const toFiniteNumber = (value: string | number | null | undefined) => {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
 };
-
 const formatDecimal = (value: number, precision = 6) => {
   if (!Number.isFinite(value)) return '';
   return Number(value.toFixed(precision)).toString();
 };
-
 const hasItemIdentity = (item: BomItemDraft) => Boolean(item.materialName.trim() || item.materialCode.trim());
-
 export const getEffectiveBomQuantityPerUnit = (item: BomItemDraft) => {
   const dosageMode = normalizeDosageValue(item.dosageMode);
   const percentageValue = toFiniteNumber(item.percentage);
@@ -185,50 +160,56 @@ export const getEffectiveBomQuantityPerUnit = (item: BomItemDraft) => {
   }
   return rawQuantityPerUnit;
 };
-
 export const isEffectiveBomItemDraft = (item: BomItemDraft) =>
   hasItemIdentity(item) && getEffectiveBomQuantityPerUnit(item) > 0;
-
 const cloneItem = (item: BomItemDraft): BomItemDraft => ({ ...item });
-
 const getPerUnitFromPercentage = (percentage: string | number | null | undefined) => {
   const percentageValue = toFiniteNumber(percentage);
   return percentageValue > 0 ? percentageValue / 100 : 0;
 };
-
+type NormalizedPasteQuantity = {
+  value: string;
+  notice?: string;
+};
 const normalizePastedQuantityPerUnit = ({
   dosageMode,
   percentage,
   quantityPerUnit,
   standardBatchSize,
+  unit,
 }: {
   dosageMode: DosageModeValue;
   percentage: string;
   quantityPerUnit: string;
   standardBatchSize: number;
-}) => {
+  unit: string;
+}): NormalizedPasteQuantity => {
   const rawQuantity = toFiniteNumber(quantityPerUnit);
   const percentageValue = toFiniteNumber(percentage);
   if (dosageMode !== 'percentage' || percentageValue <= 0) {
-    return quantityPerUnit;
+    return { value: quantityPerUnit };
   }
-
   if (rawQuantity <= 0) {
-    return formatDecimal(getPerUnitFromPercentage(percentage));
+    return { value: formatDecimal(getPerUnitFromPercentage(percentage)) };
   }
-
   const expectedBatchQuantity = standardBatchSize > 0 ? (standardBatchSize * percentageValue) / 100 : 0;
   const looksLikeBatchQuantity =
     expectedBatchQuantity > 0
     && rawQuantity > 1
     && Math.abs(rawQuantity - expectedBatchQuantity) <= Math.max(0.01, expectedBatchQuantity * 0.005);
-
-  return looksLikeBatchQuantity ? formatDecimal(rawQuantity / standardBatchSize) : quantityPerUnit;
+  if (looksLikeBatchQuantity) {
+    const value = formatDecimal(rawQuantity / standardBatchSize);
+    return {
+      value,
+      notice: `已按标准批量 ${standardBatchSize}${unit || 'kg'} 换算为单位单耗 ${value}`,
+    };
+  }
+  return { value: quantityPerUnit };
 };
-
 export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize }) => {
   const [pasteText, setPasteText] = useState('');
   const [showPastePanel, setShowPastePanel] = useState(false);
+  const [pasteImportNotice, setPasteImportNotice] = useState('');
   const filledLineCount = items.filter(hasItemIdentity).length;
   const effectiveLineCount = items.filter(isEffectiveBomItemDraft).length;
   const invalidDraftLineCount = Math.max(0, filledLineCount - effectiveLineCount);
@@ -248,21 +229,17 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
     hasItemIdentity,
     getEffectiveQuantity: getEffectiveBomQuantityPerUnit,
   });
-
   const updateItem = (index: number, patch: Partial<BomItemDraft>) => {
     setItems((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   };
-
   const addItem = () => {
     setItems((prev) => [...prev, createEmptyItem()]);
   };
-
   const removeItem = (index: number) => {
     if (items.length > 1) {
       setItems((prev) => prev.filter((_, i) => i !== index));
     }
   };
-
   const duplicateItem = (index: number) => {
     setItems((prev) => {
       const clone = { ...prev[index] };
@@ -271,49 +248,49 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
       return next;
     });
   };
-
   const applyGlueSkeleton = () => {
     setItems((prev) => {
       const filledRows = prev.filter(hasItemIdentity);
       if (filledRows.length >= 10) return filledRows;
-
       const usedRoles = new Set(filledRows.map((item) => normalizeRoleValue(item.ingredientRole)));
       const missingSkeletonRows = GLUE_FORMULA_SKELETON
         .filter((item) => !usedRoles.has(normalizeRoleValue(item.ingredientRole)))
         .slice(0, 10 - filledRows.length)
         .map(cloneItem);
-
       const mergedRows = [...filledRows, ...missingSkeletonRows];
       return mergedRows.length > 0 ? mergedRows : GLUE_FORMULA_SKELETON.map(cloneItem);
     });
   };
-
   const ensureTenRows = () => {
     setItems((prev) => {
       if (prev.length >= 10) return prev;
       return [...prev, ...Array.from({ length: 10 - prev.length }, createEmptyItem)];
     });
   };
-
   const handlePasteImport = () => {
     const lines = getPasteLines(pasteText);
+    const conversionNotices = new Set<string>();
     const importedItems: BomItemDraft[] = lines.map((line) => {
       const parts = line.split('\t').map((part) => part.trim());
       const dosageMode = normalizeDosageValue(parts[3]);
       const percentage = parts[4] || '';
+      const unit = parts[6] || 'kg';
+      const normalizedQuantity = normalizePastedQuantityPerUnit({
+        dosageMode,
+        percentage,
+        quantityPerUnit: parts[5] || '',
+        standardBatchSize,
+        unit,
+      });
+      if (normalizedQuantity.notice) conversionNotices.add(normalizedQuantity.notice);
       return {
         materialName: parts[0] || '',
         materialCode: parts[1] || '',
         ingredientRole: normalizeRoleValue(parts[2]),
         dosageMode,
         percentage,
-        quantityPerUnit: normalizePastedQuantityPerUnit({
-          dosageMode,
-          percentage,
-          quantityPerUnit: parts[5] || '',
-          standardBatchSize,
-        }),
-        unit: parts[6] || 'kg',
+        quantityPerUnit: normalizedQuantity.value,
+        unit,
         lossRate: parts[7] || '',
         allowedVarianceRate: parts[8] || '',
         processStage: parts[9] || '',
@@ -322,7 +299,6 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
         notes: parts[12] || '',
       };
     });
-
     if (importedItems.length > 0) {
       const hasRealRows = items.some((item) => item.materialName.trim() || item.materialCode.trim());
       if (!hasRealRows) {
@@ -331,11 +307,9 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
         setItems((prev) => [...prev, ...importedItems]);
       }
     }
-
+    setPasteImportNotice(conversionNotices.size ? Array.from(conversionNotices).join('；') : '');
     setPasteText('');
-    setShowPastePanel(false);
   };
-
   return (
     <div className="app-card p-6">
       <div className="mb-6 flex flex-col gap-4">
@@ -385,7 +359,6 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
           ]}
         />
       </div>
-
       {showPastePanel && (
         <div className="mb-5 rounded-[24px] border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-900/10">
           <div className="flex items-center gap-2 text-xs font-black uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">
@@ -402,6 +375,11 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
             placeholder={'\tR-001\tmain_resin\tpercentage\t35\t350\tkg\t2\t3\t预混\t\t\t保密原料可只填代号'}
             className="mt-3 h-28 w-full rounded-[20px] border border-blue-100 bg-white px-4 py-3 font-mono text-xs outline-none transition focus:border-blue-300 focus:ring-4 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900"
           />
+          {pasteImportNotice ? (
+            <div data-testid="production-bom-paste-notice" className="mt-3 rounded-[18px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-bold leading-6 text-emerald-700 dark:border-emerald-900/40 dark:bg-emerald-900/10 dark:text-emerald-200 whitespace-pre-line">
+              {pasteImportNotice}
+            </div>
+          ) : null}
           <div className="mt-3 flex justify-end gap-2">
             <button
               type="button"
@@ -421,7 +399,6 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
           </div>
         </div>
       )}
-
       <div className="overflow-x-auto rounded-[24px] border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40">
         <table data-testid="production-bom-line-grid" className="w-full min-w-max border-collapse">
           <thead>
@@ -452,9 +429,13 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
               const hasIdentity = hasItemIdentity(item);
               const effectiveQuantity = getEffectiveBomQuantityPerUnit(item);
               const isInvalidDraftLine = hasIdentity && effectiveQuantity <= 0;
-              const perUnitQuantity =
+              const autoUnitConsumption =
                 dosageValue === 'percentage' && percentageValue > 0
                   ? formatDecimal(getPerUnitFromPercentage(percentageValue))
+                  : '';
+              const standardBatchQuantity =
+                dosageValue === 'percentage' && percentageValue > 0 && standardBatchSize > 0
+                  ? formatDecimal((standardBatchSize * percentageValue) / 100)
                   : '';
               const materialCode = item.materialCode.trim();
               const operatingMetrics = getBomOperatingMetrics({
@@ -464,9 +445,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                 isInvalidDraftLine,
                 materialCodeCount: materialCode ? materialCodeCounts.get(materialCode) || 0 : 0,
               });
-
-              const displayQuantityPerUnit = dosageValue === 'percentage' && percentageValue > 0 ? perUnitQuantity : item.quantityPerUnit;
-
+              const displayQuantityPerUnit = dosageValue === 'percentage' && percentageValue > 0 ? autoUnitConsumption : item.quantityPerUnit;
               return (
                 <tr
                   key={index}
@@ -474,27 +453,29 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                   className={`group transition-colors hover:bg-slate-50/60 dark:hover:bg-slate-800/30 ${isInvalidDraftLine ? 'bg-rose-50/50 dark:bg-rose-950/20' : 'bg-white dark:bg-slate-900/40'}`}
                 >
                   <td className="px-2 py-2.5 align-middle text-xs font-black text-slate-400">{index + 1}</td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[140px] max-w-[200px]">
                     <input
+                      data-testid={`production-bom-row-${index}-material-name`}
                       value={item.materialName}
                       onChange={(e) => updateItem(index, { materialName: e.target.value })}
                       placeholder="物料名(可选)"
                       className={commonInputClass}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[130px] max-w-[180px]">
                     <input
+                      data-testid={`production-bom-row-${index}-material-code`}
                       value={item.materialCode}
                       onChange={(e) => updateItem(index, { materialCode: e.target.value })}
                       placeholder="代号 *"
                       className={`${commonInputClass} border-blue-200 focus:border-blue-500 dark:border-blue-900/50`}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[110px]">
                     <select
+                      data-testid={`production-bom-row-${index}-ingredient-role`}
+                      aria-label={`BOM 第 ${index + 1} 行原料角色`}
+                      title={`BOM 第 ${index + 1} 行原料角色`}
                       value={roleValue}
                       onChange={(e) => updateItem(index, { ingredientRole: normalizeRoleValue(e.target.value) })}
                       className={commonSelectClass}
@@ -504,9 +485,11 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       ))}
                     </select>
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[100px]">
                     <select
+                      data-testid={`production-bom-row-${index}-dosage-mode`}
+                      aria-label={`BOM 第 ${index + 1} 行用量模式`}
+                      title={`BOM 第 ${index + 1} 行用量模式`}
                       value={dosageValue}
                       onChange={(e) => {
                         const newMode = normalizeDosageValue(e.target.value);
@@ -519,10 +502,10 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       ))}
                     </select>
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[90px]">
                     <div className="relative">
                       <input
+                        data-testid={`production-bom-row-${index}-percentage`}
                         value={item.percentage}
                         onChange={(e) => updateItem(index, { percentage: e.target.value })}
                         onBlur={() => {
@@ -534,11 +517,16 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                         disabled={dosageValue !== 'percentage'}
                         className={`${commonInputClass} text-right font-mono ${dosageValue !== 'percentage' ? 'bg-slate-50 opacity-40 cursor-not-allowed dark:bg-slate-800' : 'bg-blue-50/30 border-blue-200 text-blue-700 dark:bg-blue-900/20 dark:text-blue-300 dark:border-blue-800'}`}
                       />
+                      {dosageValue === 'percentage' ? (
+                        <div className="mt-1 text-[10px] font-bold leading-4 text-blue-600 dark:text-blue-300">
+                          配方占比 %
+                        </div>
+                      ) : null}
                     </div>
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[100px]">
                     <input
+                      data-testid={`production-bom-row-${index}-quantity-per-unit`}
                       value={displayQuantityPerUnit}
                       onChange={(e) => updateItem(index, { quantityPerUnit: e.target.value })}
                       placeholder="单耗"
@@ -546,78 +534,87 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       className={`${commonInputClass} text-right font-mono ${dosageValue === 'percentage' ? 'bg-slate-50/80 border-slate-200 text-slate-500 cursor-not-allowed dark:bg-slate-800 dark:text-slate-400' : ''}`}
                       title={dosageValue === 'percentage' ? '按百分比自动计算，禁止手动修改' : undefined}
                     />
+                      {dosageValue === 'percentage' ? (
+                        <>
+                          <div className="text-[10px] font-bold leading-4 text-slate-500 dark:text-slate-400">
+                            按百分比自动计算，不需要手填
+                          </div>
+                          <div className="text-[10px] font-bold leading-4 text-blue-600 dark:text-blue-300">
+                            自动单位单耗 {autoUnitConsumption || '--'} / 标准批量用量 {standardBatchQuantity ? `${standardBatchQuantity} ${item.unit || 'kg'}` : '--'}
+                          </div>
+                        </>
+                      ) : null}
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[70px]">
                     <input
+                      data-testid={`production-bom-row-${index}-unit`}
                       value={item.unit}
                       onChange={(e) => updateItem(index, { unit: e.target.value })}
                       placeholder="单位"
                       className={`${commonInputClass} text-center`}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[80px]">
                     <input
+                      data-testid={`production-bom-row-${index}-loss-rate`}
                       value={item.lossRate}
                       onChange={(e) => updateItem(index, { lossRate: e.target.value })}
                       placeholder="%"
                       className={`${commonInputClass} text-right font-mono`}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[80px]">
                     <input
+                      data-testid={`production-bom-row-${index}-allowed-variance-rate`}
                       value={item.allowedVarianceRate}
                       onChange={(e) => updateItem(index, { allowedVarianceRate: e.target.value })}
                       placeholder="%"
                       className={`${commonInputClass} text-right font-mono`}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[100px]">
                     <input
+                      data-testid={`production-bom-row-${index}-process-stage`}
                       value={item.processStage}
                       onChange={(e) => updateItem(index, { processStage: e.target.value })}
                       placeholder="工序"
                       className={commonInputClass}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[90px]">
                     <input
+                      data-testid={`production-bom-row-${index}-substitute-group`}
                       value={item.substituteGroup}
                       onChange={(e) => updateItem(index, { substituteGroup: e.target.value })}
                       placeholder="替代组"
                       className={commonInputClass}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[80px]">
                     <input
+                      data-testid={`production-bom-row-${index}-yield-contribution`}
                       value={item.yieldContribution}
                       onChange={(e) => updateItem(index, { yieldContribution: e.target.value })}
                       placeholder="%"
                       className={`${commonInputClass} text-right font-mono`}
                     />
                   </td>
-                  
                   <td className="px-2 py-2.5 align-top min-w-[120px]">
                     <input
+                      data-testid={`production-bom-row-${index}-notes`}
                       value={item.notes}
                       onChange={(e) => updateItem(index, { notes: e.target.value })}
                       placeholder="备注"
                       className={commonInputClass}
                     />
                   </td>
-                  
                   <ProductionBomOperatingFields
+                    rowIndex={index}
                     item={item}
                     inputClassName={baseInputClass} // Keep base class for the tiny inputs inside
                     metrics={operatingMetrics}
                     onChange={(patch) => updateItem(index, patch)}
                   />
-
                   <td className="sticky right-0 z-10 bg-white px-2 py-2.5 align-middle text-center shadow-[-8px_0_15px_-10px_rgba(0,0,0,0.1)] dark:bg-slate-900">
                     <div className="flex justify-center gap-1.5">
                       <button

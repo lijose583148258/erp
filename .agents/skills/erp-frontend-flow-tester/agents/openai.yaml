@@ -1,0 +1,8 @@
+interface:
+  display_name: "ERP Frontend Flow Tester"
+  short_description: "Page-by-page manual flow"
+  default_prompt: "Use $erp-frontend-flow-tester to execute this role with strict timeboxes, evidence capture, and minimal-risk fixes."
+
+policy:
+  allow_implicit_invocation: true
+

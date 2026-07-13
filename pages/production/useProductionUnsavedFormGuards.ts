@@ -5,6 +5,7 @@ import type {
   useProductionQualityForm,
   useProductionWorkOrderForm,
 } from './useProductionWorkspaceForms';
+import type { ProductionDeskTab } from './productionWorkspaceConfig';
 
 type ProductionUnsavedFormGuardParams = {
   bomForm: ReturnType<typeof useProductionBomForm>;
@@ -16,6 +17,8 @@ type ProductionUnsavedFormGuardParams = {
   qualitySaveVersion: number;
   adjustmentSaveVersion: number;
   autoFilledWorkOrderProduct: string;
+  activeDeskTab: ProductionDeskTab;
+  hasSelectedWorkOrder: boolean;
 };
 
 export const useProductionUnsavedFormGuards = ({
@@ -28,11 +31,15 @@ export const useProductionUnsavedFormGuards = ({
   qualitySaveVersion,
   adjustmentSaveVersion,
   autoFilledWorkOrderProduct,
+  activeDeskTab,
+  hasSelectedWorkOrder,
 }: ProductionUnsavedFormGuardParams) => {
   useUnsavedForm({
     sourceId: 'production-bom-form',
-    label: '生产 BOM 配方',
+    label: '\u751f\u4ea7 BOM \u914d\u65b9',
     open: true,
+    enabled: activeDeskTab === 'bom',
+    touched: bomForm.touched,
     resetKey: bomSaveVersion,
     value: {
       bomProductName: bomForm.bomProductName,
@@ -56,8 +63,10 @@ export const useProductionUnsavedFormGuards = ({
 
   useUnsavedForm({
     sourceId: 'production-work-order-form',
-    label: '生产工单',
+    label: '\u751f\u4ea7\u5de5\u5355',
     open: true,
+    enabled: activeDeskTab === 'workOrders',
+    touched: workOrderForm.touched,
     resetKey: workOrderSaveVersion,
     value: {
       productName: workOrderForm.woProductName === autoFilledWorkOrderProduct ? '' : workOrderForm.woProductName,
@@ -73,8 +82,10 @@ export const useProductionUnsavedFormGuards = ({
 
   useUnsavedForm({
     sourceId: 'production-quality-form',
-    label: '生产质检记录',
+    label: '\u751f\u4ea7\u8d28\u68c0\u8bb0\u5f55',
     open: true,
+    enabled: activeDeskTab === 'workOrders' && hasSelectedWorkOrder,
+    touched: qualityForm.touched,
     resetKey: qualitySaveVersion,
     value: {
       qcResult: qualityForm.qcResult,
@@ -86,8 +97,10 @@ export const useProductionUnsavedFormGuards = ({
 
   useUnsavedForm({
     sourceId: 'production-batch-adjustment-form',
-    label: '生产批次异常调整',
+    label: '\u751f\u4ea7\u6279\u6b21\u5f02\u5e38\u8c03\u6574',
     open: true,
+    enabled: activeDeskTab === 'batches',
+    touched: adjustmentForm.touched,
     resetKey: adjustmentSaveVersion,
     value: {
       templateId: adjustmentForm.templateId,

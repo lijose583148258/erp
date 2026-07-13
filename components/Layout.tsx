@@ -23,11 +23,11 @@ const APP_BRAND = '爱劳达 ERP+CRM';
 const MODULE_GROUP_ORDER: ModuleGroup[] = ['overview', 'sales', 'supply', 'production', 'governance'];
 
 const MODULE_GROUP_LABELS: Record<ModuleGroup, Record<Language, string>> = {
-  overview: { zh: '经营总览', en: 'Overview', vi: 'Tổng quan' },
-  sales: { zh: '客户与销售', en: 'Sales', vi: 'Bán hàng' },
-  supply: { zh: '采购仓储', en: 'Supply', vi: 'Cung ứng' },
-  production: { zh: '生产与售后', en: 'Production', vi: 'Sản xuất' },
-  governance: { zh: '治理与权限', en: 'Governance', vi: 'Quản trị' },
+  overview: { zh: '经营总览', en: 'Overview', vi: 'Tong quan' },
+  sales: { zh: '客户与销售', en: 'Sales', vi: 'Ban hang' },
+  supply: { zh: '采购仓储', en: 'Supply', vi: 'Cung ung' },
+  production: { zh: '生产与售后', en: 'Production', vi: 'San xuat' },
+  governance: { zh: '治理与权限', en: 'Governance', vi: 'Quan tri' },
 };
 
 const ROLE_SWITCH_COPY: Record<Language, { title: string; hint: string; button: string }> = {
@@ -42,9 +42,9 @@ const ROLE_SWITCH_COPY: Record<Language, { title: string; hint: string; button: 
     button: 'Switch view',
   },
   vi: {
-    title: 'Góc nhìn quyền',
-    hint: 'Chỉ dùng cho quản trị viên kiểm tra quyền, người dùng hằng ngày không cần đổi.',
-    button: 'Đổi góc nhìn',
+    title: 'Goc nhin quyen',
+    hint: 'Chi dung cho quan tri vien kiem tra quyen. Nguoi dung hang ngay khong can doi.',
+    button: 'Doi goc nhin',
   },
 };
 
@@ -344,7 +344,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             </div>
             <div className="hidden lg:flex flex-1 items-center bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl px-7 py-4.5 rounded-2xl shadow-sm border border-white/50 dark:border-slate-800 focus-within:shadow-[0_15px_40px_-5px_rgba(37,99,235,0.12)] focus-within:border-blue-200 dark:focus-within:border-blue-900 focus-within:ring-0 transition-all duration-500 group cursor-pointer" onClick={() => setIsCommandPaletteOpen(true)}>
               <Search size={22} className="text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-              <input type="text" placeholder={t.commandPlaceholder} readOnly className="bg-transparent border-none focus:ring-0 text-sm ml-5 w-full font-black text-slate-800 dark:text-white placeholder:text-slate-300 cursor-pointer" />
+              <input type="text" placeholder={t.commandPlaceholder} readOnly tabIndex={-1} aria-hidden="true" className="bg-transparent border-none focus:ring-0 text-sm ml-5 w-full font-black text-slate-800 dark:text-white placeholder:text-slate-300 cursor-pointer" />
               <div className="flex items-center text-xs font-black text-slate-300 px-3 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg ml-2">
                 <Command size={10} className="mr-1" /> K
               </div>
@@ -357,7 +357,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             </div>
           </div>
 
-          <div className="hidden lg:flex items-center space-x-3 lg:space-x-5">
+          <div className="hidden 2xl:flex items-center space-x-3 2xl:space-x-4">
             <button
               onClick={() => setCompactMode(prev => !prev)}
               data-testid="compact-mode-toggle"
@@ -393,7 +393,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               {theme === 'light' ? <Moon size={22} className="group-hover:rotate-12 transition-transform duration-500" /> : <Sun size={22} className="group-hover:rotate-45 transition-transform duration-700" />}
             </button>
 
-            <button onClick={() => setShowAISettings(true)} className="p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[22px] text-slate-500 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-all shadow-sm border border-white/40 dark:border-slate-800 active-shrink group" title={t.aiSettings}>
+            <button onClick={() => setShowAISettings(true)} aria-label={t.aiSettings} className="p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[22px] text-slate-500 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:text-blue-600 dark:hover:text-blue-400 transition-all shadow-sm border border-white/40 dark:border-slate-800 active-shrink group" title={t.aiSettings}>
               <Brain size={22} className="group-hover:scale-110 transition-transform duration-300" />
             </button>
 
@@ -409,7 +409,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
                   {([
                     ['zh', '中文'],
                     ['en', 'English'],
-                    ['vi', 'Tiếng Việt'],
+                    ['vi', 'Tieng Viet'],
                   ] as const).map(([code, label]) => (
                     <button
                       key={code}
@@ -458,12 +458,12 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
 
         <div className="lg:hidden fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 right-4 h-[88px] bg-white/86 dark:bg-slate-950/86 backdrop-blur-2xl rounded-2xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.25)] border border-white/50 dark:border-slate-800/50 flex items-center justify-evenly px-3 z-[90] animate-in slide-in-from-bottom-12 duration-700">
           {menuItems.slice(0, 4).map(item => (
-            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`relative flex h-14 min-w-14 flex-col items-center justify-center px-3 py-2 rounded-[18px] transition-all duration-300 active-shrink ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 -translate-y-2 border-2 border-slate-50 dark:border-slate-950' : 'text-slate-500'}`}>
+            <button key={item.id} aria-label={item.label} title={item.label} onClick={() => setActiveTab(item.id)} className={`relative flex h-14 min-w-14 flex-col items-center justify-center px-3 py-2 rounded-[18px] transition-all duration-300 active-shrink ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 -translate-y-2 border-2 border-slate-50 dark:border-slate-950' : 'text-slate-500'}`}>
               <ModuleBadge id={item.id} active={activeTab === item.id} size="sm" />
               {activeTab === item.id && <span className="absolute -bottom-5 max-w-[72px] truncate text-xs font-black text-blue-600">{item.label}</span>}
             </button>
           ))}
-          <button data-testid="mobile-menu-open" className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] text-slate-600 bg-slate-100/90 dark:bg-slate-800/90 dark:text-slate-200 active-shrink" onClick={() => setMobileMenuOpen(true)}>
+          <button data-testid="mobile-menu-open" aria-label={t.navQuickJump || '打开导航菜单'} title={t.navQuickJump || '打开导航菜单'} className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] text-slate-600 bg-slate-100/90 dark:bg-slate-800/90 dark:text-slate-200 active-shrink" onClick={() => setMobileMenuOpen(true)}>
             <Menu size={26} />
           </button>
         </div>

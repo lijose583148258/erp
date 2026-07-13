@@ -31,6 +31,11 @@ export default defineConfig(() => {
           target: 'http://127.0.0.1:5001',
           changeOrigin: true,
         },
+        '/ws': {
+          target: 'ws://127.0.0.1:5001',
+          ws: true,
+          changeOrigin: true,
+        },
       },
     },
     optimizeDeps: {
@@ -49,7 +54,7 @@ export default defineConfig(() => {
           manualChunks: {
             icons: ['lucide-react'],
             charts: ['recharts'],
-            spreadsheet: ['xlsx'],
+            spreadsheet: ['exceljs'],
             http: ['axios'],
             motion: ['framer-motion'],
           },

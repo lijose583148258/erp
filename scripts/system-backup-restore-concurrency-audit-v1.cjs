@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const API_BASE = `${APP_URL.replace(/\/$/, '')}/api`;
@@ -48,15 +49,20 @@ async function apiFetch(pathname, options = {}, token = null) {
 }
 
 async function loginAdmin() {
+  const account = await ensureUiAuditUser({
+    username: process.env.AUDIT_UI_USERNAME || 'ui_backup_restore_admin',
+    password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
+    role: 'admin',
+  });
   const response = await apiFetch('/auth/login', {
     method: 'POST',
-    data: { username: 'admin', password: 'admin123', role: 'admin' },
+    data: { username: account.username, password: account.password, role: 'admin' },
   });
   if (response.status !== 200 || !response.json?.data?.token) {
     throw new Error(`admin login failed: HTTP ${response.status}`);
   }
   record({ step: 'login-admin', result: 'passed' });
-  return response.json.data.token;
+  return { token: response.json.data.token, account };
 }
 
 async function createBackup(token, label) {
@@ -71,7 +77,7 @@ async function createBackup(token, label) {
 async function main() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   try {
-    const token = await loginAdmin();
+    const { token, account } = await loginAdmin();
     const baseBackup = await createBackup(token, 'create-base-backup');
 
     const started = Date.now();
@@ -105,7 +111,7 @@ async function main() {
 
     const relogin = await apiFetch('/auth/login', {
       method: 'POST',
-      data: { username: 'admin', password: 'admin123', role: 'admin' },
+      data: { username: account.username, password: account.password, role: 'admin' },
     });
     if (relogin.status !== 200 || !relogin.json?.data?.token) {
       throw new Error(`login after concurrent backup/restore failed: HTTP ${relogin.status}`);

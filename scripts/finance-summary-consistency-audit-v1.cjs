@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001').replace(/\/$/, '');
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'audit');
@@ -91,18 +92,24 @@ function assertNear(name, left, right, epsilon = EPSILON) {
 }
 
 async function login() {
+  const account = {
+    username: 'finance_summary_audit_admin',
+    password: 'FinanceSummaryAudit123!',
+    role: 'admin',
+  };
+  await ensureUiAuditUser(account);
   const response = await requestJson('/api/auth/login', {
     method: 'POST',
     body: JSON.stringify({
-      username: 'admin',
-      password: 'admin123',
-      role: 'super_admin',
+      username: account.username,
+      password: account.password,
+      role: account.role,
     }),
   });
-  assert(response.ok, 'admin login failed', { status: response.status, json: response.json });
+  assert(response.ok, 'finance audit login failed', { status: response.status, json: response.json });
   const token = response.json?.data?.token;
-  assert(Boolean(token), 'admin login returned empty token', response.json);
-  recordCheck('admin-login', 'passed', { status: response.status });
+  assert(Boolean(token), 'finance audit login returned empty token', response.json);
+  recordCheck('finance-audit-login', 'passed', { status: response.status, username: account.username });
   return token;
 }
 

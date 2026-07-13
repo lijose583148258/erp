@@ -9,26 +9,22 @@ import { getDataScopesForRole, getPermissionsForRole, roleExistsAndActive } from
 import { canAssignPrivilegedRoles, isRoleAssignmentChange, resolveUserSegment } from '../services/role-assignment-policy.service';
 import {
     blacklistAccessToken,
+    consumeRefreshToken,
     createRefreshToken,
     deleteRefreshToken,
-    getValidRefreshToken,
 } from '../services/auth-token-store.service';
 import { tryWriteAuthAuditLog, writeAuthAuditLog } from '../services/auth-audit.service';
 import { AuthPasswordError, changeOwnPassword } from '../services/auth-password.service';
-import { demoUsers } from '../database/seed-fixtures';
+import { evaluateLoginMfa } from '../security/mfa.service';
+import { isReleaseDemoCredential } from '../security/demo-credentials';
+import { resolveTokenAuthAt } from '../security/tokenAuthTime';
 
 const serverError = { success: false, message: '服务器内部错误' } as ApiResponse;
-const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
-const blockedDemoCredentials: Map<string, string> = new Map(demoUsers.map(user => [user.username, user.password]));
-
-const isReleaseDemoCredential = (username: string, password: string) =>
-    truthy(process.env.AILAODA_BLOCK_DEMO_CREDENTIALS)
-    && blockedDemoCredentials.get(username) === password;
 
 export class AuthController {
     async login(req: AuthRequest, res: Response) {
         try {
-            const { username, password } = req.body as LoginRequest;
+            const { username, password, mfaCode } = req.body as LoginRequest;
             const user = await prisma.user.findUnique({
                 where: { username },
                 select: {
@@ -63,11 +59,34 @@ export class AuthController {
                 return res.status(401).json({ success: false, message: '用户名或密码错误' } as ApiResponse);
             }
 
-            if (isReleaseDemoCredential(username, password) && !user.mustChangePassword) {
-                logger.warn(`Release safety mode rejected default demo credential after password verification: ${username}`);
+            if (isReleaseDemoCredential(username, password)) {
+                logger.warn(`Release safety mode rejected default demo credential before token issuance: ${username}`);
                 return res.status(403).json({
                     success: false,
                     message: '发布安全模式已禁止默认演示账号直接登录，请使用已改密的正式账号',
+                } as ApiResponse);
+            }
+
+            const mfaDecision = evaluateLoginMfa(user.role, mfaCode);
+            if (mfaDecision.required && !mfaDecision.ok) {
+                const errorCode = mfaDecision.reason === 'missing_code'
+                    ? 'MFA_REQUIRED'
+                    : mfaDecision.reason === 'missing_secret'
+                        ? 'MFA_NOT_CONFIGURED'
+                        : 'MFA_INVALID';
+                const status = mfaDecision.reason === 'missing_secret' ? 503 : 401;
+                await tryWriteAuthAuditLog({
+                    userId: user.id,
+                    action: 'LOGIN_MFA_BLOCKED',
+                    details: `MFA blocked login for ${username}: ${mfaDecision.reason}`,
+                    ipAddress: req.ip,
+                    userAgent: req.get('user-agent'),
+                }, `MFA audit log write failed: ${username}`);
+                return res.status(status).json({
+                    success: false,
+                    message: mfaDecision.reason === 'missing_code' ? 'MFA verification code required.' : 'MFA verification failed.',
+                    errorCode,
+                    timestamp: new Date().toISOString(),
                 } as ApiResponse);
             }
 
@@ -77,8 +96,14 @@ export class AuthController {
                 getDataScopesForRole(user.role),
             ]);
 
+            let lastLoginUpdatedAt: Date | null = null;
             try {
-                await prisma.$executeRawUnsafe('UPDATE users SET last_login_at = ? WHERE id = ?', new Date().toISOString(), user.id);
+                const updatedUser = await prisma.user.update({
+                    where: { id: user.id },
+                    data: { lastLoginAt: new Date() },
+                    select: { updatedAt: true },
+                });
+                lastLoginUpdatedAt = updatedUser.updatedAt;
             } catch (error) {
                 logger.warn(`更新最后登录时间失败: 用户 ${username}`, error);
             }
@@ -88,9 +113,13 @@ export class AuthController {
                 username: user.username,
                 role: user.role,
                 segment,
-                authAt: Date.now(),
+                authAt: resolveTokenAuthAt(lastLoginUpdatedAt),
             });
-            const { refreshToken } = createRefreshToken(user.id);
+            const refreshSession = await createRefreshToken(user.id);
+            if (!refreshSession) {
+                throw new Error('Unable to create refresh session.');
+            }
+            const { refreshToken } = refreshSession;
 
             await tryWriteAuthAuditLog({
                 userId: user.id,
@@ -198,7 +227,7 @@ export class AuthController {
                 return res.status(400).json({ success: false, message: '请提供刷新令牌' } as ApiResponse);
             }
 
-            const tokenData = getValidRefreshToken(refreshToken);
+            const tokenData = await consumeRefreshToken(refreshToken);
             if (!tokenData) {
                 return res.status(401).json({ success: false, message: '刷新令牌无效或已过期' } as ApiResponse);
             }
@@ -211,6 +240,7 @@ export class AuthController {
                     role: true,
                     segment: true,
                     isActive: true,
+                    updatedAt: true,
                 },
             });
 
@@ -220,16 +250,30 @@ export class AuthController {
             if (!(await roleExistsAndActive(user.role))) {
                 return res.status(403).json({ success: false, message: '角色不存在或已禁用，请联系管理员' } as ApiResponse);
             }
+            if (tokenData.issuedAt.getTime() < user.updatedAt.getTime()) {
+                return res.status(401).json({
+                    success: false,
+                    message: '账号信息或密码已更新，请重新登录',
+                    errorCode: 'REFRESH_SESSION_STALE',
+                } as ApiResponse);
+            }
 
             const newToken = generateToken({
                 userId: user.id,
                 username: user.username,
                 role: user.role,
                 segment: resolveUserSegment(user.role, user.segment),
-                authAt: Date.now(),
+                authAt: resolveTokenAuthAt(user.updatedAt),
             });
-            const { refreshToken: newRefreshToken } = createRefreshToken(user.id);
-            deleteRefreshToken(refreshToken);
+            const nextRefreshSession = await createRefreshToken(user.id, tokenData.generation);
+            if (!nextRefreshSession) {
+                return res.status(401).json({
+                    success: false,
+                    message: '会话已被撤销，请重新登录',
+                    errorCode: 'REFRESH_SESSION_REVOKED',
+                } as ApiResponse);
+            }
+            const { refreshToken: newRefreshToken } = nextRefreshSession;
 
             return res.json({
                 success: true,
@@ -293,11 +337,11 @@ export class AuthController {
         try {
             const authHeader = req.headers.authorization;
             if (authHeader && authHeader.startsWith('Bearer ')) {
-                blacklistAccessToken(authHeader.substring(7));
+                await blacklistAccessToken(authHeader.substring(7));
             }
             const refreshToken = typeof req.body?.refreshToken === 'string' ? req.body.refreshToken : '';
             if (refreshToken) {
-                deleteRefreshToken(refreshToken);
+                await deleteRefreshToken(refreshToken);
             }
 
             if (req.user) {

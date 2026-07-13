@@ -1,4 +1,4 @@
-﻿import * as XLSX from 'xlsx';
+﻿import { exportObjectsToXlsx } from '../../utils/spreadsheetIO';
 import { getStatusBorderBadgeClassName } from '../../components/ui/statusBadgeLogic';
 
 export const formatDate = (value?: string | null) => {
@@ -54,10 +54,7 @@ export const riskRank = (riskLevel: string) => {
 };
 
 export const exportRows = (filename: string, rows: Record<string, unknown>[]) => {
-  const worksheet = XLSX.utils.json_to_sheet(rows);
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, 'Export');
-  XLSX.writeFile(workbook, filename);
+  void exportObjectsToXlsx(rows, filename, 'Export');
 };
 
 export const paymentBadge = (status: string) => {

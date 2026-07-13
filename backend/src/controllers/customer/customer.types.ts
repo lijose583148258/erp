@@ -27,4 +27,5 @@ export interface NormalizedCustomerContact {
   siteLabel?: string;
 }
 
-export const MAX_CUSTOMER_PAGE_SIZE = 1000;
+export const DEFAULT_CUSTOMER_PAGE_SIZE = 30;
+export const MAX_CUSTOMER_PAGE_SIZE = 100;

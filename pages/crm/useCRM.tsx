@@ -1,7 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { Customer, RiskLevel, Contact, CustomerPoolHistoryEntry, CustomerAddress, TeamMember } from '../../types';
 import { getRiskInsight } from '../../services/geminiService';
-import { customerService } from '../../services/customer.service';
+import { customerService } from '../../src/services/customer.service';
 import teamService from '../../services/team.service';
 import { useAppContext } from '../../app/AppContext';
 import { getCustomerDisplayName } from '../../utils/customerName';
@@ -378,8 +378,17 @@ export function useCRM() {
         historicalOrderCount: 0,
         avgOrderInterval: 0,
       } as Customer);
+      let readback = created;
+      let readbackOk = true;
+      try {
+        readback = await customerService.getById(created.id);
+      } catch {
+        readbackOk = false;
+      }
+      const customerForList = { ...readback, displayName: getCustomerDisplayName(readback, language) };
 
-      setData((prev) => [{ ...created, displayName: getCustomerDisplayName(created, language) }, ...prev]);
+      setData((prev) => [customerForList, ...prev.filter((customer) => customer.id !== customerForList.id)]);
+      setSelectedCustomer(customerForList);
       setCurrentPage(1);
       setReloadVersion((version) => version + 1);
       setIsCreateOpen(false);
@@ -397,7 +406,7 @@ export function useCRM() {
         poolState: 'internal',
         contacts: [],
       });
-      notify('success', t.custCreated);
+      notify(readbackOk ? 'success' : 'warning', readbackOk ? `${t.custCreated}，已回读` : '客户已创建，但回读失败，请刷新列表核对');
     } catch {
       notify('error', t.custCreateFail);
     } finally {

@@ -53,6 +53,7 @@ model Shipment {
   order           Order?    @relation(fields: [orderId], references: [id])
   customer        Customer  @relation(fields: [customerId], references: [id])
   creator         User      @relation(fields: [createdBy], references: [id])
+  receipts        ShipmentReceipt[]
 
   isColdChain     Boolean   @default(false) @map("is_cold_chain")
   temperature     Float?
@@ -62,6 +63,28 @@ model Shipment {
   @@index([customerId])
   @@index([status])
   @@map("shipments")
+}
+
+model ShipmentReceipt {
+  id                Int      @id @default(autoincrement())
+  receiptNo         String   @unique @map("receipt_no")
+  shipmentId        Int      @map("shipment_id")
+  quantity          Float
+  acceptedQuantity  Float    @default(0) @map("accepted_quantity")
+  rejectedQuantity  Float    @default(0) @map("rejected_quantity")
+  unit              String   @default("kg")
+  signedReceiptUrl  String?  @map("signed_receipt_url")
+  discrepancyReason String?  @map("discrepancy_reason")
+  note              String?
+  receivedBy        Int?     @map("received_by")
+  receivedAt        DateTime @default(now()) @map("received_at")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  shipment          Shipment @relation(fields: [shipmentId], references: [id], onDelete: Cascade)
+  receiver          User?    @relation("ShipmentReceiptReceiver", fields: [receivedBy], references: [id], onDelete: SetNull)
+
+  @@index([shipmentId])
+  @@map("shipment_receipts")
 }
 
 // 售后退货表

@@ -27,10 +27,15 @@ export const useSalesOrderDraft = ({ isCreateOpen, isEditMode, orderId, userId, 
     const totals = useMemo(() => calculateOrderTotals(formData), [formData]);
     const draftKey = draftKeyFor(userId, isEditMode, orderId);
     const baselineRef = useRef('');
+    const formDataRef = useRef(formData);
+
+    useEffect(() => {
+        formDataRef.current = formData;
+    }, [formData]);
 
     useEffect(() => {
         if (!isCreateOpen) return;
-        baselineRef.current = JSON.stringify(formData);
+        baselineRef.current = JSON.stringify(formDataRef.current);
         const saved = localStorage.getItem(draftKey);
         setDraftAvailable(Boolean(saved));
     }, [draftKey, isCreateOpen]);

@@ -20,11 +20,31 @@ function prepareDatabaseUrl() {
   }
 }
 
+function createAuditPrismaClient() {
+  const provider = String(process.env.AUDIT_PRISMA_PROVIDER || 'sqlite').trim().toLowerCase();
+  if (provider === 'sqlite') {
+    prepareDatabaseUrl();
+    const { PrismaClient } = require('../../backend/node_modules/@prisma/client');
+    return new PrismaClient();
+  }
+
+  if (provider !== 'postgresql') {
+    throw new Error(`Unsupported AUDIT_PRISMA_PROVIDER: ${provider}`);
+  }
+
+  const databaseUrl = String(process.env.AUDIT_DATABASE_URL || '').trim();
+  const clientPath = String(process.env.AUDIT_PRISMA_CLIENT_PATH || '').trim();
+  if (!databaseUrl || !clientPath) {
+    throw new Error('PostgreSQL UI audit requires AUDIT_DATABASE_URL and AUDIT_PRISMA_CLIENT_PATH.');
+  }
+
+  const { PrismaClient } = require(path.resolve(process.cwd(), clientPath));
+  return new PrismaClient({ datasources: { db: { url: databaseUrl } } });
+}
+
 async function ensureUiAuditUser(account = DEFAULT_ACCOUNT) {
-  prepareDatabaseUrl();
   const bcrypt = require('../../backend/node_modules/bcryptjs');
-  const { PrismaClient } = require('../../backend/node_modules/@prisma/client');
-  const prisma = new PrismaClient();
+  const prisma = createAuditPrismaClient();
   const passwordHash = await bcrypt.hash(account.password, 12);
   try {
     await prisma.user.upsert({
@@ -99,6 +119,7 @@ async function loginUiAuditUser(page, appUrl, options = {}) {
 }
 
 module.exports = {
+  createAuditPrismaClient,
   ensureUiAuditUser,
   loginUiAuditUser,
 };

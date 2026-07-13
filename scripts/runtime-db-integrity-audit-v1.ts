@@ -197,17 +197,17 @@ const run = async () => {
   if (databaseExists) {
     await prisma.$executeRawUnsafe('PRAGMA foreign_keys = ON');
 
-    tables = await prisma.$queryRawUnsafe<SqliteNameRow[]>(
+    tables = (await prisma.$queryRawUnsafe(
       "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-    );
+    )) as SqliteNameRow[];
 
-    const integrityRows = await prisma.$queryRawUnsafe<IntegrityRow[]>('PRAGMA integrity_check');
+    const integrityRows = (await prisma.$queryRawUnsafe('PRAGMA integrity_check')) as IntegrityRow[];
     integrityMessages = getIntegrityMessages(integrityRows);
     if (integrityMessages.length !== 1 || integrityMessages[0] !== 'ok') {
       addFinding(findings, 'P0', 'sqlite-integrity', `PRAGMA integrity_check returned: ${integrityMessages.join('; ')}`);
     }
 
-    foreignKeyViolations = await prisma.$queryRawUnsafe<Array<Record<string, unknown>>>('PRAGMA foreign_key_check');
+    foreignKeyViolations = (await prisma.$queryRawUnsafe('PRAGMA foreign_key_check')) as Array<Record<string, unknown>>;
     if (foreignKeyViolations.length > 0) {
       addFinding(findings, 'P0', 'sqlite-foreign-key', `PRAGMA foreign_key_check returned ${foreignKeyViolations.length} violations`);
     }

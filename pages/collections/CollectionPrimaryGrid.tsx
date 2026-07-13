@@ -1,7 +1,7 @@
 ﻿import React from 'react';
 import type { Column } from '../../components/DataTable';
 import { adaptDataTableColumns, EnterpriseDataGrid } from '../../components/ui';
-import type { CollectionLedgerRecord, CollectionListMeta, CollectionMilestoneRecord, CollectionOverdueRecord } from '../../services/collections.service';
+import type { CollectionLedgerRecord, CollectionListMeta, CollectionMilestoneRecord, CollectionOverdueRecord } from '../../src/services/collections.service';
 import type { CollectionActionPermissions, WorkTab } from './useCollectionCenter';
 import { getCollectionCustomerLabel } from './collectionCenter.helpers';
 

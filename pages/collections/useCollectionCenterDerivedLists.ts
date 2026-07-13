@@ -6,7 +6,7 @@ import {
   CollectionMilestoneRecord,
   CollectionOverdueRecord,
   CollectionPromiseRecord,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
 import { riskRank } from './collectionCenter.helpers';
 import type {
   DisputeFilter,

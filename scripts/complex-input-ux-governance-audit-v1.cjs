@@ -125,6 +125,7 @@ const modules = [
     id: 'production',
     page: 'pages/ProductionWorkspace.tsx',
     secondaryPage: 'pages/ProductionWorkspaceV2.tsx',
+    supportGlobs: ['pages/production'],
     targetPattern: 'formula/BOM + work order + batch ledger',
     inputModel: 'formula header + ingredient grid + work-order execution wizard',
     mustHave: ['10-line chemical BOM', 'code-only materials', 'work-order consumption', 'finished goods inbound', 'anti-fake-completion'],
@@ -224,6 +225,7 @@ function inspectModule(module) {
 
 const results = modules.map(inspectModule);
 const p0P1Risks = results.filter(item => ['P0', 'P1'].includes(item.priority) && item.risks.length);
+const needsReviewCount = results.filter(item => item.status !== 'ok').length;
 const report = {
   generatedAt: new Date().toISOString(),
   cwd: root,
@@ -242,9 +244,9 @@ const report = {
   summary: {
     moduleCount: results.length,
     ok: results.filter(item => item.status === 'ok').length,
-    needsReview: results.filter(item => item.status !== 'ok').length,
+    needsReview: needsReviewCount,
     p0P1RiskCount: p0P1Risks.length,
-    status: 'completed-with-prioritized-findings',
+    status: needsReviewCount === 0 ? 'passed' : 'completed-with-prioritized-findings',
   },
 };
 

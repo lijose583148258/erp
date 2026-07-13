@@ -18,7 +18,7 @@ import {
   CollectionOverdueRecord,
   CollectionSummary,
   collectionsService,
-} from '../services/collections.service';
+} from '../src/services/collections.service';
 import { getCustomerDisplayName } from '../utils/customerName';
 import { isCanceledApiError } from '../utils/api';
 import CommercialOpsPanel from '../components/CommercialOpsPanel';
@@ -271,7 +271,6 @@ const RiskControl = () => {
         </div>
       </div>
 
-      <style>{`@keyframes ticker { 0% { transform: translateX(0); } 100% { transform: translateX(-50%); } }`}</style>
 
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-4">
         <div>

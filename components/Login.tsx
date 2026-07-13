@@ -3,7 +3,7 @@ import { Building2, Globe, Lock, Mail, Eye, EyeOff, LogIn, Sparkles } from 'luci
 import type { Language } from '../types';
 
 interface LoginProps {
-  onLogin: (username: string, password: string) => Promise<void>;
+  onLogin: (username: string, password: string, mfaCode?: string) => Promise<void>;
   language: Language;
   onLanguageChange: (lang: Language) => void;
 }
@@ -18,8 +18,10 @@ const copy = {
     accountGuide: '管理员在“用户、角色与权限”中为员工创建账号。默认演示账号仅用于初始化与验收，发布安全模式下不会直接进入业务区。',
     username: '用户名 / 邮箱',
     password: '密码',
+    mfaCode: 'MFA 验证码',
     usernamePlaceholder: '请输入用户名',
     passwordPlaceholder: '请输入密码',
+    mfaPlaceholder: '如已启用请输入 6 位验证码',
     login: '登录系统',
     loggingIn: '登录中...',
     features: {
@@ -29,6 +31,8 @@ const copy = {
     },
     language: '语言',
     loginError: '用户名或密码错误',
+    mfaRequired: '请输入 MFA 验证码后重试',
+    mfaInvalid: 'MFA 验证码无效',
     serverUnavailable: '无法连接到服务器，请确认系统服务已启动后重试',
     accountDisabled: '账号已停用，请联系管理员',
     roleDisabled: '账号角色不可用，请联系管理员',
@@ -42,8 +46,10 @@ const copy = {
     accountGuide: 'Admins create employee accounts in Users, Roles, and Permissions. Default demo credentials are only for setup and checks, and cannot enter business pages in release security mode.',
     username: 'Username / Email',
     password: 'Password',
+    mfaCode: 'MFA code',
     usernamePlaceholder: 'Enter username',
     passwordPlaceholder: 'Enter password',
+    mfaPlaceholder: 'Enter 6-digit code if enabled',
     login: 'Sign In',
     loggingIn: 'Signing In...',
     features: {
@@ -53,6 +59,8 @@ const copy = {
     },
     language: 'Language',
     loginError: 'Invalid credentials',
+    mfaRequired: 'Enter your MFA code and try again',
+    mfaInvalid: 'Invalid MFA code',
     serverUnavailable: 'Cannot reach the server. Confirm the system service is running and try again.',
     accountDisabled: 'This account is disabled. Contact an administrator.',
     roleDisabled: 'This account role is unavailable. Contact an administrator.',
@@ -66,8 +74,10 @@ const copy = {
     accountGuide: 'Quan tri tao tai khoan nhan vien trong Nguoi dung, vai tro va quyen. Tai khoan demo mac dinh chi dung de khoi tao va kiem tra, khong vao khu nghiep vu o che do phat hanh.',
     username: 'Tên đăng nhập / Email',
     password: 'Mật khẩu',
+    mfaCode: 'Ma MFA',
     usernamePlaceholder: 'Nhập tên đăng nhập',
     passwordPlaceholder: 'Nhập mật khẩu',
+    mfaPlaceholder: 'Nhap ma 6 so neu da bat',
     login: 'Đăng nhập',
     loggingIn: 'Đang đăng nhập...',
     features: {
@@ -77,6 +87,8 @@ const copy = {
     },
     language: 'Ngôn ngữ',
     loginError: 'Thông tin đăng nhập không hợp lệ',
+    mfaRequired: 'Nhap ma MFA roi thu lai',
+    mfaInvalid: 'Ma MFA khong hop le',
     serverUnavailable: 'Không thể kết nối máy chủ. Hãy kiểm tra dịch vụ hệ thống rồi thử lại.',
     accountDisabled: 'Tài khoản đã bị vô hiệu hóa. Vui lòng liên hệ quản trị viên.',
     roleDisabled: 'Vai trò của tài khoản không khả dụng. Vui lòng liên hệ quản trị viên.',
@@ -87,6 +99,7 @@ const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) =>
   const text = useMemo(() => copy[language], [language]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [mfaCode, setMfaCode] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
@@ -98,10 +111,11 @@ const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) =>
     const formData = new FormData(event.currentTarget);
     const submittedUsername = String(formData.get('username') ?? username).trim();
     const submittedPassword = String(formData.get('password') ?? password);
+    const submittedMfaCode = String(formData.get('mfaCode') ?? mfaCode).trim();
     try {
-      await onLogin(submittedUsername, submittedPassword);
+      await onLogin(submittedUsername, submittedPassword, submittedMfaCode || undefined);
     } catch (loginError) {
-      const candidate = loginError as Error & { status?: number; isTimeout?: boolean };
+      const candidate = loginError as Error & { status?: number; errorCode?: string; isTimeout?: boolean };
       const message = String(candidate?.message || '');
       if (
         candidate?.status === 0
@@ -109,6 +123,10 @@ const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) =>
         || /无法连接|network error|failed to fetch|timeout|cannot reach/i.test(message)
       ) {
         setError(text.serverUnavailable);
+      } else if (candidate?.errorCode === 'MFA_REQUIRED') {
+        setError(text.mfaRequired);
+      } else if (candidate?.errorCode === 'MFA_INVALID') {
+        setError(text.mfaInvalid);
       } else if (candidate?.status === 403 && /停用|disabled|vô hiệu/i.test(message)) {
         setError(text.accountDisabled);
       } else if (candidate?.status === 403 && /角色|role|vai trò/i.test(message)) {
@@ -244,6 +262,24 @@ const Login: React.FC<LoginProps> = ({ onLogin, language, onLanguageChange }) =>
                     >
                       {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
                     </button>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-sm font-bold text-slate-700 dark:text-slate-300 mb-2">{text.mfaCode}</label>
+                  <div className="relative">
+                    <Lock size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      id="login-mfa-code"
+                      name="mfaCode"
+                      autoComplete="one-time-code"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={mfaCode}
+                      onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                      className="w-full rounded-2xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-11 py-3 text-sm font-semibold outline-none"
+                      placeholder={text.mfaPlaceholder}
+                    />
                   </div>
                 </div>
 

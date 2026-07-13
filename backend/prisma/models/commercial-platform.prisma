@@ -1,0 +1,109 @@
+model WorkflowDefinition {
+  id           Int      @id @default(autoincrement())
+  code         String   @unique
+  name         String
+  documentType String   @map("document_type")
+  configJson   String   @map("config_json")
+  isActive     Boolean  @default(true) @map("is_active")
+  createdBy    Int?     @map("created_by")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@map("workflow_definitions")
+}
+
+model WorkflowInstance {
+  id           Int      @id @default(autoincrement())
+  definitionId Int      @map("definition_id")
+  documentType String   @map("document_type")
+  documentId   String   @map("document_id")
+  status       String   @default("pending")
+  currentStep  Int      @default(0) @map("current_step")
+  requesterId  Int?     @map("requester_id")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([documentType, documentId])
+  @@map("workflow_instances")
+}
+
+model WorkflowTask {
+  id             Int       @id @default(autoincrement())
+  instanceId     Int       @map("instance_id")
+  nodeCode       String    @map("node_code")
+  assigneeRole   String?   @map("assignee_role")
+  assigneeUserId Int?      @map("assignee_user_id")
+  status         String    @default("pending")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  completedAt    DateTime? @map("completed_at")
+
+  @@index([status, assigneeRole])
+  @@map("workflow_tasks")
+}
+
+model WorkflowAction {
+  id         Int      @id @default(autoincrement())
+  instanceId Int      @map("instance_id")
+  taskId     Int?     @map("task_id")
+  action     String
+  actorId    Int?     @map("actor_id")
+  comment    String?
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("workflow_actions")
+}
+
+model Notification {
+  id           Int       @id @default(autoincrement())
+  userId       Int?      @map("user_id")
+  role         String?
+  type         String    @default("info")
+  severity     String    @default("info")
+  title        String
+  message      String
+  resourceType String?   @map("resource_type")
+  resourceId   String?   @map("resource_id")
+  isRead       Boolean   @default(false) @map("is_read")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  readAt       DateTime? @map("read_at")
+
+  @@index([userId, isRead, createdAt])
+  @@index([role, isRead, createdAt])
+  @@map("notifications")
+}
+
+model BusinessEvent {
+  id            Int      @id @default(autoincrement())
+  eventType     String   @map("event_type")
+  aggregateType String   @map("aggregate_type")
+  aggregateId   String   @map("aggregate_id")
+  payloadJson   String?  @map("payload_json")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([eventType, createdAt])
+  @@map("business_events")
+}
+
+model AlertRule {
+  id             Int      @id @default(autoincrement())
+  code           String   @unique
+  name           String
+  ruleType       String   @map("rule_type")
+  thresholdValue Float?   @map("threshold_value")
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@map("alert_rules")
+}
+
+model BiSalesDaily {
+  id            Int      @id @default(autoincrement())
+  metricDate    String   @unique @map("metric_date")
+  orderCount    Int      @default(0) @map("order_count")
+  revenueAmount Float    @default(0) @map("revenue_amount")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("bi_sales_daily")
+}

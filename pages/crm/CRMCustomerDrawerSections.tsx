@@ -77,7 +77,7 @@ export function CRMCustomerMasterProfileSection({
   aliasEditorValue: string;
   onUpdateProfileMeta: (patch: Partial<Pick<Customer, 'name' | 'nameZh' | 'nameEn' | 'nameVi' | 'nameAliases' | 'notes'>>) => void;
   onUploadLicense: (event: ChangeEvent<HTMLInputElement>) => void;
-  licenseInputRef: RefObject<HTMLInputElement>;
+  licenseInputRef: RefObject<HTMLInputElement | null>;
 }) {
   const aliasCount = customerNames.aliases.length;
 

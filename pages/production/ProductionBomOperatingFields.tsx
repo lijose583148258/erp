@@ -24,6 +24,7 @@ type MetricsOptions = {
 };
 
 type Props = {
+  rowIndex: number;
   item: BomItemDraft;
   inputClassName: string;
   metrics: BomOperatingMetrics;
@@ -31,11 +32,11 @@ type Props = {
 };
 
 const RISK_LABELS: Record<string, string> = {
-  missing_quantity: '缺单耗',
+  missing_quantity: '缺少单耗',
   high_loss: '损耗高',
   high_variance: '偏差高',
   stock_shortage: '库存不足',
-  missing_stage: '缺工序',
+  missing_stage: '缺少工序',
   duplicate_code: '编码重复',
 };
 
@@ -44,8 +45,7 @@ const toFiniteNumber = (value: string | number | null | undefined) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const formatNumber = (value: number, precision: number) =>
-  Number(value.toFixed(precision)).toLocaleString();
+const formatNumber = (value: number, precision: number) => Number(value.toFixed(precision)).toLocaleString();
 
 export const getBomOperatingMetrics = ({
   item,
@@ -97,6 +97,7 @@ export const getBomOperatingSummary = (items: BomItemDraft[], options: SummaryOp
   );
 
 export const ProductionBomOperatingFields: React.FC<Props> = ({
+  rowIndex,
   item,
   inputClassName,
   metrics,
@@ -106,22 +107,31 @@ export const ProductionBomOperatingFields: React.FC<Props> = ({
     <div className="flex flex-col gap-1">
       <div className="grid grid-cols-3 gap-1">
         <input
+          data-testid={`production-bom-row-${rowIndex}-available-stock`}
+          aria-label={`BOM 第 ${rowIndex + 1} 行可用库存`}
+          title={`BOM 第 ${rowIndex + 1} 行可用库存`}
           value={item.availableStock || ''}
           onChange={(e) => onChange({ availableStock: e.target.value })}
           placeholder="可用"
-          className={`${inputClassName} rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
+          className={`${inputClassName} min-h-8 rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
         />
         <input
+          data-testid={`production-bom-row-${rowIndex}-locked-stock`}
+          aria-label={`BOM 第 ${rowIndex + 1} 行锁定库存`}
+          title={`BOM 第 ${rowIndex + 1} 行锁定库存`}
           value={item.lockedStock || ''}
           onChange={(e) => onChange({ lockedStock: e.target.value })}
           placeholder="锁定"
-          className={`${inputClassName} rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
+          className={`${inputClassName} min-h-8 rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
         />
         <input
+          data-testid={`production-bom-row-${rowIndex}-unit-cost`}
+          aria-label={`BOM 第 ${rowIndex + 1} 行单位成本`}
+          title={`BOM 第 ${rowIndex + 1} 行单位成本`}
           value={item.unitCost || ''}
           onChange={(e) => onChange({ unitCost: e.target.value })}
           placeholder="单价"
-          className={`${inputClassName} rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
+          className={`${inputClassName} min-h-8 rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
         />
       </div>
       <div className="grid grid-cols-3 gap-1 text-[10px] font-black">

@@ -232,7 +232,7 @@ const Dashboard = () => {
                   <Tooltip
                     cursor={{ fill: theme === 'dark' ? '#0f172a' : '#f8fafc', radius: 8 }}
                     contentStyle={{ borderRadius: '16px', border: 'none', backgroundColor: theme === 'dark' ? '#1e293b' : '#fff', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)', padding: '12px' }}
-                    formatter={(value: number) => [formatPrice(value), '']}
+                    formatter={(value: number | undefined) => [formatPrice(value ?? 0), '']}
                   />
                   <Bar dataKey="revenue" fill="#3b82f6" radius={[6, 6, 0, 0]} barSize={20} />
                 </BarChart>

@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
+import { queryRawCompat } from '../utils/raw-sql-compat';
 import type { AuthRequest } from '../middleware/auth';
 import type { TransactionClient } from '../services/stock-movement.service';
 import {
@@ -78,7 +79,7 @@ const normalizeShipmentReceiptRow = (row: ShipmentReceiptRow) => ({
 });
 
 export async function listShipmentReceiptEvents(tx: TransactionClient, shipmentId: number) {
-    const rows = await tx.$queryRawUnsafe<ShipmentReceiptRow[]>(
+    const rows = await queryRawCompat<ShipmentReceiptRow[]>(tx, 
         `SELECT
            id,
            receipt_no AS receiptNo,
@@ -102,7 +103,7 @@ export async function listShipmentReceiptEvents(tx: TransactionClient, shipmentI
 }
 
 export async function getShipmentReceiptTotals(tx: TransactionClient, shipmentId: number) {
-    const rows = await tx.$queryRawUnsafe<ShipmentReceiptTotalsRow[]>(
+    const rows = await queryRawCompat<ShipmentReceiptTotalsRow[]>(tx, 
         `SELECT
            COALESCE(SUM(quantity), 0) AS processedQuantity,
            COALESCE(SUM(accepted_quantity), 0) AS acceptedQuantity,

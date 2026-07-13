@@ -23,11 +23,15 @@ import {
   useProductionWorkOrderForm,
 } from './production/useProductionWorkspaceForms';
 import {
+  buildExpectedBomDraftSummary,
   buildBatchTrace,
+  buildBomDraftPreviewSummary,
   buildEffectiveBomItemsPayload,
   buildProductionDeskItems,
   buildProductionStats,
   buildWorkOrderStepsPayload,
+  compareBomReadbackAgainstSummary,
+  formatBomDraftPreviewWarnings,
   filterProductionBoms,
 } from './production/ProductionWorkspaceDerived';
 import { useProductionUnsavedFormGuards } from './production/useProductionUnsavedFormGuards';
@@ -37,6 +41,23 @@ type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatc
 type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
 type QualityFormErrors = Partial<Record<'defectRate' | 'checkedBy', string>>;
 type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
+
+const SAVE_TIMEOUT_MS = 10000;
+const SAVE_TIMEOUT_MESSAGE = '服务器响应超时，请检查后端服务';
+
+const withSaveTimeout = async <T,>(operation: () => Promise<T>): Promise<T> => {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      operation(),
+      new Promise<T>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(SAVE_TIMEOUT_MESSAGE)), SAVE_TIMEOUT_MS);
+      }),
+    ]);
+  } finally {
+    if (timeoutId) clearTimeout(timeoutId);
+  }
+};
 
 const ProductionWorkspaceV2 = () => {
   const { notify, language } = useAppContext();
@@ -84,7 +105,7 @@ const ProductionWorkspaceV2 = () => {
   const qualityForm = useProductionQualityForm();
   const adjustmentForm = useProductionAdjustmentForm();
   const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
-  const { woProductName, setWoProductName, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
+  const { woProductName, setWoProductName, setWoProductNameSilently, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
   const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
   const selectedBom = useMemo(() => boms.find(item => item.id === selectedBomId) || null, [boms, selectedBomId]);
@@ -105,6 +126,8 @@ const ProductionWorkspaceV2 = () => {
     qualitySaveVersion,
     adjustmentSaveVersion,
     autoFilledWorkOrderProduct,
+    activeDeskTab,
+    hasSelectedWorkOrder: Boolean(selectedWorkOrder),
   });
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
@@ -140,8 +163,8 @@ const ProductionWorkspaceV2 = () => {
     void loadData(controller.signal);
     return () => controller.abort();
   }, [loadData]);
-  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductName(selectedBom.productName); }, [selectedBom, setWoProductName, woProductName]);
-  useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductName(selectedBatch.productName); }, [selectedBatch, setWoProductName, woProductName]);
+  useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductNameSilently(selectedBom.productName); }, [selectedBom, setWoProductNameSilently, woProductName]);
+  useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductNameSilently(selectedBatch.productName); }, [selectedBatch, setWoProductNameSilently, woProductName]);
 
   const displayedBoms = useMemo(() => filterProductionBoms(boms, bomKeyword), [boms, bomKeyword]);
   const stats = useMemo(() => buildProductionStats(summary, boms, workOrders, batches), [summary, boms, workOrders, batches]);
@@ -166,6 +189,14 @@ const ProductionWorkspaceV2 = () => {
     () => getJsonSummary(selectedBom?.qualitySpecJson),
     [selectedBom],
   );
+  const bomDraftPreviewSummary = useMemo(
+    () => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize),
+    [bomItems, numericStandardBatchSize],
+  );
+  const bomDraftWarning = useMemo(
+    () => formatBomDraftPreviewWarnings(bomDraftPreviewSummary.rejectedRows),
+    [bomDraftPreviewSummary],
+  );
 
   const batchTrace = useMemo(() => buildBatchTrace(selectedBatch, workOrders), [selectedBatch, workOrders]);
 
@@ -183,7 +214,8 @@ const ProductionWorkspaceV2 = () => {
       nextErrors.percentage = `当前配方百分比合计为 ${bomPercentageSummary.toFixed(2)}%，请校正为 100%`;
     }
 
-    const items = buildEffectiveBomItemsPayload(bomItems);
+    const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
+    const expectedDraftSummary = buildExpectedBomDraftSummary(items);
 
     if (!items.length) {
       nextErrors.items = '请至少添加 1 个有效物料，且单耗必须大于 0；保密原料可以只填代号/编码';
@@ -196,11 +228,14 @@ const ProductionWorkspaceV2 = () => {
       notify('warning', Object.values(nextErrors)[0] || '请补齐配方信息');
       return;
     }
+    if (rejectedRows.length) {
+      notify('warning', `有 ${rejectedRows.length} 行不会保存，保存前请先确认右侧预览`);
+    }
 
     setBomFormErrors({});
     setBomSaving(true);
     try {
-      const createdBom = await productionService.createBom({
+      const createdBom = await withSaveTimeout(() => productionService.createBom({
         productName: bomProductName.trim(),
         version: bomVersion.trim() || 'v1',
         bomType,
@@ -217,13 +252,33 @@ const ProductionWorkspaceV2 = () => {
         qualitySpecJson: bomQualitySpecText.trim() ? JSON.stringify({ summary: bomQualitySpecText.trim() }) : null,
         notes: bomNotes.trim() || null,
         items,
-      });
-      notify('success', 'BOM 已创建');
+      }));
+      let readbackBom: ProductionBom | null = null;
+      for (let attempt = 0; attempt < 20; attempt += 1) {
+        const latestBoms = await withSaveTimeout(() => productionService.getBoms());
+        readbackBom = latestBoms.find(item => item.id === createdBom.id) || null;
+        if (readbackBom) break;
+        await new Promise(resolve => setTimeout(resolve, 250));
+      }
+
+      if (!readbackBom) {
+        notify('error', '保存后回读不一致，请不要继续使用该 BOM');
+        return;
+      }
+
+      const readbackComparison = compareBomReadbackAgainstSummary(expectedDraftSummary, readbackBom);
+      if (!readbackComparison.ok) {
+        notify('error', readbackComparison.reason || '保存后回读不一致，请不要继续使用该 BOM');
+        return;
+      }
+
+      notify('success', 'BOM 已创建，回读核对通过');
       resetBomForm();
       setBomSaveVersion(version => version + 1);
+      bomForm.clearTouched();
       await loadData();
       setSelectedBomId(createdBom.id);
-      setWoProductName(createdBom.productName);
+      setWoProductNameSilently(createdBom.productName);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建 BOM 失败');
     } finally {
@@ -253,7 +308,7 @@ const ProductionWorkspaceV2 = () => {
     setWorkOrderFormErrors({});
     setWorkOrderSaving(true);
     try {
-      await productionService.createWorkOrder({
+      const createdWorkOrder = await withSaveTimeout(() => productionService.createWorkOrder({
         bomId: resolvedBom?.id ?? selectedBomId ?? undefined,
         batchId: resolvedBatch?.id ?? selectedBatchId ?? undefined,
         productName: resolvedProductName,
@@ -264,11 +319,13 @@ const ProductionWorkspaceV2 = () => {
         plannedEndAt: woPlannedEndAt || null,
         note: woNote.trim() || null,
         steps,
-      });
+      }));
       notify('success', '工单已创建');
       resetWoForm();
       setWorkOrderSaveVersion(version => version + 1);
+      workOrderForm.clearTouched();
       await loadData();
+      setSelectedWorkOrderId(createdWorkOrder.id);
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '创建工单失败');
     } finally {
@@ -346,15 +403,16 @@ const ProductionWorkspaceV2 = () => {
     setQualityFormErrors({});
     setQualitySaving(true);
     try {
-      await productionService.createQualityCheck(selectedWorkOrder.id, {
+      await withSaveTimeout(() => productionService.createQualityCheck(selectedWorkOrder.id, {
         result: qcResult,
         defectRate: defectRateValue,
         note: qcNote.trim() || null,
         checkedBy: qcCheckedBy.trim() || null,
-      });
+      }));
       notify('success', '质检记录已保存');
       resetQualityForm();
       setQualitySaveVersion(version => version + 1);
+      qualityForm.clearTouched();
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '保存质检记录失败');
@@ -366,7 +424,8 @@ const ProductionWorkspaceV2 = () => {
   const handleCreateAdjustment = async () => {
     if (adjustmentSaving) return;
     const nextErrors: AdjustmentFormErrors = {};
-    if (!selectedBatch) nextErrors.batch = '请先选择批次';
+    const batch = selectedBatch;
+    if (!batch) nextErrors.batch = '请先选择批次';
     const value = Number(adjustmentQuantity);
     if (!Number.isFinite(value) || value <= 0) nextErrors.quantity = '请填写大于 0 的有效数量';
     if (!adjustmentReason.trim()) nextErrors.reason = '请填写调整原因';
@@ -379,23 +438,24 @@ const ProductionWorkspaceV2 = () => {
     setAdjustmentFormErrors({});
     setAdjustmentSaving(true);
     try {
-      await adjustmentService.create({
+      await withSaveTimeout(() => adjustmentService.create({
         domain: 'production',
         targetType: 'productBatch',
-        batchId: selectedBatch.id,
-        targetId: selectedBatch.id,
-        targetRef: selectedBatch.batchNo,
+        batchId: batch?.id ?? 0,
+        targetId: batch?.id ?? 0,
+        targetRef: batch?.batchNo ?? '',
         quantityDelta: value * selectedTemplate.sign,
         reason: adjustmentReason.trim(),
         reasonCategory: selectedTemplate.reasonCategory,
         lossType: selectedTemplate.lossType,
         note: adjustmentNote.trim() || null,
         status: 'posted',
-      });
+      }));
         notify('success', '生产调账已登记');
       setAdjustmentQuantity('');
       setAdjustmentNote('');
       setAdjustmentSaveVersion(version => version + 1);
+      adjustmentForm.clearTouched();
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '登记生产调账失败');
@@ -483,16 +543,18 @@ const ProductionWorkspaceV2 = () => {
             loading={loading}
             bomSaving={bomSaving}
             bomFormErrors={bomFormErrors}
+            bomDraftWarning={bomDraftWarning}
             clearBomFormError={field => setBomFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateBom={handleCreateBom}
             displayedBoms={displayedBoms}
             selectedBomId={selectedBomId}
             setSelectedBomId={setSelectedBomId}
-            setWoProductName={setWoProductName}
+            setWoProductName={setWoProductNameSilently}
             selectedBom={selectedBom}
             selectedBomPercentageSummary={selectedBomPercentageSummary}
             selectedBomProcessSummary={selectedBomProcessSummary}
             selectedBomQualitySummary={selectedBomQualitySummary}
+            onFormTouched={bomForm.markTouched}
           />
         ) : null}
 

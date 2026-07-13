@@ -4,7 +4,7 @@ import { useAppContext } from '../../app/AppContext';
 import { can } from '../../app/permissions';
 import { shipmentService } from '../../services/shipping.service';
 import { assetService } from '../../services/asset.service';
-import { customerService } from '../../services/customer.service';
+import { customerService } from '../../src/services/customer.service';
 import { isCanceledApiError } from '../../utils/api';
 import { reportClientIssue } from '../../utils/clientIssue';
 import { useShippingReceipts } from './useShippingReceipts';

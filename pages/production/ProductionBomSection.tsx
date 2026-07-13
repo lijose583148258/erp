@@ -2,6 +2,7 @@ import React, { Dispatch, SetStateAction } from 'react';
 import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
 import { ProductionBom } from '../../services/production.service';
 import { ProductionBomLineGrid, type BomItemDraft } from './ProductionBomLineGrid';
+import { buildBomDraftPreviewSummary } from './ProductionWorkspaceDerived';
 import {
   BOM_STATUS_LABELS,
   BOM_STATUS_OPTIONS,
@@ -68,6 +69,7 @@ interface ProductionBomSectionProps {
   loading: boolean;
   bomSaving: boolean;
   bomFormErrors: BomFormErrors;
+  bomDraftWarning: string;
   clearBomFormError: (field: keyof BomFormErrors) => void;
   handleCreateBom: () => void;
   displayedBoms: ProductionBom[];
@@ -78,6 +80,7 @@ interface ProductionBomSectionProps {
   selectedBomPercentageSummary: number;
   selectedBomProcessSummary: string;
   selectedBomQualitySummary: string;
+  onFormTouched: () => void;
 }
 
 export function ProductionBomSection({
@@ -120,6 +123,7 @@ export function ProductionBomSection({
   loading,
   bomSaving,
   bomFormErrors,
+  bomDraftWarning,
   clearBomFormError,
   handleCreateBom,
   displayedBoms,
@@ -130,9 +134,11 @@ export function ProductionBomSection({
   selectedBomPercentageSummary,
   selectedBomProcessSummary,
   selectedBomQualitySummary,
+  onFormTouched,
 }: ProductionBomSectionProps) {
   const isBomMasterReady = Boolean(bomProductName.trim() && bomVersion.trim() && bomOutputUnit.trim());
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
+  const bomDraftPreview = React.useMemo(() => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize), [bomItems, numericStandardBatchSize]);
   const advancedSummary = [
     bomDensity.trim() ? `密度 ${bomDensity}` : '',
     bomSolidContent.trim() ? `固含 ${bomSolidContent}%` : '',
@@ -184,21 +190,23 @@ export function ProductionBomSection({
               label="产品名称"
               value={bomProductName}
               onChange={value => {
+                onFormTouched();
                 clearBomFormError('productName');
                 setBomProductName(value);
               }}
               placeholder="例如：环氧树脂底胶"
               error={bomFormErrors.productName}
             />
-            <Field label="版本" value={bomVersion} onChange={setBomVersion} placeholder="v1" />
-            <SelectField label="配方类型" value={bomType} onChange={setBomType} options={BOM_TYPE_OPTIONS} />
-            <SelectField label="配方状态" value={bomStatus} onChange={setBomStatus} options={BOM_STATUS_OPTIONS} />
-            <SelectField label="配方模式" value={bomFormulationMode} onChange={setBomFormulationMode} options={FORMULATION_MODE_OPTIONS} />
+            <Field dataTestId="production-bom-version" label="版本" value={bomVersion} onChange={value => { onFormTouched(); setBomVersion(value); }} placeholder="v1" />
+            <SelectField dataTestId="production-bom-type" label="配方类型" value={bomType} onChange={value => { onFormTouched(); setBomType(value); }} options={BOM_TYPE_OPTIONS} />
+            <SelectField dataTestId="production-bom-status" label="配方状态" value={bomStatus} onChange={value => { onFormTouched(); setBomStatus(value); }} options={BOM_STATUS_OPTIONS} />
+            <SelectField dataTestId="production-bom-formulation-mode" label="配方模式" value={bomFormulationMode} onChange={value => { onFormTouched(); setBomFormulationMode(value); }} options={FORMULATION_MODE_OPTIONS} />
             <Field
               dataTestId="production-bom-output-unit"
               label="输出单位"
               value={bomOutputUnit}
               onChange={value => {
+                onFormTouched();
                 clearBomFormError('outputUnit');
                 setBomOutputUnit(value);
               }}
@@ -207,16 +215,17 @@ export function ProductionBomSection({
             />
             <Field
               dataTestId="production-bom-standard-batch-size"
-              label="标准批量"
+              label="鏍囧噯鎵归噺"
               value={bomStandardBatchSize}
               onChange={value => {
+                onFormTouched();
                 clearBomFormError('standardBatchSize');
                 setBomStandardBatchSize(value);
               }}
-              placeholder="例如 1000"
+              placeholder="渚嬪 1000"
               error={bomFormErrors.standardBatchSize}
             />
-            <Field label="批量单位" value={bomBatchSizeUnit} onChange={setBomBatchSizeUnit} placeholder="kg" />
+            <Field dataTestId="production-bom-batch-size-unit" label="鎵归噺鍗曚綅" value={bomBatchSizeUnit} onChange={setBomBatchSizeUnit} placeholder="kg" />
           </div>
           <div className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/50">
             <button
@@ -236,14 +245,14 @@ export function ProductionBomSection({
             {showAdvancedFields ? (
               <div className="mt-4 space-y-3">
                 <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-1 gap-3">
-                  <Field label="密度" value={bomDensity} onChange={setBomDensity} placeholder="例如 1.12" />
-                  <Field label="固含 %" value={bomSolidContent} onChange={setBomSolidContent} placeholder="例如 55" />
-                  <Field label="生效开始" value={bomEffectiveFrom} onChange={setBomEffectiveFrom} placeholder="2026-04-16" type="date" />
-                  <Field label="生效结束" value={bomEffectiveTo} onChange={setBomEffectiveTo} placeholder="2026-12-31" type="date" />
+                  <Field dataTestId="production-bom-density" label="密度" value={bomDensity} onChange={setBomDensity} placeholder="例如 1.12" />
+                  <Field dataTestId="production-bom-solid-content" label="固含 %" value={bomSolidContent} onChange={setBomSolidContent} placeholder="例如 55" />
+                  <Field dataTestId="production-bom-effective-from" label="生效开始" value={bomEffectiveFrom} onChange={setBomEffectiveFrom} placeholder="2026-04-16" type="date" />
+                  <Field dataTestId="production-bom-effective-to" label="生效结束" value={bomEffectiveTo} onChange={setBomEffectiveTo} placeholder="2026-12-31" type="date" />
                 </div>
-                <TextareaField label="工艺摘要" value={bomProcessText} onChange={setBomProcessText} placeholder="输入搅拌、升温、熟化、过滤等关键工艺参数" />
-                <TextareaField label="质检规范" value={bomQualitySpecText} onChange={setBomQualitySpecText} placeholder="填写固含、粘度、外观、颜色、耐温等放行标准" />
-                <TextareaField label="备注" value={bomNotes} onChange={setBomNotes} placeholder="说明适用产品、产线、颜色体系或客户专配信息" />
+                <TextareaField dataTestId="production-bom-process-text" label="工艺摘要" value={bomProcessText} onChange={setBomProcessText} placeholder="输入搅拌、升温、熟化、过滤等关键工艺参数" />
+                <TextareaField dataTestId="production-bom-quality-spec-text" label="质检规范" value={bomQualitySpecText} onChange={setBomQualitySpecText} placeholder="填写固含、粘度、外观、颜色、耐温等放行标准" />
+                <TextareaField dataTestId="production-bom-notes" label="备注" value={bomNotes} onChange={setBomNotes} placeholder="说明适用产品、产线、颜色体系或客户专配信息" />
               </div>
             ) : null}
           </div>
@@ -262,8 +271,20 @@ export function ProductionBomSection({
             </div>
           ) : null}
           {bomFormErrors.percentage || bomFormErrors.items ? (
-            <div data-testid="production-bom-line-error" className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-3 text-xs font-bold leading-6 text-rose-700 dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
+            <div data-testid="production-bom-line-error" className="rounded-[24px] border border-rose-200 bg-rose-50/80 px-4 py-3 text-xs font-bold leading-6 text-rose-700 whitespace-pre-line dark:border-rose-900/40 dark:bg-rose-900/20 dark:text-rose-200">
               {bomFormErrors.percentage || bomFormErrors.items}
+            </div>
+          ) : null}
+          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-3">
+            <SummaryChip dataTestId="production-bom-preview-effective-count" label="有效明细" value={`${bomDraftPreview.effectiveItemCount} 行`} />
+            <SummaryChip dataTestId="production-bom-preview-rejected-count" label="被过滤" value={`${bomDraftPreview.rejectedRowCount} 行`} />
+            <SummaryChip dataTestId="production-bom-preview-percentage-total" label="百分比合计" value={bomDraftPreview.percentageTotal > 0 ? `${bomDraftPreview.percentageTotal.toFixed(2)}%` : "--"} />
+            <SummaryChip dataTestId="production-bom-preview-standard-batch" label="标准批量" value={bomDraftPreview.standardBatchSize > 0 ? `${bomDraftPreview.standardBatchSize}` : "--"} />
+            <SummaryChip dataTestId="production-bom-preview-expected-saved-count" label="预计保存后明细数量" value={`${bomDraftPreview.expectedSavedItemCount} 行`} />
+          </div>
+          {bomDraftWarning ? (
+            <div data-testid="production-bom-rejected-rows" className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs font-bold leading-6 text-amber-700 whitespace-pre-line dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
+              {bomDraftWarning}
             </div>
           ) : null}
           <ProductionBomLineGrid

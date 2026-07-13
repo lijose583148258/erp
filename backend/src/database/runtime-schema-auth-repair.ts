@@ -7,11 +7,10 @@ import {
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
 import { demoUsers } from './seed-fixtures';
-
-const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+import { shouldBlockDemoCredentials } from '../security/demo-credentials';
 
 const requirePasswordChangeForDefaultDemoUsers = async (report: SchemaRepairReport) => {
-  if (!truthy(process.env.AILAODA_BLOCK_DEMO_CREDENTIALS)) return;
+  if (!shouldBlockDemoCredentials()) return;
 
   for (const account of demoUsers) {
     const rows = await prisma.$queryRawUnsafe<Array<{ id: number; password_hash: string; must_change_password: number }>>(

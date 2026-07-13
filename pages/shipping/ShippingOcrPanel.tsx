@@ -18,7 +18,7 @@ type Props = {
   onSelectImage: (index: number) => void;
   onClearAll: () => void;
   onTogglePreview: () => void;
-  fileInputRef: React.RefObject<HTMLInputElement>;
+  fileInputRef: React.RefObject<HTMLInputElement | null>;
 };
 
 const ShippingOcrPanel: React.FC<Props> = ({

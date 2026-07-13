@@ -43,6 +43,7 @@ const AdjustmentFiltersClean = ({
           </div>
           {(['all', 'finance', 'production', 'inventory'] as const).map((item) => (
             <button
+              type="button"
               key={item}
               onClick={() => onDomainFilterChange(item)}
               className={`rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-widest ${
@@ -56,6 +57,7 @@ const AdjustmentFiltersClean = ({
           ))}
           {(['all', 'pending', 'posted', 'reversed', 'rejected'] as const).map((item) => (
             <button
+              type="button"
               key={item}
               onClick={() => onStatusFilterChange(item)}
               className={`rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-widest ${
@@ -69,6 +71,7 @@ const AdjustmentFiltersClean = ({
           ))}
           {(['all', 'order', 'productBatch', 'manual'] as const).map((item) => (
             <button
+              type="button"
               key={item}
               onClick={() => onTargetTypeFilterChange(item)}
               className={`rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-widest ${
@@ -88,10 +91,13 @@ const AdjustmentFiltersClean = ({
               value={query}
               onChange={(e) => onQueryChange(e.target.value)}
               placeholder="搜索单号、原因、对象..."
-              className="w-full bg-transparent text-sm font-bold text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-100"
+              aria-label="搜索调账单号、原因、对象"
+              title="搜索调账单号、原因、对象"
+              className="min-h-8 w-full bg-transparent text-sm font-bold text-slate-700 outline-none placeholder:text-slate-400 dark:text-slate-100"
             />
           </div>
           <button
+            type="button"
             onClick={onRefresh}
             className="inline-flex items-center gap-2 rounded-[20px] bg-slate-900 px-5 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-lg shadow-slate-900/10"
           >

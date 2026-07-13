@@ -12,10 +12,16 @@ import {
   CollectionOverdueRecord,
   CollectionPromiseRecord,
   CollectionSummary,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
 import { isCanceledApiError } from '../../utils/api';
 import { CollectionActionMode, CollectionActionTarget } from '../../components/collections/CollectionActionModal';
-import { requestCollectionLoadBundle, type CollectionLoadOptions } from './collectionLoadBundle';
+import {
+  COLLECTION_CENTER_TTL_MS,
+  invalidateCollectionCenterState,
+  requestCollectionLoadBundle,
+  type CollectionLoadOptions,
+} from './collectionLoadBundle';
+import { serverStateClient } from '../../app/serverState';
 import { reportClientIssue } from '../../utils/clientIssue';
 import { useCollectionCenterActions } from './useCollectionCenterActions';
 import { useCollectionCenterDerivedLists } from './useCollectionCenterDerivedLists';
@@ -119,7 +125,8 @@ export interface CollectionCenterState {
 }
 
 export const useCollectionCenterState = (): CollectionCenterState => {
-  const { formatPrice, notify, currentUser } = useAppContext();
+  const { formatPrice: formatContextPrice, notify, currentUser } = useAppContext();
+  const formatPrice = (value?: number | null) => formatContextPrice(value ?? 0);
   const [summary, setSummary] = useState<CollectionSummary | null>(null);
   const [ledger, setLedger] = useState<CollectionLedgerRecord[]>([]);
   const [overdue, setOverdue] = useState<CollectionOverdueRecord[]>([]);
@@ -154,6 +161,7 @@ export const useCollectionCenterState = (): CollectionCenterState => {
     total: 0,
     totalPages: 1,
   });
+  const [collectionRefreshVersion, setCollectionRefreshVersion] = useState(0);
   const [overdueSearchLoading, setOverdueSearchLoading] = useState(false);
   const [promiseSort, setPromiseSort] = useState<PromiseSort>('promised_at_asc');
   const [disputeSort, setDisputeSort] = useState<DisputeSort>('active_first');
@@ -170,6 +178,10 @@ export const useCollectionCenterState = (): CollectionCenterState => {
   const loadData = useCallback(async (options: CollectionLoadOptions = {}) => {
     setLoading(true);
     try {
+      if (options.force) {
+        invalidateCollectionCenterState();
+        setCollectionRefreshVersion((version) => version + 1);
+      }
       const bundle = await requestCollectionLoadBundle(Boolean(options.force));
       setSummary(bundle.summary);
       setLedger(bundle.ledger);
@@ -211,11 +223,16 @@ export const useCollectionCenterState = (): CollectionCenterState => {
     const timer = window.setTimeout(async () => {
       setOverdueSearchLoading(true);
       try {
-        const result = await collectionsService.getOverdueOrdersPage({
-          search: query,
-          page: overdueSearchPage,
-          pageSize: overdueSearchPageSize,
+        const result = await serverStateClient.fetchQuery({
+          key: ['collections', 'overdue', 'search', { query, page: overdueSearchPage, pageSize: overdueSearchPageSize }],
+          ttlMs: COLLECTION_CENTER_TTL_MS,
           signal: controller.signal,
+          queryFn: ({ signal }) => collectionsService.getOverdueOrdersPage({
+            search: query,
+            page: overdueSearchPage,
+            pageSize: overdueSearchPageSize,
+            signal,
+          }),
         });
         setOverdueSearchRows(result.data);
         setOverdueSearchMeta(result.meta);
@@ -234,7 +251,7 @@ export const useCollectionCenterState = (): CollectionCenterState => {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [notify, overdueSearch, overdueSearchPage, overdueSearchPageSize]);
+  }, [collectionRefreshVersion, notify, overdueSearch, overdueSearchPage, overdueSearchPageSize]);
 
   useEffect(() => {
     setOverdueSearchPage(1);

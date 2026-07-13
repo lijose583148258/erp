@@ -46,12 +46,14 @@ export async function changeOwnPassword(input: ChangePasswordInput) {
       passwordChangedAt: new Date(),
     },
   });
-  const deletedRefreshTokens = deleteRefreshTokensForUser(input.userId);
+  const deletedRefreshTokens = await deleteRefreshTokensForUser(input.userId);
 
   await writeAuthAuditLog({
     userId: input.userId,
     action: 'CHANGE_PASSWORD',
-    details: `用户修改了密码，已失效 ${deletedRefreshTokens} 个刷新令牌`,
+    details: deletedRefreshTokens === null
+      ? '用户修改了密码，已递增分布式会话代次并失效全部旧刷新令牌'
+      : `用户修改了密码，已失效 ${deletedRefreshTokens} 个刷新令牌`,
     ipAddress: input.ipAddress,
     userAgent: input.userAgent,
   });

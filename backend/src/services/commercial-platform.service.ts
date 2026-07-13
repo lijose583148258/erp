@@ -64,9 +64,104 @@ const firstNode = (config: WorkflowConfig) => config.nodes[0] || defaultWorkflow
 
 const nextNode = (config: WorkflowConfig, currentStep: number) => config.nodes[currentStep + 1] || null;
 
+const mapWorkflowDefinition = (definition: {
+  id: number;
+  code: string;
+  name: string;
+  documentType: string;
+  configJson: string;
+  isActive: boolean;
+  createdBy: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) => ({
+  id: definition.id,
+  code: definition.code,
+  name: definition.name,
+  document_type: definition.documentType,
+  config_json: definition.configJson,
+  is_active: definition.isActive,
+  created_by: definition.createdBy,
+  created_at: definition.createdAt,
+  updated_at: definition.updatedAt,
+});
+
+const mapWorkflowInstance = (instance: {
+  id: number;
+  definitionId: number;
+  documentType: string;
+  documentId: string;
+  status: string;
+  currentStep: number;
+  requesterId: number | null;
+  createdAt: Date;
+  updatedAt: Date;
+}) => ({
+  id: instance.id,
+  definition_id: instance.definitionId,
+  document_type: instance.documentType,
+  document_id: instance.documentId,
+  status: instance.status,
+  current_step: instance.currentStep,
+  requester_id: instance.requesterId,
+  created_at: instance.createdAt,
+  updated_at: instance.updatedAt,
+});
+
+const mapWorkflowTask = (task: {
+  id: number;
+  instanceId: number;
+  nodeCode: string;
+  assigneeRole: string | null;
+  assigneeUserId: number | null;
+  status: string;
+  createdAt: Date;
+  completedAt: Date | null;
+}) => ({
+  id: task.id,
+  instance_id: task.instanceId,
+  node_code: task.nodeCode,
+  assignee_role: task.assigneeRole,
+  assignee_user_id: task.assigneeUserId,
+  status: task.status,
+  created_at: task.createdAt,
+  completed_at: task.completedAt,
+});
+
+const mapNotification = (notification: {
+  id: number;
+  userId: number | null;
+  role: string | null;
+  type: string;
+  severity: string;
+  title: string;
+  message: string;
+  resourceType: string | null;
+  resourceId: string | null;
+  isRead: boolean;
+  createdAt: Date;
+  readAt: Date | null;
+}) => ({
+  id: notification.id,
+  user_id: notification.userId,
+  role: notification.role,
+  type: notification.type,
+  severity: notification.severity,
+  title: notification.title,
+  message: notification.message,
+  resource_type: notification.resourceType,
+  resource_id: notification.resourceId,
+  is_read: notification.isRead,
+  created_at: notification.createdAt,
+  read_at: notification.readAt,
+});
+
 export const commercialPlatformService = {
   async listWorkflowDefinitions() {
-    return prisma.$queryRawUnsafe('SELECT * FROM workflow_definitions ORDER BY created_at DESC');
+    const definitions = await prisma.workflowDefinition.findMany({
+      orderBy: { createdAt: 'desc' },
+    });
+    return definitions.map(mapWorkflowDefinition);
   },
 
   async createWorkflowDefinition(input: {
@@ -78,23 +173,23 @@ export const commercialPlatformService = {
   }) {
     const config = normalizeWorkflowConfig(input.config);
     const configJson = JSON.stringify(config);
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO workflow_definitions (code, name, document_type, config_json, created_by)
-       VALUES (?, ?, ?, ?, ?)
-       ON CONFLICT(code) DO UPDATE SET
-         name = excluded.name,
-         document_type = excluded.document_type,
-         config_json = excluded.config_json,
-         is_active = 1,
-         updated_at = CURRENT_TIMESTAMP`,
-      input.code,
-      input.name,
-      input.documentType,
-      configJson,
-      input.createdBy || null,
-    );
-    const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM workflow_definitions WHERE code = ?', input.code);
-    return rows[0];
+    const definition = await prisma.workflowDefinition.upsert({
+      where: { code: input.code },
+      create: {
+        code: input.code,
+        name: input.name,
+        documentType: input.documentType,
+        configJson,
+        createdBy: input.createdBy || null,
+      },
+      update: {
+        name: input.name,
+        documentType: input.documentType,
+        configJson,
+        isActive: true,
+      },
+    });
+    return mapWorkflowDefinition(definition);
   },
 
   async createWorkflowInstance(input: {
@@ -103,31 +198,33 @@ export const commercialPlatformService = {
     documentId: string;
     requesterId?: number;
   }) {
-    const definitions = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM workflow_definitions WHERE code = ? AND is_active = 1', input.definitionCode);
-    const definition = definitions[0];
+    const definition = await prisma.workflowDefinition.findFirst({
+      where: { code: input.definitionCode, isActive: true },
+    });
     if (!definition) throw new Error(`Workflow definition not found: ${input.definitionCode}`);
-    const config = parseConfig(definition.config_json);
+    const config = parseConfig(definition.configJson);
     const node = firstNode(config);
 
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO workflow_instances (definition_id, document_type, document_id, status, current_step, requester_id)
-       VALUES (?, ?, ?, 'pending', 0, ?)`,
-      definition.id,
-      input.documentType,
-      input.documentId,
-      input.requesterId || null,
-    );
-    const instances = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM workflow_instances WHERE rowid = last_insert_rowid()');
-    const instance = instances[0];
+    const createdInstance = await prisma.workflowInstance.create({
+      data: {
+        definitionId: Number(definition.id),
+        documentType: input.documentType,
+        documentId: input.documentId,
+        status: 'pending',
+        currentStep: 0,
+        requesterId: input.requesterId || null,
+      },
+    });
+    const instance = mapWorkflowInstance(createdInstance);
 
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO workflow_tasks (instance_id, node_code, assignee_role, assignee_user_id)
-       VALUES (?, ?, ?, ?)`,
-      instance.id,
-      node.code,
-      node.assigneeRole || null,
-      node.assigneeUserId || null,
-    );
+    await prisma.workflowTask.create({
+      data: {
+        instanceId: instance.id,
+        nodeCode: node.code,
+        assigneeRole: node.assigneeRole || null,
+        assigneeUserId: node.assigneeUserId || null,
+      },
+    });
     await this.createNotification({
       role: node.assigneeRole || 'manager',
       type: 'workflow',
@@ -142,77 +239,97 @@ export const commercialPlatformService = {
   },
 
   async listWorkflowTasks(user: { userId: number; role: string }) {
-    return prisma.$queryRawUnsafe(
-      `SELECT t.*, i.document_type, i.document_id, i.status AS instance_status
-       FROM workflow_tasks t
-       JOIN workflow_instances i ON i.id = t.instance_id
-       WHERE t.status = 'pending'
-         AND (t.assignee_user_id = ? OR t.assignee_role = ? OR ? = 'admin')
-       ORDER BY t.created_at DESC`,
-      user.userId,
-      user.role,
-      user.role,
-    );
+    const tasks = await prisma.workflowTask.findMany({
+      where: {
+        status: 'pending',
+        OR: [
+          { assigneeUserId: user.userId },
+          { assigneeRole: user.role },
+          ...(user.role === 'admin' ? [{}] : []),
+        ],
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    const instanceIds = Array.from(new Set(tasks.map(task => task.instanceId)));
+    const instances = instanceIds.length > 0
+      ? await prisma.workflowInstance.findMany({
+          where: { id: { in: instanceIds } },
+          select: { id: true, documentType: true, documentId: true, status: true },
+        })
+      : [];
+    const instanceMap = new Map(instances.map(instance => [instance.id, instance]));
+    return tasks.map((task) => {
+      const instance = instanceMap.get(task.instanceId);
+      return {
+        ...mapWorkflowTask(task),
+        document_type: instance?.documentType,
+        document_id: instance?.documentId,
+        instance_status: instance?.status,
+      };
+    });
   },
 
   async actOnWorkflowTask(input: { taskId: number; action: 'approve' | 'reject'; actorId: number; comment?: string }) {
-    const tasks = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT t.*, i.definition_id, i.current_step, i.document_type, i.document_id
-       FROM workflow_tasks t
-       JOIN workflow_instances i ON i.id = t.instance_id
-       WHERE t.id = ? AND t.status = 'pending'`,
-      input.taskId,
-    );
-    const task = tasks[0];
+    const task = await prisma.workflowTask.findFirst({
+      where: { id: input.taskId, status: 'pending' },
+    });
     if (!task) throw new Error('Pending workflow task not found');
+    const instance = await prisma.workflowInstance.findUnique({
+      where: { id: task.instanceId },
+    });
+    if (!instance) throw new Error('Workflow instance not found');
 
-    await prisma.$executeRawUnsafe(
-      `UPDATE workflow_tasks SET status = ?, completed_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      input.action === 'approve' ? 'approved' : 'rejected',
-      input.taskId,
-    );
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO workflow_actions (instance_id, task_id, action, actor_id, comment)
-       VALUES (?, ?, ?, ?, ?)`,
-      task.instance_id,
-      input.taskId,
-      input.action,
-      input.actorId,
-      input.comment || null,
-    );
+    await prisma.workflowTask.update({
+      where: { id: input.taskId },
+      data: {
+        status: input.action === 'approve' ? 'approved' : 'rejected',
+        completedAt: new Date(),
+      },
+    });
+    await prisma.workflowAction.create({
+      data: {
+        instanceId: task.instanceId,
+        taskId: input.taskId,
+        action: input.action,
+        actorId: input.actorId,
+        comment: input.comment || null,
+      },
+    });
 
     if (input.action === 'reject') {
-      await prisma.$executeRawUnsafe(
-        `UPDATE workflow_instances SET status = 'rejected', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        task.instance_id,
-      );
-      return { instanceId: task.instance_id, status: 'rejected' };
+      await prisma.workflowInstance.update({
+        where: { id: task.instanceId },
+        data: { status: 'rejected' },
+      });
+      return { instanceId: task.instanceId, status: 'rejected' };
     }
 
-    const definitions = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM workflow_definitions WHERE id = ?', task.definition_id);
-    const config = parseConfig(definitions[0]?.config_json || '{}');
-    const node = nextNode(config, Number(task.current_step || 0));
+    const definition = await prisma.workflowDefinition.findUnique({
+      where: { id: instance.definitionId },
+    });
+    const config = parseConfig(definition?.configJson || '{}');
+    const node = nextNode(config, Number(instance.currentStep || 0));
     if (!node) {
-      await prisma.$executeRawUnsafe(
-        `UPDATE workflow_instances SET status = 'approved', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-        task.instance_id,
-      );
-      return { instanceId: task.instance_id, status: 'approved' };
+      await prisma.workflowInstance.update({
+        where: { id: task.instanceId },
+        data: { status: 'approved' },
+      });
+      return { instanceId: task.instanceId, status: 'approved' };
     }
 
-    await prisma.$executeRawUnsafe(
-      `UPDATE workflow_instances SET current_step = current_step + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-      task.instance_id,
-    );
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO workflow_tasks (instance_id, node_code, assignee_role, assignee_user_id)
-       VALUES (?, ?, ?, ?)`,
-      task.instance_id,
-      node.code,
-      node.assigneeRole || null,
-      node.assigneeUserId || null,
-    );
-    return { instanceId: task.instance_id, status: 'pending' };
+    await prisma.workflowInstance.update({
+      where: { id: task.instanceId },
+      data: { currentStep: { increment: 1 } },
+    });
+    await prisma.workflowTask.create({
+      data: {
+        instanceId: task.instanceId,
+        nodeCode: node.code,
+        assigneeRole: node.assigneeRole || null,
+        assigneeUserId: node.assigneeUserId || null,
+      },
+    });
+    return { instanceId: task.instanceId, status: 'pending' };
   },
 
   async createNotification(input: {
@@ -225,56 +342,68 @@ export const commercialPlatformService = {
     resourceType?: string;
     resourceId?: string;
   }) {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO notifications (user_id, role, type, severity, title, message, resource_type, resource_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      input.userId || null,
-      input.role || null,
-      input.type || 'info',
-      input.severity || 'info',
-      input.title,
-      input.message,
-      input.resourceType || null,
-      input.resourceId || null,
-    );
-    const rows = await prisma.$queryRawUnsafe<any[]>('SELECT * FROM notifications WHERE rowid = last_insert_rowid()');
-    return rows[0];
+    const notification = await prisma.notification.create({
+      data: {
+        userId: input.userId || null,
+        role: input.role || null,
+        type: input.type || 'info',
+        severity: input.severity || 'info',
+        title: input.title,
+        message: input.message,
+        resourceType: input.resourceType || null,
+        resourceId: input.resourceId || null,
+      },
+    });
+    return mapNotification(notification);
   },
 
   async listNotifications(user: { userId: number; role: string }) {
-    return prisma.$queryRawUnsafe(
-      `SELECT * FROM notifications
-       WHERE (user_id = ? OR role = ? OR role IS NULL)
-       ORDER BY is_read ASC, created_at DESC
-       LIMIT 100`,
-      user.userId,
-      user.role,
-    );
+    const notifications = await prisma.notification.findMany({
+      where: {
+        OR: [
+          { userId: user.userId },
+          { role: user.role },
+          { role: null },
+        ],
+      },
+      orderBy: [
+        { isRead: 'asc' },
+        { createdAt: 'desc' },
+      ],
+      take: 100,
+    });
+    return notifications.map(mapNotification);
   },
 
   async markNotificationRead(id: number, user: { userId: number; role: string }) {
-    await prisma.$executeRawUnsafe(
-      `UPDATE notifications
-       SET is_read = 1, read_at = CURRENT_TIMESTAMP
-       WHERE id = ? AND (user_id = ? OR role = ? OR role IS NULL)`,
-      id,
-      user.userId,
-      user.role,
-    );
+    await prisma.notification.updateMany({
+      where: {
+        id,
+        OR: [
+          { userId: user.userId },
+          { role: user.role },
+          { role: null },
+        ],
+      },
+      data: {
+        isRead: true,
+        readAt: new Date(),
+      },
+    });
   },
 
   async getPlatformReadiness() {
     const [
-      workflowDefinitionRows,
-      workflowTaskRows,
-      alertRuleRows,
-      notificationRows,
+      activeWorkflowDefinitions,
+      pendingWorkflowTasks,
+      alertRules,
+      unreadNotifications,
       biSummary,
     ] = await Promise.all([
-      prisma.$queryRawUnsafe<any[]>('SELECT COUNT(*) AS count FROM workflow_definitions WHERE is_active = 1').catch(() => [{ count: 0 }]),
-      prisma.$queryRawUnsafe<any[]>("SELECT COUNT(*) AS count FROM workflow_tasks WHERE status = 'pending'").catch(() => [{ count: 0 }]),
-      prisma.$queryRawUnsafe<any[]>('SELECT COUNT(*) AS count FROM alert_rules').catch(() => [{ count: 0 }]),
-      prisma.$queryRawUnsafe<any[]>("SELECT COUNT(*) AS count FROM notifications WHERE is_read = 0").catch(() => [{ count: 0 }]),
+      prisma.workflowDefinition.count({ where: { isActive: true } }).catch(() => 0),
+      prisma.workflowTask.count({ where: { status: 'pending' } }).catch(() => 0),
+      prisma.alertRule.count().catch(() => 0),
+      prisma.notification.count({ where: { isRead: false } }).catch(() => 0),
       this.getBiSummary().catch(() => ({
         orders: 0,
         revenue: 0,
@@ -301,12 +430,12 @@ export const commercialPlatformService = {
       },
       {
         code: 'workflow-engine',
-        status: Number(workflowDefinitionRows[0]?.count || 0) > 0 ? 'passed' : 'watch',
+        status: activeWorkflowDefinitions > 0 ? 'passed' : 'watch',
         message: '工作流定义、实例、任务、动作表已纳入平台治理。',
       },
       {
         code: 'bi-alerts',
-        status: Number(alertRuleRows[0]?.count || 0) > 0 ? 'passed' : 'watch',
+        status: alertRules > 0 ? 'passed' : 'watch',
         message: 'BI summary 和 alert_rules 已纳入平台治理。',
       },
       {
@@ -324,10 +453,10 @@ export const commercialPlatformService = {
         port: runtime.port,
       },
       counts: {
-        activeWorkflowDefinitions: Number(workflowDefinitionRows[0]?.count || 0),
-        pendingWorkflowTasks: Number(workflowTaskRows[0]?.count || 0),
-        alertRules: Number(alertRuleRows[0]?.count || 0),
-        unreadNotifications: Number(notificationRows[0]?.count || 0),
+        activeWorkflowDefinitions,
+        pendingWorkflowTasks,
+        alertRules,
+        unreadNotifications,
       },
       biSummary,
       checks,
@@ -340,24 +469,21 @@ export const commercialPlatformService = {
   },
 
   async getBiSummary() {
-    const orderRows = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) AS order_count, COALESCE(SUM(final_amount), 0) AS revenue_amount FROM orders`,
-    ).catch(() => [{ order_count: 0, revenue_amount: 0 }]);
-    const customerRows = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) AS customer_count FROM customers`,
-    ).catch(() => [{ customer_count: 0 }]);
-    const stockRows = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) AS low_stock_count FROM stock_balances WHERE quantity <= 10`,
-    ).catch(() => [{ low_stock_count: 0 }]);
-    const workflowRows = await prisma.$queryRawUnsafe<any[]>(
-      `SELECT COUNT(*) AS pending_workflow_count FROM workflow_tasks WHERE status = 'pending'`,
-    );
+    const [orderSummary, customers, lowStock, pendingWorkflow] = await Promise.all([
+      prisma.order.aggregate({
+        _count: { id: true },
+        _sum: { finalAmount: true },
+      }).catch(() => ({ _count: { id: 0 }, _sum: { finalAmount: 0 } })),
+      prisma.customer.count().catch(() => 0),
+      prisma.stockBalance.count({ where: { quantity: { lte: 10 } } }).catch(() => 0),
+      prisma.workflowTask.count({ where: { status: 'pending' } }),
+    ]);
     return {
-      orders: Number(orderRows[0]?.order_count || 0),
-      revenue: Number(orderRows[0]?.revenue_amount || 0),
-      customers: Number(customerRows[0]?.customer_count || 0),
-      lowStock: Number(stockRows[0]?.low_stock_count || 0),
-      pendingWorkflow: Number(workflowRows[0]?.pending_workflow_count || 0),
+      orders: Number(orderSummary._count.id || 0),
+      revenue: Number(orderSummary._sum.finalAmount || 0),
+      customers,
+      lowStock,
+      pendingWorkflow,
     };
   },
 

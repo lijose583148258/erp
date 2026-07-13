@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP Enterprise Delivery"
+  short_description: "Enterprise ERP delivery and validation discipline."
+  default_prompt: "Use $erp-enterprise-software-delivery to plan enterprise ERP changes with quality, security, observability, and release gates."

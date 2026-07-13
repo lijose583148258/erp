@@ -85,11 +85,11 @@ async function main() {
   const accepted = results.filter(item => item.accepted);
   const businessAccepted = results.filter(item => item.businessAccess);
   const findings = [];
-  if (strictMode && businessAccepted.length > 0) {
+  if (strictMode && accepted.length > 0) {
     findings.push({
       level: 'P0',
       area: 'default-credentials',
-      message: `default demo credentials can enter business area in release mode: ${businessAccepted.map(item => item.username).join(', ')}`,
+      message: `default demo credentials can obtain API token in release mode: ${accepted.map(item => item.username).join(', ')}`,
     });
   }
   if (!strictMode && accepted.length > 0) {

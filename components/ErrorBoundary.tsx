@@ -1,82 +1,131 @@
 import React, { ErrorInfo, ReactNode } from 'react';
-import { AlertTriangle, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, Copy, RefreshCcw } from 'lucide-react';
+import { reportClientIssue } from '../utils/clientIssue';
 
 interface Props {
-    children: ReactNode;
+  children: ReactNode;
 }
 
 interface State {
-    hasError: boolean;
-    error: Error | null;
-    errorInfo: ErrorInfo | null;
+  hasError: boolean;
+  error: Error | null;
+  errorInfo: ErrorInfo | null;
+  copied: boolean;
 }
 
+type RootErrorFallbackProps = {
+  error: Error | null;
+  componentStack?: string;
+  copied?: boolean;
+  onReload?: () => void;
+  onCopy?: () => void;
+};
+
+const getErrorReportText = (error: Error | null, componentStack?: string) => [
+  `Error: ${error?.toString() || 'Unknown error'}`,
+  '',
+  'Component stack:',
+  componentStack || 'No component stack available',
+].join('\n');
+
+export const RootErrorFallback: React.FC<RootErrorFallbackProps> = ({
+  error,
+  componentStack,
+  copied = false,
+  onReload,
+  onCopy,
+}) => (
+  <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4 text-slate-900 dark:bg-slate-950 dark:text-white">
+    <section
+      className="w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-xl shadow-slate-200/60 dark:border-slate-800 dark:bg-slate-900 dark:shadow-black/20"
+      role="alert"
+      aria-live="assertive"
+    >
+      <div className="mx-auto mb-6 flex h-16 w-16 items-center justify-center rounded-full bg-rose-100 text-rose-600 dark:bg-rose-950/50 dark:text-rose-300">
+        <AlertTriangle size={32} aria-hidden="true" />
+      </div>
+
+      <h1 className="mb-2 text-2xl font-black">系统遇到错误</h1>
+      <p className="mx-auto mb-6 max-w-sm text-sm font-medium leading-6 text-slate-600 dark:text-slate-300">
+        应用外壳已拦截这次异常，避免整页白屏。请刷新后继续操作；如果问题反复出现，请把错误信息发给维护人员。
+      </p>
+
+      <pre className="mb-6 max-h-48 overflow-auto rounded-xl border border-slate-200 bg-slate-100 p-4 text-left text-xs text-slate-700 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-300">
+        {getErrorReportText(error, componentStack)}
+      </pre>
+
+      <div className="grid gap-3 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onReload}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-bold text-white shadow-sm transition hover:bg-indigo-700"
+        >
+          <RefreshCcw size={18} aria-hidden="true" />
+          重新加载
+        </button>
+        <button
+          type="button"
+          onClick={onCopy}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-slate-100 px-4 py-3 text-sm font-bold text-slate-700 transition hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-100 dark:hover:bg-slate-700"
+        >
+          <Copy size={18} aria-hidden="true" />
+          {copied ? '已复制' : '复制错误'}
+        </button>
+      </div>
+    </section>
+  </div>
+);
+
 class ErrorBoundary extends React.Component<Props, State> {
-    public state: State = {
-        hasError: false,
-        error: null,
-        errorInfo: null
-    };
+  public state: State = {
+    hasError: false,
+    error: null,
+    errorInfo: null,
+    copied: false,
+  };
 
-    public static getDerivedStateFromError(error: Error): State {
-        return { hasError: true, error, errorInfo: null };
+  public static getDerivedStateFromError(error: Error): Partial<State> {
+    return { hasError: true, error };
+  }
+
+  public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    reportClientIssue('root-error-boundary', {
+      message: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+    });
+    this.setState({ errorInfo });
+  }
+
+  private handleReload = () => {
+    window.location.reload();
+  };
+
+  private handleCopy = async () => {
+    const text = getErrorReportText(this.state.error, this.state.errorInfo?.componentStack || undefined);
+    try {
+      await navigator.clipboard?.writeText(text);
+      this.setState({ copied: true });
+    } catch (error) {
+      reportClientIssue('root-error-boundary-copy', error, 'warning');
+    }
+  };
+
+  public render() {
+    if (this.state.hasError) {
+      return (
+        <RootErrorFallback
+          error={this.state.error}
+          componentStack={this.state.errorInfo?.componentStack || undefined}
+          copied={this.state.copied}
+          onReload={this.handleReload}
+          onCopy={this.handleCopy}
+        />
+      );
     }
 
-    public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-        console.error('Uncaught error:', error, errorInfo);
-        this.setState({ errorInfo });
-    }
-
-    private handleReload = () => {
-        window.location.reload();
-    };
-
-    public render() {
-        if (this.state.hasError) {
-            return (
-                <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-                    <div className="bg-white rounded-2xl shadow-xl p-8 max-w-md w-full border border-slate-100 text-center">
-                        <div className="w-16 h-16 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center mx-auto mb-6">
-                            <AlertTriangle size={32} />
-                        </div>
-
-                        <h1 className="text-2xl font-bold text-slate-800 mb-2">系统出现了错误</h1>
-                        <p className="text-slate-500 mb-6 text-sm">
-                            系统遇到了意外问题，请点击下方按钮重新加载。如问题持续出现，请复制错误堆栈并联系开发人员。
-                        </p>
-
-                        <div className="bg-slate-100 rounded-lg p-4 mb-6 text-left overflow-auto max-h-40 text-xs text-slate-600 font-mono">
-                            {this.state.error?.toString()}
-                        </div>
-
-                        <div className="space-y-2">
-                            <button
-                                onClick={this.handleReload}
-                                className="w-full py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
-                            >
-                                <RefreshCcw size={18} />
-                                重新加载系统
-                            </button>
-
-                            <button
-                                onClick={() => {
-                                    const text = `错误：${this.state.error?.toString()}\n\n堆栈：${this.state.errorInfo?.componentStack || ''}`;
-                                    navigator.clipboard?.writeText(text)
-                                        .then(() => alert('错误堆栈已复制到剪贴板，请发送给开发人员'))
-                                        .catch(() => alert('复制失败，请手动截图或选择复制'));
-                                }}
-                                className="w-full py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-medium transition-colors"
-                            >
-                                复制错误堆栈信息
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            );
-        }
-
-        return this.props.children;
-    }
+    return this.props.children;
+  }
 }
 
 export default ErrorBoundary;

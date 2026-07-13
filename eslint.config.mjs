@@ -102,7 +102,21 @@ export default [
       'no-control-regex': 'off',
       'react/react-in-jsx-scope': 'off',
       'react/jsx-uses-react': 'off',
-      'react-refresh/only-export-components': 'warn',
+      'react-refresh/only-export-components': ['warn', {
+        allowConstantExport: true,
+        allowExportNames: [
+          'BARTER_DESK_TABS',
+          'barterStatusLabelMap',
+          'buildBarterPreview',
+          'createBarterItem',
+          'getBomOperatingMetrics',
+          'getBomOperatingSummary',
+          'getEffectiveBomQuantityPerUnit',
+          'isEffectiveBomItemDraft',
+          'riskRowClass',
+          'text',
+        ],
+      }],
     },
   },
   {

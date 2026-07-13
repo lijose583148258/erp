@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { authService } from '../services/auth.service';
+import { realtimeService } from '../services/realtime.service';
 import { translations } from '../translations';
 import type { AppContextType, CurrentUser, Currency, Language, Notification, Theme, UserRole } from '../types';
 import { renderAppContent } from './appContent';
+import { useClientStateStore } from './clientState';
 
 // Canonical app shell hook entry. App.tsx imports this file explicitly (`useAppShell.tsx`).
 type AppShellResult = {
@@ -11,17 +13,17 @@ type AppShellResult = {
     activeTab: string;
     setActiveTab: (tab: string) => boolean;
     language: Language;
-    setLanguage: ReturnType<typeof useState<Language>>[1];
+    setLanguage: (language: Language) => void;
     theme: Theme;
     toggleTheme: () => void;
     currency: Currency;
-    setCurrency: ReturnType<typeof useState<Currency>>[1];
+    setCurrency: (currency: Currency) => void;
     notifications: Notification[];
     dismissNotification: (id: string) => void;
     isCommandPaletteOpen: boolean;
-    setIsCommandPaletteOpen: ReturnType<typeof useState<boolean>>[1];
+    setIsCommandPaletteOpen: (value: boolean | ((current: boolean) => boolean)) => void;
     currentUser: CurrentUser;
-    handleLogin: (username: string, password: string) => Promise<void>;
+    handleLogin: (username: string, password: string, mfaCode?: string) => Promise<void>;
     handleLogout: () => void;
     handlePasswordChanged: (oldPassword: string, newPassword: string) => Promise<void>;
     switchUser: (role: UserRole, segment?: 'direct' | 'channel' | 'mixed') => void;
@@ -35,8 +37,24 @@ const rates = { USD: 1 / 7.2, VND: 3500, CNY: 1 };
 const currencySymbols = { CNY: '¥', USD: '$', VND: '₫' };
 
 export const useAppShell = (): AppShellResult => {
-    const [isBootstrappingSession, setIsBootstrappingSession] = useState(true);
-    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const isBootstrappingSession = useClientStateStore(state => state.isBootstrappingSession);
+    const setIsBootstrappingSession = useClientStateStore(state => state.setIsBootstrappingSession);
+    const isLoggedIn = useClientStateStore(state => state.isLoggedIn);
+    const setIsLoggedIn = useClientStateStore(state => state.setIsLoggedIn);
+    const language = useClientStateStore(state => state.language);
+    const setLanguage = useClientStateStore(state => state.setLanguage);
+    const theme = useClientStateStore(state => state.theme);
+    const setTheme = useClientStateStore(state => state.setTheme);
+    const toggleTheme = useClientStateStore(state => state.toggleTheme);
+    const currency = useClientStateStore(state => state.currency);
+    const setCurrency = useClientStateStore(state => state.setCurrency);
+    const notifications = useClientStateStore(state => state.notifications);
+    const addNotification = useClientStateStore(state => state.addNotification);
+    const dismissNotification = useClientStateStore(state => state.dismissNotification);
+    const isCommandPaletteOpen = useClientStateStore(state => state.isCommandPaletteOpen);
+    const setIsCommandPaletteOpen = useClientStateStore(state => state.setIsCommandPaletteOpen);
+    const currentUser = useClientStateStore(state => state.currentUser);
+    const setCurrentUser = useClientStateStore(state => state.setCurrentUser);
     const normalizeActiveTab = useCallback((tab: string) => (tab === 'timber' ? 'barter' : tab), []);
     const readTabFromLocation = useCallback(() => {
         const hash = normalizeActiveTab(window.location.hash.replace(/^#/, '').trim());
@@ -49,46 +67,13 @@ export const useAppShell = (): AppShellResult => {
     }, [normalizeActiveTab]);
     const [activeTab, setActiveTabState] = useState(readTabFromLocation);
     const [unsavedChanges, setUnsavedChanges] = useState<Record<string, string>>({});
-    const [language, setLanguage] = useState<Language>(() => {
-        try {
-            const stored = window.localStorage.getItem('ailao.language');
-            if (stored === 'zh' || stored === 'en' || stored === 'vi') return stored;
-        } catch {
-            // ignore storage errors (private mode / disabled storage)
-        }
-        return 'zh';
-    });
-    const [theme, setTheme] = useState<Theme>(() => {
-        try {
-            const stored = window.localStorage.getItem('ailao.theme');
-            if (stored === 'light' || stored === 'dark') return stored;
-        } catch {
-            // ignore storage errors (private mode / disabled storage)
-        }
-        return 'light';
-    });
-    const [currency, setCurrency] = useState<Currency>('CNY');
-    const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [isCommandPaletteOpen, setIsCommandPaletteOpen] = useState(false);
-    const [currentUser, setCurrentUser] = useState<CurrentUser>({
-        id: 'U-001',
-        name: 'Admin User',
-        role: 'manager',
-        segment: 'direct',
-        avatar: '',
-    });
-
-    const dismissNotification = useCallback((id: string) => {
-        setNotifications(prev => prev.filter(notification => notification.id !== id));
-    }, []);
-
     const notify = useCallback((type: 'success' | 'error' | 'info' | 'warning', message: string) => {
         const id = Date.now().toString();
-        setNotifications(prev => [...prev, { id, type, message }]);
+        addNotification({ id, type, message });
         window.setTimeout(() => {
-            setNotifications(prev => prev.filter(notification => notification.id !== id));
+            dismissNotification(id);
         }, 4000);
-    }, []);
+    }, [addNotification, dismissNotification]);
 
     const registerUnsavedChanges = useCallback((sourceId: string, label: string, dirty: boolean) => {
         setUnsavedChanges(prev => {
@@ -106,7 +91,24 @@ export const useAppShell = (): AppShellResult => {
     const confirmDiscardChanges = useCallback(() => {
         const labels = Object.values(unsavedChanges);
         if (!labels.length) return true;
-        return window.confirm(`${labels[0]}有未保存的更改，确定离开当前页面吗？`);
+        const message = `${labels.join('\u3001')} \u6709\u672a\u4fdd\u5b58\u7684\u66f4\u6539\uff0c\u786e\u5b9a\u79bb\u5f00\u5f53\u524d\u9875\u9762\u5417\uff1f`;
+        return window.confirm(message);
+    }, [unsavedChanges]);
+
+    useEffect(() => {
+        const debugWindow = window as typeof window & {
+            __AILAODA_UNSAVED_STATE__?: {
+                dirtySourceIds: string[];
+                dirtyLabels: string[];
+                count: number;
+            };
+        };
+        const dirtySourceIds = Object.keys(unsavedChanges);
+        debugWindow.__AILAODA_UNSAVED_STATE__ = {
+            dirtySourceIds,
+            dirtyLabels: Object.values(unsavedChanges),
+            count: dirtySourceIds.length,
+        };
     }, [unsavedChanges]);
 
     const setActiveTab = useCallback((tab: string) => {
@@ -237,9 +239,9 @@ export const useAppShell = (): AppShellResult => {
         ...(translations[language] || {}),
     }), [language]);
 
-    const handleLogin = async (username: string, password: string) => {
+    const handleLogin = async (username: string, password: string, mfaCode?: string) => {
         try {
-            const user = await authService.login(username, password);
+            const user = await authService.login(username, password, mfaCode);
             setCurrentUser(user);
             setIsLoggedIn(true);
             notify('success', `${t.loginSuccess}${user.name}`);
@@ -323,8 +325,6 @@ export const useAppShell = (): AppShellResult => {
         }
     }, [language]);
 
-    const toggleTheme = useCallback(() => setTheme(prev => prev === 'light' ? 'dark' : 'light'), []);
-
     useEffect(() => {
         const root = window.document.documentElement;
         if (theme === 'dark') {
@@ -346,6 +346,21 @@ export const useAppShell = (): AppShellResult => {
             window.removeEventListener('online', handleOnline);
         };
     }, [notify]);
+
+    useEffect(() => {
+        if (!isLoggedIn || currentUser.mustChangePassword) {
+            realtimeService.disconnect();
+            return;
+        }
+
+        realtimeService.connect({
+            onNotification: (event) => {
+                notify(event.severity || 'info', event.message || event.title);
+            },
+        });
+
+        return () => realtimeService.disconnect();
+    }, [currentUser.mustChangePassword, isLoggedIn, notify]);
 
     const contextValue = useMemo<AppContextType>(() => ({
         language,

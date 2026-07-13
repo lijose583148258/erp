@@ -1,0 +1,7 @@
+interface:
+  display_name: "ERP Audit Roles"
+  short_description: "Role-based ERP/CRM audit for UI, manual flows, backend checks, encoding, timing, reconciliation, stress, and recovery"
+  default_prompt: "Use $erp-audit-roles to run role-based ERP/CRM audit, UI checks, manual flows, backend checks, timing, reconciliation, stress, and recovery."
+
+policy:
+  allow_implicit_invocation: true
