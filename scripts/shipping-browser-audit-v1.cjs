@@ -295,7 +295,17 @@ async function uploadReceiptViaUi(page) {
     await receiptButton.waitFor({ state: 'attached', timeout: TIMEOUTS.readBack });
     await receiptButton.scrollIntoViewIfNeeded();
     await receiptButton.click();
+    const receiptResponsePromise = page.waitForResponse((response) => (
+      response.url().includes(`/api/shipping/${report.linkedShipment.id}/receipt`)
+      && response.request().method() === 'POST'
+    ), { timeout: TIMEOUTS.save }).catch(() => null);
     await page.getByTestId('shipment-receipt-input').setInputFiles(proofPath);
+    const receiptResponse = await receiptResponsePromise;
+    if (!receiptResponse) throw new Error('receipt upload did not submit POST');
+    const receiptResponseText = await receiptResponse.text().catch(() => '');
+    if (!receiptResponse.ok()) {
+      throw new Error(`receipt upload failed: ${receiptResponse.status()} ${compactText(receiptResponseText, 800)}`);
+    }
 
     let shipment = null;
     for (let index = 0; index < 20; index += 1) {
