@@ -82,18 +82,18 @@ export async function listShipmentReceiptEvents(tx: TransactionClient, shipmentI
     const rows = await queryRawCompat<ShipmentReceiptRow[]>(tx, 
         `SELECT
            id,
-           receipt_no AS receiptNo,
-           shipment_id AS shipmentId,
+           receipt_no AS "receiptNo",
+           shipment_id AS "shipmentId",
            quantity,
-           accepted_quantity AS acceptedQuantity,
-           rejected_quantity AS rejectedQuantity,
+           accepted_quantity AS "acceptedQuantity",
+           rejected_quantity AS "rejectedQuantity",
            unit,
-           signed_receipt_url AS signedReceiptUrl,
-           discrepancy_reason AS discrepancyReason,
+           signed_receipt_url AS "signedReceiptUrl",
+           discrepancy_reason AS "discrepancyReason",
            note,
-           received_by AS receivedBy,
-           received_at AS receivedAt,
-           created_at AS createdAt
+           received_by AS "receivedBy",
+           received_at AS "receivedAt",
+           created_at AS "createdAt"
          FROM shipment_receipts
          WHERE shipment_id = ?
          ORDER BY id ASC`,
@@ -105,10 +105,10 @@ export async function listShipmentReceiptEvents(tx: TransactionClient, shipmentI
 export async function getShipmentReceiptTotals(tx: TransactionClient, shipmentId: number) {
     const rows = await queryRawCompat<ShipmentReceiptTotalsRow[]>(tx, 
         `SELECT
-           COALESCE(SUM(quantity), 0) AS processedQuantity,
-           COALESCE(SUM(accepted_quantity), 0) AS acceptedQuantity,
-           COALESCE(SUM(rejected_quantity), 0) AS rejectedQuantity,
-           COUNT(*) AS receiptCount
+           COALESCE(SUM(quantity), 0) AS "processedQuantity",
+           COALESCE(SUM(accepted_quantity), 0) AS "acceptedQuantity",
+           COALESCE(SUM(rejected_quantity), 0) AS "rejectedQuantity",
+           COUNT(*) AS "receiptCount"
          FROM shipment_receipts
          WHERE shipment_id = ?`,
         shipmentId,
