@@ -323,7 +323,19 @@ async function verifyWarehouseForms(page) {
   await warehouseModal.waitFor({ state: 'hidden', timeout: 10000 });
   recordStep('warehouse-create-confirm-close');
 
-  await page.locator('[data-testid="warehouse-location-create-open"]').click();
+  const locationOpen = page.locator('[data-testid="warehouse-location-create-open"]');
+  if (await locationOpen.count() === 0) {
+    await page.locator('[data-testid="warehouse-create-open"]').click();
+    await warehouseModal.waitFor({ state: 'visible', timeout: 10000 });
+    await page.locator('[data-testid="warehouse-create-code-input"]').fill(`WH-AUDIT-${Date.now()}`);
+    await page.locator('[data-testid="warehouse-create-name-input"]').fill('UNSAVED-AUDIT-WAREHOUSE');
+    await page.locator('[data-testid="warehouse-create-confirm"]').click();
+    await warehouseModal.waitFor({ state: 'hidden', timeout: 20000 });
+    await locationOpen.waitFor({ state: 'visible', timeout: 20000 });
+    recordStep('warehouse-empty-database-fixture-created');
+  }
+
+  await locationOpen.click();
   const locationModal = page.locator('[data-testid="warehouse-location-create-modal"]');
   await locationModal.waitFor({ state: 'visible', timeout: 10000 });
   await page.locator('[data-testid="warehouse-location-create-name-input"]').fill('UNSAVED-LOCATION-AUDIT');
