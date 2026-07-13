@@ -1,0 +1,129 @@
+name: Enterprise Cloud Sandbox
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/enterprise-cloud-sandbox.yml"
+      - "ops/cloud-sandbox/**"
+      - "scripts/**"
+      - "backend/**"
+      - "package*.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-cloud-sandbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-evidence-gate:
+    name: Current enterprise source evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify enterprise pilot artifacts exist
+        id: gate
+        shell: bash
+        run: |
+          set +e
+          required=(
+            scripts/refresh-enterprise-pilot-evidence-v1.cjs
+            scripts/enterprise-pilot-readiness-audit-v1.cjs
+            scripts/redis-sentinel-automatic-failover-audit-v1.cjs
+            scripts/minio-application-failover-audit-v1.cjs
+            scripts/meilisearch-application-failover-audit-v1.cjs
+            scripts/ai-governed-runtime-audit-v1.cjs
+            ops/production/kubernetes/ailaoda-ha.yaml
+            docs/runbooks/ENTERPRISE_PILOT_RUNBOOK.md
+          )
+          missing=()
+          for file in "${required[@]}"; do
+            [[ -f "$file" ]] || missing+=("$file")
+          done
+          mkdir -p cloud-evidence
+          printf '%s\n' "${missing[@]}" > cloud-evidence/missing-enterprise-artifacts.txt
+          node -e 'const fs=require("fs"); const missing=fs.readFileSync("cloud-evidence/missing-enterprise-artifacts.txt","utf8").split(/\r?\n/).filter(Boolean); fs.writeFileSync("cloud-evidence/source-gate.json", JSON.stringify({name:"Enterprise cloud source gate",status:missing.length?"blocked":"passed",commit:process.env.GITHUB_SHA,missing,checkedAt:new Date().toISOString()},null,2)+"\n")'
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Remote branch is missing ${#missing[@]} enterprise pilot artifacts. Cloud runtime results must not be used as application readiness evidence."
+            exit 1
+          fi
+
+      - name: Upload source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-source-gate
+          path: cloud-evidence/
+          retention-days: 14
+
+  cloud-runtime-stack:
+    name: Provision and audit enterprise dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
+      POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
+      MINIO_ROOT_USER: ailaoda-sandbox
+      MINIO_ROOT_PASSWORD: sandbox-${{ github.run_id }}-minio-secret
+      MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
+      GRAFANA_ADMIN_USER: sandbox-admin
+      GRAFANA_ADMIN_PASSWORD: sandbox-${{ github.run_id }}-grafana
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Record toolchain
+        run: |
+          mkdir -p cloud-evidence
+          {
+            docker version
+            docker compose version
+            uname -a
+          } | tee cloud-evidence/toolchain.txt
+
+      - name: Pull fixed dependency images
+        run: docker compose pull
+
+      - name: Start dependency topology
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Audit dependency health and topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:9000/minio/health/live
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:9010/minio/health/live
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:7700/health
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:7710/health
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:9090/-/ready
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:3001/api/health
+          curl --fail --retry 30 --retry-delay 2 http://127.0.0.1:8888/metrics
+          docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
+          docker compose exec -T redis-primary redis-cli ping | grep -Fx PONG
+          docker compose exec -T redis-replica redis-cli INFO replication | tr -d '\r' | grep -Fx role:slave
+          docker compose exec -T sentinel-1 redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK
+          docker compose exec -T sentinel-2 redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK
+          docker compose exec -T sentinel-3 redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK
+          node -e 'const fs=require("fs"); fs.writeFileSync("cloud-evidence/runtime-stack.json", JSON.stringify({name:"Enterprise cloud dependency stack",status:"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,dependencies:{postgres:"ready",redisPrimary:"ready",redisReplica:"replicating",sentinelQuorum:3,minioEndpoints:2,meilisearchEndpoints:2,prometheus:"ready",grafana:"ready",otelCollector:"ready"},checkedAt:new Date().toISOString()},null,2)+"\n")'
+
+      - name: Capture diagnostics
+        if: always()
+        run: |
+          docker compose ps -a > cloud-evidence/compose-ps.txt
+          docker compose logs --no-color > cloud-evidence/compose.log 2>&1 || true
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-cloud-runtime-evidence
+          path: cloud-evidence/
+          retention-days: 14
+
+      - name: Stop sandbox
+        if: always()
+        run: docker compose down -v --remove-orphans
