@@ -1,6 +1,7 @@
 name: Enterprise Cloud Sandbox
 
 on:
+  workflow_call:
   workflow_dispatch:
   push:
     branches:
