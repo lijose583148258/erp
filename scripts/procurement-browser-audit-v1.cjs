@@ -505,7 +505,15 @@ async function receivePurchaseOrder(page) {
     await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
     await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `PO-BATCH-${RUN_ID}`);
+    const receiptResponsePromise = page.waitForResponse((response) => (
+      response.request().method() === 'POST'
+      && response.url().includes(`/procurement/orders/${orderId}/receipts`)
+    ), { timeout: TIMEOUTS.save });
     await page.getByTestId('purchase-receipt-save-button').click();
+    const receiptResponse = await receiptResponsePromise;
+    if (!receiptResponse.ok()) {
+      throw new Error(`purchase receipt create failed: ${receiptResponse.status()} ${await receiptResponse.text()}`);
+    }
 
     let bundle = null;
     for (let index = 0; index < 20; index += 1) {
