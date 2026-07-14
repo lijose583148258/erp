@@ -42,3 +42,12 @@ The verifier reads Kubernetes state with `kubectl` and validates the evidence
 with `jq`. Evidence must come from the provider or operator drill and must not
 contain credentials, connection strings, customer records, prompts, or tokens.
 A passing local/single-node simulation is intentionally insufficient.
+
+
+## Production alerting
+
+`observability.yaml` adds a bearer-authenticated ServiceMonitor and alert rules
+for replica availability, HTTP errors and latency, browser vitals, telemetry
+drops, cache/search degradation, and governed AI fallback conditions. It
+requires Prometheus Operator CRDs and kube-state-metrics. Apply it only after
+the metrics token Secret exists, then follow `OBSERVABILITY_RUNBOOK.md`.
