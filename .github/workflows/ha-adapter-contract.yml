@@ -1,0 +1,31 @@
+name: HA Adapter Contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/ha-adapter-contract.yml"
+      - "ops/production/kubernetes/adapters/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ha-adapter-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adapter-contract:
+    name: Simulated Kubernetes failover adapters
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report runtime
+        run: node --version
+
+      - name: Run isolated adapter contracts
+        run: node ops/production/kubernetes/adapters/adapter-contract.test.cjs
