@@ -6,13 +6,32 @@ const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const root = process.cwd();
 const runtimeRoot = path.resolve(process.env.AILAODA_HA_RUNTIME_ROOT || 'C:\\AilaoDaPostgresRehearsal');
-const reportPath = path.join(root, 'output/audit/object-storage-failover-audit-v1.json');
+const reportPath = path.resolve(process.env.OBJECT_STORAGE_AUDIT_REPORT_PATH || path.join(root, 'output/audit/object-storage-failover-audit-v1.json'));
 const pidPath = path.join(runtimeRoot, 'run/minio-primary.pid');
 const exe = path.join(runtimeRoot, 'external/minio.exe');
 const secret = fs.readFileSync(path.join(runtimeRoot, '.minio-secret.txt'), 'utf8').trim();
-const appUrl = 'http://127.0.0.1:5006';
-const account = { username: 'minio_failover_audit', password: 'MinioFailoverAudit12345!', role: 'admin' };
-const report = { name: 'Object Storage Application Failover Audit', version: '1.1', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
+const appUrl = String(process.env.APP_URL || 'http://127.0.0.1:5006').replace(/\/$/, '');
+const readPassword = () => {
+  const passwordFile = String(process.env.MINIO_FAILOVER_AUDIT_PASSWORD_FILE || '').trim();
+  if (passwordFile) return fs.readFileSync(path.resolve(passwordFile), 'utf8').trim();
+  return String(process.env.MINIO_FAILOVER_AUDIT_PASSWORD || process.env.PILOT_AUDIT_ADMIN_PASSWORD || '').trim();
+};
+const account = {
+  username: String(process.env.MINIO_FAILOVER_AUDIT_USERNAME || process.env.PILOT_AUDIT_ADMIN_USERNAME || '').trim(),
+  password: readPassword(),
+  role: 'admin',
+};
+const report = {
+  name: 'Object Storage Application Failover Audit',
+  version: '2.0',
+  status: 'failed',
+  environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+  evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+  commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+  imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
+  startedAt: new Date().toISOString(),
+  checks: [],
+};
 let primaryStopped = false;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -56,6 +75,7 @@ async function api(pathname, options = {}, token = '') {
 }
 
 async function main() {
+  if (!account.username || !account.password) throw new Error('MinIO failover audit credentials are required through environment or password file.');
   await ensureUiAuditUser(account);
   const login = await api('/api/v1/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: account.username, password: account.password }) });
   const loginBody = await login.json();
