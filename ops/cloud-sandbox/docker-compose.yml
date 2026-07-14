@@ -39,7 +39,7 @@ services:
       - sh
       - -ec
       - |
-        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 3000\nsentinel failover-timeout ailaoda-primary 15000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
+        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 10000\nsentinel failover-timeout ailaoda-primary 30000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
         exec redis-server /tmp/sentinel.conf --sentinel
     ports:
       - "26379:26379"
