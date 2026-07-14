@@ -73,6 +73,12 @@ const requestJson = async (url, init = {}) => {
   const body = await response.json().catch(() => null);
   return { response, body };
 };
+const traceIdFor = response => {
+  const traceparent = String(response?.headers?.get('traceparent') || '').trim();
+  const requestId = String(response?.headers?.get('x-request-id') || '').trim();
+  const match = traceparent.match(/^00-([0-9a-f]{32})-[0-9a-f]{16}-[0-9a-f]{2}$/);
+  return match && requestId === match[1] ? match[1] : '';
+};
 
 const login = async () => {
   const { response, body } = await requestJson(`${appUrls[0]}/api/v1/auth/login`, {
@@ -154,7 +160,21 @@ const createAndReadSyntheticCustomer = async (token, phase) => {
   if (!readResponse.ok || String(readBody?.data?.id) !== String(customerId)) {
     fail(`Cross-instance readback failed during ${phase}: ${readResponse.status}`);
   }
-  return true;
+  const traceIds = [traceIdFor(createResponse), traceIdFor(readResponse)];
+  if (traceIds.some(traceId => !traceId)) fail(`Trace propagation failed during ${phase}.`);
+  return traceIds;
+};
+
+const collectSessionTraceIds = async token => {
+  const traces = await Promise.all(appUrls.map(async baseUrl => {
+    const { response } = await requestJson(`${baseUrl}/api/v1/auth/me`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const traceId = traceIdFor(response);
+    if (response.status !== 200 || !traceId) fail(`Shared-session trace probe failed for ${baseUrl}.`);
+    return traceId;
+  }));
+  return traces;
 };
 
 const validateTopology = (kind, topology, minimumDomains) => {
@@ -189,7 +209,7 @@ const persist = () => {
   const token = await login();
   if (!await appsReady()) fail('Baseline application readiness failed.');
   if (!await tokenAccepted(token)) fail('Baseline shared session failed.');
-  await createAndReadSyntheticCustomer(token, 'baseline');
+  drill.baselineTraceIds = await createAndReadSyntheticCustomer(token, 'baseline');
 
   const pgTopology = adapterJson(postgresAdapter, 'topology');
   const pgDomains = validateTopology('PostgreSQL', pgTopology, 2);
@@ -209,7 +229,7 @@ const persist = () => {
     fail('PostgreSQL writer did not move to a different declared failure domain.');
   }
   const pgRtoSeconds = Math.max(0.001, (Date.now() - pgStarted) / 1000);
-  await createAndReadSyntheticCustomer(token, 'postgres-failover');
+  const pgTraceIds = await createAndReadSyntheticCustomer(token, 'postgres-failover');
   adapterRun(postgresAdapter, 'recover');
   postgresDisrupted = false;
   const pgRejoin = await waitFor(() => adapterJson(postgresAdapter, 'old-primary-status')?.rejoinedAsReplica === true);
@@ -222,6 +242,7 @@ const persist = () => {
     rtoSeconds: pgRtoSeconds,
     postFailoverWriteReadback: true,
     oldPrimaryRejoinedAsReplica: true,
+    traceIds: pgTraceIds,
   };
 
   const redisTopology = adapterJson(redisAdapter, 'topology');
@@ -245,6 +266,7 @@ const persist = () => {
   const redisRtoSeconds = Math.max(0.001, (Date.now() - redisStarted) / 1000);
   const postFailoverToken = await login();
   if (!await tokenAccepted(postFailoverToken)) fail('Redis post-failover session write/readback failed.');
+  const redisTraceIds = await collectSessionTraceIds(postFailoverToken);
   adapterRun(redisAdapter, 'recover');
   redisDisrupted = false;
   const redisRejoin = await waitFor(() => adapterJson(redisAdapter, 'old-primary-status')?.rejoinedAsReplica === true);
@@ -258,6 +280,7 @@ const persist = () => {
     rtoSeconds: redisRtoSeconds,
     applicationWriteReadback: true,
     oldMasterRejoinedAsReplica: true,
+    traceIds: redisTraceIds,
   };
 
   drill.status = 'passed';
