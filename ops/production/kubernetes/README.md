@@ -39,8 +39,16 @@ asserted PostgreSQL or Redis failover fields when the latest drill did not pass.
 After the drill updates the evidence document, run:
 
 ```bash
+node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
+  --continuous-report <continuous-report.json> \
+  --ledger <pilot-ledger.json> \
+  --daily-reports-dir <daily-reports-dir> \
+  --evidence <evidence.json> \
+  --bind
+
 bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
-  <namespace> <evidence.json>
+  <namespace> <evidence.json> <continuous-report.json> \
+  <pilot-ledger.json> <daily-reports-dir>
 ```
 
 The verifier reads Kubernetes state with `kubectl` and validates the evidence
@@ -56,3 +64,18 @@ for replica availability, HTTP errors and latency, browser vitals, telemetry
 drops, cache/search degradation, and governed AI fallback conditions. It
 requires Prometheus Operator CRDs and kube-state-metrics. Apply it only after
 the metrics token Secret exists, then follow `OBSERVABILITY_RUNBOOK.md`.
+
+
+## Machine-bound observation
+
+The production gate does not trust manually entered soak hours or pilot days.
+`verify-pilot-observation-evidence.cjs` verifies one uninterrupted report with
+at least eight hours of real elapsed time, zero network/5xx failures, p95 below
+two seconds, two serving application instances, and no failed checks.
+
+The pilot ledger must contain at least seven distinct UTC dates spanning six
+full days. Every entry is bound to a daily source report by SHA-256 and requires
+completed alert review, zero unreconciled business writes, resolved incidents,
+and an immutable release identity. The continuous report and complete ledger
+hashes are written into enterprise evidence by `--bind` and rechecked during
+formal admission.
