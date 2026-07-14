@@ -3,6 +3,15 @@ name: Enterprise Cloud Sandbox
 on:
   workflow_call:
   workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/enterprise-cloud-sandbox.yml"
+      - "ops/cloud-sandbox/**"
+      - "scripts/**"
+      - "backend/**"
+      - "package*.json"
 
 permissions:
   contents: read

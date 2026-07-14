@@ -62,7 +62,3 @@ jobs:
             backend/coverage/
           if-no-files-found: ignore
           retention-days: 14
-
-  enterprise-cloud-sandbox:
-    name: Enterprise cloud sandbox
-    uses: ./.github/workflows/enterprise-cloud-sandbox.yml
