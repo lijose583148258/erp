@@ -75,8 +75,18 @@ jobs:
         run: |
           npm run build:backend:postgres-artifact
           node node_modules/prisma/build/index.js db push --schema=output/postgres-prisma-artifact/prisma --skip-generate
-          docker compose --project-directory ops/cloud-sandbox --profile application build app-primary
-          docker compose --project-directory ops/cloud-sandbox --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application build app-primary
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+
+      - name: Verify both application instances
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5006 5008; do
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/health" > "cloud-evidence/health-${port}.json"
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" > "cloud-evidence/ready-${port}.json"
+          done
 
       - name: Create isolated observation account
         working-directory: .
@@ -119,8 +129,8 @@ jobs:
           OBSERVATION_MINUTES: ${{ inputs.duration_minutes }}
         run: |
           mkdir -p cloud-evidence
-          docker compose --project-directory ops/cloud-sandbox --profile application ps -a > cloud-evidence/compose-ps.txt || true
-          docker compose --project-directory ops/cloud-sandbox --profile application logs --no-color > cloud-evidence/compose.log 2>&1 || true
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application ps -a > cloud-evidence/compose-ps.txt || true
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application logs --no-color > cloud-evidence/compose.log 2>&1 || true
           cp -r output/audit cloud-evidence/audit 2>/dev/null || true
           node - <<'NODE'
           const fs = require('fs');
