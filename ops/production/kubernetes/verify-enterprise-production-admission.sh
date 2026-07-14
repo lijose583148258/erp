@@ -8,9 +8,10 @@ pilot_ledger="${4:-}"
 daily_reports_dir="${5:-}"
 backup_report="${6:-}"
 resilience_reports_dir="${7:-}"
+observability_report="${8:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json>" >&2
   exit 2
 fi
 
@@ -48,6 +49,10 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-backup-restore-evidence.cjs" \
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-storage-search-evidence.cjs" \
   --reports-dir "${resilience_reports_dir}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-observability-evidence.cjs" \
+  --report "${observability_report}" \
   --evidence "${evidence_file}"
 
 jq -e '
@@ -183,6 +188,15 @@ jq -e '
   and .observability.alertDeliveryDrill == true
   and .observability.failoverTracesPresent == true
   and .observability.droppedSpanRegression == false
+  and (.observability.reportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and .observabilityDrill.status == "passed"
+  and .observabilityDrill.environment == .environment
+  and .observabilityDrill.changeTicket == .evidenceId
+  and .observabilityDrill.commitSha == .commitSha
+  and .observabilityDrill.imageDigest == .imageDigest
+  and .observabilityDrill.traceCount >= 4
+  and (.observabilityDrill.receiptId | type == "string" and length > 0)
+  and .observabilityDrill.reportSha256 == .observability.reportSha256
 
   and .observation.machineVerified == true
   and (.observation.continuousReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
