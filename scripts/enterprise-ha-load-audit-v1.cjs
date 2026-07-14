@@ -2,11 +2,14 @@ const fs = require('fs');
 const path = require('path');
 
 const ROOT = process.cwd();
-const REPORT_PATH = path.join(ROOT, 'output', 'audit', 'enterprise-ha-load-audit-v1.json');
+const REPORT_PATH = path.resolve(process.env.AILAODA_LOAD_REPORT_PATH || path.join(ROOT, 'output', 'audit', 'enterprise-ha-load-audit-v1.json'));
 const targets = String(process.env.AILAODA_LOAD_TARGETS || 'http://127.0.0.1:5006,http://127.0.0.1:5008')
   .split(',').map(value => value.trim().replace(/\/$/, '')).filter(Boolean);
 const username = String(process.env.AILAODA_LOAD_USERNAME || '').trim();
-const password = String(process.env.AILAODA_LOAD_PASSWORD || '');
+const passwordFile = String(process.env.AILAODA_LOAD_PASSWORD_FILE || '').trim();
+const password = passwordFile
+  ? fs.readFileSync(path.resolve(passwordFile), 'utf8').trim()
+  : String(process.env.AILAODA_LOAD_PASSWORD || '').trim();
 const totalRequests = Math.max(1, Number(process.env.AILAODA_LOAD_REQUESTS || 2000));
 const concurrency = Math.max(1, Number(process.env.AILAODA_LOAD_CONCURRENCY || 40));
 const timeoutMs = Math.max(1000, Number(process.env.AILAODA_LOAD_TIMEOUT_MS || 10000));
@@ -20,9 +23,23 @@ const routes = [
 ];
 
 const report = {
-  name: 'Enterprise HA Load Audit', version: '1.0', status: 'failed',
-  startedAt: new Date().toISOString(), targets, totalRequests, concurrency, timeoutMs,
-  thresholds: { errorRateMax: 0.005, p95MaxMs: 1000, p99MaxMs: 2000 },
+  name: 'Enterprise HA Load Audit',
+  version: '2.0',
+  status: 'failed',
+  environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+  evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+  commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+  imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
+  startedAt: new Date().toISOString(),
+  targets,
+  totalRequests,
+  concurrency,
+  timeoutMs,
+  thresholds: {
+    errorRateMax: Math.max(0, Number(process.env.AILAODA_LOAD_ERROR_RATE_MAX || 0.005)),
+    p95MaxMs: Math.max(1, Number(process.env.AILAODA_LOAD_P95_MAX_MS || 1000)),
+    p99MaxMs: Math.max(1, Number(process.env.AILAODA_LOAD_P99_MAX_MS || 2000)),
+  },
 };
 
 const percentile = (sorted, value) => sorted.length
@@ -91,7 +108,7 @@ const verifySharedToken = async (token) => Promise.all(targets.map(async target 
 
 const main = async () => {
   if (targets.length < 2) throw new Error('At least two targets are required for an HA load audit.');
-  if (!username || !password) throw new Error('AILAODA_LOAD_USERNAME and AILAODA_LOAD_PASSWORD are required.');
+  if (!username || !password) throw new Error('AILAODA_LOAD_USERNAME and AILAODA_LOAD_PASSWORD_FILE (or password) are required.');
   report.healthBefore = await Promise.all(targets.map(readHealth));
   const token = await login();
   report.sharedTokenPreflight = await verifySharedToken(token);
