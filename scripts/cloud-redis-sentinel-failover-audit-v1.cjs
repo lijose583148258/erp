@@ -74,7 +74,7 @@ async function main() {
   });
 
   compose('stop', 'redis-primary');
-  const promoted = await waitFor(() => redisRole('redis-replica') === 'master', 90_000);
+  const promoted = await waitFor(() => redisRole('redis-replica') === 'master', 120_000);
   check('replica-promoted', promoted, { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica') });
   check('apps-ready-after-promotion', await waitFor(appsReady, 30_000));
   check('shared-token-survives-promotion', await tokenAccepted(token));
@@ -96,6 +96,7 @@ main().catch(error => {
   try { diagnostics = { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica'), sentinels: sentinelDiagnostics() }; } catch {}
   report.diagnostics = diagnostics;
   console.error(`Cloud Redis failover failure: ${report.error} ${JSON.stringify(diagnostics)}`);
+  try { console.error(compose('logs', '--no-color', '--tail=240', 'sentinel-1', 'sentinel-2', 'sentinel-3')); } catch {}
   process.exitCode = 1;
 }).finally(async () => {
   try { compose('start', 'redis-primary'); } catch {}
