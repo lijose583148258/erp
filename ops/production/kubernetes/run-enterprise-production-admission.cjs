@@ -29,6 +29,17 @@ const artifactTypes = {
   aiReportsDir: 'directory',
   securityReportsDir: 'directory',
 };
+const exactKeys = (value, expected, label) => {
+  const actual = Object.keys(value || {}).sort();
+  const required = [...expected].sort();
+  if (actual.length !== required.length || actual.some((key, index) => key !== required[index])) {
+    throw new Error(`${label} contains missing or unsupported fields.`);
+  }
+};
+exactKeys(manifest, ['schemaVersion', 'namespace', 'release', 'artifacts'], 'Admission bundle');
+exactKeys(manifest.release, ['environment', 'evidenceId', 'commitSha', 'imageDigest'], 'Admission release');
+exactKeys(manifest.artifacts, Object.keys(artifactTypes), 'Admission artifacts');
+
 const resolved = {};
 for (const [key, expectedType] of Object.entries(artifactTypes)) {
   const relative = manifest.artifacts?.[key];
