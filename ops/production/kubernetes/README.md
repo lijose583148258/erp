@@ -53,7 +53,7 @@ bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
   <namespace> <evidence.json> <continuous-report.json> \
   <pilot-ledger.json> <daily-reports-dir> <backup-report.json> \
   <resilience-reports-dir> <observability-report.json> \
-  <load-reconciliation-reports-dir>
+  <load-reconciliation-reports-dir> <ai-reports-dir>
 ```
 
 The verifier reads Kubernetes state with `kubectl` and validates the evidence
@@ -232,6 +232,37 @@ circuit-breaker, red-team, secret-manager, and local-fallback evidence. Never
 place a model credential in frontend variables, browser storage, a ConfigMap,
 or a command argument.
 
+
+## Zero-cost governed AI pilot gate
+
+The formal pilot keeps `AI_GATEWAY_EXTERNAL_ENABLED=false`. The internal
+assistant remains usable through deterministic local guidance, while browser
+credentials, provider keys, and paid model calls remain absent.
+
+Use pre-created admin and sales audit accounts and password files. Run the
+two-instance AI runtime audit plus admin, sales, and governed browser audits with
+the same `ENTERPRISE_EVIDENCE_*` identity. Manually dispatch the
+`AI Governance Contract` workflow against the exact release commit, download
+its `ai-governance-contract-attestation` artifact, and place all five reports
+in one directory:
+
+```bash
+node ops/production/kubernetes/verify-ai-evidence.cjs \
+  --reports-dir <ai-reports-dir> \
+  --evidence <evidence.json> \
+  --bind
+```
+
+The verifier requires local-only runtime mode, two-instance shared limiting,
+admin/sales browser isolation, hidden-data refusal, local fallback, prompt-free
+metrics, input and output safety, response limits, redirect denial, daily
+budget, shared circuit behavior, mocked provider mode, and exactly zero paid
+model calls. All reports are bound to the release by SHA-256.
+
+Enabling an external provider is a separate production change. It remains
+blocked until the allowlisted gateway, secret manager, real provider red-team,
+budget, circuit, privacy, output, and rollback evidence are completed; the
+local-only pilot evidence cannot be reused to approve external mode.
 
 ## Daily pilot recorder
 
