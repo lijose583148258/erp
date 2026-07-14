@@ -1,0 +1,116 @@
+name: Load reconciliation evidence contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/enterprise-ha-load-audit-v1.cjs'
+      - 'scripts/concurrency-consistency-audit-v1.cjs'
+      - 'ops/production/kubernetes/verify-load-reconciliation-evidence.cjs'
+      - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - '.github/workflows/load-reconciliation-evidence-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: load-reconciliation-evidence-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static syntax checks
+        run: |
+          node --check scripts/enterprise-ha-load-audit-v1.cjs
+          node --check scripts/concurrency-consistency-audit-v1.cjs
+          node --check ops/production/kubernetes/verify-load-reconciliation-evidence.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+          ! grep -E 'Concurrency(admin|sales|finance|manager).*Strong|Concurrency.*!A' scripts/concurrency-consistency-audit-v1.cjs
+      - name: Verify load reconciliation binding and tamper rejection
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'load-reconciliation-'));
+          const evidencePath = path.join(dir, 'evidence.json');
+          const identity = {
+            environment: 'formal-pilot',
+            evidenceId: 'CHG-12345',
+            commitSha: 'a'.repeat(40),
+            imageDigest: `sha256:${'b'.repeat(64)}`,
+          };
+          const summary = requests => ({
+            requests, successes: requests, failures: 0, errorRate: 0,
+            latencyMs: { min: 10, p50: 20, p95: 100, p99: 200, max: 300 },
+          });
+          const health = () => ({
+            status: 200, database: 'ok', redisReady: true, cacheDriver: 'redis',
+            searchConfigured: true, telemetryEnabled: true,
+          });
+          const load = {
+            name: 'Enterprise HA Load Audit',
+            version: '2.0',
+            status: 'passed',
+            ...identity,
+            startedAt: new Date(Date.now() - 60_000).toISOString(),
+            finishedAt: new Date(Date.now() - 1_000).toISOString(),
+            targets: ['https://app-a.example', 'https://app-b.example'],
+            totalRequests: 1000,
+            concurrency: 20,
+            throughputRps: 100,
+            overall: summary(1000),
+            byTarget: { a: summary(500), b: summary(500) },
+            byRoute: {
+              customers: summary(200), customerSearch: summary(200), orders: summary(200),
+              orderSearch: summary(200), currency: summary(200),
+            },
+            healthBefore: [health(), health()],
+            healthAfter: [health(), health()],
+            gates: { healthPassed: true, targetPassed: true, routePassed: true, latencyPassed: true },
+          };
+          const requiredSteps = [
+            'login-required-roles', 'create-sales-owned-customer', 'readback-customer-no-loss',
+            'create-order-for-concurrency', 'submit-two-payments-concurrently',
+            'readback-pending-payments', 'verify-two-payments-concurrently',
+            'final-readback-consistency', 'long-read-loop-no-drift',
+          ];
+          const reconciliation = {
+            name: 'Concurrency Consistency Audit',
+            version: '2.0',
+            status: 'passed',
+            ...identity,
+            startedAt: load.startedAt,
+            finishedAt: load.finishedAt,
+            expectedPaidAmount: 300,
+            finalOrder: { paidAmount: 300, paymentStatus: 'partial', paymentCount: 2 },
+            steps: requiredSteps.map(step => ({ step, result: 'passed' })),
+          };
+          const loadPath = path.join(dir, 'enterprise-ha-load-audit-v1.json');
+          const concurrencyPath = path.join(dir, 'concurrency-consistency-audit-report-v1.json');
+          fs.writeFileSync(loadPath, `${JSON.stringify(load, null, 2)}\n`);
+          fs.writeFileSync(concurrencyPath, `${JSON.stringify(reconciliation, null, 2)}\n`);
+          fs.writeFileSync(evidencePath, `${JSON.stringify(identity, null, 2)}\n`);
+
+          const verifier = path.resolve('ops/production/kubernetes/verify-load-reconciliation-evidence.cjs');
+          const run = extra => spawnSync(process.execPath, [
+            verifier, '--reports-dir', dir, '--evidence', evidencePath, ...extra,
+          ], { encoding: 'utf8' });
+          const bound = run(['--bind']);
+          if (bound.status !== 0) throw new Error(bound.stderr || bound.stdout || 'Binding failed.');
+          const valid = run([]);
+          if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid evidence was rejected.');
+
+          load.overall.latencyMs.p95 = 5000;
+          fs.writeFileSync(loadPath, `${JSON.stringify(load, null, 2)}\n`);
+          const tampered = run([]);
+          if (tampered.status === 0) throw new Error('Tampered load report was accepted.');
+          console.log('Load reconciliation evidence contract: PASSED');
+          NODE
