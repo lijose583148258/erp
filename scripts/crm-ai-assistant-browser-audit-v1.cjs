@@ -6,11 +6,14 @@ const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_SUFFIX = String(process.env.AI_AUDIT_REPORT_SUFFIX || '').replace(/[^a-z0-9_-]+/gi, '');
 const suffix = REPORT_SUFFIX ? `-${REPORT_SUFFIX}` : '';
-const SHOT_DIR = path.join(OUTPUT_DIR, `crm-ai-assistant-browser-v1${suffix}`);
-const REPORT_PATH = path.join(OUTPUT_DIR, `crm-ai-assistant-browser-audit-report-v1${suffix}.json`);
+const SHOT_DIR = path.resolve(process.env.AI_AUDIT_SCREENSHOT_DIR || path.join(OUTPUT_DIR, `crm-ai-assistant-browser-v1${suffix}`));
+const REPORT_PATH = path.resolve(process.env.AI_AUDIT_REPORT_PATH || path.join(OUTPUT_DIR, `crm-ai-assistant-browser-audit-report-v1${suffix}.json`));
 const GLOBAL_TIMEOUT_MS = Number(process.env.AUDIT_TIMEOUT_MS || 180000);
-const AUDIT_USERNAME = process.env.AI_AUDIT_USERNAME || 'sales';
-const AUDIT_PASSWORD = process.env.AI_AUDIT_PASSWORD || 'sales123';
+const AUDIT_USERNAME = String(process.env.AI_AUDIT_USERNAME || '').trim();
+const passwordFile = String(process.env.AI_AUDIT_PASSWORD_FILE || '').trim();
+const AUDIT_PASSWORD = passwordFile
+  ? fs.readFileSync(path.resolve(passwordFile), 'utf8').trim()
+  : String(process.env.AI_AUDIT_PASSWORD || '').trim();
 const AUDIT_ROLE_LABEL = process.env.AI_AUDIT_ROLE_LABEL || '';
 
 const TIMEOUTS = {
@@ -23,6 +26,13 @@ const TIMEOUTS = {
 };
 
 const report = {
+  name: 'CRM AI Assistant Browser Audit',
+  version: '2.0',
+  environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+  evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+  commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+  imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
+  roleLabel: AUDIT_ROLE_LABEL,
   appUrl: APP_URL,
   startedAt: new Date().toISOString(),
   cdpUrl: process.env.BROWSER_CDP_URL || null,
@@ -177,6 +187,7 @@ async function run() {
   }, GLOBAL_TIMEOUT_MS);
 
   try {
+    if (!AUDIT_USERNAME || !AUDIT_PASSWORD) throw new Error('AI_AUDIT_USERNAME and AI_AUDIT_PASSWORD_FILE (or password) are required.');
     const launched = await connectOrLaunchBrowser({ recordStep, retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     launcher = launched.launcher;
