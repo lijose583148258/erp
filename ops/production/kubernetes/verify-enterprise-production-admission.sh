@@ -114,7 +114,10 @@ jq -e '
   and .search.backupRestoreReadback == true
 
   and .observability.bothApplicationTargetsUp == true
+  and .observability.serviceMonitorTargets >= 2
+  and .observability.alertRulesLoaded == true
   and .observability.alertsDelivered == true
+  and .observability.alertDeliveryDrill == true
   and .observability.failoverTracesPresent == true
   and .observability.droppedSpanRegression == false
 
