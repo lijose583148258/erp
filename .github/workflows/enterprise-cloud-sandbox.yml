@@ -207,6 +207,14 @@ jobs:
             printf 'AI_RUNTIME_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
             printf 'AILAODA_LOAD_USERNAME=%s\n' "${audit_username}"
             printf 'AILAODA_LOAD_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_ADMIN_USERNAME=%s\n' "${audit_username}"
+            printf 'CONCURRENCY_ADMIN_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_SALES_USERNAME=cloud_ha_sales_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'CONCURRENCY_SALES_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_FINANCE_USERNAME=cloud_ha_finance_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'CONCURRENCY_FINANCE_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_MANAGER_USERNAME=cloud_ha_manager_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'CONCURRENCY_MANAGER_PASSWORD_FILE=%s\n' "${audit_password_file}"
             printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
             printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
           } >> "${GITHUB_ENV}"
@@ -267,11 +275,14 @@ jobs:
           const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
           (async () => {
             const fs = require('fs');
-            const account = await ensureUiAuditUser({
-              username: process.env.CLOUD_AUDIT_USERNAME,
-              password: fs.readFileSync(process.env.CLOUD_AUDIT_PASSWORD_FILE, 'utf8').trim(),
-              role: 'admin',
-            });
+            const password = fs.readFileSync(process.env.CLOUD_AUDIT_PASSWORD_FILE, 'utf8').trim();
+            const roleAccounts = [
+              { username: process.env.CONCURRENCY_ADMIN_USERNAME, password, role: 'admin' },
+              { username: process.env.CONCURRENCY_SALES_USERNAME, password, role: 'sales' },
+              { username: process.env.CONCURRENCY_FINANCE_USERNAME, password, role: 'finance' },
+              { username: process.env.CONCURRENCY_MANAGER_USERNAME, password, role: 'manager' },
+            ];
+            const [account] = await Promise.all(roleAccounts.map(ensureUiAuditUser));
             const login = await fetch(process.env.APP_URL + 'api/v1/auth/login', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
