@@ -56,7 +56,10 @@
     "dailyBudgetEnforced": false,
     "circuitBreakerPassed": false,
     "promptFreeTelemetryPassed": false,
-    "localFallbackPassed": false
+    "localFallbackPassed": false,
+    "externalGatewayAllowlistPassed": false,
+    "secretManagerBacked": false,
+    "redTeamPassed": false
   },
   "approvals": {
     "platformOwner": "",
