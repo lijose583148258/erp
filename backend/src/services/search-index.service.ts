@@ -1,6 +1,6 @@
 import prisma from '../config/database';
 import { recordSearchMetric } from '../middleware/metricsMiddleware';
-import { getMeilisearchProvider, getSearchStatus, type SearchIndex } from './search.service';
+import { createExternalSearchProviders, getSearchStatus, type SearchIndex } from './search.service';
 import { logger } from '../utils/logger';
 
 type CustomerSearchDocument = {
@@ -35,6 +35,24 @@ type ReindexResult = {
 };
 
 const DEFAULT_REINDEX_BATCH_SIZE = 500;
+
+const runAcrossSearchProviders = async <T>(operation: (provider: ReturnType<typeof createExternalSearchProviders>[number]) => Promise<T>) => {
+  const providers = createExternalSearchProviders();
+  if (providers.length === 0) throw new Error('MEILISEARCH_NOT_CONFIGURED');
+  const results = await Promise.allSettled(providers.map(operation));
+  const fulfilled = results.filter((result): result is PromiseFulfilledResult<T> => result.status === 'fulfilled');
+  const minimumSuccesses = Math.min(
+    providers.length,
+    Math.max(1, Number(process.env.SEARCH_MIN_WRITE_SUCCESSES || 1)),
+  );
+  if (fulfilled.length < minimumSuccesses) {
+    const reasons = results
+      .filter((result): result is PromiseRejectedResult => result.status === 'rejected')
+      .map(result => result.reason instanceof Error ? result.reason.message : String(result.reason));
+    throw new Error(`MEILISEARCH_REPLICAS_INSUFFICIENT_${fulfilled.length}_OF_${minimumSuccesses}: ${reasons.join('; ')}`);
+  }
+  return fulfilled.map(result => result.value);
+};
 let activeReindex: Promise<ReindexResult> | null = null;
 let lastReindex: ReindexResult | null = null;
 let lastError: string | null = null;
@@ -88,8 +106,7 @@ export class SearchIndexService {
   }
 
   static async syncCustomer(customerId: number) {
-    const provider = getMeilisearchProvider();
-    if (!provider) return false;
+    if (createExternalSearchProviders().length === 0) return false;
 
     const customer = await prisma.customer.findUnique({
       where: { id: Number(customerId) },
@@ -115,8 +132,7 @@ export class SearchIndexService {
   }
 
   static async syncOrder(orderId: number) {
-    const provider = getMeilisearchProvider();
-    if (!provider) return false;
+    if (createExternalSearchProviders().length === 0) return false;
 
     const order = await prisma.order.findUnique({
       where: { id: Number(orderId) },
@@ -132,8 +148,7 @@ export class SearchIndexService {
   }
 
   static async syncOrdersForCustomer(customerId: number) {
-    const provider = getMeilisearchProvider();
-    if (!provider) return 0;
+    if (createExternalSearchProviders().length === 0) return 0;
 
     let lastId = 0;
     let total = 0;
@@ -184,14 +199,15 @@ export class SearchIndexService {
   }
 
   private static async runReindex(): Promise<ReindexResult> {
-    const provider = getMeilisearchProvider();
-    if (!provider) {
+    if (createExternalSearchProviders().length === 0) {
       throw new Error('MEILISEARCH_NOT_CONFIGURED');
     }
 
     for (const index of Object.keys(searchableAttributes) as SearchIndex[]) {
-      const taskUid = await provider.updateSearchableAttributes(index, searchableAttributes[index]);
-      if (taskUid !== null) await provider.waitForTask(taskUid);
+      await runAcrossSearchProviders(async provider => {
+        const taskUid = await provider.updateSearchableAttributes(index, searchableAttributes[index]);
+        if (taskUid !== null) await provider.waitForTask(taskUid);
+      });
     }
 
     const indexes: ReindexResult['indexes'] = {
@@ -260,10 +276,10 @@ export class SearchIndexService {
   }
 
   private static async upsertAndWait(index: SearchIndex, documents: Array<Record<string, unknown>>) {
-    const provider = getMeilisearchProvider();
-    if (!provider) return;
-    const taskUid = await provider.upsertDocuments(index, documents);
-    if (taskUid !== null) await provider.waitForTask(taskUid);
+    await runAcrossSearchProviders(async provider => {
+      const taskUid = await provider.upsertDocuments(index, documents);
+      if (taskUid !== null) await provider.waitForTask(taskUid);
+    });
     recordSearchMetric('index', index);
   }
 
