@@ -9,9 +9,10 @@ daily_reports_dir="${5:-}"
 backup_report="${6:-}"
 resilience_reports_dir="${7:-}"
 observability_report="${8:-}"
+load_reconciliation_reports_dir="${9:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir>" >&2
   exit 2
 fi
 
@@ -53,6 +54,10 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-storage-search-evidence.cjs" \
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-observability-evidence.cjs" \
   --report "${observability_report}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-load-reconciliation-evidence.cjs" \
+  --reports-dir "${load_reconciliation_reports_dir}" \
   --evidence "${evidence_file}"
 
 jq -e '
@@ -205,6 +210,21 @@ jq -e '
   and .observation.stagedPilotDays >= 7
   and .observation.zeroUnreconciledBusinessWrites == true
   and .observation.alertReviewCompleted == true
+
+  and .loadReconciliation.status == "passed"
+  and .loadReconciliation.environment == .environment
+  and .loadReconciliation.evidenceId == .evidenceId
+  and .loadReconciliation.commitSha == .commitSha
+  and .loadReconciliation.imageDigest == .imageDigest
+  and .loadReconciliation.requests >= 1000
+  and .loadReconciliation.concurrency >= 20
+  and .loadReconciliation.failures == 0
+  and .loadReconciliation.p95Ms <= 1000
+  and .loadReconciliation.p99Ms <= 2000
+  and .loadReconciliation.throughputRps > 0
+  and (.loadReconciliation.reconciledPaidAmount - 300 | fabs) <= 0.01
+  and (.loadReconciliation.loadReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.loadReconciliation.concurrencyReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
 
   and .ai.roleIsolationPassed == true
   and .ai.aggregateOnlyBoundaryPassed == true
