@@ -78,6 +78,7 @@ assertReport('Search failover', reports.searchFailover, [
   'known-order-primary-hit',
   'primary-stopped',
   'known-order-secondary-hit',
+  'surviving-provider-query',
   'primary-restored',
 ]);
 if (reports.searchFailover.scope !== 'formal-cross-domain'
@@ -92,12 +93,13 @@ if (reports.searchFailover.scope !== 'formal-cross-domain'
 
 assertReport('Search restore', reports.searchRestore, [
   'primary-index-evidence',
-  'dump-task-created',
-  'dump-file-created',
-  'dump-import-node-ready',
+  'provider-backup-started',
+  'provider-backup-completed',
+  'isolated-restore-started',
+  'isolated-restore-ready',
   'restored-document-counts',
   'restored-query-equivalence',
-  'restore-node-final-health',
+  'isolated-restore-cleanup',
 ]);
 if (reports.searchRestore.scope !== 'formal-isolated-provider-restore'
   || reports.searchRestore.providerAdapterVerified !== true
