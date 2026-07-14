@@ -6,7 +6,7 @@ const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const reportPath = path.join(process.cwd(), 'output/audit/cloud-redis-sentinel-failover-audit-v1.json');
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
 const account = { username: 'cloud_redis_failover', password: 'CloudRedisFailover12345!', role: 'admin' };
-const report = { name: 'Cloud Redis Sentinel Failover Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
+const report = { name: 'Cloud Redis Sentinel Controlled Failover Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const check = (name, passed, details = {}) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
@@ -74,7 +74,9 @@ async function main() {
   });
 
   compose('stop', 'redis-primary');
-  const promoted = await waitFor(() => redisRole('redis-replica') === 'master', 150_000);
+  const failoverCommand = compose('exec', '-T', 'sentinel-1', 'redis-cli', '-p', '26379', 'SENTINEL', 'FAILOVER', 'ailaoda-primary');
+  check('controlled-failover-accepted', failoverCommand === 'OK', { failoverCommand });
+  const promoted = await waitFor(() => redisRole('redis-replica') === 'master', 90_000);
   check('replica-promoted', promoted, { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica') });
   check('apps-ready-after-promotion', await waitFor(appsReady, 30_000));
   check('shared-token-survives-promotion', await tokenAccepted(token));
@@ -103,6 +105,6 @@ main().catch(error => {
   report.finishedAt = new Date().toISOString();
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
-  console.log(`Cloud Redis Sentinel Failover Audit: ${report.status.toUpperCase()}`);
+  console.log(`Cloud Redis Sentinel Controlled Failover Audit: ${report.status.toUpperCase()}`);
   console.log(`Report: ${reportPath}`);
 });
