@@ -12,9 +12,12 @@ const fail = message => {
   throw new Error(message);
 };
 
-const evidencePath = path.resolve(valueFor('--evidence') || '');
-const postgresAdapter = path.resolve(valueFor('--postgres-adapter') || '');
-const redisAdapter = path.resolve(valueFor('--redis-adapter') || '');
+const evidenceArgument = valueFor('--evidence');
+const postgresAdapterArgument = valueFor('--postgres-adapter');
+const redisAdapterArgument = valueFor('--redis-adapter');
+const evidencePath = evidenceArgument ? path.resolve(evidenceArgument) : '';
+const postgresAdapter = postgresAdapterArgument ? path.resolve(postgresAdapterArgument) : '';
+const redisAdapter = redisAdapterArgument ? path.resolve(redisAdapterArgument) : '';
 const environment = String(process.env.HA_DRILL_ENVIRONMENT || '').trim();
 const changeTicket = String(process.env.HA_DRILL_CHANGE_TICKET || '').trim();
 const appUrls = String(process.env.HA_DRILL_APP_URLS || '')
@@ -32,9 +35,11 @@ if (changeTicket.length < 5) fail('HA_DRILL_CHANGE_TICKET is required.');
 if (appUrls.length < 2) fail('HA_DRILL_APP_URLS must contain at least two application instances.');
 if (!username || !passwordFile) fail('HA_DRILL_USERNAME and HA_DRILL_PASSWORD_FILE are required.');
 if (!fs.existsSync(passwordFile)) fail('HA audit password file does not exist.');
-if (!evidencePath || !fs.existsSync(evidencePath)) fail('Existing evidence JSON is required.');
+if (!evidenceArgument || !evidencePath || !fs.existsSync(evidencePath) || !fs.statSync(evidencePath).isFile()) {
+  fail('Existing evidence JSON file is required.');
+}
 for (const adapter of [postgresAdapter, redisAdapter]) {
-  if (!adapter || !fs.existsSync(adapter)) fail(`Adapter does not exist: ${adapter}`);
+  if (!adapter || !fs.existsSync(adapter) || !fs.statSync(adapter).isFile()) fail(`Adapter file does not exist: ${adapter}`);
 }
 
 const password = fs.readFileSync(passwordFile, 'utf8').trim();
@@ -189,7 +194,9 @@ const persist = () => {
   const pgTopology = adapterJson(postgresAdapter, 'topology');
   const pgDomains = validateTopology('PostgreSQL', pgTopology, 2);
   const pgBefore = adapterJson(postgresAdapter, 'discover');
-  if (!pgBefore?.id || !pgBefore?.failureDomain) fail('PostgreSQL discover output is incomplete.');
+  if (!pgBefore?.id || !pgBefore?.failureDomain || !pgDomains.includes(pgBefore.failureDomain)) {
+    fail('PostgreSQL discover output is incomplete or outside the declared topology.');
+  }
   const pgStarted = Date.now();
   adapterRun(postgresAdapter, 'fail-primary');
   postgresDisrupted = true;
@@ -198,6 +205,9 @@ const persist = () => {
     return current?.id && current.id !== pgBefore.id && await appsReady() ? current : null;
   });
   if (!pgAfter) fail('PostgreSQL automatic election did not recover applications before timeout.');
+  if (!pgAfter.failureDomain || !pgDomains.includes(pgAfter.failureDomain) || pgAfter.failureDomain === pgBefore.failureDomain) {
+    fail('PostgreSQL writer did not move to a different declared failure domain.');
+  }
   const pgRtoSeconds = Math.max(0.001, (Date.now() - pgStarted) / 1000);
   await createAndReadSyntheticCustomer(token, 'postgres-failover');
   adapterRun(postgresAdapter, 'recover');
@@ -218,7 +228,9 @@ const persist = () => {
   const redisDomains = validateTopology('Redis', redisTopology, 3);
   if (Number(redisTopology.sentinelCount) < 3) fail('Redis topology has fewer than three Sentinels.');
   const redisBefore = adapterJson(redisAdapter, 'discover');
-  if (!redisBefore?.id || !redisBefore?.failureDomain) fail('Redis discover output is incomplete.');
+  if (!redisBefore?.id || !redisBefore?.failureDomain || !redisDomains.includes(redisBefore.failureDomain)) {
+    fail('Redis discover output is incomplete or outside the declared topology.');
+  }
   const redisStarted = Date.now();
   adapterRun(redisAdapter, 'fail-primary');
   redisDisrupted = true;
@@ -227,7 +239,12 @@ const persist = () => {
     return current?.id && current.id !== redisBefore.id && await appsReady() && await tokenAccepted(token) ? current : null;
   });
   if (!redisAfter) fail('Redis automatic election did not recover shared sessions before timeout.');
+  if (!redisAfter.failureDomain || !redisDomains.includes(redisAfter.failureDomain) || redisAfter.failureDomain === redisBefore.failureDomain) {
+    fail('Redis master did not move to a different declared failure domain.');
+  }
   const redisRtoSeconds = Math.max(0.001, (Date.now() - redisStarted) / 1000);
+  const postFailoverToken = await login();
+  if (!await tokenAccepted(postFailoverToken)) fail('Redis post-failover session write/readback failed.');
   adapterRun(redisAdapter, 'recover');
   redisDisrupted = false;
   const redisRejoin = await waitFor(() => adapterJson(redisAdapter, 'old-primary-status')?.rejoinedAsReplica === true);
