@@ -41,7 +41,10 @@
     "bothApplicationTargetsUp": false,
     "alertsDelivered": false,
     "failoverTracesPresent": false,
-    "droppedSpanRegression": false
+    "droppedSpanRegression": false,
+    "serviceMonitorTargets": 0,
+    "alertRulesLoaded": false,
+    "alertDeliveryDrill": false
   },
   "observation": {
     "continuousHours": 0,
