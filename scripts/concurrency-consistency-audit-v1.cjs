@@ -1,11 +1,17 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const API_BASE = `${APP_URL.replace(/\/$/, '')}/api`;
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'concurrency-consistency-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const ROLE_ACCOUNTS = Object.fromEntries(['admin', 'sales', 'finance', 'manager'].map(role => [role, {
+  username: `concurrency_${role}_${RUN_ID}`,
+  password: `Concurrency${role}${RUN_ID}!A`,
+  role,
+}]));
 
 const report = {
   appUrl: APP_URL,
@@ -94,12 +100,12 @@ function findPaymentByNote(order, note) {
 async function run() {
   try {
     const users = await withTimeout('login-required-roles', 20000, async () => {
-      const [admin, sales, finance, manager] = await Promise.all([
-        login('admin', 'admin123'),
-        login('sales', 'sales123'),
-        login('finance', 'finance123'),
-        login('manager', 'manager123'),
-      ]);
+      const [admin, sales, finance, manager] = await Promise.all(
+        ['admin', 'sales', 'finance', 'manager'].map(async role => {
+          const account = await ensureUiAuditUser(ROLE_ACCOUNTS[role]);
+          return login(account.username, account.password);
+        }),
+      );
       return { admin, sales, finance, manager };
     });
     recordStep({
