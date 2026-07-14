@@ -1,22 +1,42 @@
 const fs = require('fs');
 const path = require('path');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
-
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const API_BASE = `${APP_URL.replace(/\/$/, '')}/api`;
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
-const REPORT_PATH = path.join(OUTPUT_DIR, 'concurrency-consistency-audit-report-v1.json');
+const REPORT_PATH = path.resolve(process.env.CONCURRENCY_AUDIT_REPORT_PATH || path.join(OUTPUT_DIR, 'concurrency-consistency-audit-report-v1.json'));
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-const ROLE_ACCOUNTS = Object.fromEntries(['admin', 'sales', 'finance', 'manager'].map(role => [role, {
-  username: `concurrency_${role}_${RUN_ID}`,
-  password: `Concurrency${role}${RUN_ID}!A`,
-  role,
-}]));
+const readSecret = role => {
+  const prefix = `CONCURRENCY_${role.toUpperCase()}_PASSWORD`;
+  const file = String(process.env[`${prefix}_FILE`] || '').trim();
+  if (file) return fs.readFileSync(path.resolve(file), 'utf8').trim();
+  const pilotFallback = role === 'admin'
+    ? process.env.PILOT_AUDIT_ADMIN_PASSWORD
+    : role === 'sales' ? process.env.PILOT_AUDIT_SALES_PASSWORD : '';
+  return String(process.env[prefix] || pilotFallback || '').trim();
+};
+const ROLE_ACCOUNTS = Object.fromEntries(['admin', 'sales', 'finance', 'manager'].map(role => {
+  const prefix = `CONCURRENCY_${role.toUpperCase()}_USERNAME`;
+  const pilotFallback = role === 'admin'
+    ? process.env.PILOT_AUDIT_ADMIN_USERNAME
+    : role === 'sales' ? process.env.PILOT_AUDIT_SALES_USERNAME : '';
+  return [role, {
+    username: String(process.env[prefix] || pilotFallback || '').trim(),
+    password: readSecret(role),
+    role,
+  }];
+}));
 
 const report = {
+  name: 'Concurrency Consistency Audit',
+  version: '2.0',
+  environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+  evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+  commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+  imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
   appUrl: APP_URL,
   startedAt: new Date().toISOString(),
   runId: RUN_ID,
+  expectedPaidAmount: 300,
   steps: [],
   status: 'running',
 };
@@ -102,7 +122,8 @@ async function run() {
     const users = await withTimeout('login-required-roles', 20000, async () => {
       const [admin, sales, finance, manager] = await Promise.all(
         ['admin', 'sales', 'finance', 'manager'].map(async role => {
-          const account = await ensureUiAuditUser(ROLE_ACCOUNTS[role]);
+          const account = ROLE_ACCOUNTS[role];
+          if (!account.username || !account.password) throw new Error(`Missing pre-created ${role} concurrency audit credentials.`);
           return login(account.username, account.password);
         }),
       );
