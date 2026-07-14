@@ -41,7 +41,7 @@ services:
       - sh
       - -ec
       - |
-        sleep "$SENTINEL_START_DELAY"
+        sleep "$$SENTINEL_START_DELAY"
         printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 30000\nsentinel failover-timeout ailaoda-primary 180000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
         exec redis-server /tmp/sentinel.conf --sentinel
     ports:
