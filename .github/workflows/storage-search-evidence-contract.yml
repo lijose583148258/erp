@@ -6,6 +6,7 @@ on:
       - 'scripts/minio-application-failover-audit-v1.cjs'
       - 'scripts/meilisearch-application-failover-audit-v1.cjs'
       - 'scripts/meilisearch-dump-restore-audit-v1.cjs'
+      - 'scripts/refresh-enterprise-pilot-evidence-v1.cjs'
       - 'ops/production/kubernetes/verify-storage-search-evidence.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - '.github/workflows/storage-search-evidence-contract.yml'
@@ -29,7 +30,12 @@ jobs:
           node --check scripts/minio-application-failover-audit-v1.cjs
           node --check scripts/meilisearch-application-failover-audit-v1.cjs
           node --check scripts/meilisearch-dump-restore-audit-v1.cjs
+          node --check scripts/refresh-enterprise-pilot-evidence-v1.cjs
           node --check ops/production/kubernetes/verify-storage-search-evidence.cjs
+          ! grep -R -E 'MinioFailoverAudit12345|MeiliFailoverAudit12345|EnterprisePilot(Admin|Sales)12345' \
+            scripts/minio-application-failover-audit-v1.cjs \
+            scripts/meilisearch-application-failover-audit-v1.cjs \
+            scripts/refresh-enterprise-pilot-evidence-v1.cjs
           bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
       - name: Verify release binding and tamper rejection
         shell: bash
