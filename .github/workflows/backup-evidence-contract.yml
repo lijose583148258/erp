@@ -1,0 +1,112 @@
+name: Backup evidence contract
+
+on:
+  pull_request:
+    paths:
+      - 'ops/production/kubernetes/run-backup-restore-drill.cjs'
+      - 'ops/production/kubernetes/verify-backup-restore-evidence.cjs'
+      - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - 'ops/production/kubernetes/BACKUP_ADAPTER_PROTOCOL.md'
+      - '.github/workflows/backup-evidence-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backup-evidence-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static syntax checks
+        run: |
+          node --check ops/production/kubernetes/run-backup-restore-drill.cjs
+          node --check ops/production/kubernetes/verify-backup-restore-evidence.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+      - name: Verify valid evidence and reject tampering
+        shell: bash
+        run: |
+          node <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const root = fs.mkdtempSync(path.join(os.tmpdir(), 'backup-evidence-'));
+          const reportPath = path.join(root, 'report.json');
+          const evidencePath = path.join(root, 'evidence.json');
+          const verifier = path.resolve('ops/production/kubernetes/verify-backup-restore-evidence.cjs');
+          const now = Date.now();
+          const iso = offset => new Date(now + offset).toISOString();
+          const report = {
+            name: 'Enterprise PostgreSQL Backup Restore Drill',
+            version: '1.0',
+            status: 'passed',
+            environment: 'formal-pilot',
+            changeTicket: 'CHG-12345',
+            commitSha: 'a'.repeat(40),
+            imageDigest: `sha256:${'b'.repeat(64)}`,
+            startedAt: iso(-120000),
+            markerCreatedAt: iso(-110000),
+            recoveryPointAt: iso(-90000),
+            recoveredThroughAt: iso(-80000),
+            finishedAt: iso(-1000),
+            backupId: 'backup-1',
+            restoreId: 'restore-1',
+            checksumVerified: true,
+            encrypted: true,
+            markerReadback: true,
+            schemaCompatible: true,
+            cleanupVerified: true,
+            backupCompletionSeconds: 20,
+            verifiedMarkerRpoSeconds: 0,
+            restoreRtoSeconds: 40,
+            checks: Array.from({ length: 10 }, (_, index) => ({
+              name: `check-${index + 1}`,
+              status: 'passed',
+            })),
+          };
+          fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+          const reportSha256 = crypto.createHash('sha256').update(fs.readFileSync(reportPath)).digest('hex');
+          const evidence = {
+            environment: report.environment,
+            evidenceId: report.changeTicket,
+            commitSha: report.commitSha,
+            imageDigest: report.imageDigest,
+            postgres: { backupRestoreReadback: true },
+            backupDrill: {
+              status: 'passed',
+              checksumVerified: true,
+              encrypted: true,
+              markerReadback: true,
+              schemaCompatible: true,
+              cleanupVerified: true,
+              backupCompletionSeconds: report.backupCompletionSeconds,
+              recoveryPointAt: report.recoveryPointAt,
+              verifiedMarkerRpoSeconds: 0,
+              restoreRtoSeconds: report.restoreRtoSeconds,
+              recoveredThroughAt: report.recoveredThroughAt,
+              reportSha256,
+            },
+          };
+          fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+
+          const valid = spawnSync(process.execPath, [verifier, '--report', reportPath, '--evidence', evidencePath], {
+            encoding: 'utf8',
+          });
+          if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid evidence was rejected.');
+
+          report.recoveredThroughAt = iso(-115000);
+          fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+          const tampered = spawnSync(process.execPath, [verifier, '--report', reportPath, '--evidence', evidencePath], {
+            encoding: 'utf8',
+          });
+          if (tampered.status === 0) throw new Error('Tampered recovery-point evidence was accepted.');
+          console.log('Backup evidence contract: PASSED');
+          NODE
