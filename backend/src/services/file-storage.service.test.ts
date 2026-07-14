@@ -2,6 +2,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { LocalFileStorageProvider, S3FileStorageProvider } from './file-storage.service';
+import { renderPrometheusMetrics } from '../middleware/metricsMiddleware';
 
 describe('LocalFileStorageProvider', () => {
   let tempDir: string;
@@ -22,6 +23,9 @@ describe('LocalFileStorageProvider', () => {
     expect(stored.key).toBe('contract_demo.pdf');
     expect(stored.publicUrl).toBe('/uploads/contracts/contract_demo.pdf');
     expect(fs.readFileSync(path.join(tempDir, 'contracts', 'contract_demo.pdf'), 'utf8')).toBe('contract');
+    expect(renderPrometheusMetrics()).toContain(
+      'ailaoda_storage_operations_total{action="local_write",namespace="contracts"} 1',
+    );
   });
 
   it('normalizes download keys and never resolves outside the namespace root', async () => {
@@ -115,5 +119,8 @@ describe('S3FileStorageProvider', () => {
     expect(calls).toHaveLength(2);
     expect(calls[1].startsWith('http://secondary:9000')).toBe(true);
     expect(fs.readFileSync(target?.localPath || '', 'utf8')).toBe('secondary-copy');
+    expect(renderPrometheusMetrics()).toContain(
+      'ailaoda_storage_operations_total{action="read_fallback",namespace="contracts"} 1',
+    );
   });
 });
