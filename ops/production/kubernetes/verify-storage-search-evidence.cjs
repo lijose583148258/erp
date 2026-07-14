@@ -63,7 +63,11 @@ assertReport('Object storage failover', reports.objectStorage, [
   'sha256-byte-integrity',
   'primary-restored',
 ]);
-if (!/^[0-9a-f]{64}$/.test(String(reports.objectStorage.sha256 || ''))
+if (reports.objectStorage.scope !== 'formal-cross-domain'
+  || reports.objectStorage.providerAdapterVerified !== true
+  || !String(reports.objectStorage.failureInjectionId || '').trim()
+  || !Number.isFinite(Date.parse(String(reports.objectStorage.topologyObservedAt || '')))
+  || !/^[0-9a-f]{64}$/.test(String(reports.objectStorage.sha256 || ''))
   || !Number.isFinite(Number(reports.objectStorage.failoverMs))
   || Number(reports.objectStorage.failoverMs) < 0
   || new Set(reports.objectStorage.failureDomains || []).size < 2) {
@@ -76,7 +80,11 @@ assertReport('Search failover', reports.searchFailover, [
   'known-order-secondary-hit',
   'primary-restored',
 ]);
-if (!Number.isFinite(Number(reports.searchFailover.failoverMs))
+if (reports.searchFailover.scope !== 'formal-cross-domain'
+  || reports.searchFailover.providerAdapterVerified !== true
+  || !String(reports.searchFailover.failureInjectionId || '').trim()
+  || !Number.isFinite(Date.parse(String(reports.searchFailover.topologyObservedAt || '')))
+  || !Number.isFinite(Number(reports.searchFailover.failoverMs))
   || Number(reports.searchFailover.failoverMs) < 0
   || new Set(reports.searchFailover.failureDomains || []).size < 2) {
   throw new Error('Search failover latency or failure-domain evidence is invalid.');
@@ -91,8 +99,12 @@ assertReport('Search restore', reports.searchRestore, [
   'restored-query-equivalence',
   'restore-node-final-health',
 ]);
-if (!String(reports.searchRestore.dumpUid || '').trim()) {
-  throw new Error('Search restore report has no dump identity.');
+if (reports.searchRestore.scope !== 'formal-isolated-provider-restore'
+  || reports.searchRestore.providerAdapterVerified !== true
+  || !String(reports.searchRestore.dumpUid || '').trim()
+  || !String(reports.searchRestore.restoreResourceId || '').trim()
+  || reports.searchRestore.cleanupVerified !== true) {
+  throw new Error('Search restore report has no formal isolated restore evidence.');
 }
 
 const binding = {
