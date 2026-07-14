@@ -150,7 +150,7 @@ const writeAndBind = () => {
     bothApplicationTargetsUp: report.status === 'passed',
     alertsDelivered: report.alertDelivered === true,
     failoverTracesPresent: report.failoverTracesPresent === true,
-    droppedSpanRegression: report.droppedSpanRegression !== false,
+    droppedSpanRegression: report.noDroppedSpanRegression === true ? false : true,
     serviceMonitorTargets: report.serviceMonitorTargets || 0,
     alertRulesLoaded: report.alertRulesLoaded === true,
     alertDeliveryDrill: report.alertDelivered === true && report.alertResolved === true,
@@ -201,10 +201,10 @@ const writeAndBind = () => {
   await sleep(1_000);
   const afterMetrics = await Promise.all(appUrls.map(readAppMetrics));
   const collectorAfter = await readCollectorAccepted();
-  report.droppedSpanRegression = afterMetrics.every((item, index) => item.dropped === beforeMetrics[index].dropped);
+  report.noDroppedSpanRegression = afterMetrics.every((item, index) => item.dropped === beforeMetrics[index].dropped);
   check('telemetry-export-envelope', beforeMetrics.every(item => item.configured >= 1)
     && afterMetrics.every(item => item.queue < 5_000)
-    && report.droppedSpanRegression
+    && report.noDroppedSpanRegression
     && collectorAfter > collectorBefore, {
     collectorDelta: collectorAfter - collectorBefore,
     maxQueue: Math.max(...afterMetrics.map(item => item.queue)),
@@ -219,6 +219,7 @@ const writeAndBind = () => {
   report.failoverTracesPresent = true;
 
   const drillId = `${changeTicket.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 48)}-${crypto.randomBytes(6).toString('hex')}`;
+  report.drillId = drillId;
   const sent = adapterJson('send-alert', drillId);
   check('synthetic-alert-submitted', Number.isFinite(Date.parse(String(sent?.sentAt || ''))));
   alertSent = true;
@@ -239,7 +240,7 @@ const writeAndBind = () => {
   process.exitCode = 1;
 }).finally(() => {
   if (alertSent && !alertResolved) {
-    try { adapterRun('resolve-alert', report.drillId || changeTicket); } catch (error) {
+    try { adapterRun('resolve-alert', report.drillId); } catch (error) {
       report.alertCleanupError = String(error?.message || error);
     }
   }
