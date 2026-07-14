@@ -79,3 +79,24 @@ completed alert review, zero unreconciled business writes, resolved incidents,
 and an immutable release identity. The continuous report and complete ledger
 hashes are written into enterprise evidence by `--bind` and rechecked during
 formal admission.
+
+
+## Continuous observation runner
+
+Run `run-continuous-observation.cjs` from an approved persistent runner that
+can reach both staging application instances. GitHub-hosted jobs are not used
+for an uninterrupted eight or 24-hour claim.
+
+Required environment:
+
+- `OBSERVATION_APP_URLS`: at least two comma-separated HTTPS instance URLs
+- `OBSERVATION_USERNAME` and `OBSERVATION_PASSWORD_FILE`
+- `OBSERVATION_METRICS_TOKEN_FILE`
+- `OBSERVATION_COMMIT_SHA` and immutable `OBSERVATION_IMAGE_DIGEST`
+- `OBSERVATION_DURATION_MS`: 28,800,000 through 86,400,000
+
+The account needs only login and read access to dashboard, customers, and
+orders. Secrets are read from files and are never written to the report. The
+runner refreshes an expired JWT, samples process memory and telemetry every
+minute, treats every final HTTP 4xx/5xx/429 or network failure as a failure, and
+writes the continuous report consumed by the observation evidence verifier.
