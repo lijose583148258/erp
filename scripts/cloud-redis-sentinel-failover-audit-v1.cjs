@@ -30,6 +30,12 @@ const redisRole = service => {
   const info = compose('exec', '-T', service, 'redis-cli', 'INFO', 'replication');
   return /role:master/.test(info) ? 'master' : (/role:(slave|replica)/.test(info) ? 'replica' : 'unknown');
 };
+const sentinelDiagnostics = () => Object.fromEntries(['sentinel-1', 'sentinel-2', 'sentinel-3'].map(service => {
+  const master = compose('exec', '-T', service, 'redis-cli', '-p', '26379', '--raw', 'SENTINEL', 'master', 'ailaoda-primary');
+  const peers = compose('exec', '-T', service, 'redis-cli', '-p', '26379', '--raw', 'SENTINEL', 'sentinels', 'ailaoda-primary');
+  const replicas = compose('exec', '-T', service, 'redis-cli', '-p', '26379', '--raw', 'SENTINEL', 'replicas', 'ailaoda-primary');
+  return [service, { master, peers, replicas }];
+}));
 const tokenAccepted = async token => {
   const results = await Promise.all(instances.map(async instance => {
     const response = await fetch(`${instance}/api/v1/auth/me`, {
@@ -87,7 +93,7 @@ async function main() {
 main().catch(error => {
   report.error = String(error?.message || error);
   let diagnostics = {};
-  try { diagnostics = { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica') }; } catch {}
+  try { diagnostics = { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica'), sentinels: sentinelDiagnostics() }; } catch {}
   report.diagnostics = diagnostics;
   console.error(`Cloud Redis failover failure: ${report.error} ${JSON.stringify(diagnostics)}`);
   process.exitCode = 1;
