@@ -5,10 +5,62 @@ services:
       POSTGRES_DB: ailaoda
       POSTGRES_USER: ailaoda
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:?required}
+    volumes:
+      - postgres-primary-data:/var/lib/postgresql/data
+      - ./postgres-init-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
     ports:
       - "55432:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ailaoda -d ailaoda"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  postgres-replica:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_DB: ailaoda
+      POSTGRES_USER: ailaoda
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:?required}
+      PGDATA: /var/lib/postgresql/data
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        if [ ! -s "$PGDATA/PG_VERSION" ]; then
+          rm -rf "$PGDATA"/*
+          mkdir -p "$PGDATA"
+          chown -R postgres:postgres "$PGDATA"
+          until gosu postgres env PGPASSWORD="$POSTGRES_REPLICATION_PASSWORD" pg_basebackup -h postgres -U ailaoda_replica -D "$PGDATA" -Fp -Xs -P -R; do
+            sleep 2
+          done
+          chmod 700 "$PGDATA"
+        fi
+        exec docker-entrypoint.sh postgres
+    volumes:
+      - postgres-replica-data:/var/lib/postgresql/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailaoda -d ailaoda"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  postgres-router:
+    image: haproxy:3.1-alpine
+    volumes:
+      - ./haproxy-postgres.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432"]
       interval: 2s
       timeout: 3s
       retries: 30
@@ -189,7 +241,7 @@ services:
       AILAODA_BLOCK_DEMO_CREDENTIALS: "true"
       SERVE_FRONTEND: "true"
       PORT: "5001"
-      DATABASE_URL: postgresql://ailaoda:${POSTGRES_PASSWORD:?required}@postgres:5432/ailaoda?schema=public
+      DATABASE_URL: postgresql://ailaoda:${POSTGRES_PASSWORD:?required}@postgres-router:5432/ailaoda?schema=public
       JWT_SECRET: ${JWT_SECRET:?required}
       REDIS_URL: ""
       REDIS_SENTINELS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
@@ -229,7 +281,7 @@ services:
     ports:
       - "5006:5001"
     depends_on:
-      postgres:
+      postgres-router:
         condition: service_healthy
       redis-primary:
         condition: service_healthy
@@ -255,3 +307,7 @@ networks:
     ipam:
       config:
         - subnet: 172.29.0.0/24
+
+volumes:
+  postgres-primary-data:
+  postgres-replica-data:
