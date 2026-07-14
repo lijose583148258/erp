@@ -16,6 +16,7 @@ const requiredReports = {
   redisControlledFailover: 'output/audit/cloud-redis-sentinel-failover-audit-v1.json',
   searchAndObjectStorageFailover: 'output/audit/cloud-degradable-dependency-failover-audit-v1.json',
   concurrentWriteReconciliation: 'output/playwright/concurrency-consistency-audit-report-v1.json',
+  postgresBackupRestore: 'output/audit/cloud-postgres-backup-restore-audit-v1.json',
   postgresPromotion: 'output/audit/cloud-postgres-promotion-audit-v1.json',
 };
 
@@ -60,7 +61,6 @@ const verdict = {
     'Redis automatic election across independent failure domains; same-host sandbox currently proves controlled Sentinel failover only.',
     'Automatic PostgreSQL orchestration and failback; sandbox proves streaming replication, controlled promotion, post-promotion writes, and old-primary standby rebuild.',
     'At least 24-hour soak plus staged 7-day pilot observation with alert review.',
-    'Backup restore disaster-recovery drill against the target production infrastructure.',
   ],
 };
 
