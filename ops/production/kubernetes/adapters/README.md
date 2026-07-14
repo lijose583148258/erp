@@ -14,8 +14,10 @@ CloudNativePG must elect the replacement itself.
 - Instances placed across at least two
   `topology.kubernetes.io/zone` values.
 - The default primary isolation check remains enabled.
-- The drill identity may get Pods, Nodes, and Leases and may delete only Pods
-  carrying `cnpg.io/cluster=<configured cluster>`.
+- The drill identity may get Pods, Nodes, and Leases and delete Pods only in a
+  dedicated staging namespace. Kubernetes RBAC cannot restrict deletes by label;
+  use a dedicated namespace and, where available, an admission policy that
+  permits deletion only for `cnpg.io/cluster=<configured cluster>`.
 - `CNPG_NAMESPACE`, `CNPG_CLUSTER`, and optionally
   `HA_ADAPTER_STATE_DIR` are configured.
 
