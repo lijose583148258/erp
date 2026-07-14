@@ -1,0 +1,32 @@
+name: Pilot Observation Evidence Contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/pilot-observation-evidence-contract.yml"
+      - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
+      - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-observation-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-contract:
+    name: Reject forged or incomplete observation evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report runtime
+        run: node --version
+
+      - name: Verify observation evidence binding
+        run: node ops/production/kubernetes/observation-evidence-contract.test.cjs
