@@ -51,7 +51,7 @@ node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
 
 bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
   <namespace> <evidence.json> <continuous-report.json> \
-  <pilot-ledger.json> <daily-reports-dir>
+  <pilot-ledger.json> <daily-reports-dir> <backup-report.json>
 ```
 
 The verifier reads Kubernetes state with `kubectl` and validates the evidence
@@ -59,6 +59,34 @@ with `jq`. Evidence must come from the provider or operator drill and must not
 contain credentials, connection strings, customer records, prompts, or tokens.
 A passing local/single-node simulation is intentionally insufficient.
 
+
+## Isolated PostgreSQL backup recovery drill
+
+Implement a provider adapter that follows `BACKUP_ADAPTER_PROTOCOL.md`. Run the
+drill only against approved non-production staging or pilot infrastructure:
+
+```bash
+BACKUP_DRILL_ENVIRONMENT=<formal-pilot> \
+BACKUP_DRILL_CHANGE_TICKET=<same-as-evidence-id> \
+BACKUP_DRILL_APP_URL=<https-instance-url> \
+BACKUP_DRILL_USERNAME=<least-privilege-audit-user> \
+BACKUP_DRILL_PASSWORD_FILE=<secret-file> \
+BACKUP_DRILL_COMMIT_SHA=<40-character-git-sha> \
+BACKUP_DRILL_IMAGE_DIGEST=<sha256:digest> \
+node ops/production/kubernetes/run-backup-restore-drill.cjs \
+  --adapter <provider-adapter> \
+  --evidence <evidence.json> \
+  --report <backup-report.json> \
+  --confirm-resource-creation
+```
+
+The adapter must create a new isolated recovery target and remove it after
+verification. The runner creates a synthetic ERP marker, verifies encrypted
+backup integrity, proves that the provider recovery point covers that commit,
+reads the marker from the isolated restore, checks schema compatibility, records
+backup completion and restore RTO separately, and binds the report SHA-256 into
+enterprise evidence. It never restores over the active writer and does not
+claim a production-wide PITR objective from a single drill.
 
 ## Production alerting
 
