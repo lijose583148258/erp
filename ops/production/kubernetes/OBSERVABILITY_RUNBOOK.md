@@ -24,6 +24,7 @@ kubectl get servicemonitor,prometheusrule -n <namespace>
 | HTTP 5xx or latency | Route metrics, PostgreSQL, Redis, saturation | Stop trial writes when reconciliation or critical dependency health is uncertain |
 | Telemetry disabled, dropped, or queued | Collector target, exporter logs, network policy | Preserve application operation; restore export before claiming observability evidence |
 | Cache or search degradation | Redis quorum, Meilisearch endpoints, fallback rate | Keep fallback bounded; stop trial if database load or stale search exceeds the approved envelope |
+| Object storage quorum or read failure | Endpoint health, write quorum, fallback reads | Stop document uploads on write-quorum failure; preserve metadata and reconcile every accepted upload |
 | AI gateway, circuit, budget, or rate limit | Governed AI metrics and audit events | Keep local fallback active; never bypass role, budget, or sensitive-data controls |
 | Poor Web Vitals | Browser route and release comparison | Roll back the responsible UI release when the regression is sustained |
 
