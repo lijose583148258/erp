@@ -150,5 +150,20 @@
     "reconciledPaidAmount": null,
     "loadReportSha256": "",
     "concurrencyReportSha256": ""
+  },
+  "aiDrill": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "externalEnabled": false,
+    "paidModelCalls": null,
+    "runtimeReportSha256": "",
+    "adminBrowserReportSha256": "",
+    "salesBrowserReportSha256": "",
+    "governedBrowserReportSha256": "",
+    "contractReportSha256": ""
   }
 }
