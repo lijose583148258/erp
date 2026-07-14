@@ -8,10 +8,12 @@
       "status": "not-run",
       "commitSha": "replace-with-40-character-git-sha",
       "imageDigest": "sha256:replace-with-64-hex-digest",
-      "observationReportSha256": "replace-with-64-hex-report-hash",
       "alertReviewCompleted": false,
       "unreconciledBusinessWrites": 1,
-      "serviceIncidentsResolved": false
+      "serviceIncidentsResolved": false,
+      "reportFile": "2026-01-01.json",
+      "dailyReportSha256": "replace-with-64-hex-daily-report-hash",
+      "continuousReportSha256": "replace-with-64-hex-continuous-report-hash"
     }
   ]
 }
