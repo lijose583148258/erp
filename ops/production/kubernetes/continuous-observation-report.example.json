@@ -1,0 +1,16 @@
+{
+  "name": "Enterprise Continuous Observation",
+  "version": "1.0",
+  "status": "not-run",
+  "startedAt": "",
+  "finishedAt": "",
+  "durationMs": 28800000,
+  "commitSha": "replace-with-40-character-git-sha",
+  "imageDigest": "sha256:replace-with-64-hex-digest",
+  "checks": [],
+  "summary": {
+    "failures": 1,
+    "p95Ms": 0,
+    "instanceRequests": {}
+  }
+}
