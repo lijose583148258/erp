@@ -14,12 +14,16 @@ const appUrls = String(process.env.OBSERVATION_APP_URLS || '')
 const username = String(process.env.OBSERVATION_USERNAME || '').trim();
 const passwordFile = String(process.env.OBSERVATION_PASSWORD_FILE || '').trim();
 const metricsTokenFile = String(process.env.OBSERVATION_METRICS_TOKEN_FILE || '').trim();
+const environment = String(process.env.OBSERVATION_ENVIRONMENT || '').trim();
+const evidenceId = String(process.env.OBSERVATION_EVIDENCE_ID || '').trim();
 const commitSha = String(process.env.OBSERVATION_COMMIT_SHA || process.env.GITHUB_SHA || '').trim();
 const imageDigest = String(process.env.OBSERVATION_IMAGE_DIGEST || '').trim();
 const report = {
   name: 'Enterprise Continuous Observation',
   version: '1.0',
   status: 'failed',
+  environment,
+  evidenceId,
   startedAt: new Date().toISOString(),
   durationMs,
   concurrency,
@@ -63,6 +67,9 @@ const readSecretFile = (file, label) => {
   return value;
 };
 const validateConfig = () => {
+  if (!environment || !evidenceId || evidenceId.length < 5) {
+    fail('OBSERVATION_ENVIRONMENT and OBSERVATION_EVIDENCE_ID are required.');
+  }
   if (!Number.isFinite(durationMs) || durationMs < 28_800_000 || durationMs > 86_400_000) {
     fail('OBSERVATION_DURATION_MS must be between 8 and 24 hours.');
   }
