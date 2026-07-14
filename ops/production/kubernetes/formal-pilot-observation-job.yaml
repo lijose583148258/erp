@@ -17,6 +17,10 @@ spec:
       automountServiceAccountToken: false
       securityContext:
         runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
         seccompProfile:
           type: RuntimeDefault
       containers:
@@ -94,14 +98,14 @@ spec:
             items:
               - key: password
                 path: password
-            defaultMode: 0400
+            defaultMode: 0440
         - name: metrics-secret
           secret:
             secretName: ailaoda-metrics-token
             items:
               - key: token
                 path: token
-            defaultMode: 0400
+            defaultMode: 0440
         - name: evidence
           persistentVolumeClaim:
             claimName: ailaoda-pilot-evidence
