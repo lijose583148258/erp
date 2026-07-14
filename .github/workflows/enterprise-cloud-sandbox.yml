@@ -266,6 +266,9 @@ jobs:
           docker compose logs --no-color otel-collector > cloud-evidence/otel-collector.log 2>&1
           grep -E "Traces|ResourceSpans|ailaoda-erp-crm" cloud-evidence/otel-collector.log > cloud-evidence/otel-trace-proof.txt
 
+      - name: Verify AI isolation red team
+        run: npm run audit:ai:isolation
+
       - name: Verify governed AI runtime
         run: npm run audit:ai:governed-runtime
 
@@ -294,6 +297,9 @@ jobs:
 
       - name: Exercise PostgreSQL streaming promotion
         run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
+
+      - name: Issue enterprise pilot technical verdict
+        run: node ./scripts/cloud-enterprise-pilot-verdict-v1.cjs
 
       - name: Capture application evidence
         if: always()
