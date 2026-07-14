@@ -35,11 +35,14 @@ services:
 
   sentinel-1: &sentinel
     image: redis:7.4.2-alpine
+    environment:
+      SENTINEL_START_DELAY: "0"
     command:
       - sh
       - -ec
       - |
-        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 10000\nsentinel failover-timeout ailaoda-primary 180000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
+        sleep "$SENTINEL_START_DELAY"
+        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 30000\nsentinel failover-timeout ailaoda-primary 180000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
         exec redis-server /tmp/sentinel.conf --sentinel
     ports:
       - "26379:26379"
@@ -51,11 +54,15 @@ services:
 
   sentinel-2:
     <<: *sentinel
+    environment:
+      SENTINEL_START_DELAY: "2"
     ports:
       - "26380:26379"
 
   sentinel-3:
     <<: *sentinel
+    environment:
+      SENTINEL_START_DELAY: "4"
     ports:
       - "26381:26379"
 
