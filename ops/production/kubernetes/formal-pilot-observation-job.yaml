@@ -1,0 +1,110 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ailaoda-pilot-observation
+  labels:
+    app: ailaoda-pilot-observer
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 90000
+  ttlSecondsAfterFinished: 604800
+  template:
+    metadata:
+      labels:
+        app: ailaoda-pilot-observer
+    spec:
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: observer
+          image: ghcr.io/replace/ailaoda-pilot-observer@sha256:replace-with-64-hex-digest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: OBSERVATION_ENVIRONMENT
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: environment
+            - name: OBSERVATION_EVIDENCE_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: evidence-id
+            - name: OBSERVATION_APP_URLS
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: app-urls
+            - name: OBSERVATION_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: ailaoda-pilot-observer
+                  key: username
+            - name: OBSERVATION_PASSWORD_FILE
+              value: /run/secrets/pilot/password
+            - name: OBSERVATION_METRICS_TOKEN_FILE
+              value: /run/secrets/metrics/token
+            - name: OBSERVATION_COMMIT_SHA
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: commit-sha
+            - name: OBSERVATION_IMAGE_DIGEST
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: application-image-digest
+            - name: OBSERVATION_DURATION_MS
+              value: "28800000"
+            - name: OBSERVATION_CONCURRENCY
+              value: "8"
+            - name: OBSERVATION_OUTPUT
+              value: /evidence/continuous-observation-report.json
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          volumeMounts:
+            - name: pilot-secret
+              mountPath: /run/secrets/pilot
+              readOnly: true
+            - name: metrics-secret
+              mountPath: /run/secrets/metrics
+              readOnly: true
+            - name: evidence
+              mountPath: /evidence
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: pilot-secret
+          secret:
+            secretName: ailaoda-pilot-observer
+            items:
+              - key: password
+                path: password
+            defaultMode: 0400
+        - name: metrics-secret
+          secret:
+            secretName: ailaoda-metrics-token
+            items:
+              - key: token
+                path: token
+            defaultMode: 0400
+        - name: evidence
+          persistentVolumeClaim:
+            claimName: ailaoda-pilot-evidence
+        - name: tmp
+          emptyDir:
+            sizeLimit: 64Mi
