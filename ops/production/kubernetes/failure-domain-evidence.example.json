@@ -133,5 +133,22 @@
     "traceCount": 0,
     "receiptId": null,
     "reportSha256": ""
+  },
+  "loadReconciliation": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "requests": 0,
+    "concurrency": 0,
+    "failures": null,
+    "p95Ms": null,
+    "p99Ms": null,
+    "throughputRps": null,
+    "reconciledPaidAmount": null,
+    "loadReportSha256": "",
+    "concurrencyReportSha256": ""
   }
 }
