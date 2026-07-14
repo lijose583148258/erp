@@ -40,7 +40,7 @@ const runAcrossSearchProviders = async <T>(operation: (provider: ReturnType<type
   const providers = createExternalSearchProviders();
   if (providers.length === 0) throw new Error('MEILISEARCH_NOT_CONFIGURED');
   const results = await Promise.allSettled(providers.map(operation));
-  const fulfilled = results.filter((result): result is PromiseFulfilledResult<T> => result.status === 'fulfilled');
+  const fulfilled = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
   const minimumSuccesses = Math.min(
     providers.length,
     Math.max(1, Number(process.env.SEARCH_MIN_WRITE_SUCCESSES || 1)),
@@ -51,7 +51,7 @@ const runAcrossSearchProviders = async <T>(operation: (provider: ReturnType<type
       .map(result => result.reason instanceof Error ? result.reason.message : String(result.reason));
     throw new Error(`MEILISEARCH_REPLICAS_INSUFFICIENT_${fulfilled.length}_OF_${minimumSuccesses}: ${reasons.join('; ')}`);
   }
-  return fulfilled.map(result => result.value);
+  return fulfilled;
 };
 let activeReindex: Promise<ReindexResult> | null = null;
 let lastReindex: ReindexResult | null = null;
