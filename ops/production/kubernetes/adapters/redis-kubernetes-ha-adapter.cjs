@@ -77,7 +77,7 @@ const topology = () => {
   if (dataPods.length < 2 || dataDomains.length < 2) fail('Redis data pods require at least two Ready instances across two zones.');
   if (sentinelPods.length < 3 || sentinelDomains.length < 3) fail('Redis Sentinel requires at least three Ready voters across three zones.');
   return {
-    failureDomains: sentinelDomains,
+    failureDomains: Array.from(new Set([...sentinelDomains, ...dataDomains])),
     dataFailureDomains: dataDomains,
     dataInstanceCount: dataPods.length,
     sentinelCount: sentinelPods.length,
