@@ -51,7 +51,8 @@ node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
 
 bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
   <namespace> <evidence.json> <continuous-report.json> \
-  <pilot-ledger.json> <daily-reports-dir> <backup-report.json>
+  <pilot-ledger.json> <daily-reports-dir> <backup-report.json> \
+  <resilience-reports-dir>
 ```
 
 The verifier reads Kubernetes state with `kubectl` and validates the evidence
@@ -87,6 +88,33 @@ reads the marker from the isolated restore, checks schema compatibility, records
 backup completion and restore RTO separately, and binds the report SHA-256 into
 enterprise evidence. It never restores over the active writer and does not
 claim a production-wide PITR objective from a single drill.
+
+## Storage and search resilience evidence
+
+Formal object-storage and search drills must set the release identity variables
+`ENTERPRISE_EVIDENCE_ENVIRONMENT`, `ENTERPRISE_EVIDENCE_ID`,
+`ENTERPRISE_EVIDENCE_COMMIT_SHA`, and
+`ENTERPRISE_EVIDENCE_IMAGE_DIGEST`. Also declare the independently verified
+endpoint domains through `OBJECT_STORAGE_FAILURE_DOMAINS` and
+`SEARCH_FAILURE_DOMAINS`.
+
+Audit credentials come from the pilot account environment or the dedicated
+password-file variables; fixed audit passwords are not present in source. After
+the object failover, search failover, and search dump-restore reports are
+created in one directory, bind them to the enterprise evidence:
+
+```bash
+node ops/production/kubernetes/verify-storage-search-evidence.cjs \
+  --reports-dir <resilience-reports-dir> \
+  --evidence <evidence.json> \
+  --bind
+```
+
+The formal admission command reruns the verifier without `--bind`, recomputes
+all three report hashes, and rejects stale reports, failed or missing checks,
+release-identity drift, insufficient failure domains, or any post-drill report
+modification. A two-container sandbox does not by itself prove physical
+cross-zone durability.
 
 ## Production alerting
 
