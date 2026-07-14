@@ -3,15 +3,6 @@ name: Enterprise Cloud Sandbox
 on:
   workflow_call:
   workflow_dispatch:
-  push:
-    branches:
-      - codex/enterprise-cloud-sandbox
-    paths:
-      - ".github/workflows/enterprise-cloud-sandbox.yml"
-      - "ops/cloud-sandbox/**"
-      - "scripts/**"
-      - "backend/**"
-      - "package*.json"
 
 permissions:
   contents: read
@@ -26,6 +17,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
+      - name: Generate ephemeral sandbox secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          emit_secret() {
+            local name="$1"
+            local value
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::${value}"
+            printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_ENV}"
+          }
+          emit_secret POSTGRES_PASSWORD
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
 
       - name: Verify enterprise pilot artifacts exist
         id: gate
@@ -68,18 +78,48 @@ jobs:
     timeout-minutes: 20
     env:
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
-      POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
-      POSTGRES_REPLICATION_PASSWORD: sandbox-${{ github.run_id }}-replication
       MINIO_ROOT_USER: ailaoda-sandbox
-      MINIO_ROOT_PASSWORD: sandbox-${{ github.run_id }}-minio-secret
-      MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
       GRAFANA_ADMIN_USER: sandbox-admin
-      GRAFANA_ADMIN_PASSWORD: sandbox-${{ github.run_id }}-grafana
-      JWT_SECRET: sandbox-${{ github.run_id }}-jwt-signing-secret
-      METRICS_BEARER_TOKEN: sandbox-${{ github.run_id }}-metrics-token
       AILAODA_IMAGE_TAG: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Generate ephemeral sandbox and audit secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          emit_secret() {
+            local name="$1"
+            local value
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::${value}"
+            printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_ENV}"
+            printf '%s' "${value}"
+          }
+          postgres_password="$(emit_secret POSTGRES_PASSWORD)"
+          emit_secret POSTGRES_REPLICATION_PASSWORD >/dev/null
+          emit_secret MINIO_ROOT_PASSWORD >/dev/null
+          emit_secret MEILI_MASTER_KEY >/dev/null
+          emit_secret GRAFANA_ADMIN_PASSWORD >/dev/null
+          emit_secret JWT_SECRET >/dev/null
+          emit_secret METRICS_BEARER_TOKEN >/dev/null
+
+          audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          audit_password="$(openssl rand -hex 24)Aa1!"
+          audit_password_file="${RUNNER_TEMP}/ailaoda-cloud-audit-password"
+          echo "::add-mask::${audit_password}"
+          umask 077
+          printf '%s' "${audit_password}" > "${audit_password_file}"
+          {
+            printf 'CLOUD_AUDIT_USERNAME=%s\n' "${audit_username}"
+            printf 'CLOUD_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AI_RUNTIME_AUDIT_USERNAME=%s\n' "${audit_username}"
+            printf 'AI_RUNTIME_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AILAODA_LOAD_USERNAME=%s\n' "${audit_username}"
+            printf 'AILAODA_LOAD_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+          } >> "${GITHUB_ENV}"
 
       - name: Record toolchain
         run: |
@@ -159,21 +199,12 @@ jobs:
     timeout-minutes: 45
     env:
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
-      POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
-      POSTGRES_REPLICATION_PASSWORD: sandbox-${{ github.run_id }}-replication
       MINIO_ROOT_USER: ailaoda-sandbox
-      MINIO_ROOT_PASSWORD: sandbox-${{ github.run_id }}-minio-secret
-      MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
       GRAFANA_ADMIN_USER: sandbox-admin
-      GRAFANA_ADMIN_PASSWORD: sandbox-${{ github.run_id }}-grafana
-      JWT_SECRET: sandbox-${{ github.run_id }}-jwt-signing-secret
-      METRICS_BEARER_TOKEN: sandbox-${{ github.run_id }}-metrics-token
       AILAODA_IMAGE_TAG: ${{ github.run_id }}
-      DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
       APP_URL: http://127.0.0.1:5006/
       SECONDARY_APP_URL: http://127.0.0.1:5008/
       AUDIT_PRISMA_PROVIDER: postgresql
-      AUDIT_DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
       AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
       BROWSER_AUDIT_VISIBLE: "0"
       BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
@@ -235,7 +266,12 @@ jobs:
           node - <<'NODE'
           const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
           (async () => {
-            const account = await ensureUiAuditUser({ username: 'cloud_ha_admin', password: 'CloudHaAudit12345!', role: 'admin' });
+            const fs = require('fs');
+            const account = await ensureUiAuditUser({
+              username: process.env.CLOUD_AUDIT_USERNAME,
+              password: fs.readFileSync(process.env.CLOUD_AUDIT_PASSWORD_FILE, 'utf8').trim(),
+              role: 'admin',
+            });
             const login = await fetch(process.env.APP_URL + 'api/v1/auth/login', {
               method: 'POST',
               headers: { 'content-type': 'application/json' },
@@ -275,8 +311,6 @@ jobs:
       - name: Run dual-instance load gate
         run: npm run audit:load:ha
         env:
-          AILAODA_LOAD_USERNAME: cloud_ha_admin
-          AILAODA_LOAD_PASSWORD: CloudHaAudit12345!
           AILAODA_LOAD_REQUESTS: "1000"
           AILAODA_LOAD_CONCURRENCY: "25"
 
@@ -326,4 +360,6 @@ jobs:
 
       - name: Stop sandbox
         if: always()
-        run: docker compose --profile application down -v --remove-orphans
+        run: |
+          docker compose --profile application down -v --remove-orphans
+          rm -f "${CLOUD_AUDIT_PASSWORD_FILE:-}"
