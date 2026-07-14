@@ -18,25 +18,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate ephemeral sandbox secrets
-        shell: bash
-        run: |
-          set -euo pipefail
-          emit_secret() {
-            local name="$1"
-            local value
-            value="$(openssl rand -hex 32)"
-            echo "::add-mask::${value}"
-            printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_ENV}"
-          }
-          emit_secret POSTGRES_PASSWORD
-          emit_secret POSTGRES_REPLICATION_PASSWORD
-          emit_secret MINIO_ROOT_PASSWORD
-          emit_secret MEILI_MASTER_KEY
-          emit_secret GRAFANA_ADMIN_PASSWORD
-          emit_secret JWT_SECRET
-          emit_secret METRICS_BEARER_TOKEN
-
       - name: Verify enterprise pilot artifacts exist
         id: gate
         shell: bash
@@ -84,42 +65,24 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate ephemeral sandbox and audit secrets
+      - name: Generate ephemeral sandbox secrets
         shell: bash
         run: |
           set -euo pipefail
-          generated_secret=""
           emit_secret() {
             local name="$1"
-            generated_secret="$(openssl rand -hex 32)"
-            echo "::add-mask::${generated_secret}"
-            printf '%s=%s\n' "${name}" "${generated_secret}" >> "${GITHUB_ENV}"
+            local value
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::${value}"
+            printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_ENV}"
           }
           emit_secret POSTGRES_PASSWORD
-          postgres_password="${generated_secret}"
           emit_secret POSTGRES_REPLICATION_PASSWORD
           emit_secret MINIO_ROOT_PASSWORD
           emit_secret MEILI_MASTER_KEY
           emit_secret GRAFANA_ADMIN_PASSWORD
           emit_secret JWT_SECRET
           emit_secret METRICS_BEARER_TOKEN
-
-          audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
-          audit_password="$(openssl rand -hex 24)Aa1!"
-          audit_password_file="${RUNNER_TEMP}/ailaoda-cloud-audit-password"
-          echo "::add-mask::${audit_password}"
-          umask 077
-          printf '%s' "${audit_password}" > "${audit_password_file}"
-          {
-            printf 'CLOUD_AUDIT_USERNAME=%s\n' "${audit_username}"
-            printf 'CLOUD_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
-            printf 'AI_RUNTIME_AUDIT_USERNAME=%s\n' "${audit_username}"
-            printf 'AI_RUNTIME_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
-            printf 'AILAODA_LOAD_USERNAME=%s\n' "${audit_username}"
-            printf 'AILAODA_LOAD_PASSWORD_FILE=%s\n' "${audit_password_file}"
-            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
-            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
-          } >> "${GITHUB_ENV}"
 
       - name: Record toolchain
         run: |
@@ -210,6 +173,43 @@ jobs:
       BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
     steps:
       - uses: actions/checkout@v4
+
+      - name: Generate ephemeral sandbox and audit secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated_secret=""
+          emit_secret() {
+            local name="$1"
+            generated_secret="$(openssl rand -hex 32)"
+            echo "::add-mask::${generated_secret}"
+            printf '%s=%s\n' "${name}" "${generated_secret}" >> "${GITHUB_ENV}"
+          }
+          emit_secret POSTGRES_PASSWORD
+          postgres_password="${generated_secret}"
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
+
+          audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          audit_password="$(openssl rand -hex 24)Aa1!"
+          audit_password_file="${RUNNER_TEMP}/ailaoda-cloud-audit-password"
+          echo "::add-mask::${audit_password}"
+          umask 077
+          printf '%s' "${audit_password}" > "${audit_password_file}"
+          {
+            printf 'CLOUD_AUDIT_USERNAME=%s\n' "${audit_username}"
+            printf 'CLOUD_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AI_RUNTIME_AUDIT_USERNAME=%s\n' "${audit_username}"
+            printf 'AI_RUNTIME_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AILAODA_LOAD_USERNAME=%s\n' "${audit_username}"
+            printf 'AILAODA_LOAD_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+          } >> "${GITHUB_ENV}"
 
       - name: Setup Node
         uses: actions/setup-node@v4
