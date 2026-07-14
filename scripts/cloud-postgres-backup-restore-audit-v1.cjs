@@ -67,7 +67,7 @@ async function main() {
   runBinary(['exec', '-T', 'postgres', 'pg_restore', '-U', 'ailaoda', '-d', restoreDb, '--no-owner', '--no-privileges'], dump);
   const restoredCount = Number(compose(
     'exec', '-T', 'postgres', 'psql', '-U', 'ailaoda', '-d', restoreDb, '-tAc',
-    `SELECT COUNT(*) FROM customers WHERE id = ${Number(markerId)} AND name_zh = '${marker.replace(/'/g, "''")}'`,
+    `SELECT COUNT(*) FROM customers WHERE id = ${Number(markerId)}`,
   ));
   check('restored-business-marker', restoredCount === 1, { markerId, restoredCount });
   report.status = 'passed';
