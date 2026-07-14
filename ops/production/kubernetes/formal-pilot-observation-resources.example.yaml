@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ailaoda-pilot-observation
+data:
+  environment: replace-with-formal-pilot
+  evidence-id: replace-with-change-ticket
+  app-urls: https://app-a.example,https://app-b.example
+  commit-sha: replace-with-40-character-git-sha
+  application-image-digest: sha256:replace-with-64-hex-digest
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ailaoda-pilot-evidence
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
