@@ -6,6 +6,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const verifier = path.join(__dirname, 'verify-pilot-observation-evidence.cjs');
+const observationRunner = path.join(__dirname, 'run-continuous-observation.cjs');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ailaoda-observation-contract-'));
 const dailyDir = path.join(tempRoot, 'daily');
 fs.mkdirSync(dailyDir, { recursive: true });
@@ -113,6 +114,27 @@ try {
     rejected = true;
   }
   assert.equal(rejected, true, 'tampered daily report hash must be rejected');
+
+  const shortRunReport = path.join(tempRoot, 'short-run.json');
+  let shortRunRejected = false;
+  try {
+    execFileSync(process.execPath, [observationRunner], {
+      env: {
+        ...process.env,
+        OBSERVATION_OUTPUT: shortRunReport,
+        OBSERVATION_DURATION_MS: '1000',
+        OBSERVATION_COMMIT_SHA: commitSha,
+        OBSERVATION_IMAGE_DIGEST: imageDigest,
+      },
+      stdio: 'pipe',
+    });
+  } catch {
+    shortRunRejected = true;
+  }
+  assert.equal(shortRunRejected, true, 'observation shorter than eight hours must be rejected');
+  const shortRun = JSON.parse(fs.readFileSync(shortRunReport, 'utf8'));
+  assert.equal(shortRun.status, 'failed');
+  assert.match(shortRun.error, /between 8 and 24 hours/);
   console.log('Pilot observation evidence contract: PASSED');
 } finally {
   fs.rmSync(tempRoot, { recursive: true, force: true });
