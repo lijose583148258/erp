@@ -21,6 +21,11 @@ const resolveFile = (flag, label) => {
 
 const continuousPath = resolveFile('--continuous-report', 'Continuous observation report');
 const ledgerPath = resolveFile('--ledger', 'Pilot ledger');
+const dailyReportsValue = valueFor('--daily-reports-dir');
+const dailyReportsDir = dailyReportsValue ? path.resolve(dailyReportsValue) : '';
+if (!dailyReportsDir || !fs.existsSync(dailyReportsDir) || !fs.statSync(dailyReportsDir).isDirectory()) {
+  fail('Existing --daily-reports-dir is required.');
+}
 const evidencePath = resolveFile('--evidence', 'Enterprise evidence');
 const outputValue = valueFor('--output');
 const outputPath = outputValue ? path.resolve(outputValue) : '';
@@ -78,13 +83,31 @@ for (const entry of entries) {
   if (Number(entry.unreconciledBusinessWrites) !== 0) fail(`Unreconciled business writes exist: ${date}.`);
   if (entry.serviceIncidentsResolved !== true) fail(`Service incident review is incomplete: ${date}.`);
   if (!hex40(entry.commitSha) || !digest(entry.imageDigest)) fail(`Release identity is invalid: ${date}.`);
-  if (!/^[0-9a-f]{64}$/.test(String(entry.observationReportSha256 || ''))) fail(`Observation report hash is invalid: ${date}.`);
+  const reportFile = String(entry.reportFile || '');
+  if (!reportFile || path.basename(reportFile) !== reportFile) fail(`Daily report filename is invalid: ${date}.`);
+  const dailyPath = path.resolve(dailyReportsDir, reportFile);
+  if (!dailyPath.startsWith(dailyReportsDir + path.sep) || !fs.existsSync(dailyPath) || !fs.statSync(dailyPath).isFile()) {
+    fail(`Daily report file is missing: ${date}.`);
+  }
+  const dailyHash = sha256(dailyPath);
+  if (entry.dailyReportSha256 !== dailyHash) fail(`Daily report hash does not match: ${date}.`);
+  const daily = readJson(dailyPath);
+  if (daily.schemaVersion !== 1 || daily.status !== 'passed' || daily.date !== date || daily.checkedAt !== entry.checkedAt) {
+    fail(`Daily report identity is invalid: ${date}.`);
+  }
+  if (daily.commitSha !== entry.commitSha || daily.imageDigest !== entry.imageDigest) fail(`Daily release identity does not match ledger: ${date}.`);
+  if (daily.alertReviewCompleted !== true || Number(daily.unreconciledBusinessWrites) !== 0 || daily.serviceIncidentsResolved !== true) {
+    fail(`Daily report review or reconciliation failed: ${date}.`);
+  }
+  if (entry.continuousReportSha256 && daily.continuousReportSha256 !== entry.continuousReportSha256) {
+    fail(`Daily continuous-report reference does not match ledger: ${date}.`);
+  }
 }
 const spanMs = isoMs(entries.at(-1).checkedAt, 'last ledger checkedAt') - isoMs(entries[0].checkedAt, 'first ledger checkedAt');
 if (spanMs < 6 * 86_400_000) fail('Pilot ledger does not span at least seven UTC dates.');
 const continuousHash = sha256(continuousPath);
 const ledgerHash = sha256(ledgerPath);
-if (!entries.some(entry => entry.observationReportSha256 === continuousHash)) {
+if (!entries.some(entry => entry.continuousReportSha256 === continuousHash)) {
   fail('Pilot ledger does not reference the continuous observation report.');
 }
 if (continuous.commitSha !== evidence.commitSha || continuous.imageDigest !== evidence.imageDigest) {
