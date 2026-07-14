@@ -98,6 +98,9 @@ jobs:
           openssl rand -base64 36 | tr -d '\n' > "${password_file}"
           chmod 600 "${password_file}"
           echo "::add-mask::$(cat "${password_file}")"
+          export AUDIT_UI_USERNAME="${username}"
+          export AUDIT_UI_PASSWORD_FILE="${password_file}"
+          export AUDIT_UI_ROLE=admin
           {
             echo "AUDIT_UI_USERNAME=${username}"
             echo "AUDIT_UI_PASSWORD_FILE=${password_file}"
