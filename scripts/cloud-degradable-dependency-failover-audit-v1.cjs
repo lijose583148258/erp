@@ -24,8 +24,12 @@ const waitFor = async (probe, timeoutMs = 45_000) => {
   return false;
 };
 const healthOk = async url => {
-  const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
-  return response.ok;
+  try {
+    const response = await fetch(url, { signal: AbortSignal.timeout(2000) });
+    return response.ok;
+  } catch {
+    return false;
+  }
 };
 const directMeiliSearch = async (port, term) => {
   const response = await fetch(`http://127.0.0.1:${port}/indexes/ailaoda_orders/search`, {
