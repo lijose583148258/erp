@@ -104,11 +104,16 @@ async function main() {
     'run', '--rm', '--no-deps', '--entrypoint', '/bin/bash', 'postgres', '-ec',
     'find /var/lib/postgresql/data -mindepth 1 -delete; chown -R postgres:postgres /var/lib/postgresql/data; gosu postgres env PGPASSWORD="$POSTGRES_REPLICATION_PASSWORD" pg_basebackup -h postgres-replica -U ailaoda_replica -D /var/lib/postgresql/data -Fp -Xs -P -R; chmod 700 /var/lib/postgresql/data',
   );
-  const standbyPrepared = compose(
+  const standbyConfig = compose(
     'run', '--rm', '--no-deps', '--entrypoint', '/bin/bash', 'postgres', '-ec',
-    'test -f /var/lib/postgresql/data/standby.signal && grep -q "host=postgres-replica" /var/lib/postgresql/data/postgresql.auto.conf && echo ready',
+    'if test -f /var/lib/postgresql/data/standby.signal; then printf "standby-signal\\n"; cat /var/lib/postgresql/data/postgresql.auto.conf; else printf "standby-signal-missing\\n"; fi',
   );
-  check('old-primary-rebuilt-as-stopped-standby', standbyPrepared === 'ready');
+  check(
+    'old-primary-rebuilt-as-stopped-standby',
+    standbyConfig.includes('standby-signal') && !standbyConfig.includes('standby-signal-missing')
+      && standbyConfig.includes('primary_conninfo') && standbyConfig.includes('postgres-replica'),
+    { standbyConfig },
+  );
   report.originalPrimaryState = 'rebuilt-as-stopped-standby';
   report.status = 'passed';
 }
