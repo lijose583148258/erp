@@ -22,3 +22,23 @@ The anti-affinity and topology-spread rules deliberately refuse to place both
 application replicas on one host. This template does not create PostgreSQL,
 Redis, MinIO, or Meilisearch clusters; their operator or managed-service
 runbooks remain independently owned and tested.
+
+
+## Formal failure-domain admission
+
+The manifest requires two distinct node hostnames and two distinct
+`topology.kubernetes.io/zone` values. Pods remain Pending instead of silently
+collapsing both replicas into one failure domain.
+
+After deploying to the real staging topology, create an evidence document from
+`failure-domain-evidence.example.json` and run:
+
+```bash
+./ops/production/kubernetes/verify-enterprise-production-admission.sh \
+  <namespace> <evidence.json>
+```
+
+The verifier reads Kubernetes state with `kubectl` and validates the evidence
+with `jq`. Evidence must come from the provider or operator drill and must not
+contain credentials, connection strings, customer records, prompts, or tokens.
+A passing local/single-node simulation is intentionally insufficient.
