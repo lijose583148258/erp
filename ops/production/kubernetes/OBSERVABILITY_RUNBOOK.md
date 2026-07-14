@@ -26,6 +26,7 @@ kubectl get servicemonitor,prometheusrule -n <namespace>
 | Cache or search degradation | Redis quorum, Meilisearch endpoints, fallback rate | Keep fallback bounded; stop trial if database load or stale search exceeds the approved envelope |
 | Object storage quorum or read failure | Endpoint health, write quorum, fallback reads | Stop document uploads on write-quorum failure; preserve metadata and reconcile every accepted upload |
 | AI gateway, circuit, budget, or rate limit | Governed AI metrics and audit events | Keep local fallback active; never bypass role, budget, or sensitive-data controls |
+| Unsafe or oversized AI output | Bounded outcome metric, trace ID, provider health | Keep external mode disabled; do not persist the rejected body; review allowlist and provider incident before re-enabling |
 | Poor Web Vitals | Browser route and release comparison | Roll back the responsible UI release when the regression is sustained |
 
 ## Evidence
