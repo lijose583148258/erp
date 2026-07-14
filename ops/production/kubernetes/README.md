@@ -117,3 +117,32 @@ role-isolation, aggregate-context, output-safety, response-limit, budget,
 circuit-breaker, red-team, secret-manager, and local-fallback evidence. Never
 place a model credential in frontend variables, browser storage, a ConfigMap,
 or a command argument.
+
+
+## Daily pilot recorder
+
+Use `record-pilot-daily-review.cjs` once per UTC day. It accepts three
+metadata-only source reports: alert delivery/review, business-write
+reconciliation, and incident resolution. Unsupported fields are rejected so
+customer records, prompts, credentials, and incident payloads cannot be copied
+into the pilot evidence bundle.
+
+```bash
+node ops/production/kubernetes/record-pilot-daily-review.cjs \
+  --environment <formal-pilot> \
+  --commit-sha <git-sha> \
+  --image-digest <sha256:digest> \
+  --date <YYYY-MM-DD> \
+  --checked-at <UTC-ISO-time> \
+  --continuous-report <continuous-report.json> \
+  --alert-review <alert-review.json> \
+  --reconciliation <reconciliation.json> \
+  --incident-review <incident-review.json> \
+  --daily-output <daily-reports-dir/YYYY-MM-DD.json> \
+  --ledger <pilot-ledger.json>
+```
+
+The recorder canonicalizes and hashes the support reports, writes the daily
+report atomically, and appends one immutable ledger entry. Replacing an existing
+date requires explicit `--replace-date`; the final verifier still recomputes
+every hash and rejects stale, missing, duplicate, or nonconsecutive days.
