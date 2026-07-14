@@ -69,5 +69,14 @@
     "databaseOwner": "",
     "securityOwner": "",
     "businessPilotOwner": ""
+  },
+  "haDrill": {
+    "status": "not-run",
+    "environment": "",
+    "changeTicket": "",
+    "startedAt": "",
+    "finishedAt": "",
+    "postgres": {},
+    "redis": {}
   }
 }
