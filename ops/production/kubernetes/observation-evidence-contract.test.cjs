@@ -16,10 +16,13 @@ const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null
 
 try {
   const continuousPath = path.join(tempRoot, 'continuous.json');
+  const firstCheckedMs = Date.now() - 6 * 86_400_000;
+  const continuousFinishedMs = firstCheckedMs;
+  const continuousStartedMs = continuousFinishedMs - 28_800_000;
   write(continuousPath, {
     status: 'passed',
-    startedAt: '2026-01-01T00:00:00Z',
-    finishedAt: '2026-01-01T08:00:00Z',
+    startedAt: new Date(continuousStartedMs).toISOString(),
+    finishedAt: new Date(continuousFinishedMs).toISOString(),
     durationMs: 28_800_000,
     commitSha,
     imageDigest,
@@ -32,9 +35,9 @@ try {
   });
   const continuousHash = hash(continuousPath);
   const entries = [];
-  for (let day = 1; day <= 7; day += 1) {
-    const date = '2026-01-' + String(day).padStart(2, '0');
-    const checkedAt = date + 'T23:00:00Z';
+  for (let day = 0; day < 7; day += 1) {
+    const checkedAt = new Date(firstCheckedMs + day * 86_400_000).toISOString();
+    const date = checkedAt.slice(0, 10);
     const reportFile = date + '.json';
     const dailyPath = path.join(dailyDir, reportFile);
     write(dailyPath, {
