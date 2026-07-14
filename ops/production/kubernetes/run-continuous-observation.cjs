@@ -33,6 +33,7 @@ const statuses = new Map();
 const instanceRequests = new Map(appUrls.map(instance => [instance, 0]));
 const samples = [];
 let requestIndex = 0;
+let authRefreshes = 0;
 let authToken = '';
 let loginPromise = null;
 let password = '';
@@ -109,6 +110,7 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
       signal: AbortSignal.timeout(10_000),
     });
     if (requiresAuth && response.status === 401) {
+      authRefreshes += 1;
       token = await login();
       response = await fetch(`${baseUrl}${route}`, {
         headers: { authorization: `Bearer ${token}` },
@@ -198,7 +200,7 @@ async function main() {
     p95Ms: percentile(latencies, 0.95),
     p99Ms: percentile(latencies, 0.99),
     throughputRps: latencies.length / (durationMs / 1000),
-    authRefreshes: Math.max(0, (statuses.get(401) || 0)),
+    authRefreshes,
     memory,
     metricSamples: samples.length,
   };
