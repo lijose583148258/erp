@@ -3,13 +3,16 @@ set -euo pipefail
 
 namespace="${1:-}"
 evidence_file="${2:-}"
+continuous_report="${3:-}"
+pilot_ledger="${4:-}"
+daily_reports_dir="${5:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir>" >&2
   exit 2
 fi
 
-for command_name in kubectl jq; do
+for command_name in kubectl jq node; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Missing required command: ${command_name}" >&2
     exit 2
@@ -28,6 +31,14 @@ kubectl get nodes -o json > "${tmp_dir}/nodes.json"
 kubectl get pods -n "${namespace}" -l app=ailaoda-app -o json > "${tmp_dir}/pods.json"
 kubectl get deployment -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/deployment.json"
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
+  --continuous-report "${continuous_report}" \
+  --ledger "${pilot_ledger}" \
+  --daily-reports-dir "${daily_reports_dir}" \
+  --evidence "${evidence_file}" \
+  --output "${tmp_dir}/observation-verdict.json"
+jq -e '.status == "passed"' "${tmp_dir}/observation-verdict.json" >/dev/null
 
 jq -e '
   [.items[]
@@ -134,6 +145,9 @@ jq -e '
   and .observability.failoverTracesPresent == true
   and .observability.droppedSpanRegression == false
 
+  and .observation.machineVerified == true
+  and (.observation.continuousReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.observation.pilotLedgerSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and .observation.continuousHours >= 8
   and .observation.stagedPilotDays >= 7
   and .observation.zeroUnreconciledBusinessWrites == true
