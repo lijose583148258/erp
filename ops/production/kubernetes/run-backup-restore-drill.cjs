@@ -126,9 +126,11 @@ const bindEvidence = () => {
     markerReadback: report.markerReadback === true,
     schemaCompatible: report.schemaCompatible === true,
     cleanupVerified: report.cleanupVerified === true,
-    restoreRtoSeconds: report.restoreRtoSeconds || null,
-    backupCompletionSeconds: report.backupCompletionSeconds || null,
+    backupCompletionSeconds: report.backupCompletionSeconds ?? null,
+    recoveryPointAt: report.recoveryPointAt || null,
     verifiedMarkerRpoSeconds: report.verifiedMarkerRpoSeconds ?? null,
+    restoreRtoSeconds: report.restoreRtoSeconds ?? null,
+    recoveredThroughAt: report.recoveredThroughAt || null,
     reportSha256: reportHash,
   };
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -178,8 +180,9 @@ const bindEvidence = () => {
     && Number.isFinite(backupCompletedMs) && Number.isFinite(recoveryPointMs));
   report.checksumVerified = true;
   report.encrypted = true;
-  report.backupCompletionSeconds = (backupCompletedMs - backupStartedMs) / 1000;
-  check('backup-completion-envelope', report.backupCompletionSeconds >= 0
+  report.backupCompletionSeconds = (Date.now() - backupStartedMs) / 1000;
+  report.recoveryPointAt = backupStatus.recoveryPointAt;
+  check('backup-completion-envelope', report.backupCompletionSeconds > 0
     && report.backupCompletionSeconds <= maxBackupCompletionSeconds, {
     backupCompletionSeconds: report.backupCompletionSeconds,
     maxBackupCompletionSeconds,
