@@ -1,6 +1,6 @@
 import { NextFunction, Request, Response } from 'express';
 import { getTraceContext } from './traceContext';
-import { recordTelemetryHttpSpan } from '../observability/instrumentation';
+import { getTelemetryStatus, recordTelemetryHttpSpan } from '../observability/instrumentation';
 
 type RouteMetric = {
   count: number;
@@ -128,6 +128,7 @@ export const metricsMiddleware = (req: Request, res: Response, next: NextFunctio
 
 export const renderPrometheusMetrics = () => {
   const memory = process.memoryUsage();
+  const telemetry = getTelemetryStatus();
   const lines = [
     '# HELP ailaoda_process_uptime_seconds Process uptime in seconds.',
     '# TYPE ailaoda_process_uptime_seconds gauge',
@@ -144,8 +145,26 @@ export const renderPrometheusMetrics = () => {
     '# HELP ailaoda_process_heap_total_bytes V8 total heap allocation in bytes.',
     '# TYPE ailaoda_process_heap_total_bytes gauge',
     `ailaoda_process_heap_total_bytes ${memory.heapTotal}`,
+    '# HELP ailaoda_telemetry_configured Whether OTLP trace export is configured.',
+    '# TYPE ailaoda_telemetry_configured gauge',
+    `ailaoda_telemetry_configured ${telemetry.configured ? 1 : 0}`,
+    '# HELP ailaoda_telemetry_queue_size Number of spans waiting for export.',
+    '# TYPE ailaoda_telemetry_queue_size gauge',
+    `ailaoda_telemetry_queue_size ${telemetry.queued}`,
+    '# HELP ailaoda_telemetry_spans_exported_total Spans exported by this process.',
+    '# TYPE ailaoda_telemetry_spans_exported_total counter',
+    `ailaoda_telemetry_spans_exported_total ${telemetry.exported}`,
+    '# HELP ailaoda_telemetry_spans_dropped_total Spans dropped after queue or exporter failure.',
+    '# TYPE ailaoda_telemetry_spans_dropped_total counter',
+    `ailaoda_telemetry_spans_dropped_total ${telemetry.dropped}`,
     '# HELP ailaoda_http_requests_total HTTP request count by route.',
     '# TYPE ailaoda_http_requests_total counter',
+    '# HELP ailaoda_http_errors_total HTTP 5xx response count by route.',
+    '# TYPE ailaoda_http_errors_total counter',
+    '# HELP ailaoda_http_request_duration_ms_sum Cumulative HTTP request duration by route.',
+    '# TYPE ailaoda_http_request_duration_ms_sum counter',
+    '# HELP ailaoda_http_request_duration_ms_max Maximum observed HTTP request duration by route.',
+    '# TYPE ailaoda_http_request_duration_ms_max gauge',
   ];
 
   for (const [route, metric] of routeMetrics.entries()) {
