@@ -1,0 +1,22 @@
+{
+  "schemaVersion": 1,
+  "namespace": "ailaoda-pilot",
+  "release": {
+    "environment": "replace-with-real-staging-environment",
+    "evidenceId": "replace-with-change-ticket-or-drill-id",
+    "commitSha": "replace-with-40-character-git-sha",
+    "imageDigest": "sha256:replace-with-64-hex-digest"
+  },
+  "artifacts": {
+    "evidence": "evidence/enterprise-evidence.json",
+    "continuousReport": "observation/continuous-observation-report.json",
+    "pilotLedger": "observation/pilot-observation-ledger.json",
+    "dailyReportsDir": "observation/daily",
+    "backupReport": "backup/backup-restore-report.json",
+    "resilienceReportsDir": "resilience",
+    "observabilityReport": "observability/observability-report.json",
+    "loadReconciliationReportsDir": "load-reconciliation",
+    "aiReportsDir": "ai",
+    "securityReportsDir": "security"
+  }
+}
