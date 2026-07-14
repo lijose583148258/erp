@@ -158,6 +158,8 @@ jq -e '
   and .ai.dailyBudgetEnforced == true
   and .ai.circuitBreakerPassed == true
   and .ai.promptFreeTelemetryPassed == true
+  and .ai.outputSafetyPassed == true
+  and .ai.responseLimitPassed == true
   and .ai.localFallbackPassed == true
   and (
     .ai.externalEnabled == false
