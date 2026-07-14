@@ -62,7 +62,9 @@ const results = new Map((reports.credentials.results || []).map(result => [resul
 if (reports.credentials.strictMode !== true || results.size !== expectedUsers.length
   || expectedUsers.some(username => {
     const result = results.get(username);
-    return !result || result.accepted !== false || result.businessAccess !== false;
+    return !result || result.accepted !== false || result.businessAccess !== false
+      || result.transportVerified !== true || result.explicitRejection !== true
+      || ![400, 401, 403].includes(Number(result.statusCode));
   }) || (reports.credentials.findings || []).some(finding => finding?.level === 'P0')) {
   throw new Error('Default credential gate did not reject every release credential.');
 }
