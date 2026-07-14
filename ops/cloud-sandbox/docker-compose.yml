@@ -29,14 +29,14 @@ services:
       - /bin/bash
       - -ec
       - |
-        if [ ! -s "$PGDATA/PG_VERSION" ]; then
-          rm -rf "$PGDATA"/*
-          mkdir -p "$PGDATA"
-          chown -R postgres:postgres "$PGDATA"
-          until gosu postgres env PGPASSWORD="$POSTGRES_REPLICATION_PASSWORD" pg_basebackup -h postgres -U ailaoda_replica -D "$PGDATA" -Fp -Xs -P -R; do
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          rm -rf "$$PGDATA"/*
+          mkdir -p "$$PGDATA"
+          chown -R postgres:postgres "$$PGDATA"
+          until gosu postgres env PGPASSWORD="$$POSTGRES_REPLICATION_PASSWORD" pg_basebackup -h postgres -U ailaoda_replica -D "$$PGDATA" -Fp -Xs -P -R; do
             sleep 2
           done
-          chmod 700 "$PGDATA"
+          chmod 700 "$$PGDATA"
         fi
         exec docker-entrypoint.sh postgres
     volumes:
