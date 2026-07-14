@@ -30,6 +30,59 @@ const HIDDEN_DATA_PATTERNS = [
   /xuat|tat ca|danh sach|chi tiet day du/i,
 ];
 
+const SENSITIVE_COMPACT_TERMS = [
+  'customer', 'client', 'supplier', 'vendor', 'contact', 'phone', 'email', 'address',
+  'order', 'contract', 'invoice', 'payment', 'bank', 'account', 'amount', 'price',
+  'cost', 'margin', 'finance', '客户', '供应商', '联系人', '电话', '邮箱', '地址',
+  '订单', '合同', '发票', '付款', '回款', '银行', '账号', '金额', '价格', '成本',
+  '利润', '财务', 'khachhang', 'nhacungcap', 'lienhe', 'dienthoai', 'diachi',
+  'donhang', 'hopdong', 'thanhtoan', 'taichinh', 'taikhoan',
+];
+const SENSITIVE_VALUE_PATTERNS = [
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  /(?:\+?\d[\d\s-]{7,}\d)/,
+  /\b(?:\d[ -]?){12,19}\b/,
+  /(?:[$€£¥￥]\s*\d|\d(?:[\d,.]*\d)?\s*(?:USD|CNY|RMB|EUR|VND)\b)/i,
+];
+const PROMPT_INJECTION_PATTERNS = [
+  /ignore.{0,30}(?:previous|prior|system|developer).{0,30}(?:instruction|message|prompt)/i,
+  /(?:reveal|show|print|repeat).{0,30}(?:system|developer).{0,20}(?:instruction|message|prompt)/i,
+  /(?:jailbreak|bypass).{0,30}(?:policy|guard|safety|permission)/i,
+  /(?:忽略|绕过).{0,20}(?:系统|开发者|安全|权限|规则|指令)/,
+  /(?:bo qua|vuot qua).{0,30}(?:he thong|an toan|quyen|chi dan)/i,
+];
+const SAFE_VISIBLE_COUNT_KEYS = new Set([
+  'alerts', 'tasks', 'approvals', 'customers', 'orders', 'suppliers', 'shipments',
+  'collections', 'overdue', 'inventory', 'notifications', 'contracts', 'payments',
+]);
+
+const normalizeSafetyText = (value: string) => value
+  .normalize('NFKD')
+  .replace(/\p{M}/gu, '')
+  .replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
+  .toLowerCase();
+
+const containsSensitiveInput = (value: string) => {
+  const normalized = normalizeSafetyText(value);
+  const compact = normalized.replace(/[^\p{L}\p{N}]/gu, '');
+  return HIDDEN_DATA_PATTERNS.some(pattern => pattern.test(normalized))
+    || SENSITIVE_PATTERNS.some(pattern => pattern.test(normalized))
+    || SENSITIVE_VALUE_PATTERNS.some(pattern => pattern.test(normalized))
+    || PROMPT_INJECTION_PATTERNS.some(pattern => pattern.test(normalized))
+    || SENSITIVE_COMPACT_TERMS.some(term => compact.includes(term));
+};
+
+const safeCurrentPage = (value?: string) => {
+  const page = String(value || '').trim();
+  return /^\/?[a-z0-9/_-]{1,120}$/i.test(page) ? page : 'unknown';
+};
+
+const safeVisibleCounts = (value?: Record<string, number>) => Object.fromEntries(
+  Object.entries(value || {})
+    .filter(([key, count]) => SAFE_VISIBLE_COUNT_KEYS.has(key) && Number.isSafeInteger(count) && count >= 0)
+    .slice(0, SAFE_VISIBLE_COUNT_KEYS.size),
+);
+
 const UNSAFE_OUTPUT_PATTERNS = [
   /https?:\/\/|www\./i,
   /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
@@ -130,7 +183,7 @@ export class AIGovernanceService {
   static async assist(input: AIAssistInput, actor: AIActor): Promise<AIAssistResult> {
     const startedAt = Date.now();
     const prompt = input.prompt.trim();
-    if (HIDDEN_DATA_PATTERNS.some(pattern => pattern.test(prompt)) || SENSITIVE_PATTERNS.some(pattern => pattern.test(prompt))) {
+    if (containsSensitiveInput(prompt)) {
       recordAIMetric('refused_sensitive', Date.now() - startedAt);
       return localAnswer(input, 'sensitive');
     }
@@ -155,8 +208,8 @@ export class AIGovernanceService {
     }
     const safeContext = {
       language: input.language || 'zh-CN',
-      currentPage: input.currentPage || 'unknown',
-      visibleCounts: input.visibleCounts || {},
+      currentPage: safeCurrentPage(input.currentPage),
+      visibleCounts: safeVisibleCounts(input.visibleCounts),
       role: actor.role,
       segment: actor.segment || 'unknown',
     };
