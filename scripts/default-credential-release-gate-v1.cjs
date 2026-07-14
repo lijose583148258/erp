@@ -93,13 +93,13 @@ async function main() {
   const businessAccepted = results.filter(item => item.businessAccess);
   const findings = [];
   const auditHelperSource = fs.readFileSync(UI_AUDIT_HELPER, 'utf8');
-  const prohibitedAuditCredentialPatterns = [
-    { pattern: /AuditSmoke12345!/, label: 'fixed UI audit password' },
-    { pattern: /AUDIT_UI_USERNAME\\s*\\|\\|\\s*['"][^'"]+['"]/, label: 'fallback UI audit username' },
-    { pattern: /AUDIT_UI_PASSWORD\\s*\\|\\|\\s*['"][^'"]+['"]/, label: 'fallback UI audit password' },
+  const prohibitedAuditCredentialLiterals = [
+    { value: 'AuditSmoke12345!', label: 'fixed UI audit password' },
+    { value: "process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin'", label: 'fallback UI audit username' },
+    { value: "process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!'", label: 'fallback UI audit password' },
   ];
-  const auditCredentialViolations = prohibitedAuditCredentialPatterns
-    .filter(item => item.pattern.test(auditHelperSource))
+  const auditCredentialViolations = prohibitedAuditCredentialLiterals
+    .filter(item => auditHelperSource.includes(item.value))
     .map(item => item.label);
   if (auditCredentialViolations.length > 0) {
     findings.push({
@@ -180,6 +180,7 @@ async function main() {
     strictMode,
     accepted: accepted.map(item => item.username),
     businessAccess: businessAccepted.map(item => item.username),
+    findings,
     jsonReport: JSON_REPORT,
     markdownReport: MD_REPORT,
   }, null, 2));
