@@ -4,13 +4,23 @@ const { spawn } = require('child_process');
 
 const root = process.cwd();
 const runtimeRoot = path.resolve(process.env.AILAODA_HA_RUNTIME_ROOT || 'C:\\AilaoDaPostgresRehearsal');
-const reportPath = path.join(root, 'output/audit/meilisearch-dump-restore-audit-v1.json');
+const reportPath = path.resolve(process.env.SEARCH_RESTORE_AUDIT_REPORT_PATH || path.join(root, 'output/audit/meilisearch-dump-restore-audit-v1.json'));
 const exe = path.join(runtimeRoot, 'external/meilisearch.exe');
 const pidPath = path.join(runtimeRoot, 'run/meili-restore.pid');
 const dataPath = path.join(runtimeRoot, 'meilisearch-restore-data');
 const backupPath = path.join(runtimeRoot, `meilisearch-restore-data-preaudit-${Date.now()}`);
 const masterKey = fs.readFileSync(path.join(runtimeRoot, '.meilisearch-master-key.txt'), 'utf8').trim();
-const report = { name: 'Meilisearch Dump Restore Audit', version: '1.1', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
+const report = {
+  name: 'Meilisearch Dump Restore Audit',
+  version: '2.0',
+  status: 'failed',
+  environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+  evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+  commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+  imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
+  startedAt: new Date().toISOString(),
+  checks: [],
+};
 let secondaryStopped = false;
 let backupCreated = false;
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
