@@ -69,6 +69,7 @@ jobs:
     env:
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
       POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
+      POSTGRES_REPLICATION_PASSWORD: sandbox-${{ github.run_id }}-replication
       MINIO_ROOT_USER: ailaoda-sandbox
       MINIO_ROOT_PASSWORD: sandbox-${{ github.run_id }}-minio-secret
       MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
@@ -114,6 +115,7 @@ jobs:
           probe grafana http://127.0.0.1:3001/api/health
           probe otel-collector http://127.0.0.1:8888/metrics
           docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
+          docker compose exec -T postgres-replica psql -U ailaoda -d ailaoda -tAc 'select pg_is_in_recovery()' | grep -Fx t
           docker compose exec -T redis-primary redis-cli ping | grep -Fx PONG
           docker compose exec -T redis-replica redis-cli INFO replication | tr -d '\r' | grep -Fx role:slave
           wait_for_sentinel_quorum() {
@@ -130,7 +132,7 @@ jobs:
           wait_for_sentinel_quorum sentinel-1
           wait_for_sentinel_quorum sentinel-2
           wait_for_sentinel_quorum sentinel-3
-          node -e 'const fs=require("fs"); fs.writeFileSync("cloud-evidence/runtime-stack.json", JSON.stringify({name:"Enterprise cloud dependency stack",status:"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,dependencies:{postgres:"ready",redisPrimary:"ready",redisReplica:"replicating",sentinelQuorum:3,minioEndpoints:2,meilisearchEndpoints:2,prometheus:"ready",grafana:"ready",otelCollector:"ready"},checkedAt:new Date().toISOString()},null,2)+"\n")'
+          node -e 'const fs=require("fs"); fs.writeFileSync("cloud-evidence/runtime-stack.json", JSON.stringify({name:"Enterprise cloud dependency stack",status:"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,dependencies:{postgres:"ready",postgresReplica:"streaming",redisPrimary:"ready",redisReplica:"replicating",sentinelQuorum:3,minioEndpoints:2,meilisearchEndpoints:2,prometheus:"ready",grafana:"ready",otelCollector:"ready"},checkedAt:new Date().toISOString()},null,2)+"\n")'
 
       - name: Capture diagnostics
         if: always()
@@ -158,6 +160,7 @@ jobs:
     env:
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
       POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
+      POSTGRES_REPLICATION_PASSWORD: sandbox-${{ github.run_id }}-replication
       MINIO_ROOT_USER: ailaoda-sandbox
       MINIO_ROOT_PASSWORD: sandbox-${{ github.run_id }}-minio-secret
       MEILI_MASTER_KEY: sandbox-${{ github.run_id }}-meilisearch-master-key
@@ -285,6 +288,9 @@ jobs:
 
       - name: Exercise search and object storage failover
         run: node ./scripts/cloud-degradable-dependency-failover-audit-v1.cjs
+
+      - name: Exercise PostgreSQL streaming promotion
+        run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
 
       - name: Capture application evidence
         if: always()
