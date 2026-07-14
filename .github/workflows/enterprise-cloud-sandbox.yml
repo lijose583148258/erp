@@ -283,6 +283,9 @@ jobs:
       - name: Exercise Redis Sentinel controlled failover
         run: node ./scripts/cloud-redis-sentinel-failover-audit-v1.cjs
 
+      - name: Exercise search and object storage failover
+        run: node ./scripts/cloud-degradable-dependency-failover-audit-v1.cjs
+
       - name: Capture application evidence
         if: always()
         shell: bash
