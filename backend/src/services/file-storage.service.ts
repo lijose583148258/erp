@@ -2,6 +2,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import path from 'path';
 import { getUploadDir, runtime } from '../config/runtime';
+import { recordStorageMetric } from '../middleware/metricsMiddleware';
 
 export type FileStorageNamespace = 'contracts' | 'pod';
 
@@ -40,6 +41,7 @@ export class LocalFileStorageProvider implements FileStorageProvider {
 
     fs.mkdirSync(namespaceRoot, { recursive: true });
     fs.writeFileSync(localPath, buffer);
+    recordStorageMetric('local_write', namespace);
 
     return {
       namespace,
@@ -54,7 +56,11 @@ export class LocalFileStorageProvider implements FileStorageProvider {
     const namespaceRoot = path.resolve(this.rootDir, namespace);
     const localPath = path.resolve(namespaceRoot, safeKey);
     if (!localPath.startsWith(namespaceRoot + path.sep)) return null;
-    if (!fs.existsSync(localPath)) return null;
+    if (!fs.existsSync(localPath)) {
+      recordStorageMetric('read_not_found', namespace);
+      return null;
+    }
+    recordStorageMetric('local_read', namespace);
     return { localPath, fileName: safeKey };
   }
 }
@@ -194,8 +200,13 @@ export class S3FileStorageProvider implements FileStorageProvider {
       if (!response.ok) throw new Error(`S3_UPLOAD_FAILED_${response.status}`);
     }));
     const successes = results.filter(result => result.status === 'fulfilled').length;
-    const minimumSuccesses = Math.min(this.getEndpoints().length, Math.max(1, Number(process.env.S3_MIN_WRITE_SUCCESSES || 1)));
-    if (successes < minimumSuccesses) throw new Error(`S3_UPLOAD_REPLICAS_INSUFFICIENT_${successes}_OF_${minimumSuccesses}`);
+    const endpointCount = this.getEndpoints().length;
+    const minimumSuccesses = Math.min(endpointCount, Math.max(1, Number(process.env.S3_MIN_WRITE_SUCCESSES || 1)));
+    if (successes < minimumSuccesses) {
+      recordStorageMetric('write_error', namespace);
+      throw new Error(`S3_UPLOAD_REPLICAS_INSUFFICIENT_${successes}_OF_${minimumSuccesses}`);
+    }
+    recordStorageMetric(successes < endpointCount ? 'write_partial' : 'write_success', namespace);
 
     return {
       namespace,
@@ -209,7 +220,7 @@ export class S3FileStorageProvider implements FileStorageProvider {
     const { cacheRoot, cachePath, safeKey } = this.getCachePath(namespace, key);
     let allNotFound = true;
     let lastError: unknown = null;
-    for (const endpoint of this.getEndpoints()) {
+    for (const [endpointIndex, endpoint] of this.getEndpoints().entries()) {
       try {
         const endpointConfig = this.configForEndpoint(endpoint);
         const url = buildS3Url(endpointConfig, objectKey);
@@ -229,13 +240,18 @@ export class S3FileStorageProvider implements FileStorageProvider {
         fs.mkdirSync(cacheRoot, { recursive: true });
         const buffer = Buffer.from(await response.arrayBuffer());
         fs.writeFileSync(cachePath, buffer);
+        recordStorageMetric(endpointIndex === 0 ? 'read_primary' : 'read_fallback', namespace);
         return { localPath: cachePath, fileName: safeKey };
       } catch (error) {
         allNotFound = false;
         lastError = error;
       }
     }
-    if (allNotFound) return null;
+    if (allNotFound) {
+      recordStorageMetric('read_not_found', namespace);
+      return null;
+    }
+    recordStorageMetric('read_error', namespace);
     throw lastError instanceof Error ? lastError : new Error('S3_DOWNLOAD_ALL_ENDPOINTS_FAILED');
   }
 }
