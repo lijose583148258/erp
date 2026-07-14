@@ -7,6 +7,8 @@ on:
       - 'scripts/meilisearch-application-failover-audit-v1.cjs'
       - 'scripts/meilisearch-dump-restore-audit-v1.cjs'
       - 'scripts/refresh-enterprise-pilot-evidence-v1.cjs'
+      - 'ops/production/kubernetes/run-storage-search-admission-drill.cjs'
+      - 'ops/production/kubernetes/STORAGE_SEARCH_ADAPTER_PROTOCOL.md'
       - 'ops/production/kubernetes/verify-storage-search-evidence.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - '.github/workflows/storage-search-evidence-contract.yml'
@@ -31,7 +33,10 @@ jobs:
           node --check scripts/meilisearch-application-failover-audit-v1.cjs
           node --check scripts/meilisearch-dump-restore-audit-v1.cjs
           node --check scripts/refresh-enterprise-pilot-evidence-v1.cjs
+          node --check ops/production/kubernetes/run-storage-search-admission-drill.cjs
           node --check ops/production/kubernetes/verify-storage-search-evidence.cjs
+          grep -q "surviving-provider-query" ops/production/kubernetes/run-storage-search-admission-drill.cjs
+          grep -q "verify-live-query" ops/production/kubernetes/STORAGE_SEARCH_ADAPTER_PROTOCOL.md
           ! grep -R -E 'MinioFailoverAudit12345|MeiliFailoverAudit12345|EnterprisePilot(Admin|Sales)12345' \
             scripts/minio-application-failover-audit-v1.cjs \
             scripts/meilisearch-application-failover-audit-v1.cjs \
@@ -84,7 +89,8 @@ jobs:
             failureDomains: ['zone-a', 'zone-b'],
             failoverMs: 30,
             checks: checks([
-              'known-order-primary-hit', 'primary-stopped', 'known-order-secondary-hit', 'primary-restored',
+              'known-order-primary-hit', 'primary-stopped', 'known-order-secondary-hit',
+              'surviving-provider-query', 'primary-restored',
             ]),
           };
           const restoreReport = {
@@ -95,9 +101,9 @@ jobs:
             restoreResourceId: 'search-restore-1',
             cleanupVerified: true,
             checks: checks([
-              'primary-index-evidence', 'dump-task-created', 'dump-file-created',
-              'dump-import-node-ready', 'restored-document-counts',
-              'restored-query-equivalence', 'restore-node-final-health',
+              'primary-index-evidence', 'provider-backup-started', 'provider-backup-completed',
+              'isolated-restore-started', 'isolated-restore-ready', 'restored-document-counts',
+              'restored-query-equivalence', 'isolated-restore-cleanup',
             ]),
           };
           const paths = {
