@@ -212,6 +212,15 @@ spec:
             summary: Governed AI gateway or budget store is failing
             runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
 
+        - alert: AilaoDaAISensitivePromptSpike
+          expr: sum(increase(ailaoda_ai_operations_total{outcome="refused_sensitive"}[10m])) > 10
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Governed AI is repeatedly rejecting sensitive or injected prompts
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
         - alert: AilaoDaAIUnsafeProviderOutput
           expr: increase(ailaoda_ai_operations_total{outcome="fallback_unsafe_output"}[5m]) > 0
           for: 1m
