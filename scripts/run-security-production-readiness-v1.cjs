@@ -49,7 +49,8 @@ function runStep(step) {
 }
 
 function writeReport(report) {
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(JSON_REPORT), { recursive: true });
+  fs.mkdirSync(path.dirname(MD_REPORT), { recursive: true });
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
   const lines = [
