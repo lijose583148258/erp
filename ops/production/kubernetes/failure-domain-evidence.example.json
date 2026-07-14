@@ -47,7 +47,8 @@
     "droppedSpanRegression": false,
     "serviceMonitorTargets": 0,
     "alertRulesLoaded": false,
-    "alertDeliveryDrill": false
+    "alertDeliveryDrill": false,
+    "reportSha256": ""
   },
   "observation": {
     "continuousHours": 0,
@@ -120,5 +121,17 @@
     "objectStorageReportSha256": "",
     "searchFailoverReportSha256": "",
     "searchRestoreReportSha256": ""
+  },
+  "observabilityDrill": {
+    "status": "not-run",
+    "environment": "",
+    "changeTicket": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "startedAt": "",
+    "finishedAt": "",
+    "traceCount": 0,
+    "receiptId": null,
+    "reportSha256": ""
   }
 }
