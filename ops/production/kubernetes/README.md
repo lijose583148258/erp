@@ -53,7 +53,8 @@ bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
   <namespace> <evidence.json> <continuous-report.json> \
   <pilot-ledger.json> <daily-reports-dir> <backup-report.json> \
   <resilience-reports-dir> <observability-report.json> \
-  <load-reconciliation-reports-dir> <ai-reports-dir>
+  <load-reconciliation-reports-dir> <ai-reports-dir> \
+  <security-reports-dir>
 ```
 
 The verifier reads Kubernetes state with `kubectl` and validates the evidence
@@ -232,6 +233,30 @@ circuit-breaker, red-team, secret-manager, and local-fallback evidence. Never
 place a model credential in frontend variables, browser storage, a ConfigMap,
 or a command argument.
 
+
+## Security release evidence
+
+Run the production security readiness audit with the same
+`ENTERPRISE_EVIDENCE_*` identity as the release. It executes CSP, CSRF
+boundary, MFA, secret handling, distributed authentication, and dependency
+checks. The report retains only child-output hashes and byte counts, not raw
+stdout or stderr.
+
+Run the default-credential gate with
+`AILAODA_REQUIRE_NO_DEMO_CREDENTIALS=1` against the formal pilot deployment.
+Every known demonstration credential must be rejected before a token is issued.
+Place both JSON reports in one directory and bind them:
+
+```bash
+node ops/production/kubernetes/verify-security-evidence.cjs \
+  --reports-dir <security-reports-dir> \
+  --evidence <evidence.json> \
+  --bind
+```
+
+Formal admission recomputes both hashes and rejects missing controls, raw command
+output in evidence, a non-strict credential run, any accepted default account,
+stale evidence, or release-identity drift.
 
 ## Zero-cost governed AI pilot gate
 
