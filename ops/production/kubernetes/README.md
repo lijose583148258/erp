@@ -31,7 +31,12 @@ The manifest requires two distinct node hostnames and two distinct
 collapsing both replicas into one failure domain.
 
 After deploying to the real staging topology, create an evidence document from
-`failure-domain-evidence.example.json` and run:
+`failure-domain-evidence.example.json`. Implement the non-shell provider
+adapters defined in `HA_ADAPTER_PROTOCOL.md`, then run the disruptive
+application-level drill before the final verifier. The verifier rejects manually
+asserted PostgreSQL or Redis failover fields when the latest drill did not pass.
+
+After the drill updates the evidence document, run:
 
 ```bash
 bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
