@@ -1,11 +1,12 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
-const JSON_REPORT = path.join(OUTPUT_DIR, 'security-production-readiness-v1.json');
-const MD_REPORT = path.join(OUTPUT_DIR, 'security-production-readiness-v1.md');
+const JSON_REPORT = path.resolve(process.env.SECURITY_AUDIT_REPORT_PATH || path.join(OUTPUT_DIR, 'security-production-readiness-v1.json'));
+const MD_REPORT = path.resolve(process.env.SECURITY_AUDIT_MARKDOWN_PATH || path.join(OUTPUT_DIR, 'security-production-readiness-v1.md'));
 
 const STEPS = [
   { id: 'csp', args: ['run', 'audit:security:csp'] },
@@ -40,8 +41,10 @@ function runStep(step) {
     finishedAt: new Date().toISOString(),
     status: exitCode === 0 ? 'passed' : 'failed',
     exitCode,
-    stdout,
-    stderr,
+    stdoutBytes: Buffer.byteLength(stdout),
+    stderrBytes: Buffer.byteLength(stderr),
+    stdoutSha256: crypto.createHash('sha256').update(stdout).digest('hex'),
+    stderrSha256: crypto.createHash('sha256').update(stderr).digest('hex'),
   };
 }
 
@@ -61,8 +64,8 @@ function writeReport(report) {
 
   for (const step of report.steps) {
     lines.push(`- ${step.status.toUpperCase()} ${step.id}: \`${step.command}\``);
-    if (step.stdout) lines.push('  - stdout captured');
-    if (step.stderr) lines.push('  - stderr captured');
+    if (step.stdoutBytes) lines.push(`  - stdout bytes: ${step.stdoutBytes}`);
+    if (step.stderrBytes) lines.push(`  - stderr bytes: ${step.stderrBytes}`);
   }
 
   fs.writeFileSync(MD_REPORT, `${lines.join('\n')}\n`, 'utf8');
@@ -85,6 +88,10 @@ function main() {
   const report = {
     generatedAt: new Date().toISOString(),
     status: failedStep ? 'failed' : 'passed',
+    environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+    evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+    commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+    imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
     scope: 'security-production-readiness',
     steps,
     failedStep: failedStep ? failedStep.id : null,
