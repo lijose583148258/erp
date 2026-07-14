@@ -1,17 +1,29 @@
 const fs = require('fs');
 const path = require('path');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
-
 const root = process.cwd();
-const reportPath = path.join(root, 'output/audit/ai-governed-runtime-audit-v1.json');
-const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const reportPath = path.resolve(process.env.AI_RUNTIME_AUDIT_REPORT_PATH || path.join(root, 'output/audit/ai-governed-runtime-audit-v1.json'));
+const passwordFile = String(process.env.AI_RUNTIME_AUDIT_PASSWORD_FILE || '').trim();
 const account = {
-  username: `ai_runtime_audit_${runId}`,
-  password: `AIRuntimeAudit${runId}!`,
+  username: String(process.env.AI_RUNTIME_AUDIT_USERNAME || process.env.PILOT_AUDIT_ADMIN_USERNAME || '').trim(),
+  password: passwordFile
+    ? fs.readFileSync(path.resolve(passwordFile), 'utf8').trim()
+    : String(process.env.AI_RUNTIME_AUDIT_PASSWORD || process.env.PILOT_AUDIT_ADMIN_PASSWORD || '').trim(),
   role: 'admin',
 };
-const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
-const report = { name: 'Governed AI Runtime Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), instances, checks: [] };
+const instances = String(process.env.AI_RUNTIME_AUDIT_TARGETS || 'http://127.0.0.1:5006,http://127.0.0.1:5008')
+  .split(',').map(value => value.trim().replace(/\/$/, '')).filter(Boolean);
+const report = {
+  name: 'Governed AI Runtime Audit',
+  version: '2.0',
+  status: 'failed',
+  environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+  evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+  commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+  imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
+  startedAt: new Date().toISOString(),
+  instances,
+  checks: [],
+};
 const check = (name, passed, details = {}) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
   if (!passed) throw new Error(`Check failed: ${name}`);
@@ -26,7 +38,9 @@ async function request(url, options = {}) {
 }
 
 async function main() {
-  await ensureUiAuditUser(account);
+  if (instances.length < 2) throw new Error('At least two AI runtime audit targets are required.');
+  if (!account.username || !account.password) throw new Error('Pre-created AI runtime audit credentials are required.');
+
   const login = await request(`${instances[0]}/api/auth/login`, {
     method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: account.username, password: account.password }),
   });
