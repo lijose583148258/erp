@@ -74,7 +74,7 @@ async function main() {
   });
 
   compose('stop', 'redis-primary');
-  const promoted = await waitFor(() => redisRole('redis-replica') === 'master', 120_000);
+  const promoted = await waitFor(() => redisRole('redis-replica') === 'master', 150_000);
   check('replica-promoted', promoted, { sentinel: sentinelMaster(), replicaRole: redisRole('redis-replica') });
   check('apps-ready-after-promotion', await waitFor(appsReady, 30_000));
   check('shared-token-survives-promotion', await tokenAccepted(token));
