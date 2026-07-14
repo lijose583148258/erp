@@ -52,7 +52,7 @@ node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
 bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
   <namespace> <evidence.json> <continuous-report.json> \
   <pilot-ledger.json> <daily-reports-dir> <backup-report.json> \
-  <resilience-reports-dir>
+  <resilience-reports-dir> <observability-report.json>
 ```
 
 The verifier reads Kubernetes state with `kubectl` and validates the evidence
@@ -124,6 +124,35 @@ drops, cache/search degradation, and governed AI fallback conditions. It
 requires Prometheus Operator CRDs and kube-state-metrics. Apply it only after
 the metrics token Secret exists, then follow `OBSERVABILITY_RUNBOOK.md`.
 
+
+## Trace and alert delivery admission
+
+Implement the secret-backed adapter in
+`OBSERVABILITY_ADAPTER_PROTOCOL.md`. After the automatic HA drill has recorded
+PostgreSQL and Redis failover trace IDs, run:
+
+```bash
+OBSERVABILITY_DRILL_ENVIRONMENT=<formal-pilot> \
+OBSERVABILITY_DRILL_CHANGE_TICKET=<same-as-evidence-id> \
+OBSERVABILITY_DRILL_COMMIT_SHA=<40-character-git-sha> \
+OBSERVABILITY_DRILL_IMAGE_DIGEST=<sha256:digest> \
+OBSERVABILITY_DRILL_APP_URLS=<https-app-a>,<https-app-b> \
+OBSERVABILITY_PROMETHEUS_URL=<prometheus-api> \
+OBSERVABILITY_COLLECTOR_METRICS_URL=<collector-metrics> \
+OBSERVABILITY_METRICS_TOKEN_FILE=<secret-file> \
+node ops/production/kubernetes/run-observability-admission-drill.cjs \
+  --adapter <trace-alert-adapter> \
+  --evidence <evidence.json> \
+  --report <observability-report.json> \
+  --confirm-alert-delivery
+```
+
+The drill requires two healthy Prometheus targets, the reviewed alert families,
+no new dropped spans, a bounded exporter queue, collector acceptance, trace
+backend readback for every HA request, and delivered plus resolved receipts from
+the real pilot alert route. An HTTP trace header or Alertmanager acceptance
+response alone cannot pass. The report hash and release identity are rebound and
+rechecked by formal admission.
 
 ## Machine-bound observation
 
