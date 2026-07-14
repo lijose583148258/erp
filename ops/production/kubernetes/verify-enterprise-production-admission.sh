@@ -11,9 +11,10 @@ resilience_reports_dir="${7:-}"
 observability_report="${8:-}"
 load_reconciliation_reports_dir="${9:-}"
 ai_reports_dir="${10:-}"
+security_reports_dir="${11:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir>" >&2
   exit 2
 fi
 
@@ -63,6 +64,10 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-load-reconciliation-evidence.cjs" \
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-ai-evidence.cjs" \
   --reports-dir "${ai_reports_dir}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-security-evidence.cjs" \
+  --reports-dir "${security_reports_dir}" \
   --evidence "${evidence_file}"
 
 jq -e '
@@ -262,6 +267,21 @@ jq -e '
       and .ai.redTeamPassed == true
     )
   )
+
+  and .securityDrill.status == "passed"
+  and .securityDrill.environment == .environment
+  and .securityDrill.evidenceId == .evidenceId
+  and .securityDrill.commitSha == .commitSha
+  and .securityDrill.imageDigest == .imageDigest
+  and .securityDrill.cspPassed == true
+  and .securityDrill.csrfBoundaryPassed == true
+  and .securityDrill.mfaPassed == true
+  and .securityDrill.secretsPassed == true
+  and .securityDrill.distributedAuthPassed == true
+  and .securityDrill.dependencyAuditPassed == true
+  and .securityDrill.defaultCredentialsRejected == true
+  and (.securityDrill.readinessReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.securityDrill.defaultCredentialReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
 
   and (.approvals.platformOwner | length) >= 2
   and (.approvals.databaseOwner | length) >= 2
