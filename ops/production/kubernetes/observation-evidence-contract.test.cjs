@@ -23,6 +23,8 @@ try {
   const continuousStartedMs = continuousFinishedMs - 28_800_000;
   write(continuousPath, {
     status: 'passed',
+    environment: 'formal-pilot',
+    evidenceId: 'CHG-12345',
     startedAt: new Date(continuousStartedMs).toISOString(),
     finishedAt: new Date(continuousFinishedMs).toISOString(),
     durationMs: 28_800_000,
@@ -85,6 +87,7 @@ try {
   const evidencePath = path.join(tempRoot, 'evidence.json');
   write(evidencePath, {
     environment: 'formal-pilot',
+    evidenceId: 'CHG-12345',
     commitSha,
     imageDigest,
     observation: {
@@ -136,6 +139,8 @@ try {
         ...process.env,
         OBSERVATION_OUTPUT: shortRunReport,
         OBSERVATION_DURATION_MS: '1000',
+        OBSERVATION_ENVIRONMENT: 'formal-pilot',
+        OBSERVATION_EVIDENCE_ID: 'CHG-12345',
         OBSERVATION_COMMIT_SHA: commitSha,
         OBSERVATION_IMAGE_DIGEST: imageDigest,
       },
