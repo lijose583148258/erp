@@ -9,8 +9,6 @@ const concurrency = Math.max(1, Math.min(40, Number(process.env.HA_SOAK_CONCURRE
 const maxRssMb = Math.max(256, Number(process.env.HA_SOAK_MAX_RSS_MB || 1024));
 const maxRssGrowthMb = Math.max(32, Number(process.env.HA_SOAK_MAX_RSS_GROWTH_MB || 256));
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
-const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-const account = { username: `ha_soak_${runId}`, password: `HASoak${runId}Strong!`, role: 'admin' };
 const report = { name: 'Enterprise HA Soak Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), durationMs, concurrency, instances, checks: [] };
 const latencies = [];
 const statuses = new Map();
@@ -39,7 +37,7 @@ async function fetchTimed(url, options = {}) {
   }
 }
 async function login() {
-  await ensureUiAuditUser(account);
+  const account = await ensureUiAuditUser();
   const response = await fetch(`${instances[0]}/api/auth/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: account.username, password: account.password }), signal: AbortSignal.timeout(5000) });
   const json = await response.json();
   check('soak-audit-login', response.ok && Boolean(json?.data?.token));
