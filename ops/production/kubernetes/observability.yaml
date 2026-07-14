@@ -143,6 +143,42 @@ spec:
             summary: Shared cache operations are failing
             runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
 
+        - alert: AilaoDaObjectStorageWriteFailure
+          expr: increase(ailaoda_storage_operations_total{action="write_error"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Object storage cannot satisfy the configured write quorum
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
+        - alert: AilaoDaObjectStorageReplicaDegraded
+          expr: increase(ailaoda_storage_operations_total{action="write_partial"}[10m]) > 0
+          for: 2m
+          labels:
+            severity: warning
+          annotations:
+            summary: Object storage writes are succeeding on only part of the configured endpoints
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
+        - alert: AilaoDaObjectStorageReadFailure
+          expr: increase(ailaoda_storage_operations_total{action="read_error"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Object storage reads fail across every configured endpoint
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
+        - alert: AilaoDaObjectStorageFallbackSustained
+          expr: sum(rate(ailaoda_storage_operations_total{action="read_fallback"}[10m])) > 0.02
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: Object storage is continuously reading from a fallback endpoint
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
         - alert: AilaoDaSearchIndexErrors
           expr: increase(ailaoda_search_operations_total{action="index_error"}[5m]) > 0
           for: 1m
