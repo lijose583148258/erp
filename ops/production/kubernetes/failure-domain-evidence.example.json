@@ -86,5 +86,25 @@
     "finishedAt": "",
     "postgres": {},
     "redis": {}
+  },
+  "backupDrill": {
+    "status": "not-run",
+    "environment": "",
+    "changeTicket": "",
+    "startedAt": "",
+    "finishedAt": "",
+    "backupId": null,
+    "restoreId": null,
+    "checksumVerified": false,
+    "encrypted": false,
+    "markerReadback": false,
+    "schemaCompatible": false,
+    "cleanupVerified": false,
+    "backupCompletionSeconds": null,
+    "recoveryPointAt": "",
+    "verifiedMarkerRpoSeconds": null,
+    "restoreRtoSeconds": null,
+    "recoveredThroughAt": "",
+    "reportSha256": ""
   }
 }
