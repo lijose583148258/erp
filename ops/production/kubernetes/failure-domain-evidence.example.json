@@ -65,7 +65,9 @@
     "localFallbackPassed": false,
     "externalGatewayAllowlistPassed": false,
     "secretManagerBacked": false,
-    "redTeamPassed": false
+    "redTeamPassed": false,
+    "outputSafetyPassed": false,
+    "responseLimitPassed": false
   },
   "approvals": {
     "platformOwner": "",
