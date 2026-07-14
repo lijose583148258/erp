@@ -33,7 +33,7 @@ const commitSha = String(process.env.BACKUP_DRILL_COMMIT_SHA || process.env.GITH
 const imageDigest = String(process.env.BACKUP_DRILL_IMAGE_DIGEST || '').trim();
 const timeoutMs = Math.max(60_000, Number(process.env.BACKUP_DRILL_TIMEOUT_MS || 3_600_000));
 const maxRestoreRtoSeconds = Math.max(1, Number(process.env.BACKUP_DRILL_MAX_RESTORE_RTO_SECONDS || 1_800));
-const maxMarkerAgeSeconds = Math.max(1, Number(process.env.BACKUP_DRILL_MAX_MARKER_AGE_SECONDS || 900));
+const maxBackupCompletionSeconds = Math.max(1, Number(process.env.BACKUP_DRILL_MAX_BACKUP_COMPLETION_SECONDS || 3_600));
 const pollMs = Math.max(1_000, Math.min(30_000, Number(process.env.BACKUP_DRILL_POLL_MS || 5_000)));
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const report = {
@@ -127,7 +127,8 @@ const bindEvidence = () => {
     schemaCompatible: report.schemaCompatible === true,
     cleanupVerified: report.cleanupVerified === true,
     restoreRtoSeconds: report.restoreRtoSeconds || null,
-    markerAgeSeconds: report.markerAgeSeconds || null,
+    backupCompletionSeconds: report.backupCompletionSeconds || null,
+    verifiedMarkerRpoSeconds: report.verifiedMarkerRpoSeconds ?? null,
     reportSha256: reportHash,
   };
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -143,6 +144,7 @@ const bindEvidence = () => {
   check('audit-login', login.response.ok && Boolean(token));
 
   const markerTime = new Date();
+  report.markerCreatedAt = markerTime.toISOString();
   const marker = `BACKUP-RESTORE-${markerTime.toISOString().replace(/[^0-9]/g, '').slice(0, 17)}`;
   const create = await requestJson(`${appUrl}/api/v1/customers`, {
     method: 'POST',
@@ -165,18 +167,26 @@ const bindEvidence = () => {
   const markerId = create.body?.data?.id;
   check('synthetic-marker-created', create.response.status === 201 && Boolean(markerId));
 
+  const backupStartedMs = Date.now();
   const backup = adapterJson('start-backup', markerId);
   check('backup-started', Boolean(backup?.backupId) && Number.isFinite(Date.parse(String(backup?.startedAt || ''))));
   report.backupId = String(backup.backupId);
   const backupStatus = await waitForStatus('backup-status', report.backupId);
+  const backupCompletedMs = Date.parse(String(backupStatus.completedAt || ''));
+  const recoveryPointMs = Date.parse(String(backupStatus.recoveryPointAt || ''));
   check('backup-completed', backupStatus.checksumVerified === true && backupStatus.encrypted === true
-    && Number.isFinite(Date.parse(String(backupStatus.completedAt || ''))));
+    && Number.isFinite(backupCompletedMs) && Number.isFinite(recoveryPointMs));
   report.checksumVerified = true;
   report.encrypted = true;
-  report.markerAgeSeconds = (Date.parse(backupStatus.completedAt) - markerTime.getTime()) / 1000;
-  check('backup-marker-rpo-envelope', report.markerAgeSeconds >= 0 && report.markerAgeSeconds <= maxMarkerAgeSeconds, {
-    markerAgeSeconds: report.markerAgeSeconds,
-    maxMarkerAgeSeconds,
+  report.backupCompletionSeconds = (backupCompletedMs - backupStartedMs) / 1000;
+  check('backup-completion-envelope', report.backupCompletionSeconds >= 0
+    && report.backupCompletionSeconds <= maxBackupCompletionSeconds, {
+    backupCompletionSeconds: report.backupCompletionSeconds,
+    maxBackupCompletionSeconds,
+  });
+  check('backup-recovery-point-covers-marker', recoveryPointMs >= markerTime.getTime(), {
+    markerCreatedAt: markerTime.toISOString(),
+    recoveryPointAt: backupStatus.recoveryPointAt,
   });
 
   restoreId = `ailaoda-restore-${crypto.randomBytes(8).toString('hex')}`;
@@ -185,7 +195,9 @@ const bindEvidence = () => {
   check('isolated-restore-started', restore?.restoreId === restoreId && Number.isFinite(Date.parse(String(restore?.startedAt || ''))));
   report.restoreId = restoreId;
   const restoreStatus = await waitForStatus('restore-status', restoreId);
-  check('isolated-restore-completed', Number.isFinite(Date.parse(String(restoreStatus.completedAt || ''))));
+  const recoveredThroughMs = Date.parse(String(restoreStatus.recoveredThroughAt || ''));
+  check('isolated-restore-completed', Number.isFinite(Date.parse(String(restoreStatus.completedAt || '')))
+    && Number.isFinite(recoveredThroughMs) && recoveredThroughMs >= markerTime.getTime());
   report.restoreRtoSeconds = (Date.now() - restoreStartedMs) / 1000;
   check('restore-rto-envelope', report.restoreRtoSeconds <= maxRestoreRtoSeconds, {
     restoreRtoSeconds: report.restoreRtoSeconds,
@@ -196,6 +208,8 @@ const bindEvidence = () => {
   check('restored-marker-readback', markerVerification?.found === true && markerVerification?.schemaCompatible === true);
   report.markerReadback = true;
   report.schemaCompatible = true;
+  report.verifiedMarkerRpoSeconds = 0;
+  report.recoveredThroughAt = restoreStatus.recoveredThroughAt;
 
   adapterRun('cleanup', restoreId);
   const cleanup = adapterJson('cleanup-status', restoreId);
