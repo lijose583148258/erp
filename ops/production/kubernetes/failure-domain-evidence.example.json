@@ -30,12 +30,15 @@
   "objectStorage": {
     "crossFailureDomainDurability": false,
     "applicationReadFailover": false,
-    "writeReadback": false
+    "writeReadback": false,
+    "reportSha256": ""
   },
   "search": {
     "applicationFallback": false,
     "indexRecoveryReadback": false,
-    "backupRestoreReadback": false
+    "backupRestoreReadback": false,
+    "failoverReportSha256": "",
+    "restoreReportSha256": ""
   },
   "observability": {
     "bothApplicationTargetsUp": false,
@@ -106,5 +109,16 @@
     "restoreRtoSeconds": null,
     "recoveredThroughAt": "",
     "reportSha256": ""
+  },
+  "storageSearchDrill": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "objectStorageReportSha256": "",
+    "searchFailoverReportSha256": "",
+    "searchRestoreReportSha256": ""
   }
 }
