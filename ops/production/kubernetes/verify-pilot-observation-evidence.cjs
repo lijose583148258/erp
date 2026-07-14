@@ -48,6 +48,9 @@ const strictKeys = (value, allowed, label) => {
 const continuous = readJson(continuousPath);
 const ledger = readJson(ledgerPath);
 const evidence = readJson(evidencePath);
+if (continuous.environment !== evidence.environment || continuous.evidenceId !== evidence.evidenceId) {
+  fail('Continuous observation pilot identity does not match enterprise evidence.');
+}
 if (continuous.status !== 'passed') fail('Continuous observation report is not passed.');
 const startedMs = isoMs(continuous.startedAt, 'continuous startedAt');
 const finishedMs = isoMs(continuous.finishedAt, 'continuous finishedAt');
