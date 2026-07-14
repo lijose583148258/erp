@@ -1,0 +1,47 @@
+name: AI Governance Contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/ai-governance-contract.yml"
+      - "backend/src/services/ai-governance.service.ts"
+      - "backend/src/services/ai-governance.service.test.ts"
+      - "backend/src/services/ai-budget.service.ts"
+      - "backend/src/middleware/metricsMiddleware.ts"
+      - "backend/src/validators/ai.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-governance-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governed-ai:
+    name: Safe external AI boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Run governed AI contract
+        run: npm test -- --runInBand src/services/ai-governance.service.test.ts
+        env:
+          NODE_ENV: test
