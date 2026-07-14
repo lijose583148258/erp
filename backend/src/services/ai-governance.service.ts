@@ -11,7 +11,7 @@ type AIActor = {
 export type AIAssistResult = {
   answer: string;
   mode: 'local' | 'external';
-  reason?: 'disabled' | 'sensitive' | 'unconfigured' | 'provider_error' | 'budget_unconfigured' | 'budget_store_unavailable' | 'budget_exhausted' | 'circuit_open';
+  reason?: 'disabled' | 'sensitive' | 'unconfigured' | 'provider_error' | 'unsafe_output' | 'response_too_large' | 'budget_unconfigured' | 'budget_store_unavailable' | 'budget_exhausted' | 'circuit_open';
 };
 
 const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -29,6 +29,53 @@ const HIDDEN_DATA_PATTERNS = [
   /导出|全部|所有|完整明细|客户名单|供应商名单|联系方式|银行账号/,
   /xuat|tat ca|danh sach|chi tiet day du/i,
 ];
+
+const UNSAFE_OUTPUT_PATTERNS = [
+  /https?:\/\/|www\./i,
+  /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i,
+  /(?:\+?\d[\d\s-]{7,}\d)/,
+  /\b(?:\d[ -]?){12,19}\b/,
+  /(?:[$€£¥￥]\s*\d|\d(?:[\d,.]*\d)?\s*(?:USD|CNY|RMB|EUR|VND)\b)/i,
+  /(?:paste|upload|send|share|provide).{0,60}(?:customer|supplier|order|invoice|payment|account|record|data)/i,
+  /(?:粘贴|上传|发送|提供).{0,30}(?:客户|供应商|订单|发票|付款|账号|记录|数据)/,
+  /(?:dan|tai len|gui|cung cap).{0,60}(?:khach hang|nha cung cap|don hang|thanh toan|tai khoan|du lieu)/i,
+  /<\/?(?:script|iframe|object)|javascript:/i,
+];
+
+const isUnsafeProviderOutput = (answer: string) => UNSAFE_OUTPUT_PATTERNS.some(pattern => pattern.test(answer));
+
+const readBoundedProviderJson = async (response: Response) => {
+  const maxBytes = Math.min(Math.max(Number(process.env.AI_GATEWAY_MAX_RESPONSE_BYTES || 65_536), 8_192), 262_144);
+  const declaredHeader = response.headers.get('content-length');
+  const declaredBytes = declaredHeader ? Number(declaredHeader) : Number.NaN;
+  if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) throw new Error('AI_PROVIDER_RESPONSE_TOO_LARGE');
+  if (!response.body) throw new Error('AI_PROVIDER_EMPTY_RESPONSE');
+
+  const reader = response.body.getReader();
+  const chunks: Buffer[] = [];
+  let totalBytes = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      totalBytes += value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel();
+        throw new Error('AI_PROVIDER_RESPONSE_TOO_LARGE');
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const text = Buffer.concat(chunks).toString('utf8');
+  if (!text) throw new Error('AI_PROVIDER_EMPTY_RESPONSE');
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    throw new Error('AI_PROVIDER_INVALID_JSON');
+  }
+};
 
 const localAnswer = (input: AIAssistInput, reason: AIAssistResult['reason']): AIAssistResult => {
   const language = input.language || 'zh-CN';
@@ -130,16 +177,23 @@ export class AIGovernanceService {
         }),
       });
       if (!response.ok) throw new Error(`AI_PROVIDER_HTTP_${response.status}`);
-      const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+      const payload = await readBoundedProviderJson(response) as { choices?: Array<{ message?: { content?: unknown } }> };
       const answer = String(payload.choices?.[0]?.message?.content || '').trim().slice(0, 4_000);
       if (!answer) throw new Error('AI_PROVIDER_EMPTY_RESPONSE');
+      if (isUnsafeProviderOutput(answer)) throw new Error('AI_PROVIDER_UNSAFE_OUTPUT');
       await AIBudgetService.recordProviderSuccess();
       recordAIMetric('external_success', Date.now() - startedAt);
       return { answer, mode: 'external' };
-    } catch {
+    } catch (error) {
       await AIBudgetService.recordProviderFailure();
-      recordAIMetric('fallback_provider_error', Date.now() - startedAt);
-      return localAnswer(input, 'provider_error');
+      const code = error instanceof Error ? error.message : '';
+      const reason: AIAssistResult['reason'] = code === 'AI_PROVIDER_UNSAFE_OUTPUT'
+        ? 'unsafe_output'
+        : code === 'AI_PROVIDER_RESPONSE_TOO_LARGE'
+          ? 'response_too_large'
+          : 'provider_error';
+      recordAIMetric(`fallback_${reason}` as AIMetricAction, Date.now() - startedAt);
+      return localAnswer(input, reason);
     }
   }
 }
