@@ -212,6 +212,24 @@ spec:
             summary: Governed AI gateway or budget store is failing
             runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
 
+        - alert: AilaoDaAIUnsafeProviderOutput
+          expr: increase(ailaoda_ai_operations_total{outcome="fallback_unsafe_output"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: External AI returned content rejected by the output safety boundary
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
+        - alert: AilaoDaAIOversizedProviderResponse
+          expr: increase(ailaoda_ai_operations_total{outcome="fallback_response_too_large"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: warning
+          annotations:
+            summary: External AI exceeded the governed response-size limit
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
         - alert: AilaoDaAICircuitOpen
           expr: increase(ailaoda_ai_operations_total{outcome="fallback_circuit_open"}[5m]) > 0
           for: 1m
