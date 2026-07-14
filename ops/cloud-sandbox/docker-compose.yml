@@ -16,6 +16,9 @@ services:
   redis-primary:
     image: redis:7.4.2-alpine
     command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      default:
+        ipv4_address: 172.29.0.10
     ports:
       - "6380:6379"
     healthcheck:
@@ -26,7 +29,10 @@ services:
 
   redis-replica:
     image: redis:7.4.2-alpine
-    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes"]
+    command: ["redis-server", "--replicaof", "172.29.0.10", "6379", "--replica-announce-ip", "172.29.0.11", "--replica-announce-port", "6379", "--appendonly", "yes"]
+    networks:
+      default:
+        ipv4_address: 172.29.0.11
     ports:
       - "6381:6379"
     depends_on:
@@ -37,12 +43,15 @@ services:
     image: redis:7.4.2-alpine
     environment:
       SENTINEL_START_DELAY: "0"
+    networks:
+      default:
+        ipv4_address: 172.29.0.21
     command:
       - sh
       - -ec
       - |
         sleep "$$SENTINEL_START_DELAY"
-        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 30000\nsentinel failover-timeout ailaoda-primary 180000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
+        printf 'port 26379\nsentinel monitor ailaoda-primary 172.29.0.10 6379 2\nsentinel down-after-milliseconds ailaoda-primary 30000\nsentinel failover-timeout ailaoda-primary 180000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
         exec redis-server /tmp/sentinel.conf --sentinel
     ports:
       - "26379:26379"
@@ -56,6 +65,9 @@ services:
     <<: *sentinel
     environment:
       SENTINEL_START_DELAY: "2"
+    networks:
+      default:
+        ipv4_address: 172.29.0.22
     ports:
       - "26380:26379"
 
@@ -63,6 +75,9 @@ services:
     <<: *sentinel
     environment:
       SENTINEL_START_DELAY: "4"
+    networks:
+      default:
+        ipv4_address: 172.29.0.23
     ports:
       - "26381:26379"
 
@@ -233,3 +248,9 @@ services:
       OTEL_SERVICE_INSTANCE_ID: github-sandbox-secondary
     ports:
       - "5008:5001"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
