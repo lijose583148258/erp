@@ -54,10 +54,10 @@ const dailyOutput = path.resolve(dailyOutputValue);
 const ledgerPath = path.resolve(ledgerValue);
 const dailyDir = path.dirname(dailyOutput);
 if (path.basename(dailyOutput) !== `${date}.json`) fail('Daily output filename must be <UTC-date>.json.');
-if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(checkedAt).toISOString().slice(0, 10) !== date) {
+const checkedAtMs = parseTime(checkedAt, 'checkedAt');
+if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(checkedAtMs).toISOString().slice(0, 10) !== date) {
   fail('Daily date must match checkedAt in UTC.');
 }
-parseTime(checkedAt, 'checkedAt');
 if (!environment || /^replace-/i.test(environment)) fail('A real pilot environment is required.');
 if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('Commit SHA is invalid.');
 if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('Image digest is invalid.');
@@ -68,6 +68,14 @@ if (continuous.status !== 'passed' || continuous.commitSha !== commitSha || cont
   fail('Continuous report is not passed or does not match the release identity.');
 }
 const continuousHash = sha256(continuousPath);
+
+let ledger = { schemaVersion: 1, environment, entries: [] };
+if (fs.existsSync(ledgerPath)) ledger = readJson(ledgerPath);
+if (ledger.schemaVersion !== 1 || ledger.environment !== environment || !Array.isArray(ledger.entries)) {
+  fail('Existing pilot ledger is invalid or belongs to another environment.');
+}
+const existingIndex = ledger.entries.findIndex(entry => entry.date === date);
+if (existingIndex >= 0 && !has('--replace-date')) fail(`Pilot ledger already contains ${date}.`);
 
 const alertReview = readJson(alertPath);
 requireStrictKeys(alertReview, ['schemaVersion', 'status', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'], 'Alert review');
@@ -123,13 +131,6 @@ const daily = {
 writeAtomic(dailyOutput, daily);
 const dailyHash = sha256(dailyOutput);
 
-let ledger = { schemaVersion: 1, environment, entries: [] };
-if (fs.existsSync(ledgerPath)) ledger = readJson(ledgerPath);
-if (ledger.schemaVersion !== 1 || ledger.environment !== environment || !Array.isArray(ledger.entries)) {
-  fail('Existing pilot ledger is invalid or belongs to another environment.');
-}
-const existingIndex = ledger.entries.findIndex(entry => entry.date === date);
-if (existingIndex >= 0 && !has('--replace-date')) fail(`Pilot ledger already contains ${date}.`);
 const entry = {
   date,
   checkedAt,
