@@ -1,5 +1,6 @@
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 
 const ROOT = process.cwd();
@@ -33,7 +34,9 @@ function readJsonIfExists(filePath) {
 function postJson(url, data, timeoutMs = 10_000) {
   return new Promise((resolve) => {
     const body = JSON.stringify(data);
-    const request = http.request(url, {
+    const target = new URL(url);
+    const client = target.protocol === 'https:' ? https : http;
+    const request = client.request(target, {
       method: 'POST',
       timeout: timeoutMs,
       headers: {
@@ -70,6 +73,7 @@ async function main() {
 
   for (const account of DEMO_ACCOUNTS) {
     const response = await postJson(`${APP_URL}/api/auth/login`, account);
+    const explicitRejection = [400, 401, 403].includes(Number(response.statusCode));
     results.push({
       username: account.username,
       accepted: response.statusCode === 200 && Boolean(response.json?.data?.token),
@@ -77,6 +81,8 @@ async function main() {
       businessAccess: response.statusCode === 200
         && Boolean(response.json?.data?.token)
         && response.json?.data?.user?.mustChangePassword !== true,
+      explicitRejection,
+      transportVerified: Number.isInteger(response.statusCode),
       statusCode: response.statusCode,
       message: response.json?.message || response.error || null,
     });
@@ -90,6 +96,14 @@ async function main() {
       level: 'P0',
       area: 'default-credentials',
       message: `default demo credentials can obtain API token in release mode: ${accepted.map(item => item.username).join(', ')}`,
+    });
+  }
+  const inconclusive = results.filter(item => !item.explicitRejection && !item.accepted);
+  if (strictMode && inconclusive.length > 0) {
+    findings.push({
+      level: 'P0',
+      area: 'default-credentials',
+      message: `default credential rejection was not proven for: ${inconclusive.map(item => `${item.username}(${item.statusCode || 'transport-error'})`).join(', ')}`,
     });
   }
   if (!strictMode && accepted.length > 0) {
