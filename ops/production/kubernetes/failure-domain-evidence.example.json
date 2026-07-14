@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "replace-with-change-ticket-or-drill-id",
+  "environment": "replace-with-real-staging-environment",
+  "observedAt": "2026-01-01T00:00:00Z",
+  "commitSha": "replace-with-40-character-git-sha",
+  "imageDigest": "sha256:replace-with-64-hex-digest",
+  "postgres": {
+    "automaticElection": false,
+    "failureDomains": [],
+    "writerBefore": "",
+    "writerAfter": "",
+    "rtoSeconds": 0,
+    "maxRtoSeconds": 60,
+    "postFailoverWriteReadback": false,
+    "oldPrimaryRejoinedAsReplica": false,
+    "backupRestoreReadback": false
+  },
+  "redis": {
+    "automaticElection": false,
+    "sentinelCount": 0,
+    "failureDomains": [],
+    "masterBefore": "",
+    "masterAfter": "",
+    "rtoSeconds": 0,
+    "maxRtoSeconds": 30,
+    "applicationWriteReadback": false,
+    "oldMasterRejoinedAsReplica": false
+  },
+  "objectStorage": {
+    "crossFailureDomainDurability": false,
+    "applicationReadFailover": false,
+    "writeReadback": false
+  },
+  "search": {
+    "applicationFallback": false,
+    "indexRecoveryReadback": false,
+    "backupRestoreReadback": false
+  },
+  "observability": {
+    "bothApplicationTargetsUp": false,
+    "alertsDelivered": false,
+    "failoverTracesPresent": false,
+    "droppedSpanRegression": false
+  },
+  "observation": {
+    "continuousHours": 0,
+    "stagedPilotDays": 0,
+    "zeroUnreconciledBusinessWrites": false,
+    "alertReviewCompleted": false
+  },
+  "ai": {
+    "externalEnabled": false,
+    "roleIsolationPassed": false,
+    "aggregateOnlyBoundaryPassed": false,
+    "dailyBudgetEnforced": false,
+    "circuitBreakerPassed": false,
+    "promptFreeTelemetryPassed": false,
+    "localFallbackPassed": false
+  },
+  "approvals": {
+    "platformOwner": "",
+    "databaseOwner": "",
+    "securityOwner": "",
+    "businessPilotOwner": ""
+  }
+}
