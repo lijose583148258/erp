@@ -165,5 +165,22 @@
     "salesBrowserReportSha256": "",
     "governedBrowserReportSha256": "",
     "contractReportSha256": ""
+  },
+  "securityDrill": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "cspPassed": false,
+    "csrfBoundaryPassed": false,
+    "mfaPassed": false,
+    "secretsPassed": false,
+    "distributedAuthPassed": false,
+    "dependencyAuditPassed": false,
+    "defaultCredentialsRejected": false,
+    "readinessReportSha256": "",
+    "defaultCredentialReportSha256": ""
   }
 }
