@@ -165,7 +165,7 @@ const makeId = prefix => `${prefix}-${evidenceId.replace(/[^A-Za-z0-9_.-]/g, '-'
     method: 'POST', headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       customerId: customer.body.data.id, title: `Formal storage drill ${runId}`,
-      totalAmount: 0, currency: 'CNY', fileUrl: `data:application/octet-stream;base64,${marker.toString('base64')}`,
+      totalAmount: 0, currency: 'CNY', fileUrl: `data:image/png;base64,${marker.toString('base64')}`,
     }),
   }, token));
   const fileUrl = String(contract.body?.data?.fileUrl || '');

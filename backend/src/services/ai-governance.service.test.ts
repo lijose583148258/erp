@@ -60,7 +60,7 @@ describe('governed AI gateway', () => {
   });
 
   it('allowlists aggregate context keys and strips injected page metadata', async () => {
-    const fetchMock = jest.fn(async () => new Response(JSON.stringify({
+    const fetchMock = jest.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
       choices: [{ message: { content: 'Use the approval workspace.' } }],
     }), { status: 200 }));
     global.fetch = fetchMock as typeof fetch;
