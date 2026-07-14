@@ -137,6 +137,8 @@ jq -e '
   and .haDrill.postgres.writerBefore == .postgres.writerBefore
   and .haDrill.postgres.writerAfter == .postgres.writerAfter
   and .haDrill.postgres.postFailoverWriteReadback == true
+  and (.haDrill.postgres.traceIds | length) >= 2
+  and (.haDrill.postgres.traceIds | all(type == "string" and test("^[0-9a-f]{32}$")))
 
   and .redis.automaticElection == true
   and .redis.sentinelCount >= 3
@@ -152,6 +154,8 @@ jq -e '
   and .haDrill.redis.masterBefore == .redis.masterBefore
   and .haDrill.redis.masterAfter == .redis.masterAfter
   and .haDrill.redis.applicationWriteReadback == true
+  and (.haDrill.redis.traceIds | length) >= 2
+  and (.haDrill.redis.traceIds | all(type == "string" and test("^[0-9a-f]{32}$")))
 
   and .objectStorage.crossFailureDomainDurability == true
   and .objectStorage.applicationReadFailover == true
