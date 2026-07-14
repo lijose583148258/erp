@@ -49,3 +49,18 @@ after recovery.
 Use a dedicated staging namespace and an admission policy to restrict Pod
 deletion. The ERP runner independently proves post-failover session creation
 and cross-instance readback, so a label change alone cannot pass the drill.
+
+
+## Contract test
+
+`adapter-contract.test.cjs` creates an isolated fake `kubectl` executable and
+simulates three zones, primary deletion, automatic role movement, and former
+primary rejoin for both adapters. It never connects to a cluster.
+
+```bash
+node ops/production/kubernetes/adapters/adapter-contract.test.cjs
+```
+
+GitHub Actions runs this contract without installing npm packages or starting
+containers. It validates adapter state transitions only; it does not replace
+the disruptive real-cluster drill or ERP application write/readback evidence.
