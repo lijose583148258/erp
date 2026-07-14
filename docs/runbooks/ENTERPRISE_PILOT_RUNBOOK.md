@@ -57,6 +57,21 @@ resource-growth check. Before unattended production, run the same gate for at
 least eight hours (`HA_SOAK_DURATION_MS=28800000`) and retain the report. A
 24-hour run is preferred after the first real data import.
 
+### Low-cost cloud observation
+
+`.github/workflows/enterprise-pilot-observation.yml` is manual-only and does
+not run on source pushes. Select a 30-300 minute segment and assign a stable
+label. Each run uploads the soak report, service state, logs, commit, and run ID
+for 30 days. Start with 30 minutes; spend longer runner time only after the
+short segment is green.
+
+GitHub-hosted segments reset the runner and service processes between runs.
+Their accumulated duration is useful pilot evidence, but it is not equivalent
+to one uninterrupted eight-hour or 24-hour lifetime. The unattended-production
+gate still requires a continuous run on an approved persistent runner or the
+real multi-node staging environment, followed by a node-loss and automatic
+writer-election drill. No paid model API is required for this observation.
+
 ## Incident Boundaries
 
 - Readiness policy: PostgreSQL and Redis are critical because the instance cannot safely authenticate or transact without them. Search, object storage, and telemetry are shared/degradable dependencies; their outage must alert and activate fallback behavior, but must not mark every application pod unready at once.
