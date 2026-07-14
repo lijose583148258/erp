@@ -6,9 +6,10 @@ evidence_file="${2:-}"
 continuous_report="${3:-}"
 pilot_ledger="${4:-}"
 daily_reports_dir="${5:-}"
+backup_report="${6:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json>" >&2
   exit 2
 fi
 
@@ -39,6 +40,10 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --evidence "${evidence_file}" \
   --output "${tmp_dir}/observation-verdict.json"
 jq -e '.status == "passed"' "${tmp_dir}/observation-verdict.json" >/dev/null
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-backup-restore-evidence.cjs" \
+  --report "${backup_report}" \
+  --evidence "${evidence_file}"
 
 jq -e '
   [.items[]
@@ -109,6 +114,20 @@ jq -e '
   and .postgres.postFailoverWriteReadback == true
   and .postgres.oldPrimaryRejoinedAsReplica == true
   and .postgres.backupRestoreReadback == true
+  and .backupDrill.status == "passed"
+  and .backupDrill.environment == .environment
+  and .backupDrill.changeTicket == .evidenceId
+  and .backupDrill.checksumVerified == true
+  and .backupDrill.encrypted == true
+  and .backupDrill.markerReadback == true
+  and .backupDrill.schemaCompatible == true
+  and .backupDrill.cleanupVerified == true
+  and .backupDrill.backupCompletionSeconds > 0
+  and .backupDrill.verifiedMarkerRpoSeconds == 0
+  and .backupDrill.restoreRtoSeconds > 0
+  and (.backupDrill.recoveryPointAt | type == "string" and length > 0)
+  and (.backupDrill.recoveredThroughAt | type == "string" and length > 0)
+  and (.backupDrill.reportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and .haDrill.postgres.automaticElection == true
   and .haDrill.postgres.writerBefore == .postgres.writerBefore
   and .haDrill.postgres.writerAfter == .postgres.writerAfter
