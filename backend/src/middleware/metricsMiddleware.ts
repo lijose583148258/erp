@@ -24,6 +24,7 @@ type RumVitalInput = {
 
 type CacheMetricAction = 'hit' | 'miss' | 'set' | 'delete' | 'error' | 'deserialize_error';
 type SearchMetricAction = 'fallback' | 'external' | 'empty' | 'invalid' | 'index' | 'index_error' | 'reindex';
+export type StorageMetricAction = 'write_success' | 'write_partial' | 'write_error' | 'read_primary' | 'read_fallback' | 'read_not_found' | 'read_error' | 'local_write' | 'local_read';
 export type AIMetricAction = 'external_success' | 'fallback_disabled' | 'fallback_unconfigured' | 'fallback_provider_error' | 'fallback_budget_unconfigured' | 'fallback_budget_store_unavailable' | 'fallback_budget_exhausted' | 'fallback_circuit_open' | 'refused_sensitive' | 'rate_limited';
 
 const startedAt = new Date();
@@ -31,6 +32,7 @@ const routeMetrics = new Map<string, RouteMetric>();
 const rumVitalMetrics = new Map<string, RumVitalMetric>();
 const cacheMetrics = new Map<string, number>();
 const searchMetrics = new Map<string, number>();
+const storageMetrics = new Map<string, number>();
 const aiMetrics = new Map<string, { count: number; totalDurationMs: number; maxDurationMs: number }>();
 const allowedRumVitalNames = new Set(['CLS', 'FCP', 'FID', 'INP', 'LCP', 'TTFB', 'LOAD', 'DCL']);
 const allowedRumVitalRatings = new Set(['good', 'needs-improvement', 'poor', 'unknown']);
@@ -82,6 +84,12 @@ export const recordSearchMetric = (action: SearchMetricAction, index: string) =>
   const normalizedIndex = String(index || 'unknown').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'unknown';
   const metricKey = `${action}|${normalizedIndex}`;
   searchMetrics.set(metricKey, (searchMetrics.get(metricKey) || 0) + 1);
+};
+
+export const recordStorageMetric = (action: StorageMetricAction, namespace: string) => {
+  const normalizedNamespace = String(namespace || 'unknown').replace(/[^\w.-]+/g, '_').slice(0, 60) || 'unknown';
+  const metricKey = `${action}|${normalizedNamespace}`;
+  storageMetrics.set(metricKey, (storageMetrics.get(metricKey) || 0) + 1);
 };
 
 export const recordAIMetric = (action: AIMetricAction, durationMs = 0) => {
@@ -201,6 +209,14 @@ export const renderPrometheusMetrics = () => {
     const [action, index] = key.split('|');
     const labels = `action="${escapeLabelValue(action)}",index="${escapeLabelValue(index)}"`;
     lines.push(`ailaoda_search_operations_total{${labels}} ${count}`);
+  }
+
+  lines.push('# HELP ailaoda_storage_operations_total Object storage operation count by bounded outcome and namespace.');
+  lines.push('# TYPE ailaoda_storage_operations_total counter');
+  for (const [key, count] of storageMetrics.entries()) {
+    const [action, namespace] = key.split('|');
+    const labels = `action="${escapeLabelValue(action)}",namespace="${escapeLabelValue(namespace)}"`;
+    lines.push(`ailaoda_storage_operations_total{${labels}} ${count}`);
   }
 
   lines.push('# HELP ailaoda_ai_operations_total Governed AI operation count by bounded outcome.');
