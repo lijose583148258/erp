@@ -50,7 +50,10 @@
     "continuousHours": 0,
     "stagedPilotDays": 0,
     "zeroUnreconciledBusinessWrites": false,
-    "alertReviewCompleted": false
+    "alertReviewCompleted": false,
+    "machineVerified": false,
+    "continuousReportSha256": "",
+    "pilotLedgerSha256": ""
   },
   "ai": {
     "externalEnabled": false,
