@@ -49,18 +49,24 @@ node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
   --evidence <evidence.json> \
   --bind
 
-bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
-  <namespace> <evidence.json> <continuous-report.json> \
-  <pilot-ledger.json> <daily-reports-dir> <backup-report.json> \
-  <resilience-reports-dir> <observability-report.json> \
-  <load-reconciliation-reports-dir> <ai-reports-dir> \
-  <security-reports-dir>
+node ops/production/kubernetes/run-enterprise-production-admission.cjs \
+  --bundle <admission-bundle.json> \
+  --check-only
+
+node ops/production/kubernetes/run-enterprise-production-admission.cjs \
+  --bundle <admission-bundle.json>
 ```
 
-The verifier reads Kubernetes state with `kubectl` and validates the evidence
-with `jq`. Evidence must come from the provider or operator drill and must not
-contain credentials, connection strings, customer records, prompts, or tokens.
-A passing local/single-node simulation is intentionally insufficient.
+Create the bundle from `admission-bundle.example.json`. Every artifact path
+must be relative, remain inside one evidence directory after symlink resolution,
+and match the release identity in the main evidence file. `--check-only`
+validates this structure without contacting Kubernetes.
+
+The runner then calls the low-level verifier, which reads Kubernetes state with
+`kubectl` and validates the evidence with `jq`. Evidence must come from the
+provider or operator drill and must not contain credentials, connection strings,
+customer records, prompts, or tokens. A passing local/single-node simulation is
+intentionally insufficient.
 
 
 ## Isolated PostgreSQL backup recovery drill
