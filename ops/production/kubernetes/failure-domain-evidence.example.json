@@ -67,7 +67,8 @@
     "secretManagerBacked": false,
     "redTeamPassed": false,
     "outputSafetyPassed": false,
-    "responseLimitPassed": false
+    "responseLimitPassed": false,
+    "redirectBoundaryPassed": false
   },
   "approvals": {
     "platformOwner": "",
