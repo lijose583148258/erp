@@ -9,7 +9,10 @@ Before applying it:
 1. Replace the image placeholder with an immutable digest built from
    `Dockerfile.postgres`.
 2. Create `ailaoda-runtime-secrets` and `ailaoda-metrics-token` through the
-   organization secret manager. Do not commit Secret objects or plaintext.
+   organization secret manager. When governed external AI is approved, also
+   create optional `ailaoda-ai-gateway` with the `api-key` key and populate
+   the endpoint, allowed-host, and model keys in `ailaoda-runtime-secrets`.
+   Do not commit Secret objects or plaintext.
 3. Point `DATABASE_URL` at a managed PostgreSQL writer endpoint or a
    Patroni/HAProxy writer VIP. Never list a fixed replica as the writer.
 4. Provide at least three Redis Sentinel addresses in different failure
@@ -100,3 +103,17 @@ orders. Secrets are read from files and are never written to the report. The
 runner refreshes an expired JWT, samples process memory and telemetry every
 minute, treats every final HTTP 4xx/5xx/429 or network failure as a failure, and
 writes the continuous report consumed by the observation evidence verifier.
+
+
+## Governed external AI deployment
+
+External AI remains disabled in the committed ConfigMap. The optional
+`ailaoda-ai-gateway` Secret is mounted read-only and the backend receives only
+its file path. If the Secret, endpoint, allowlist, or model is absent, the
+service remains local-only.
+
+Enabling external mode requires a reviewed ConfigMap change plus current
+role-isolation, aggregate-context, output-safety, response-limit, budget,
+circuit-breaker, red-team, secret-manager, and local-fallback evidence. Never
+place a model credential in frontend variables, browser storage, a ConfigMap,
+or a command argument.
