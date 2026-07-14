@@ -207,12 +207,22 @@ the measured saturation point for capacity planning.
 
 ## Continuous observation runner
 
-Run `run-continuous-observation.cjs` from an approved persistent runner that
-can reach both staging application instances. GitHub-hosted jobs are not used
-for an uninterrupted eight or 24-hour claim.
+Run `run-continuous-observation.cjs` from approved persistent cloud
+infrastructure that can reach both staging application instances.
+GitHub-hosted jobs are not used for an uninterrupted eight or 24-hour claim.
+
+Build `Dockerfile.pilot-observer`, publish it under an immutable digest, replace
+the observer image placeholder, and create the ConfigMap/PVC from
+`formal-pilot-observation-resources.example.yaml`. Create
+`ailaoda-pilot-observer` through the secret manager with `username` and
+`password` keys; reuse the existing `ailaoda-metrics-token` Secret. Then
+apply `formal-pilot-observation-job.yaml`. The Job has no service-account
+token, runs as non-root with a read-only root filesystem, and writes only the
+JSON report to `ailaoda-pilot-evidence`.
 
 Required environment:
 
+- `OBSERVATION_ENVIRONMENT` and `OBSERVATION_EVIDENCE_ID`
 - `OBSERVATION_APP_URLS`: at least two comma-separated HTTPS instance URLs
 - `OBSERVATION_USERNAME` and `OBSERVATION_PASSWORD_FILE`
 - `OBSERVATION_METRICS_TOKEN_FILE`
@@ -224,6 +234,10 @@ orders. Secrets are read from files and are never written to the report. The
 runner refreshes an expired JWT, samples process memory and telemetry every
 minute, treats every final HTTP 4xx/5xx/429 or network failure as a failure, and
 writes the continuous report consumed by the observation evidence verifier.
+The report is bound to the pilot environment, evidence ID, Git commit, and
+application image digest. Copy it from the evidence PVC only after the Job has
+completed successfully; a partial file from a running or terminated Job cannot
+pass the verifier.
 
 
 ## Governed external AI deployment
