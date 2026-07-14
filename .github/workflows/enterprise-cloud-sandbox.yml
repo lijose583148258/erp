@@ -295,6 +295,9 @@ jobs:
       - name: Reconcile concurrent business writes
         run: npm run audit:concurrency:consistency
 
+      - name: Exercise PostgreSQL logical backup restore
+        run: node ./scripts/cloud-postgres-backup-restore-audit-v1.cjs
+
       - name: Exercise PostgreSQL streaming promotion
         run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
 
