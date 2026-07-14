@@ -34,7 +34,7 @@ After deploying to the real staging topology, create an evidence document from
 `failure-domain-evidence.example.json` and run:
 
 ```bash
-./ops/production/kubernetes/verify-enterprise-production-admission.sh \
+bash ops/production/kubernetes/verify-enterprise-production-admission.sh \
   <namespace> <evidence.json>
 ```
 
