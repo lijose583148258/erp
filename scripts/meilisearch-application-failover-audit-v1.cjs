@@ -24,6 +24,7 @@ const report = {
   name: 'Meilisearch Application Failover Audit',
   version: '2.0',
   status: 'failed',
+  scope: 'controlled-single-host-sandbox',
   environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
   evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
   commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
