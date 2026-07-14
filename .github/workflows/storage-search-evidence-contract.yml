@@ -63,6 +63,10 @@ jobs:
           const checks = names => names.map(name => ({ name, status: 'passed' }));
           const objectReport = {
             ...base,
+            scope: 'formal-cross-domain',
+            providerAdapterVerified: true,
+            failureInjectionId: 'object-failure-1',
+            topologyObservedAt: base.startedAt,
             failureDomains: ['zone-a', 'zone-b'],
             failoverMs: 25,
             sha256: 'c'.repeat(64),
@@ -73,6 +77,10 @@ jobs:
           };
           const failoverReport = {
             ...base,
+            scope: 'formal-cross-domain',
+            providerAdapterVerified: true,
+            failureInjectionId: 'search-failure-1',
+            topologyObservedAt: base.startedAt,
             failureDomains: ['zone-a', 'zone-b'],
             failoverMs: 30,
             checks: checks([
@@ -81,7 +89,11 @@ jobs:
           };
           const restoreReport = {
             ...base,
+            scope: 'formal-isolated-provider-restore',
+            providerAdapterVerified: true,
             dumpUid: 'dump-1',
+            restoreResourceId: 'search-restore-1',
+            cleanupVerified: true,
             checks: checks([
               'primary-index-evidence', 'dump-task-created', 'dump-file-created',
               'dump-import-node-ready', 'restored-document-counts',
