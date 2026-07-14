@@ -289,6 +289,9 @@ jobs:
       - name: Exercise search and object storage failover
         run: node ./scripts/cloud-degradable-dependency-failover-audit-v1.cjs
 
+      - name: Reconcile concurrent business writes
+        run: npm run audit:concurrency:consistency
+
       - name: Exercise PostgreSQL streaming promotion
         run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
 
