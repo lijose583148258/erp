@@ -7,6 +7,7 @@ const { execFileSync } = require('child_process');
 
 const verifier = path.join(__dirname, 'verify-pilot-observation-evidence.cjs');
 const observationRunner = path.join(__dirname, 'run-continuous-observation.cjs');
+const dailyRecorder = path.join(__dirname, 'record-pilot-daily-review.cjs');
 const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ailaoda-observation-contract-'));
 const dailyDir = path.join(tempRoot, 'daily');
 fs.mkdirSync(dailyDir, { recursive: true });
@@ -35,40 +36,52 @@ try {
     },
   });
   const continuousHash = hash(continuousPath);
-  const entries = [];
+  const ledgerPath = path.join(tempRoot, 'ledger.json');
   for (let day = 0; day < 7; day += 1) {
     const checkedAt = new Date(firstCheckedMs + day * 86_400_000).toISOString();
     const date = checkedAt.slice(0, 10);
-    const reportFile = date + '.json';
-    const dailyPath = path.join(dailyDir, reportFile);
-    write(dailyPath, {
+    const sourceDir = path.join(tempRoot, 'sources', date);
+    fs.mkdirSync(sourceDir, { recursive: true });
+    const alertPath = path.join(sourceDir, 'alert.json');
+    const reconciliationPath = path.join(sourceDir, 'reconciliation.json');
+    const incidentPath = path.join(sourceDir, 'incident.json');
+    write(alertPath, {
       schemaVersion: 1,
-      date,
-      checkedAt,
       status: 'passed',
-      commitSha,
-      imageDigest,
-      continuousReportSha256: continuousHash,
-      alertReviewCompleted: true,
-      unreconciledBusinessWrites: 0,
-      serviceIncidentsResolved: true,
+      reviewedAt: checkedAt,
+      reviewer: 'platform-owner',
+      deliveryVerified: true,
+      unresolvedCriticalAlerts: 0,
     });
-    entries.push({
-      date,
-      checkedAt,
+    write(reconciliationPath, {
+      schemaVersion: 1,
       status: 'passed',
-      commitSha,
-      imageDigest,
-      reportFile,
-      dailyReportSha256: hash(dailyPath),
-      continuousReportSha256: continuousHash,
-      alertReviewCompleted: true,
+      checkedAt,
+      reviewer: 'finance-owner',
       unreconciledBusinessWrites: 0,
-      serviceIncidentsResolved: true,
     });
+    write(incidentPath, {
+      schemaVersion: 1,
+      status: 'passed',
+      checkedAt,
+      reviewer: 'pilot-owner',
+      unresolvedIncidents: 0,
+    });
+    execFileSync(process.execPath, [
+      dailyRecorder,
+      '--environment', 'formal-pilot',
+      '--commit-sha', commitSha,
+      '--image-digest', imageDigest,
+      '--date', date,
+      '--checked-at', checkedAt,
+      '--continuous-report', continuousPath,
+      '--alert-review', alertPath,
+      '--reconciliation', reconciliationPath,
+      '--incident-review', incidentPath,
+      '--daily-output', path.join(dailyDir, date + '.json'),
+      '--ledger', ledgerPath,
+    ], { stdio: 'pipe' });
   }
-  const ledgerPath = path.join(tempRoot, 'ledger.json');
-  write(ledgerPath, { schemaVersion: 1, environment: 'formal-pilot', entries });
   const evidencePath = path.join(tempRoot, 'evidence.json');
   write(evidencePath, {
     environment: 'formal-pilot',
