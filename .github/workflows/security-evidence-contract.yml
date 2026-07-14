@@ -61,7 +61,10 @@ jobs:
             name: 'Default Credential Release Gate', version: '2.0',
             status: 'passed', ...identity, generatedAt, strictMode: true,
             results: ['admin', 'manager', 'sales', 'warehouse', 'finance']
-              .map(username => ({ username, accepted: false, businessAccess: false })),
+              .map(username => ({
+                username, accepted: false, businessAccess: false,
+                transportVerified: true, explicitRejection: true, statusCode: 401,
+              })),
             findings: [],
           };
           const readinessPath = path.join(dir, 'security-production-readiness-v1.json');
@@ -79,9 +82,11 @@ jobs:
           const valid = run([]);
           if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid evidence was rejected.');
 
-          credentials.results[0].accepted = true;
+          credentials.results[0].transportVerified = false;
+          credentials.results[0].explicitRejection = false;
+          credentials.results[0].statusCode = null;
           fs.writeFileSync(credentialsPath, `${JSON.stringify(credentials, null, 2)}\n`);
           const tampered = run([]);
-          if (tampered.status === 0) throw new Error('Accepted default credentials were not rejected.');
+          if (tampered.status === 0) throw new Error('Inconclusive default credential probe was accepted.');
           console.log('Security evidence contract: PASSED');
           NODE
