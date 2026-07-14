@@ -82,6 +82,11 @@ jq -e '
   and ((now - (.observedAt | fromdateiso8601)) <= 604800)
   and (.commitSha | type == "string" and test("^[0-9a-f]{40}$"))
   and (.imageDigest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+  and .haDrill.status == "passed"
+  and .haDrill.environment == .environment
+  and .haDrill.changeTicket == .evidenceId
+  and (.haDrill.startedAt | type == "string" and length > 0)
+  and (.haDrill.finishedAt | type == "string" and length > 0)
 
   and .postgres.automaticElection == true
   and (.postgres.failureDomains | unique | length) >= 2
@@ -93,6 +98,10 @@ jq -e '
   and .postgres.postFailoverWriteReadback == true
   and .postgres.oldPrimaryRejoinedAsReplica == true
   and .postgres.backupRestoreReadback == true
+  and .haDrill.postgres.automaticElection == true
+  and .haDrill.postgres.writerBefore == .postgres.writerBefore
+  and .haDrill.postgres.writerAfter == .postgres.writerAfter
+  and .haDrill.postgres.postFailoverWriteReadback == true
 
   and .redis.automaticElection == true
   and .redis.sentinelCount >= 3
@@ -104,6 +113,10 @@ jq -e '
   and .redis.rtoSeconds <= .redis.maxRtoSeconds
   and .redis.applicationWriteReadback == true
   and .redis.oldMasterRejoinedAsReplica == true
+  and .haDrill.redis.automaticElection == true
+  and .haDrill.redis.masterBefore == .redis.masterBefore
+  and .haDrill.redis.masterAfter == .redis.masterAfter
+  and .haDrill.redis.applicationWriteReadback == true
 
   and .objectStorage.crossFailureDomainDurability == true
   and .objectStorage.applicationReadFailover == true
