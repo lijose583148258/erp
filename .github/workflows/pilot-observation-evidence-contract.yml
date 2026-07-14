@@ -9,6 +9,10 @@ on:
       - ".github/workflows/pilot-observation-evidence-contract.yml"
       - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
       - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
+      - "ops/production/kubernetes/run-continuous-observation.cjs"
+      - "ops/production/kubernetes/Dockerfile.pilot-observer"
+      - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
+      - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
 
 permissions:
   contents: read
@@ -29,4 +33,15 @@ jobs:
         run: node --version
 
       - name: Verify observation evidence binding
-        run: node ops/production/kubernetes/observation-evidence-contract.test.cjs
+        run: |
+          node --check ops/production/kubernetes/run-continuous-observation.cjs
+          node ops/production/kubernetes/observation-evidence-contract.test.cjs
+
+      - name: Verify persistent observer boundary
+        run: |
+          grep -q 'activeDeadlineSeconds: 90000' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'automountServiceAccountToken: false' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'OBSERVATION_DURATION_MS' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'persistentVolumeClaim:' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-observation-job.yaml
