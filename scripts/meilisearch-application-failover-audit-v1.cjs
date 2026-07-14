@@ -28,6 +28,7 @@ const report = {
   evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
   commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
   imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
+  failureDomains: String(process.env.SEARCH_FAILURE_DOMAINS || '').split(',').map(value => value.trim()).filter(Boolean),
   startedAt: new Date().toISOString(),
   checks: [],
 };
