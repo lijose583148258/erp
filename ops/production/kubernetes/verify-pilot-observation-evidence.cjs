@@ -39,6 +39,11 @@ const isoMs = (value, label) => {
 };
 const hex40 = value => /^[0-9a-f]{40}$/.test(String(value || ''));
 const digest = value => /^sha256:[0-9a-f]{64}$/.test(String(value || ''));
+const strictKeys = (value, allowed, label) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) fail(`${label} must be an object.`);
+  const unexpected = Object.keys(value).filter(key => !allowed.includes(key));
+  if (unexpected.length) fail(`${label} contains unsupported fields.`);
+};
 
 const continuous = readJson(continuousPath);
 const ledger = readJson(ledgerPath);
@@ -102,6 +107,43 @@ for (const entry of entries) {
   if (daily.commitSha !== entry.commitSha || daily.imageDigest !== entry.imageDigest) fail(`Daily release identity does not match ledger: ${date}.`);
   if (daily.alertReviewCompleted !== true || Number(daily.unreconciledBusinessWrites) !== 0 || daily.serviceIncidentsResolved !== true) {
     fail(`Daily report review or reconciliation failed: ${date}.`);
+  }
+  const supportSpecs = {
+    alertReview: {
+      allowed: ['schemaVersion', 'status', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'],
+      timestamp: 'reviewedAt',
+      valid: value => value.deliveryVerified === true && Number(value.unresolvedCriticalAlerts) === 0,
+    },
+    reconciliation: {
+      allowed: ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unreconciledBusinessWrites'],
+      timestamp: 'checkedAt',
+      valid: value => Number(value.unreconciledBusinessWrites) === 0,
+    },
+    incidentReview: {
+      allowed: ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unresolvedIncidents'],
+      timestamp: 'checkedAt',
+      valid: value => Number(value.unresolvedIncidents) === 0,
+    },
+  };
+  for (const [name, spec] of Object.entries(supportSpecs)) {
+    const reference = daily.support?.[name];
+    const supportFile = String(reference?.file || '');
+    if (!supportFile || path.basename(supportFile) !== supportFile || !/^[0-9a-f]{64}$/.test(String(reference?.sha256 || ''))) {
+      fail(`Daily support reference is invalid: ${date} ${name}.`);
+    }
+    const supportPath = path.resolve(dailyReportsDir, supportFile);
+    if (!supportPath.startsWith(dailyReportsDir + path.sep) || !fs.existsSync(supportPath) || !fs.statSync(supportPath).isFile()) {
+      fail(`Daily support file is missing: ${date} ${name}.`);
+    }
+    if (sha256(supportPath) !== reference.sha256) fail(`Daily support hash does not match: ${date} ${name}.`);
+    const support = readJson(supportPath);
+    strictKeys(support, spec.allowed, `Daily support ${date} ${name}`);
+    if (support.schemaVersion !== 1 || support.status !== 'passed' || String(support.reviewer || '').trim().length < 2 || !spec.valid(support)) {
+      fail(`Daily support review failed: ${date} ${name}.`);
+    }
+    if (new Date(isoMs(support[spec.timestamp], `daily support ${name}`)).toISOString().slice(0, 10) !== date) {
+      fail(`Daily support date does not match: ${date} ${name}.`);
+    }
   }
   if (entry.continuousReportSha256 && daily.continuousReportSha256 !== entry.continuousReportSha256) {
     fail(`Daily continuous-report reference does not match ledger: ${date}.`);
