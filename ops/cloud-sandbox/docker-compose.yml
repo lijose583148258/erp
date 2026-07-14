@@ -26,7 +26,7 @@ services:
 
   redis-replica:
     image: redis:7.4.2-alpine
-    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--replica-announce-ip", "redis-replica", "--replica-announce-port", "6379", "--appendonly", "yes"]
+    command: ["redis-server", "--replicaof", "redis-primary", "6379", "--appendonly", "yes"]
     ports:
       - "6381:6379"
     depends_on:
@@ -35,14 +35,11 @@ services:
 
   sentinel-1: &sentinel
     image: redis:7.4.2-alpine
-    hostname: sentinel-1
-    environment:
-      SENTINEL_ANNOUNCE_HOSTNAME: sentinel-1
     command:
       - sh
       - -ec
       - |
-        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel announce-hostnames yes\nsentinel announce-ip %s\nsentinel announce-port 26379\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 3000\nsentinel failover-timeout ailaoda-primary 15000\nsentinel parallel-syncs ailaoda-primary 1\n' "$$SENTINEL_ANNOUNCE_HOSTNAME" > /tmp/sentinel.conf
+        printf 'port 26379\nsentinel resolve-hostnames yes\nsentinel monitor ailaoda-primary redis-primary 6379 2\nsentinel down-after-milliseconds ailaoda-primary 3000\nsentinel failover-timeout ailaoda-primary 15000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
         exec redis-server /tmp/sentinel.conf --sentinel
     ports:
       - "26379:26379"
@@ -54,17 +51,11 @@ services:
 
   sentinel-2:
     <<: *sentinel
-    hostname: sentinel-2
-    environment:
-      SENTINEL_ANNOUNCE_HOSTNAME: sentinel-2
     ports:
       - "26380:26379"
 
   sentinel-3:
     <<: *sentinel
-    hostname: sentinel-3
-    environment:
-      SENTINEL_ANNOUNCE_HOSTNAME: sentinel-3
     ports:
       - "26381:26379"
 
