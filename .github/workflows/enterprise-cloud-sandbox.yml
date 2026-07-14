@@ -88,21 +88,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          generated_secret=""
           emit_secret() {
             local name="$1"
-            local value
-            value="$(openssl rand -hex 32)"
-            echo "::add-mask::${value}"
-            printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_ENV}"
-            printf '%s' "${value}"
+            generated_secret="$(openssl rand -hex 32)"
+            echo "::add-mask::${generated_secret}"
+            printf '%s=%s\n' "${name}" "${generated_secret}" >> "${GITHUB_ENV}"
           }
-          postgres_password="$(emit_secret POSTGRES_PASSWORD)"
-          emit_secret POSTGRES_REPLICATION_PASSWORD >/dev/null
-          emit_secret MINIO_ROOT_PASSWORD >/dev/null
-          emit_secret MEILI_MASTER_KEY >/dev/null
-          emit_secret GRAFANA_ADMIN_PASSWORD >/dev/null
-          emit_secret JWT_SECRET >/dev/null
-          emit_secret METRICS_BEARER_TOKEN >/dev/null
+          emit_secret POSTGRES_PASSWORD
+          postgres_password="${generated_secret}"
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
 
           audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           audit_password="$(openssl rand -hex 24)Aa1!"
