@@ -155,6 +155,8 @@ jq -e '
 
   and .ai.roleIsolationPassed == true
   and .ai.aggregateOnlyBoundaryPassed == true
+  and .ai.serverInputSafetyPassed == true
+  and .ai.contextAllowlistPassed == true
   and .ai.dailyBudgetEnforced == true
   and .ai.circuitBreakerPassed == true
   and .ai.promptFreeTelemetryPassed == true
