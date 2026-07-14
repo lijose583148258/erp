@@ -90,14 +90,22 @@ jobs:
 
       - name: Create isolated observation account
         working-directory: .
+        shell: bash
         run: |
+          set -euo pipefail
+          password_file="${RUNNER_TEMP}/observation-ui-password"
+          username="cloud_ha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          openssl rand -base64 36 | tr -d '\n' > "${password_file}"
+          chmod 600 "${password_file}"
+          echo "::add-mask::$(cat "${password_file}")"
+          {
+            echo "AUDIT_UI_USERNAME=${username}"
+            echo "AUDIT_UI_PASSWORD_FILE=${password_file}"
+            echo "AUDIT_UI_ROLE=admin"
+          } >> "${GITHUB_ENV}"
           node - <<'NODE'
           const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
-          ensureUiAuditUser({
-            username: 'cloud_ha_admin',
-            password: 'CloudHaAudit12345!',
-            role: 'admin',
-          }).catch(error => {
+          ensureUiAuditUser().catch(error => {
             console.error(error);
             process.exit(1);
           });
@@ -109,8 +117,6 @@ jobs:
         env:
           OBSERVATION_MINUTES: ${{ inputs.duration_minutes }}
           HA_SOAK_CONCURRENCY: "8"
-          AILAODA_LOAD_USERNAME: cloud_ha_admin
-          AILAODA_LOAD_PASSWORD: CloudHaAudit12345!
         run: |
           set -euo pipefail
           case "${OBSERVATION_MINUTES}" in
