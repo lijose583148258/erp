@@ -99,17 +99,17 @@ claim a production-wide PITR objective from a single drill.
 
 ## Storage and search resilience evidence
 
-Formal object-storage and search drills must set the release identity variables
-`ENTERPRISE_EVIDENCE_ENVIRONMENT`, `ENTERPRISE_EVIDENCE_ID`,
-`ENTERPRISE_EVIDENCE_COMMIT_SHA`, and
-`ENTERPRISE_EVIDENCE_IMAGE_DIGEST`. Also declare the independently verified
-endpoint domains through `OBJECT_STORAGE_FAILURE_DOMAINS` and
-`SEARCH_FAILURE_DOMAINS`.
+The process-stop MinIO and Meilisearch scripts are controlled single-host
+sandbox evidence only and cannot pass formal admission. Implement the
+provider/operator operations in `STORAGE_SEARCH_ADAPTER_PROTOCOL.md`. Failure
+domains must be observed from the provider control plane; environment labels
+alone are rejected.
 
-Audit credentials come from the pilot account environment or the dedicated
-password-file variables; fixed audit passwords are not present in source. After
-the object failover, search failover, and search dump-restore reports are
-created in one directory, bind them to the enterprise evidence:
+Formal reports carry the same release identity, a provider topology timestamp,
+failure injection identity, and `providerAdapterVerified:true`. Search recovery
+must create and remove an isolated provider restore target. After the object
+failover, search failover, and isolated search restore reports are created in
+one directory, bind them to enterprise evidence:
 
 ```bash
 node ops/production/kubernetes/verify-storage-search-evidence.cjs \
@@ -120,9 +120,10 @@ node ops/production/kubernetes/verify-storage-search-evidence.cjs \
 
 The formal admission command reruns the verifier without `--bind`, recomputes
 all three report hashes, and rejects stale reports, failed or missing checks,
-release-identity drift, insufficient failure domains, or any post-drill report
-modification. A two-container sandbox does not by itself prove physical
-cross-zone durability.
+release-identity drift, insufficient failure domains, missing provider adapter
+proof, a non-isolated restore, cleanup failure, or any post-drill report
+modification. A two-container or same-host process-stop sandbox is intentionally
+insufficient.
 
 ## Production alerting
 
