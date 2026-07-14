@@ -68,7 +68,9 @@
     "redTeamPassed": false,
     "outputSafetyPassed": false,
     "responseLimitPassed": false,
-    "redirectBoundaryPassed": false
+    "redirectBoundaryPassed": false,
+    "serverInputSafetyPassed": false,
+    "contextAllowlistPassed": false
   },
   "approvals": {
     "platformOwner": "",
