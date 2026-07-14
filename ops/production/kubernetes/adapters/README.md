@@ -24,3 +24,28 @@ CloudNativePG must elect the replacement itself.
 Use it as the `--postgres-adapter` argument documented in
 `HA_ADAPTER_PROTOCOL.md`. The adapter stores only the synthetic primary Pod
 identifier, zone, and injection timestamp; it stores no database credentials.
+
+
+## Redis Kubernetes adapter
+
+`redis-kubernetes-ha-adapter.cjs` works with an operator or StatefulSet that
+dynamically labels the current master and replicas. It deliberately does not
+receive a Redis password or invoke `SENTINEL FAILOVER`.
+
+Configure:
+
+- `REDIS_K8S_NAMESPACE`
+- `REDIS_DATA_SELECTOR` for every Redis data Pod
+- `REDIS_MASTER_SELECTOR` for the operator-maintained current-master label
+- `REDIS_REPLICA_SELECTOR` for the operator-maintained replica label
+- `REDIS_SENTINEL_SELECTOR` for Sentinel voter Pods
+
+The selectors must reflect runtime roles; static chart labels are not valid
+evidence. The adapter requires at least two Ready data Pods across two zones and
+three Ready Sentinel voters across three zones. Data Pod identities must be
+stable so the deleted former master can be proven Ready with the replica label
+after recovery.
+
+Use a dedicated staging namespace and an admission policy to restrict Pod
+deletion. The ERP runner independently proves post-failover session creation
+and cross-instance readback, so a label change alone cannot pass the drill.
