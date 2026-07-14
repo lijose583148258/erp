@@ -41,6 +41,14 @@ const step = (name, command, commandArgs, env = {}) => {
   console.log(`[passed] ${name}`);
 };
 const npmStep = (name, script, env) => step(name, process.execPath, [npmCli, 'run', script], env);
+const requiredSecret = (environmentName, fileEnvironmentName) => {
+  const file = String(process.env[fileEnvironmentName] || '').trim();
+  const value = file
+    ? fs.readFileSync(path.resolve(file), 'utf8').trim()
+    : String(process.env[environmentName] || '').trim();
+  if (!value) throw new Error(`Missing ${environmentName} or ${fileEnvironmentName}.`);
+  return value;
+};
 
 async function ensureRuntimeReady() {
   for (const port of [5006, 5008]) {
@@ -56,18 +64,22 @@ async function main() {
   }
   await ensureRuntimeReady();
   const pgPassword = fs.readFileSync(path.join(runtimeRoot, '.pg-password.txt'), 'utf8').trim();
+  const adminPassword = requiredSecret('PILOT_AUDIT_ADMIN_PASSWORD', 'PILOT_AUDIT_ADMIN_PASSWORD_FILE');
+  const salesPassword = requiredSecret('PILOT_AUDIT_SALES_PASSWORD', 'PILOT_AUDIT_SALES_PASSWORD_FILE');
+  const adminUsername = String(process.env.PILOT_AUDIT_ADMIN_USERNAME || 'enterprise_pilot_admin').trim();
+  const salesUsername = String(process.env.PILOT_AUDIT_SALES_USERNAME || 'enterprise_pilot_sales').trim();
   const commonEnv = {
     AUDIT_PRISMA_PROVIDER: 'postgresql',
     AUDIT_DATABASE_URL: `postgresql://ailaoda:${encodeURIComponent(pgPassword)}@127.0.0.1:55432/ailaoda?schema=public`,
     AUDIT_PRISMA_CLIENT_PATH: 'output/postgres-server-artifact/backend/prisma/generated-client',
     APP_URL: 'http://127.0.0.1:5006/',
     HA_SOAK_DURATION_MS: String(soakDurationMs),
-    PILOT_AUDIT_ADMIN_USERNAME: 'enterprise_pilot_admin',
-    PILOT_AUDIT_ADMIN_PASSWORD: 'EnterprisePilotAdmin12345!',
-    PILOT_AUDIT_SALES_USERNAME: 'enterprise_pilot_sales',
-    PILOT_AUDIT_SALES_PASSWORD: 'EnterprisePilotSales12345!',
-    AILAODA_LOAD_USERNAME: 'enterprise_pilot_admin',
-    AILAODA_LOAD_PASSWORD: 'EnterprisePilotAdmin12345!',
+    PILOT_AUDIT_ADMIN_USERNAME: adminUsername,
+    PILOT_AUDIT_ADMIN_PASSWORD: adminPassword,
+    PILOT_AUDIT_SALES_USERNAME: salesUsername,
+    PILOT_AUDIT_SALES_PASSWORD: salesPassword,
+    AILAODA_LOAD_USERNAME: adminUsername,
+    AILAODA_LOAD_PASSWORD: adminPassword,
   };
 
   step('prepare-audit-users', process.execPath, ['scripts/prepare-enterprise-pilot-audit-users-v1.cjs'], commonEnv);
