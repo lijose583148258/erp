@@ -80,7 +80,6 @@ jobs:
           NODE
 
       - name: Upload governed AI attestation
-        working-directory: .
         uses: actions/upload-artifact@v4
         with:
           name: ai-governance-contract-attestation
