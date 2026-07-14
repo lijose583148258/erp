@@ -89,13 +89,16 @@ async function main() {
   const customerId = createdBody?.data?.id;
   check('write-succeeds-after-promotion', create.status === 201 && Boolean(customerId), { status: create.status, customerId });
 
-  const read = await fetch(`${instances[1]}/api/v1/customers?page=1&pageSize=25&search=${encodeURIComponent(customerName)}`, {
+  const read = await fetch(`${instances[1]}/api/v1/customers/${customerId}`, {
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(8000),
   });
   const readBody = await read.json();
-  const rows = Array.isArray(readBody?.data) ? readBody.data : (readBody?.data?.items || []);
-  check('cross-instance-read-after-promotion', read.ok && rows.some(row => String(row.id) === String(customerId)), { status: read.status, rows: rows.length });
+  const readCustomer = readBody?.data;
+  check('cross-instance-read-after-promotion', read.ok && String(readCustomer?.id) === String(customerId), {
+    status: read.status,
+    customerId: readCustomer?.id || null,
+  });
   report.status = 'passed';
 }
 
