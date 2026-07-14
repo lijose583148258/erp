@@ -10,9 +10,10 @@ backup_report="${6:-}"
 resilience_reports_dir="${7:-}"
 observability_report="${8:-}"
 load_reconciliation_reports_dir="${9:-}"
+ai_reports_dir="${10:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir>" >&2
   exit 2
 fi
 
@@ -58,6 +59,10 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-observability-evidence.cjs" \
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-load-reconciliation-evidence.cjs" \
   --reports-dir "${load_reconciliation_reports_dir}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-ai-evidence.cjs" \
+  --reports-dir "${ai_reports_dir}" \
   --evidence "${evidence_file}"
 
 jq -e '
@@ -236,6 +241,18 @@ jq -e '
   and .ai.outputSafetyPassed == true
   and .ai.responseLimitPassed == true
   and .ai.localFallbackPassed == true
+  and .aiDrill.status == "passed"
+  and .aiDrill.environment == .environment
+  and .aiDrill.evidenceId == .evidenceId
+  and .aiDrill.commitSha == .commitSha
+  and .aiDrill.imageDigest == .imageDigest
+  and .aiDrill.externalEnabled == .ai.externalEnabled
+  and .aiDrill.paidModelCalls == 0
+  and (.aiDrill.runtimeReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.aiDrill.adminBrowserReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.aiDrill.salesBrowserReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.aiDrill.governedBrowserReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.aiDrill.contractReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (
     .ai.externalEnabled == false
     or (
