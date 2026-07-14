@@ -47,6 +47,9 @@ if (continuous.status !== 'passed') fail('Continuous observation report is not p
 const startedMs = isoMs(continuous.startedAt, 'continuous startedAt');
 const finishedMs = isoMs(continuous.finishedAt, 'continuous finishedAt');
 const elapsedMs = finishedMs - startedMs;
+const nowMs = Date.now();
+if (finishedMs > nowMs + 300_000) fail('Continuous observation finishedAt is in the future.');
+if (nowMs - finishedMs > 8 * 86_400_000) fail('Continuous observation report is older than eight days.');
 const declaredDurationMs = Number(continuous.durationMs);
 if (elapsedMs < 28_800_000) fail('Continuous observation elapsed time is below eight hours.');
 if (!Number.isFinite(declaredDurationMs) || declaredDurationMs < 28_800_000) fail('Declared continuous duration is below eight hours.');
@@ -74,6 +77,7 @@ const entries = [...ledger.entries].sort((a, b) => isoMs(a.checkedAt, 'ledger ch
 const dates = new Set();
 for (const entry of entries) {
   const checkedMs = isoMs(entry.checkedAt, 'ledger checkedAt');
+  if (checkedMs > nowMs + 300_000) fail('Pilot ledger contains a future daily report.');
   const date = new Date(checkedMs).toISOString().slice(0, 10);
   if (entry.date !== date) fail(`Ledger entry date does not match checkedAt: ${entry.date || 'missing'}.`);
   if (dates.has(date)) fail(`Pilot ledger contains duplicate UTC date: ${date}.`);
@@ -103,8 +107,17 @@ for (const entry of entries) {
     fail(`Daily continuous-report reference does not match ledger: ${date}.`);
   }
 }
-const spanMs = isoMs(entries.at(-1).checkedAt, 'last ledger checkedAt') - isoMs(entries[0].checkedAt, 'first ledger checkedAt');
+const firstCheckedMs = isoMs(entries[0].checkedAt, 'first ledger checkedAt');
+const lastCheckedMs = isoMs(entries.at(-1).checkedAt, 'last ledger checkedAt');
+const spanMs = lastCheckedMs - firstCheckedMs;
 if (spanMs < 6 * 86_400_000) fail('Pilot ledger does not span at least seven UTC dates.');
+if (nowMs - lastCheckedMs > 36 * 3_600_000) fail('Latest pilot daily report is older than 36 hours.');
+const orderedDates = [...dates].sort();
+for (let index = 1; index < orderedDates.length; index += 1) {
+  const previous = Date.parse(orderedDates[index - 1] + 'T00:00:00Z');
+  const current = Date.parse(orderedDates[index] + 'T00:00:00Z');
+  if (current - previous !== 86_400_000) fail('Pilot ledger UTC dates are not consecutive.');
+}
 const continuousHash = sha256(continuousPath);
 const ledgerHash = sha256(ledgerPath);
 if (!entries.some(entry => entry.continuousReportSha256 === continuousHash)) {
