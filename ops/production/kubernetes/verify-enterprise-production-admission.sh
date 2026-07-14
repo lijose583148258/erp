@@ -165,6 +165,7 @@ jq -e '
     .ai.externalEnabled == false
     or (
       .ai.externalGatewayAllowlistPassed == true
+      and .ai.redirectBoundaryPassed == true
       and .ai.secretManagerBacked == true
       and .ai.redTeamPassed == true
     )
