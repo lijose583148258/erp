@@ -75,9 +75,11 @@ jq -e '
 
 jq -e '
   .schemaVersion == 1
-  and (.evidenceId | type == "string" and length >= 8 and startswith("replace-") | not)
-  and (.environment | type == "string" and length >= 3 and startswith("replace-") | not)
-  and (.observedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+  and (.evidenceId | (type == "string" and length >= 8 and (startswith("replace-") | not)))
+  and (.environment | (type == "string" and length >= 3 and (startswith("replace-") | not)))
+  and (.observedAt | (type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T")))
+  and ((now - (.observedAt | fromdateiso8601)) >= 0)
+  and ((now - (.observedAt | fromdateiso8601)) <= 604800)
   and (.commitSha | type == "string" and test("^[0-9a-f]{40}$"))
   and (.imageDigest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
 
@@ -127,6 +129,14 @@ jq -e '
   and .ai.circuitBreakerPassed == true
   and .ai.promptFreeTelemetryPassed == true
   and .ai.localFallbackPassed == true
+  and (
+    .ai.externalEnabled == false
+    or (
+      .ai.externalGatewayAllowlistPassed == true
+      and .ai.secretManagerBacked == true
+      and .ai.redTeamPassed == true
+    )
+  )
 
   and (.approvals.platformOwner | length) >= 2
   and (.approvals.databaseOwner | length) >= 2
