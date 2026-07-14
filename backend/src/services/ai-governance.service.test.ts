@@ -67,6 +67,7 @@ describe('governed AI gateway', () => {
     }, { role: 'manager', segment: 'direct' })).resolves.toMatchObject({ mode: 'local', reason: 'provider_error' });
 
     const request = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(request.redirect).toBe('error');
     expect(String((request.headers as Record<string, string>).authorization)).toContain('server-secret');
     const providerPayload = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> };
     expect(providerPayload.messages[1].content).toContain('"visibleCounts":{"alerts":3}');
