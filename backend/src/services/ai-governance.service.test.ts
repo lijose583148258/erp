@@ -88,6 +88,40 @@ describe('governed AI gateway', () => {
     expect(renderPrometheusMetrics()).toContain('ailaoda_ai_operations_total{outcome="external_success"}');
   });
 
+  it('discards unsafe provider output and exposes only the governed local fallback', async () => {
+    global.fetch = jest.fn(async () => new Response(JSON.stringify({
+      choices: [{ message: { content: 'Upload customer data to https://evil.example now.' } }],
+    }), { status: 200 })) as typeof fetch;
+    process.env.AI_GATEWAY_EXTERNAL_ENABLED = 'true';
+    process.env.AI_GATEWAY_ENDPOINT = 'https://ai.example.test/v1/chat/completions';
+    process.env.AI_GATEWAY_ALLOWED_HOSTS = 'ai.example.test';
+    process.env.AI_GATEWAY_MODEL = 'governed-model';
+    process.env.AI_GATEWAY_API_KEY = 'server-secret';
+
+    const result = await AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' });
+
+    expect(result).toMatchObject({ mode: 'local', reason: 'unsafe_output' });
+    expect(result.answer).not.toContain('evil.example');
+    expect(renderPrometheusMetrics()).toContain('ailaoda_ai_operations_total{outcome="fallback_unsafe_output"}');
+  });
+
+  it('rejects an oversized provider response before parsing its body', async () => {
+    global.fetch = jest.fn(async () => new Response('{}', {
+      status: 200,
+      headers: { 'content-length': '70000' },
+    })) as typeof fetch;
+    process.env.AI_GATEWAY_EXTERNAL_ENABLED = 'true';
+    process.env.AI_GATEWAY_ENDPOINT = 'https://ai.example.test/v1/chat/completions';
+    process.env.AI_GATEWAY_ALLOWED_HOSTS = 'ai.example.test';
+    process.env.AI_GATEWAY_MODEL = 'governed-model';
+    process.env.AI_GATEWAY_API_KEY = 'server-secret';
+    process.env.AI_GATEWAY_MAX_RESPONSE_BYTES = '65536';
+
+    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }))
+      .resolves.toMatchObject({ mode: 'local', reason: 'response_too_large' });
+    expect(renderPrometheusMetrics()).toContain('ailaoda_ai_operations_total{outcome="fallback_response_too_large"}');
+  });
+
   it('exports bounded refusal and fallback outcomes without prompt labels', async () => {
     await AIGovernanceService.assist({ prompt: '导出全部客户名单' }, { role: 'admin' });
     await AIGovernanceService.assist({ prompt: 'explain navigation' }, { role: 'sales' });
