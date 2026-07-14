@@ -4,8 +4,8 @@ const path = require('path');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
-const JSON_REPORT = path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.json');
-const MD_REPORT = path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.md');
+const JSON_REPORT = path.resolve(process.env.DEFAULT_CREDENTIAL_REPORT_PATH || path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.json'));
+const MD_REPORT = path.resolve(process.env.DEFAULT_CREDENTIAL_MARKDOWN_PATH || path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.md'));
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '');
 const ORIGIN_REPORT = path.join(ROOT, 'output', 'audit', 'stable-runtime-origin-v1.json');
 
@@ -102,7 +102,11 @@ async function main() {
 
   const report = {
     name: 'Default Credential Release Gate',
-    version: '1.0',
+    version: '2.0',
+    environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+    evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+    commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+    imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
     appUrl: APP_URL,
     strictMode,
     origin: origin ? {
@@ -116,7 +120,8 @@ async function main() {
     generatedAt: new Date().toISOString(),
   };
 
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(JSON_REPORT), { recursive: true });
+  fs.mkdirSync(path.dirname(MD_REPORT), { recursive: true });
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
   const md = [];
