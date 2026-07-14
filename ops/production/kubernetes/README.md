@@ -337,3 +337,36 @@ The recorder canonicalizes and hashes the support reports, writes the daily
 report atomically, and appends one immutable ledger entry. Replacing an existing
 date requires explicit `--replace-date`; the final verifier still recomputes
 every hash and rejects stale, missing, duplicate, or nonconsecutive days.
+
+## Read-only formal pilot preflight
+
+Before any disruptive provider drill, run the read-only preflight with the same
+release identity and two distinct HTTPS application targets. It checks
+provider-observed PostgreSQL, Redis Sentinel, object-storage, and search failure
+domains; both application instances; cross-instance session readback; direct
+provider search readback; executable backup and observability adapters; and
+private password-file permissions. It does not inject failure, create a backup,
+send an alert, or call an external AI provider.
+
+```bash
+FORMAL_PILOT_PREFLIGHT_ENVIRONMENT=<formal-pilot> \
+FORMAL_PILOT_PREFLIGHT_EVIDENCE_ID=<same-as-evidence-id> \
+FORMAL_PILOT_PREFLIGHT_COMMIT_SHA=<40-character-git-sha> \
+FORMAL_PILOT_PREFLIGHT_IMAGE_DIGEST=<sha256:digest> \
+FORMAL_PILOT_PREFLIGHT_APP_URLS=<https-app-a>,<https-app-b> \
+FORMAL_PILOT_PREFLIGHT_USERNAME=<least-privilege-audit-user> \
+FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE=<private-secret-file> \
+node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+  --evidence <evidence.json> \
+  --report <preflight-report.json> \
+  --postgres-adapter <postgres-adapter> \
+  --redis-adapter <redis-adapter> \
+  --object-adapter <object-adapter> \
+  --search-adapter <search-adapter> \
+  --backup-adapter <backup-adapter> \
+  --observability-adapter <observability-adapter>
+```
+
+A passing preflight is only permission and topology readiness. It is not
+failover, restore, alert-delivery, load, observation, or production-admission
+evidence.

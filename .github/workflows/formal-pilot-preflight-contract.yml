@@ -1,0 +1,108 @@
+name: Formal pilot preflight contract
+
+on:
+  pull_request:
+    paths:
+      - 'ops/production/kubernetes/run-formal-pilot-preflight.cjs'
+      - '.github/workflows/formal-pilot-preflight-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-pilot-preflight-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise read-only preflight contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check ops/production/kubernetes/run-formal-pilot-preflight.cjs
+          root="$(mktemp -d)"
+          trap 'kill "${server_pid:-}" 2>/dev/null || true; rm -rf "$root"' EXIT
+          cat > "$root/adapter" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          kind="$(basename "$0")"
+          operation="${1:-}"
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          case "$kind:$operation" in
+            postgres:topology) printf '{"failureDomains":["zone-a","zone-b"],"observedAt":"%s"}\n' "$now" ;;
+            postgres:discover) printf '{"id":"pg-a","failureDomain":"zone-a"}\n' ;;
+            redis:topology) printf '{"failureDomains":["zone-a","zone-b","zone-c"],"sentinelCount":3,"observedAt":"%s"}\n' "$now" ;;
+            redis:discover) printf '{"id":"redis-a","failureDomain":"zone-a"}\n' ;;
+            object:topology) printf '{"failureDomains":["zone-a","zone-b"],"observedAt":"%s"}\n' "$now" ;;
+            object:discover) printf '{"id":"object-a","failureDomain":"zone-a"}\n' ;;
+            search:topology) printf '{"failureDomains":["zone-a","zone-b"],"observedAt":"%s"}\n' "$now" ;;
+            search:discover) printf '{"id":"search-a","failureDomain":"zone-a"}\n' ;;
+            search:verify-live-query) printf '{"found":true,"endpointId":"search-a","failureDomain":"zone-a"}\n' ;;
+            *) printf '{}\n' ;;
+          esac
+          SH
+          chmod 700 "$root/adapter"
+          for name in postgres redis object search backup observability; do
+            cp "$root/adapter" "$root/$name"
+            chmod 700 "$root/$name"
+          done
+          cat > "$root/server.cjs" <<'NODE'
+          const http = require('http');
+          const respond = (res, status, body) => {
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(body));
+          };
+          for (const port of [18081, 18082]) {
+            http.createServer((req, res) => {
+              if (req.url === '/health') return respond(res, 200, {
+                database: 'ok', telemetry: { serviceInstanceId: `instance-${port}` },
+              });
+              if (req.url === '/api/v1/ready') return respond(res, 200, { database: 'ok' });
+              if (req.url === '/api/v1/auth/login' && req.method === 'POST') {
+                return respond(res, 200, { data: { token: 'contract-token' } });
+              }
+              if (req.url === '/api/v1/auth/me') return respond(res, 200, { data: { id: 'audit-user' } });
+              if (req.url.startsWith('/api/v1/orders')) return respond(res, 200, { data: [{ id: 'order-1' }] });
+              return respond(res, 404, {});
+            }).listen(port, '127.0.0.1');
+          }
+          NODE
+          node "$root/server.cjs" &
+          server_pid=$!
+          sleep 1
+          printf '%s' 'random-contract-password' > "$root/password"
+          chmod 600 "$root/password"
+          cat > "$root/evidence.json" <<JSON
+          {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
+          JSON
+          export FORMAL_PILOT_PREFLIGHT_ENVIRONMENT=formal-pilot
+          export FORMAL_PILOT_PREFLIGHT_EVIDENCE_ID=CHG-12345
+          export FORMAL_PILOT_PREFLIGHT_COMMIT_SHA="${GITHUB_SHA}"
+          export FORMAL_PILOT_PREFLIGHT_IMAGE_DIGEST="sha256:$(printf 'b%.0s' {1..64})"
+          export FORMAL_PILOT_PREFLIGHT_APP_URLS=http://127.0.0.1:18081,http://127.0.0.1:18082
+          export FORMAL_PILOT_PREFLIGHT_USERNAME=audit-user
+          export FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE="$root/password"
+          node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+            --evidence "$root/evidence.json" \
+            --report "$root/report.json" \
+            --postgres-adapter "$root/postgres" \
+            --redis-adapter "$root/redis" \
+            --object-adapter "$root/object" \
+            --search-adapter "$root/search" \
+            --backup-adapter "$root/backup" \
+            --observability-adapter "$root/observability"
+          node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
+          chmod 644 "$root/password"
+          if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+            --evidence "$root/evidence.json" --report "$root/rejected.json" \
+            --postgres-adapter "$root/postgres" --redis-adapter "$root/redis" \
+            --object-adapter "$root/object" --search-adapter "$root/search" \
+            --backup-adapter "$root/backup" --observability-adapter "$root/observability"; then
+            echo "Insecure password permissions were accepted" >&2
+            exit 1
+          fi
