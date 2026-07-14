@@ -164,6 +164,7 @@ export class AIGovernanceService {
     try {
       const response = await fetch(status.endpoint, {
         method: 'POST',
+        redirect: 'error',
         headers: { 'content-type': 'application/json', authorization: `Bearer ${apiKey}` },
         signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
