@@ -2,11 +2,22 @@ const fs = require('fs');
 const path = require('path');
 
 const ORIGIN_REPORT = path.resolve(process.cwd(), 'output', 'audit', 'stable-runtime-origin-v1.json');
-const DEFAULT_ACCOUNT = {
-  username: process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin',
-  password: process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!',
-  role: process.env.AUDIT_UI_ROLE || 'admin',
-};
+function resolveDefaultAccount() {
+  const username = String(process.env.AUDIT_UI_USERNAME || '').trim();
+  const passwordFile = String(process.env.AUDIT_UI_PASSWORD_FILE || '').trim();
+  const password = passwordFile
+    ? fs.readFileSync(path.resolve(passwordFile), 'utf8').trim()
+    : String(process.env.AUDIT_UI_PASSWORD || '').trim();
+  const role = String(process.env.AUDIT_UI_ROLE || 'admin').trim();
+
+  if (!username || !password) {
+    throw new Error('UI audit credentials are required through environment or a private password file.');
+  }
+  if (!['admin', 'manager', 'sales', 'finance', 'warehouse'].includes(role)) {
+    throw new Error(`Unsupported UI audit role: ${role}`);
+  }
+  return { username, password, role };
+}
 
 function prepareDatabaseUrl() {
   if (process.env.DATABASE_URL) return;
@@ -42,27 +53,31 @@ function createAuditPrismaClient() {
   return new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 }
 
-async function ensureUiAuditUser(account = DEFAULT_ACCOUNT) {
+async function ensureUiAuditUser(account) {
+  const resolvedAccount = account || resolveDefaultAccount();
+  if (!resolvedAccount.username || !resolvedAccount.password || !resolvedAccount.role) {
+    throw new Error('UI audit account is incomplete.');
+  }
   const bcrypt = require('../../backend/node_modules/bcryptjs');
   const prisma = createAuditPrismaClient();
-  const passwordHash = await bcrypt.hash(account.password, 12);
+  const passwordHash = await bcrypt.hash(resolvedAccount.password, 12);
   try {
     await prisma.user.upsert({
-      where: { username: account.username },
+      where: { username: resolvedAccount.username },
       update: {
         passwordHash,
-        role: account.role,
+        role: resolvedAccount.role,
         segment: 'mixed',
-        email: `${account.username}@local.test`,
+        email: `${resolvedAccount.username}@local.test`,
         isActive: true,
         mustChangePassword: false,
       },
       create: {
-        username: account.username,
+        username: resolvedAccount.username,
         passwordHash,
-        role: account.role,
+        role: resolvedAccount.role,
         segment: 'mixed',
-        email: `${account.username}@local.test`,
+        email: `${resolvedAccount.username}@local.test`,
         isActive: true,
         mustChangePassword: false,
       },
@@ -70,11 +85,11 @@ async function ensureUiAuditUser(account = DEFAULT_ACCOUNT) {
   } finally {
     await prisma.$disconnect();
   }
-  return account;
+  return resolvedAccount;
 }
 
 async function loginUiAuditUser(page, appUrl, options = {}) {
-  const account = await ensureUiAuditUser(options.account || DEFAULT_ACCOUNT);
+  const account = await ensureUiAuditUser(options.account);
   const response = await page.request.post(`${appUrl}api/auth/login`, {
     data: { username: account.username, password: account.password },
   });

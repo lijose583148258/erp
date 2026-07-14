@@ -212,6 +212,9 @@ jobs:
           {
             printf 'CLOUD_AUDIT_USERNAME=%s\n' "${audit_username}"
             printf 'CLOUD_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AUDIT_UI_USERNAME=%s\n' "${audit_username}"
+            printf 'AUDIT_UI_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AUDIT_UI_ROLE=admin\n'
             printf 'AI_RUNTIME_AUDIT_USERNAME=%s\n' "${audit_username}"
             printf 'AI_RUNTIME_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
             printf 'AILAODA_LOAD_USERNAME=%s\n' "${audit_username}"

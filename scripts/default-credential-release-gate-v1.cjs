@@ -9,6 +9,7 @@ const JSON_REPORT = path.resolve(process.env.DEFAULT_CREDENTIAL_REPORT_PATH || p
 const MD_REPORT = path.resolve(process.env.DEFAULT_CREDENTIAL_MARKDOWN_PATH || path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.md'));
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '');
 const ORIGIN_REPORT = path.join(ROOT, 'output', 'audit', 'stable-runtime-origin-v1.json');
+const UI_AUDIT_HELPER = path.join(ROOT, 'scripts', 'lib', 'ui-audit-user.cjs');
 
 const DEMO_ACCOUNTS = [
   { username: 'admin', password: 'admin123' },
@@ -91,6 +92,22 @@ async function main() {
   const accepted = results.filter(item => item.accepted);
   const businessAccepted = results.filter(item => item.businessAccess);
   const findings = [];
+  const auditHelperSource = fs.readFileSync(UI_AUDIT_HELPER, 'utf8');
+  const prohibitedAuditCredentialPatterns = [
+    { pattern: /AuditSmoke12345!/, label: 'fixed UI audit password' },
+    { pattern: /AUDIT_UI_USERNAME\\s*\\|\\|\\s*['"][^'"]+['"]/, label: 'fallback UI audit username' },
+    { pattern: /AUDIT_UI_PASSWORD\\s*\\|\\|\\s*['"][^'"]+['"]/, label: 'fallback UI audit password' },
+  ];
+  const auditCredentialViolations = prohibitedAuditCredentialPatterns
+    .filter(item => item.pattern.test(auditHelperSource))
+    .map(item => item.label);
+  if (auditCredentialViolations.length > 0) {
+    findings.push({
+      level: 'P0',
+      area: 'audit-default-credentials',
+      message: `audit harness contains prohibited credential fallbacks: ${auditCredentialViolations.join(', ')}`,
+    });
+  }
   if (strictMode && accepted.length > 0) {
     findings.push({
       level: 'P0',
