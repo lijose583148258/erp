@@ -280,7 +280,7 @@ jobs:
           HA_SOAK_DURATION_MS: "45000"
           HA_SOAK_CONCURRENCY: "8"
 
-      - name: Exercise Redis Sentinel failover
+      - name: Exercise Redis Sentinel controlled failover
         run: node ./scripts/cloud-redis-sentinel-failover-audit-v1.cjs
 
       - name: Capture application evidence
