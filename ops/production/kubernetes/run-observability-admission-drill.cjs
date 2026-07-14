@@ -221,8 +221,8 @@ const writeAndBind = () => {
   const drillId = `${changeTicket.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 48)}-${crypto.randomBytes(6).toString('hex')}`;
   report.drillId = drillId;
   const sent = adapterJson('send-alert', drillId);
-  check('synthetic-alert-submitted', Number.isFinite(Date.parse(String(sent?.sentAt || ''))));
   alertSent = true;
+  check('synthetic-alert-submitted', Number.isFinite(Date.parse(String(sent?.sentAt || ''))));
   const receipt = await waitReceipt('alert-receipt', drillId);
   check('alert-delivery-receipt', Boolean(receipt?.receiptId) && Boolean(receipt?.receiver)
     && Number.isFinite(Date.parse(String(receipt?.deliveredAt || ''))));
