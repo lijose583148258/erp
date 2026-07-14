@@ -7,9 +7,10 @@ continuous_report="${3:-}"
 pilot_ledger="${4:-}"
 daily_reports_dir="${5:-}"
 backup_report="${6:-}"
+resilience_reports_dir="${7:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir>" >&2
   exit 2
 fi
 
@@ -43,6 +44,10 @@ jq -e '.status == "passed"' "${tmp_dir}/observation-verdict.json" >/dev/null
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-backup-restore-evidence.cjs" \
   --report "${backup_report}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-storage-search-evidence.cjs" \
+  --reports-dir "${resilience_reports_dir}" \
   --evidence "${evidence_file}"
 
 jq -e '
@@ -151,10 +156,21 @@ jq -e '
   and .objectStorage.crossFailureDomainDurability == true
   and .objectStorage.applicationReadFailover == true
   and .objectStorage.writeReadback == true
+  and (.objectStorage.reportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
 
   and .search.applicationFallback == true
   and .search.indexRecoveryReadback == true
   and .search.backupRestoreReadback == true
+  and (.search.failoverReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.search.restoreReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and .storageSearchDrill.status == "passed"
+  and .storageSearchDrill.environment == .environment
+  and .storageSearchDrill.evidenceId == .evidenceId
+  and .storageSearchDrill.commitSha == .commitSha
+  and .storageSearchDrill.imageDigest == .imageDigest
+  and .storageSearchDrill.objectStorageReportSha256 == .objectStorage.reportSha256
+  and .storageSearchDrill.searchFailoverReportSha256 == .search.failoverReportSha256
+  and .storageSearchDrill.searchRestoreReportSha256 == .search.restoreReportSha256
 
   and .observability.bothApplicationTargetsUp == true
   and .observability.serviceMonitorTargets >= 2
