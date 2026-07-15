@@ -197,6 +197,9 @@ jq -e '
   and (.search.failoverReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.search.restoreReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and .storageSearchDrill.status == "passed"
+  and .storageSearchDrill.providerProfileSha256 == .providerProfile.sha256
+  and (.storageSearchDrill.adapterSha256.objectStorage | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.storageSearchDrill.adapterSha256.search | type == "string" and test("^[0-9a-f]{64}$"))
   and .storageSearchDrill.environment == .environment
   and .storageSearchDrill.evidenceId == .evidenceId
   and .storageSearchDrill.commitSha == .commitSha
