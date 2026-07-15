@@ -48,9 +48,15 @@ HA_DRILL_PASSWORD_FILE=/run/secrets/ha-audit-password \
 node ops/production/kubernetes/run-automatic-ha-drill.cjs \
   --confirm-disruptive \
   --evidence evidence.json \
+  --provider-profile formal-pilot-provider-profile.json \
   --postgres-adapter /opt/ha-adapters/postgres \
   --redis-adapter /opt/ha-adapters/redis
 ```
+
+Before login or failure injection, the runner revalidates the hash-bound provider
+profile and recomputes both adapter file hashes. It records those identities in
+`haDrill`; final admission requires them to match both the approved profile and
+the read-only preflight report.
 
 The runner updates only PostgreSQL and Redis sections of the evidence document.
 Backup restore, object storage, search, observability, long observation, AI, and
