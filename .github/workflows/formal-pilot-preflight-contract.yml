@@ -54,14 +54,25 @@ jobs:
             cp "$root/adapter" "$root/$name"
             chmod 700 "$root/$name"
           done
+          cp "$root/adapter" "$root/receipt-service"
+          chmod 700 "$root/receipt-service"
+          node - "$root/receipt-public.pem" <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const { publicKey } = crypto.generateKeyPairSync('ed25519');
+          fs.writeFileSync(process.argv[2], publicKey.export({ type: 'spki', format: 'pem' }));
+          NODE
           cat > "$root/server.cjs" <<'NODE'
           const http = require('http');
           const respond = (res, status, body) => {
             res.writeHead(status, { 'content-type': 'application/json' });
             res.end(JSON.stringify(body));
           };
-          for (const port of [18081, 18082]) {
+          for (const port of [18081, 18082, 18083]) {
             http.createServer((req, res) => {
+              if (req.url === '/health' && port === 18083) {
+                return respond(res, 200, { status: 'available', verifier: 'ed25519' });
+              }
               if (req.url === '/health') return respond(res, 200, {
                 database: 'ok', telemetry: { serviceInstanceId: `instance-${port}` },
               });
@@ -84,6 +95,8 @@ jobs:
           {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
           JSON
           adapter_sha="$(sha256sum "$root/adapter" | awk '{print $1}')"
+          receipt_service_sha="$(sha256sum "$root/receipt-service" | awk '{print $1}')"
+          receipt_key_sha="$(sha256sum "$root/receipt-public.pem" | awk '{print $1}')"
           cat > "$root/provider-profile.json" <<JSON
           {
             "schemaVersion":1,
@@ -97,7 +110,7 @@ jobs:
               "backup":{"fileName":"backup","sha256":"${adapter_sha}"},
               "observability":{"fileName":"observability","sha256":"${adapter_sha}"}
             },
-            "postgresql":{"kind":"cloudnativepg","instances":3,"haAdapter":"postgres","backup":{"method":"barman-object-store","encrypted":true,"checksumEvidence":"barman-manifest","isolatedRestore":true}},
+            "postgresql":{"kind":"cloudnativepg","instances":3,"haAdapter":"postgres","backup":{"method":"barman-object-store","encrypted":true,"checksumEvidence":"barman-manifest","isolatedRestore":true,"receiptVerifier":{"mode":"ed25519-provider-signed","issuer":"provider-backup-control-plane","publicKeySha256":"${receipt_key_sha}","serviceFileName":"receipt-service","serviceSha256":"${receipt_service_sha}"}}},
             "redis":{"kind":"sentinel","dataInstances":3,"sentinelCount":3,"haAdapter":"redis"},
             "objectStorage":{"kind":"minio-distributed","dataPods":4,"haAdapter":"object","pvcDeletePermission":false},
             "search":{"kind":"meilisearch","servingInstances":2,"backupMethod":"dump-to-object-store","isolatedRestore":true,"restoreNamespace":"ailaoda-pilot-recovery"},
@@ -115,6 +128,8 @@ jobs:
           export FORMAL_PILOT_PREFLIGHT_APP_URLS=http://127.0.0.1:18081,http://127.0.0.1:18082
           export FORMAL_PILOT_PREFLIGHT_USERNAME=audit-user
           export FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE="$root/password"
+          export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=http://127.0.0.1:18083
+          export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE="$root/receipt-public.pem"
           node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
             --evidence "$root/evidence.json" \
             --provider-profile "$root/provider-profile.json" \
@@ -124,8 +139,9 @@ jobs:
             --object-adapter "$root/object" \
             --search-adapter "$root/search" \
             --backup-adapter "$root/backup" \
-            --observability-adapter "$root/observability"
-          node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||!/^[0-9a-f]{64}$/.test(r.providerProfileSha256)||Object.keys(r.adapterSha256||{}).length!==6||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
+            --observability-adapter "$root/observability" \
+            --backup-receipt-service "$root/receipt-service"
+          node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||!/^[0-9a-f]{64}$/.test(r.providerProfileSha256)||Object.keys(r.adapterSha256||{}).length!==6||!/^[0-9a-f]{64}$/.test(r.backupReceiptVerifier?.publicKeySha256)||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
           printf '\n' >> "$root/search"
           if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
             --evidence "$root/evidence.json" --provider-profile "$root/provider-profile.json" \
