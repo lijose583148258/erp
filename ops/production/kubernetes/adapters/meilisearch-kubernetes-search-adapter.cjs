@@ -162,10 +162,41 @@ const snapshotResource = (backupId, pvc) => ({
     source: { persistentVolumeClaimName: pvc },
   },
 });
-const restoreResources = (backupId, restoreId) => ({
+const restoreContentName = restoreId => `meili-restore-${crypto.createHash('sha256').update(restoreId).digest('hex').slice(0, 16)}`;
+const restoreResources = (backup, restoreId) => {
+  const contentName = restoreContentName(restoreId);
+  return {
   apiVersion: 'v1',
   kind: 'List',
   items: [
+    {
+      apiVersion: 'snapshot.storage.k8s.io/v1',
+      kind: 'VolumeSnapshotContent',
+      metadata: {
+        name: contentName,
+        labels: { 'erp.ailaoda.io/search-restore': restoreId },
+      },
+      spec: {
+        deletionPolicy: 'Retain',
+        driver: backup.snapshotDriver,
+        source: { snapshotHandle: backup.snapshotHandle },
+        ...(backup.sourceVolumeMode ? { sourceVolumeMode: backup.sourceVolumeMode } : {}),
+        volumeSnapshotRef: {
+          name: restoreId,
+          namespace: recoveryNamespace,
+        },
+      },
+    },
+    {
+      apiVersion: 'snapshot.storage.k8s.io/v1',
+      kind: 'VolumeSnapshot',
+      metadata: {
+        name: restoreId,
+        namespace: recoveryNamespace,
+        labels: { 'erp.ailaoda.io/search-restore': restoreId },
+      },
+      spec: { source: { volumeSnapshotContentName: contentName } },
+    },
     {
       apiVersion: 'v1',
       kind: 'PersistentVolumeClaim',
@@ -180,7 +211,7 @@ const restoreResources = (backupId, restoreId) => ({
         dataSource: {
           apiGroup: 'snapshot.storage.k8s.io',
           kind: 'VolumeSnapshot',
-          name: backupId,
+          name: restoreId,
         },
       },
     },
@@ -237,7 +268,8 @@ const restoreResources = (backupId, restoreId) => ({
       },
     },
   ],
-});
+  };
+};
 
 (async () => {
   switch (operation) {
@@ -298,16 +330,19 @@ const restoreResources = (backupId, restoreId) => ({
         fail('MEILI_K8S_ALLOW_RESOURCE_CREATION=true is required for the approved pilot drill.');
       }
       const endpoint = discover();
-      const [document, stats, dump] = await Promise.all([
+      const [document, stats] = await Promise.all([
         documentAt(endpoint.url, markerId),
         statsAt(endpoint.url),
-        requestJson(endpoint.url, '/dumps', { method: 'POST' }),
       ]);
-      const taskUid = dump.body?.taskUid ?? dump.body?.uid;
       const documentCount = Number(stats.body?.numberOfDocuments);
-      if (!document.response.ok || !stats.response.ok || !dump.response.ok
-        || !Number.isInteger(taskUid) || !Number.isInteger(documentCount) || documentCount < 1) {
-        fail('Meilisearch dump could not be tied to a live marker and document count.');
+      if (!document.response.ok || !stats.response.ok
+        || !Number.isInteger(documentCount) || documentCount < 1) {
+        fail('Meilisearch backup could not be tied to a live marker and document count.');
+      }
+      const dump = await requestJson(endpoint.url, '/dumps', { method: 'POST' });
+      const taskUid = dump.body?.taskUid ?? dump.body?.uid;
+      if (!dump.response.ok || !Number.isInteger(taskUid)) {
+        fail('Meilisearch dump task was not accepted.');
       }
       const backupId = `meili-${Date.now().toString(36)}-${crypto.randomBytes(4).toString('hex')}`;
       const startedAt = new Date().toISOString();
@@ -345,8 +380,27 @@ const restoreResources = (backupId, restoreId) => ({
         process.stdout.write(`${JSON.stringify({ status: 'failed', backupId })}\n`);
       } else if (snapshot?.status?.readyToUse === true
         && String(snapshot?.status?.boundVolumeSnapshotContentName || '').trim()) {
+        const sourceContentName = String(snapshot.status.boundVolumeSnapshotContentName);
+        const sourceContent = kubectlJson([
+          'get', 'volumesnapshotcontent.snapshot.storage.k8s.io', sourceContentName, '-o', 'json',
+        ]);
+        const snapshotHandle = String(sourceContent?.status?.snapshotHandle
+          || sourceContent?.spec?.source?.snapshotHandle || '').trim();
+        const snapshotDriver = String(sourceContent?.spec?.driver || '').trim();
+        if (!snapshotHandle || !snapshotDriver || sourceContent?.spec?.deletionPolicy !== 'Retain') {
+          fail('CSI snapshot must expose a driver, snapshot handle, and Retain deletion policy.');
+        }
         const completedAt = new Date().toISOString();
-        const completed = { ...state, phase: 'completed', status: 'completed', completedAt };
+        const completed = {
+          ...state,
+          phase: 'completed',
+          status: 'completed',
+          completedAt,
+          sourceContentName,
+          snapshotHandle,
+          snapshotDriver,
+          sourceVolumeMode: sourceContent?.spec?.sourceVolumeMode || null,
+        };
         writeState(backupId, completed);
         process.stdout.write(`${JSON.stringify(completed)}\n`);
       } else {
@@ -362,7 +416,8 @@ const restoreResources = (backupId, restoreId) => ({
       }
       const backup = readState(backupId);
       if (backup.phase !== 'completed') fail('Only a completed CSI snapshot may be restored.');
-      createJson(restoreResources(backupId, restoreId));
+      if (!backup.snapshotHandle || !backup.snapshotDriver) fail('Completed backup lacks CSI snapshot binding evidence.');
+      createJson(restoreResources(backup, restoreId));
       const startedAt = new Date().toISOString();
       writeState(restoreId, {
         restoreId, backupId, markerId: backup.markerId,
@@ -405,15 +460,26 @@ const restoreResources = (backupId, restoreId) => ({
       const restoreId = operationArgs[0];
       readState(restoreId);
       kubectl(['delete', 'deployment.apps', restoreId, 'service', restoreId,
-        'persistentvolumeclaim', restoreId, '-n', recoveryNamespace, '--wait=false']);
+        'persistentvolumeclaim', restoreId, 'volumesnapshot.snapshot.storage.k8s.io', restoreId,
+        '-n', recoveryNamespace, '--wait=false']);
+      kubectl(['delete', 'volumesnapshotcontent.snapshot.storage.k8s.io',
+        restoreContentName(restoreId), '--wait=false']);
       break;
     }
     case 'cleanup-status': {
       const restoreId = operationArgs[0];
       readState(restoreId);
-      const kinds = ['deployment.apps', 'service', 'persistentvolumeclaim'];
-      const removed = kinds.every(kind => kubeResult(['get', kind, restoreId, '-n', recoveryNamespace, '-o', 'json']).status !== 0);
-      process.stdout.write(`${JSON.stringify({ removed })}\n`);
+      const namespacedKinds = [
+        'deployment.apps', 'service', 'persistentvolumeclaim',
+        'volumesnapshot.snapshot.storage.k8s.io',
+      ];
+      const namespacedRemoved = namespacedKinds.every(kind =>
+        kubeResult(['get', kind, restoreId, '-n', recoveryNamespace, '-o', 'json']).status !== 0);
+      const contentRemoved = kubeResult([
+        'get', 'volumesnapshotcontent.snapshot.storage.k8s.io',
+        restoreContentName(restoreId), '-o', 'json',
+      ]).status !== 0;
+      process.stdout.write(`${JSON.stringify({ removed: namespacedRemoved && contentRemoved })}\n`);
       break;
     }
     default:
