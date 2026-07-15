@@ -7,6 +7,32 @@
     "applicationNamespace": "ailaoda-pilot",
     "recoveryNamespace": "ailaoda-pilot-recovery"
   },
+  "adapters": {
+    "postgres": {
+      "fileName": "cnpg-ha-adapter.cjs",
+      "sha256": "replace-with-postgres-adapter-sha256"
+    },
+    "redis": {
+      "fileName": "redis-kubernetes-ha-adapter.cjs",
+      "sha256": "replace-with-redis-adapter-sha256"
+    },
+    "objectStorage": {
+      "fileName": "minio-kubernetes-object-adapter.cjs",
+      "sha256": "replace-with-object-adapter-sha256"
+    },
+    "search": {
+      "fileName": "meilisearch-kubernetes-search-adapter.cjs",
+      "sha256": "replace-with-search-adapter-sha256"
+    },
+    "backup": {
+      "fileName": "cnpg-backup-adapter.cjs",
+      "sha256": "replace-with-backup-adapter-sha256"
+    },
+    "observability": {
+      "fileName": "tempo-alert-receipt-adapter.cjs",
+      "sha256": "replace-with-observability-adapter-sha256"
+    }
+  },
   "postgresql": {
     "kind": "cloudnativepg",
     "instances": 3,
