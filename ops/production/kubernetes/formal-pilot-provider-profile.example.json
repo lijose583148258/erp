@@ -86,6 +86,7 @@
   },
   "observation": {
     "continuousHours": 8,
-    "pilotDays": 7
+    "pilotDays": 7,
+    "collectorImageDigest": "sha256:replace-with-64-hex-pilot-observer-image-digest"
   }
 }
