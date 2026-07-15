@@ -49,7 +49,9 @@
         "failures": 1,
         "lastStatus": 0
       }
-    }
+    },
+    "readinessSamples": 0,
+    "readinessSemanticFailures": 1
   },
   "collectorImageDigest": "sha256:replace-with-64-hex-observer-image-digest"
 }
