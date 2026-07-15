@@ -97,6 +97,18 @@ if (preflightSummary.status !== 'passed'
   || preflightSummary.providerProfileSha256 !== providerSummary.providerProfileSha256) {
   throw new Error('Formal preflight evidence verification did not pass.');
 }
+const preflightReport = JSON.parse(fs.readFileSync(resolved.preflightReport, 'utf8').replace(/^\uFEFF/, ''));
+if (evidence.haDrill?.providerProfileSha256 !== providerSummary.providerProfileSha256) {
+  throw new Error('HA drill is not bound to the approved provider profile.');
+}
+for (const name of ['postgres', 'redis']) {
+  const expectedSha256 = providerSummary.adapters?.[name]?.sha256;
+  if (!expectedSha256
+    || evidence.haDrill?.adapterSha256?.[name] !== expectedSha256
+    || preflightReport.adapterSha256?.[name] !== expectedSha256) {
+    throw new Error(`HA drill adapter identity mismatch: ${name}.`);
+  }
+}
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
