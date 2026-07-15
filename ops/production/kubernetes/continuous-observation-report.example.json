@@ -12,5 +12,6 @@
     "failures": 1,
     "p95Ms": 0,
     "instanceRequests": {}
-  }
+  },
+  "collectorImageDigest": "sha256:replace-with-64-hex-observer-image-digest"
 }
