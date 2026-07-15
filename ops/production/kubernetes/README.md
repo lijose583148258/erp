@@ -59,8 +59,11 @@ node ops/production/kubernetes/run-enterprise-production-admission.cjs \
 
 Create the bundle from `admission-bundle.example.json`. Every artifact path
 must be relative, remain inside one evidence directory after symlink resolution,
-and match the release identity in the main evidence file. `--check-only`
-validates this structure without contacting Kubernetes.
+and match the release identity in the main evidence file. The bundle must include
+the exact formal preflight report produced against the bound provider profile.
+Admission rejects reports older than 24 hours, incomplete check sets, insufficient
+topology, or any adapter hash drift. `--check-only` validates this structure
+without contacting Kubernetes.
 
 The runner then calls the low-level verifier, which reads Kubernetes state with
 `kubectl` and validates the evidence with `jq`. Evidence must come from the
