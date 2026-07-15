@@ -76,6 +76,15 @@ const instanceRequests = Object.values(continuous?.summary?.instanceRequests || 
 if (instanceRequests.length < 2 || instanceRequests.some(value => !Number.isFinite(value) || value <= 0)) {
   fail('Continuous observation did not serve requests from two application instances.');
 }
+const componentSummary = continuous?.summary?.components || {};
+for (const name of ['object-storage', 'search-primary', 'search-secondary', 'prometheus', 'tempo', 'alertmanager']) {
+  const state = componentSummary[name];
+  if (!state || !Number.isInteger(Number(state.probes)) || Number(state.probes) < 2
+    || Number(state.failures) !== 0 || !Number.isInteger(Number(state.lastStatus))
+    || Number(state.lastStatus) < 200 || Number(state.lastStatus) >= 400) {
+    fail(`Continuous component health evidence is incomplete: ${name}.`);
+  }
+}
 if (!Array.isArray(continuous.checks) || continuous.checks.length === 0 || continuous.checks.some(check => check.status !== 'passed')) {
   fail('Continuous observation has missing or failed checks.');
 }
