@@ -126,6 +126,18 @@ jobs:
             --backup-adapter "$root/backup" \
             --observability-adapter "$root/observability"
           node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||!/^[0-9a-f]{64}$/.test(r.providerProfileSha256)||Object.keys(r.adapterSha256||{}).length!==6||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
+          printf '\n' >> "$root/search"
+          if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+            --evidence "$root/evidence.json" --provider-profile "$root/provider-profile.json" \
+            --report "$root/tampered-adapter.json" \
+            --postgres-adapter "$root/postgres" --redis-adapter "$root/redis" \
+            --object-adapter "$root/object" --search-adapter "$root/search" \
+            --backup-adapter "$root/backup" --observability-adapter "$root/observability"; then
+            echo "Tampered adapter was accepted" >&2
+            exit 1
+          fi
+          cp "$root/adapter" "$root/search"
+          chmod 700 "$root/search"
           chmod 644 "$root/password"
           if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
             --evidence "$root/evidence.json" --provider-profile "$root/provider-profile.json" \
