@@ -14,8 +14,8 @@ const endpointMapFile = path.join(tempRoot, 'endpoints.json');
 const readyFile = path.join(tempRoot, 'server-ready');
 fs.mkdirSync(binDir, { recursive: true });
 fs.mkdirSync(kubeState, { recursive: true });
-fs.writeFileSync(tokenFile, 'contract-master-key\n', { mode: 0o600 });
-fs.chmodSync(tokenFile, 0o600);
+fs.writeFileSync(tokenFile, 'contract-master-key\n', { mode: 0o440 });
+fs.chmodSync(tokenFile, 0o440);
 
 const fakeKubectl = `#!/usr/bin/env node
 const fs = require('fs');
@@ -152,8 +152,8 @@ if (!fs.existsSync(readyFile)) throw new Error('Meilisearch contract server did 
 fs.writeFileSync(endpointMapFile, JSON.stringify({
   'meili-0': `http://127.0.0.1:${port}/meili-0`,
   'meili-1': `http://127.0.0.1:${port}/meili-1`,
-}), { mode: 0o600 });
-fs.chmodSync(endpointMapFile, 0o600);
+}), { mode: 0o440 });
+fs.chmodSync(endpointMapFile, 0o440);
 const imageDigest = 'registry.example.invalid/meilisearch@sha256:' + 'b'.repeat(64);
 const baseEnv = {
   ...process.env,
