@@ -9,6 +9,13 @@ data:
   commit-sha: replace-with-40-character-git-sha
   application-image-digest: sha256:replace-with-64-hex-digest
   pilot-observer-image-digest: sha256:replace-with-64-hex-digest
+  component-health-urls: >-
+    object-storage=http://replace-minio.ailaoda-pilot.svc:9000/minio/health/ready,
+    search-primary=http://replace-search-primary.ailaoda-pilot.svc:7700/health,
+    search-secondary=http://replace-search-secondary.ailaoda-pilot.svc:7700/health,
+    prometheus=http://replace-prometheus.monitoring.svc:9090/-/ready,
+    tempo=http://replace-tempo.monitoring.svc:3200/ready,
+    alertmanager=http://replace-alertmanager.monitoring.svc:9093/-/ready
 ---
 apiVersion: v1
 kind: ConfigMap
