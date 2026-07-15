@@ -147,6 +147,18 @@ jobs:
               search: adapterSha256.search,
             },
           };
+          const observabilityReport = {
+            status: 'passed',
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { observability: adapterSha256.observability },
+          };
+          identity.observabilityDrill = {
+            status: 'passed',
+            environment: identity.environment,
+            changeTicket: identity.evidenceId,
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { observability: adapterSha256.observability },
+          };
           const requiredChecks = [
             'provider-profile-bound', 'all-adapters-profile-bound', 'all-adapters-executable',
             'postgres-provider-topology', 'postgres-preferred-endpoint',
@@ -204,7 +216,8 @@ jobs:
               const value = key === 'evidence' ? identity
                 : key === 'providerProfile' ? providerProfile
                   : key === 'preflightReport' ? preflightReport
-                    : key === 'backupReport' ? backupReport : {};
+                    : key === 'backupReport' ? backupReport
+                      : key === 'observabilityReport' ? observabilityReport : {};
               fs.writeFileSync(target, JSON.stringify(value));
             }
           }
@@ -260,6 +273,13 @@ jobs:
           if (tamperedSearchAdapter.status === 0) throw new Error('Tampered search adapter hash was accepted.');
           searchRestoreReport.adapterSha256.search = providerProfile.adapters.search.sha256;
           fs.writeFileSync(path.join(resilienceRoot, 'meilisearch-dump-restore-audit-v1.json'), JSON.stringify(searchRestoreReport));
+
+          observabilityReport.adapterSha256.observability = '0'.repeat(64);
+          fs.writeFileSync(path.join(root, artifacts.observabilityReport), JSON.stringify(observabilityReport));
+          const tamperedObservabilityAdapter = run();
+          if (tamperedObservabilityAdapter.status === 0) throw new Error('Tampered observability adapter hash was accepted.');
+          observabilityReport.adapterSha256.observability = providerProfile.adapters.observability.sha256;
+          fs.writeFileSync(path.join(root, artifacts.observabilityReport), JSON.stringify(observabilityReport));
 
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
