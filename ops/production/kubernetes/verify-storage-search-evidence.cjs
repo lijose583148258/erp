@@ -55,6 +55,17 @@ const assertReport = (name, report, requiredChecks) => {
   if (requiredChecks.some(check => !names.has(check))) throw new Error(`${name} report is missing required checks.`);
 };
 
+const providerProfileSha256 = String(evidence.providerProfile?.sha256 || '');
+if (!/^[0-9a-f]{64}$/.test(providerProfileSha256)
+  || reports.objectStorage.providerProfileSha256 !== providerProfileSha256
+  || !/^[0-9a-f]{64}$/.test(String(reports.objectStorage.adapterSha256?.objectStorage || ''))
+  || reports.searchFailover.providerProfileSha256 !== providerProfileSha256
+  || reports.searchRestore.providerProfileSha256 !== providerProfileSha256
+  || !/^[0-9a-f]{64}$/.test(String(reports.searchFailover.adapterSha256?.search || ''))
+  || reports.searchRestore.adapterSha256?.search !== reports.searchFailover.adapterSha256.search) {
+  throw new Error('Storage/search reports are not bound to the approved provider profile and adapters.');
+}
+
 assertReport('Object storage failover', reports.objectStorage, [
   'dual-write-contract-created',
   'protected-primary-download',
@@ -114,6 +125,11 @@ const binding = {
   evidenceId: evidence.evidenceId,
   commitSha: evidence.commitSha,
   imageDigest: evidence.imageDigest,
+  providerProfileSha256,
+  adapterSha256: {
+    objectStorage: reports.objectStorage.adapterSha256.objectStorage,
+    search: reports.searchFailover.adapterSha256.search,
+  },
   verifiedAt: new Date().toISOString(),
   objectStorageReportSha256: hashes.objectStorage,
   searchFailoverReportSha256: hashes.searchFailover,
@@ -146,6 +162,9 @@ if (bind) {
     || current?.evidenceId !== binding.evidenceId
     || current?.commitSha !== binding.commitSha
     || current?.imageDigest !== binding.imageDigest
+    || current?.providerProfileSha256 !== binding.providerProfileSha256
+    || current?.adapterSha256?.objectStorage !== binding.adapterSha256.objectStorage
+    || current?.adapterSha256?.search !== binding.adapterSha256.search
     || current?.objectStorageReportSha256 !== binding.objectStorageReportSha256
     || current?.searchFailoverReportSha256 !== binding.searchFailoverReportSha256
     || current?.searchRestoreReportSha256 !== binding.searchRestoreReportSha256
