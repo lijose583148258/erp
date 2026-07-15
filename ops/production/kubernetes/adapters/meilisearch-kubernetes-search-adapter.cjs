@@ -31,7 +31,13 @@ const fail = message => {
 const dnsLabel = value => /^[a-z0-9](?:[-a-z0-9]{0,61}[a-z0-9])?$/.test(value);
 const safeValue = value => /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/.test(value);
 const fileExists = file => Boolean(file) && fs.existsSync(file) && fs.statSync(file).isFile();
-const privateFile = file => process.platform === 'win32' || (fs.statSync(file).mode & 0o077) === 0;
+const privateFile = file => {
+  if (process.platform === 'win32') return true;
+  const stat = fs.statSync(file);
+  if ((stat.mode & 0o007) !== 0 || (stat.mode & 0o022) !== 0) return false;
+  return (stat.mode & 0o040) === 0
+    || (typeof process.getegid === 'function' && stat.gid === process.getegid());
+};
 const validUrl = value => /^https:\/\//i.test(value) || /^http:\/\/127\.0\.0\.1(?::\d+)?(?:\/|$)/i.test(value);
 if (!dnsLabel(namespace) || !dnsLabel(recoveryNamespace) || namespace === recoveryNamespace) {
   fail('Meilisearch source and recovery namespaces must be distinct DNS labels.');
