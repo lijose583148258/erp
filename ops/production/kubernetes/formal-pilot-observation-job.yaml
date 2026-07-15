@@ -48,6 +48,11 @@ spec:
                 configMapKeyRef:
                   name: ailaoda-pilot-observation
                   key: app-urls
+            - name: OBSERVATION_COMPONENT_HEALTH_URLS
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: component-health-urls
             - name: OBSERVATION_USERNAME
               valueFrom:
                 secretKeyRef:
