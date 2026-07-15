@@ -12,7 +12,8 @@ const fail = message => { throw new Error(message); };
 const resolveFile = (value, label, executable = false) => {
   const absolute = path.resolve(value || '');
   if (!value || !fs.existsSync(absolute) || !fs.statSync(absolute).isFile()) fail(`${label} file does not exist.`);
-  if (executable && process.platform !== 'win32' && (fs.statSync(absolute).mode & 0o111) === 0) {
+  if (executable && path.extname(absolute).toLowerCase() !== '.cjs'
+    && process.platform !== 'win32' && (fs.statSync(absolute).mode & 0o111) === 0) {
     fail(`${label} is not executable.`);
   }
   return absolute;
@@ -105,8 +106,12 @@ const check = (name, passed, details = {}) => {
   if (!passed) fail(`Check failed: ${name}`);
 };
 const hashId = value => crypto.createHash('sha256').update(String(value)).digest('hex');
+const adapterInvocation = (adapter, operation, operationArgs) => path.extname(adapter).toLowerCase() === '.cjs'
+  ? { command: process.execPath, args: [adapter, operation, ...operationArgs.map(String)] }
+  : { command: adapter, args: [operation, ...operationArgs.map(String)] };
 const adapterJson = (adapter, operation, ...operationArgs) => {
-  const output = execFileSync(adapter, [operation, ...operationArgs.map(String)], {
+  const invocation = adapterInvocation(adapter, operation, operationArgs);
+  const output = execFileSync(invocation.command, invocation.args, {
     encoding: 'utf8',
     timeout: timeoutMs,
     stdio: ['ignore', 'pipe', 'inherit'],
