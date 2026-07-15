@@ -137,6 +137,16 @@ for (const [name, reports] of Object.entries({
     throw new Error(`Storage/search drill adapter identity mismatch: ${name}.`);
   }
 }
+const observabilityReport = JSON.parse(fs.readFileSync(resolved.observabilityReport, 'utf8').replace(/^\uFEFF/, ''));
+const expectedObservabilityAdapterSha256 = providerSummary.adapters?.observability?.sha256;
+if (!expectedObservabilityAdapterSha256
+  || evidence.observabilityDrill?.providerProfileSha256 !== providerSummary.providerProfileSha256
+  || evidence.observabilityDrill?.adapterSha256?.observability !== expectedObservabilityAdapterSha256
+  || observabilityReport.providerProfileSha256 !== providerSummary.providerProfileSha256
+  || observabilityReport.adapterSha256?.observability !== expectedObservabilityAdapterSha256
+  || preflightReport.adapterSha256?.observability !== expectedObservabilityAdapterSha256) {
+  throw new Error('Observability drill adapter identity does not match profile, preflight, report, and evidence.');
+}
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
