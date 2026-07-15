@@ -226,7 +226,8 @@ jobs:
                 : key === 'providerProfile' ? providerProfile
                   : key === 'preflightReport' ? preflightReport
                     : key === 'backupReport' ? backupReport
-                      : key === 'observabilityReport' ? observabilityReport : {};
+                      : key === 'observabilityReport' ? observabilityReport
+                        : key === 'continuousReport' ? { collectorImageDigest: providerProfile.observation.collectorImageDigest } : {};
               fs.writeFileSync(target, JSON.stringify(value));
             }
           }
@@ -254,6 +255,14 @@ jobs:
           if (escaped.status === 0) throw new Error('Bundle path traversal was accepted.');
 
           manifest.artifacts.backupReport = artifacts.backupReport;
+          const continuousPath = path.join(root, artifacts.continuousReport);
+          fs.writeFileSync(continuousPath, JSON.stringify({ collectorImageDigest: `sha256:${'0'.repeat(64)}` }));
+          const tamperedObserverImage = run();
+          if (tamperedObserverImage.status === 0) throw new Error('Unapproved observer image was accepted.');
+          fs.writeFileSync(continuousPath, JSON.stringify({
+            collectorImageDigest: providerProfile.observation.collectorImageDigest,
+          }));
+
           preflightReport.adapterSha256.search = '0'.repeat(64);
           fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
