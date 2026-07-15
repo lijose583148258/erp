@@ -100,7 +100,7 @@ if (profile.postgresql.kind !== 'cloudnativepg') fail('postgresql.kind must be c
 requireInteger(profile.postgresql.instances, 3, 'postgresql.instances');
 if (profile.postgresql.haAdapter !== adapterBindings.postgres.fileName) fail('PostgreSQL adapter binding mismatch.');
 requireKeys(profile.postgresql.backup, [
-  'method', 'encrypted', 'checksumEvidence', 'isolatedRestore',
+  'method', 'encrypted', 'checksumEvidence', 'isolatedRestore', 'receiptVerifier',
 ], 'postgresql.backup');
 if (!['barman-object-store', 'csi-volume-snapshot'].includes(profile.postgresql.backup.method)) {
   fail('Unsupported PostgreSQL backup method.');
@@ -110,6 +110,32 @@ if (!['barman-manifest', 'provider-checksum'].includes(profile.postgresql.backup
   fail('PostgreSQL backup checksum evidence must come from Barman or the provider.');
 }
 if (profile.postgresql.backup.isolatedRestore !== true) fail('PostgreSQL restore must be isolated.');
+requireKeys(profile.postgresql.backup.receiptVerifier, [
+  'mode', 'issuer', 'publicKeySha256', 'serviceFileName', 'serviceSha256',
+], 'postgresql.backup.receiptVerifier');
+if (profile.postgresql.backup.receiptVerifier.mode !== 'ed25519-provider-signed') {
+  fail('PostgreSQL backup receipts must be Ed25519 provider-signed.');
+}
+const receiptIssuer = requireString(
+  profile.postgresql.backup.receiptVerifier.issuer,
+  'postgresql.backup.receiptVerifier.issuer',
+);
+if (receiptIssuer.length > 128) fail('PostgreSQL backup receipt issuer is too long.');
+const receiptPublicKeySha256 = String(profile.postgresql.backup.receiptVerifier.publicKeySha256 || '').trim();
+const receiptServiceSha256 = String(profile.postgresql.backup.receiptVerifier.serviceSha256 || '').trim();
+if (!/^[0-9a-f]{64}$/.test(receiptPublicKeySha256)
+  || !/^[0-9a-f]{64}$/.test(receiptServiceSha256)) {
+  fail('PostgreSQL backup receipt public key and service require lowercase SHA-256 values.');
+}
+const receiptServiceFileName = requireString(
+  profile.postgresql.backup.receiptVerifier.serviceFileName,
+  'postgresql.backup.receiptVerifier.serviceFileName',
+);
+if (path.basename(receiptServiceFileName) !== receiptServiceFileName
+  || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(receiptServiceFileName)) {
+  fail('PostgreSQL backup receipt service file name must be plain.');
+}
+
 if (adapterBindings.backup.fileName === 'cnpg-backup-adapter.cjs'
   && profile.postgresql.backup.method !== 'barman-object-store') {
   fail('cnpg-backup-adapter.cjs requires the Barman object-store backup profile.');
@@ -203,6 +229,13 @@ process.stdout.write(`${JSON.stringify({
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
   adapters: adapterBindings,
+  backupReceiptVerifier: {
+    mode: profile.postgresql.backup.receiptVerifier.mode,
+    issuer: receiptIssuer,
+    publicKeySha256: receiptPublicKeySha256,
+    serviceFileName: receiptServiceFileName,
+    serviceSha256: receiptServiceSha256,
+  },
   providerProfileSha256,
   evidenceBound: Boolean(evidenceValue),
 })}\n`);
