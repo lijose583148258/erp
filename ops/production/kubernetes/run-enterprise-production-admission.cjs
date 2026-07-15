@@ -19,6 +19,7 @@ if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(String(manifest.namespace || ''))) {
 }
 const artifactTypes = {
   evidence: 'file',
+  providerProfile: 'file',
   continuousReport: 'file',
   pilotLedger: 'file',
   dailyReportsDir: 'directory',
@@ -65,6 +66,20 @@ if (release.environment !== evidence.environment || release.evidenceId !== evide
   || !/^sha256:[0-9a-f]{64}$/.test(String(release.imageDigest || ''))) {
   throw new Error('Admission bundle release identity does not match enterprise evidence.');
 }
+const providerProfile = JSON.parse(fs.readFileSync(resolved.providerProfile, 'utf8').replace(/^\uFEFF/, ''));
+if (providerProfile.environment !== release.environment) {
+  throw new Error('Provider profile environment does not match the admission release.');
+}
+const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const providerOutput = execFileSync(process.execPath, [providerVerifier, resolved.providerProfile], {
+  cwd: bundleRoot,
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+const providerSummary = JSON.parse(providerOutput);
+if (providerSummary.status !== 'passed' || providerSummary.environment !== release.environment) {
+  throw new Error('Provider profile verification did not pass for this release environment.');
+}
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
@@ -73,6 +88,7 @@ if (args.includes('--check-only')) {
     status: 'valid',
     namespace: manifest.namespace,
     release,
+    provider: providerSummary,
     artifacts: artifactSummary,
   }, null, 2));
   process.exit(0);
