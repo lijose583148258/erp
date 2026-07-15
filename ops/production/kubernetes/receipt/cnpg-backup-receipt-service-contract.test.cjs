@@ -15,6 +15,7 @@ const stderrFile = path.join(root, 'stderr.log');
 fs.mkdirSync(receipts, { mode: 0o700 });
 const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
 fs.writeFileSync(publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
+const publicKeySha256 = crypto.createHash('sha256').update(fs.readFileSync(publicKeyFile)).digest('hex');
 const token = crypto.randomBytes(32).toString('hex');
 fs.writeFileSync(tokenFile, token, { mode: 0o440 });
 fs.chmodSync(tokenFile, 0o440);
@@ -91,7 +92,12 @@ const request = (pathname, authorization = `Bearer ${token}`) => fetch(`${baseUr
   try {
     const health = await request('/health', '');
     assert.equal(health.status, 200);
-    assert.deepEqual(await health.json(), { status: 'available', verifier: 'ed25519' });
+    assert.deepEqual(await health.json(), {
+      status: 'available',
+      verifier: 'ed25519',
+      issuer,
+      publicKeySha256,
+    });
 
     const unauthorized = await request(`/v1/cnpg/backups/${namespace}/${backupId}`, '');
     assert.equal(unauthorized.status, 401);
