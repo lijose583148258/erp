@@ -100,6 +100,16 @@ jobs:
           const adapterSha256 = Object.fromEntries(
             Object.entries(providerProfile.adapters).map(([name, binding]) => [name, binding.sha256]),
           );
+          identity.haDrill = {
+            status: 'passed',
+            environment: identity.environment,
+            changeTicket: identity.evidenceId,
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: {
+              postgres: adapterSha256.postgres,
+              redis: adapterSha256.redis,
+            },
+          };
           const requiredChecks = [
             'provider-profile-bound', 'all-adapters-profile-bound', 'all-adapters-executable',
             'postgres-provider-topology', 'postgres-preferred-endpoint',
@@ -187,6 +197,13 @@ jobs:
           if (tamperedPreflight.status === 0) throw new Error('Tampered preflight adapter hash was accepted.');
           preflightReport.adapterSha256.search = providerProfile.adapters.search.sha256;
           fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
+
+          identity.haDrill.adapterSha256.redis = '0'.repeat(64);
+          fs.writeFileSync(path.join(root, artifacts.evidence), JSON.stringify(identity));
+          const tamperedHaAdapter = run();
+          if (tamperedHaAdapter.status === 0) throw new Error('Tampered HA adapter hash was accepted.');
+          identity.haDrill.adapterSha256.redis = providerProfile.adapters.redis.sha256;
+          fs.writeFileSync(path.join(root, artifacts.evidence), JSON.stringify(identity));
 
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
