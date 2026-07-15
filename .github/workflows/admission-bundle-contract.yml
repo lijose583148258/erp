@@ -44,6 +44,7 @@ jobs:
             commitSha: 'a'.repeat(40),
             imageDigest: `sha256:${'b'.repeat(64)}`,
           };
+          const release = { ...identity };
           const providerProfile = {
             schemaVersion: 1,
             environment: 'formal-pilot',
@@ -113,7 +114,7 @@ jobs:
           const manifest = {
             schemaVersion: 1,
             namespace: 'ailaoda-pilot',
-            release: identity,
+            release,
             artifacts,
           };
           const manifestPath = path.join(root, 'admission-bundle.json');
