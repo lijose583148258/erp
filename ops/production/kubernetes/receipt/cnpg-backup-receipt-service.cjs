@@ -45,6 +45,7 @@ let publicKey;
 try { publicKey = crypto.createPublicKey(fs.readFileSync(publicKeyFile)); }
 catch { fail('CNPG receipt public key is invalid.'); }
 if (publicKey.asymmetricKeyType !== 'ed25519') fail('CNPG receipt public key must be Ed25519.');
+const publicKeySha256 = crypto.createHash('sha256').update(fs.readFileSync(publicKeyFile)).digest('hex');
 
 const constantTimeEqual = (left, right) => {
   const a = Buffer.from(String(left));
@@ -116,7 +117,12 @@ const loadReceipt = (namespace, backupId) => {
 
 const server = http.createServer((request, response) => {
   if (request.method === 'GET' && request.url === '/health') {
-    send(response, 200, { status: 'available', verifier: 'ed25519' });
+    send(response, 200, {
+      status: 'available',
+      verifier: 'ed25519',
+      issuer,
+      publicKeySha256,
+    });
     return;
   }
   const authorization = String(request.headers.authorization || '');
