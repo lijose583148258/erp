@@ -379,7 +379,9 @@ replace every placeholder with control-plane-observed metadata, and run:
 
 ```bash
 node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \
-  <formal-pilot-provider-profile.json>
+  <formal-pilot-provider-profile.json> \
+  --evidence <enterprise-evidence.json> \
+  --bind
 ```
 
 The profile is metadata only. The verifier rejects secret-like fields,
@@ -388,6 +390,10 @@ and recovery namespaces, unencrypted or manually asserted PostgreSQL backup
 integrity, insufficient Redis/MinIO topology, non-isolated search recovery,
 Alertmanager acceptance without a receiver-side delivery store, paid/external
 AI mode, and observations shorter than eight hours or seven pilot days.
+
+Use `--bind` only for the reviewed profile before drills begin. Subsequent
+checks omit `--bind`; they recompute the raw profile SHA-256 and reject any
+change, even when the replacement profile is otherwise valid.
 
 A passing profile does not prove runtime readiness. It freezes the provider
 contract that the read-only preflight, disruptive adapters, recovery drills, and
