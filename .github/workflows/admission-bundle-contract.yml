@@ -95,7 +95,7 @@ jobs:
               deliveryReceiptStore: 'webhook-audit-store',
             },
             ai: { mode: 'local-only', externalGateway: false, paidCallBudget: 0 },
-            observation: { continuousHours: 8, pilotDays: 7 },
+            observation: { continuousHours: 8, pilotDays: 7, collectorImageDigest: `sha256:${'e'.repeat(64)}` },
           };
           const providerProfileText = JSON.stringify(providerProfile);
           identity.providerProfile = {
