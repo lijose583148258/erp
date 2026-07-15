@@ -188,6 +188,8 @@ const writeAndBind = () => {
     traceCount: report.traceCount || 0,
     receiptId: report.receiptId || null,
     reportSha256,
+    providerProfileSha256: report.providerProfileSha256,
+    adapterSha256: report.adapterSha256,
   };
   const temporary = `${evidencePath}.${process.pid}.tmp`;
   fs.writeFileSync(temporary, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
