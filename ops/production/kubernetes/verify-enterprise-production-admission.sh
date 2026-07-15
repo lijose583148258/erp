@@ -123,6 +123,10 @@ jq -e '
   and ((now - (.observedAt | fromdateiso8601)) <= 604800)
   and (.commitSha | type == "string" and test("^[0-9a-f]{40}$"))
   and (.imageDigest | type == "string" and test("^sha256:[0-9a-f]{64}$"))
+  and .providerProfile.status == "passed"
+  and .providerProfile.environment == .environment
+  and (.providerProfile.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.providerProfile.verifiedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
   and .haDrill.status == "passed"
   and .haDrill.environment == .environment
   and .haDrill.changeTicket == .evidenceId
