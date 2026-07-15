@@ -49,7 +49,7 @@ const valid = {
   search: {
     kind: 'meilisearch',
     servingInstances: 2,
-    backupMethod: 'dump-to-object-store',
+    backupMethod: 'csi-volume-snapshot',
     isolatedRestore: true,
     restoreNamespace: 'ailaoda-pilot-recovery',
   },
@@ -122,6 +122,15 @@ try {
   const unverifiedBackup = clone(valid);
   unverifiedBackup.postgresql.backup.checksumEvidence = 'manual';
   assert.notEqual(run('unverified-backup', unverifiedBackup).status, 0);
+
+  const incompatibleSearchAdapter = clone(valid);
+  incompatibleSearchAdapter.search.backupMethod = 'dump-to-object-store';
+  assert.notEqual(run('incompatible-search-adapter', incompatibleSearchAdapter).status, 0);
+
+  const incompatibleBackupAdapter = clone(valid);
+  incompatibleBackupAdapter.postgresql.backup.method = 'csi-volume-snapshot';
+  incompatibleBackupAdapter.postgresql.backup.checksumEvidence = 'provider-checksum';
+  assert.notEqual(run('incompatible-backup-adapter', incompatibleBackupAdapter).status, 0);
 
   const paidAi = clone(valid);
   paidAi.ai.externalGateway = true;
