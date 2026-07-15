@@ -63,7 +63,12 @@ jobs:
           fs.writeFileSync(process.argv[2], publicKey.export({ type: 'spki', format: 'pem' }));
           NODE
           cat > "$root/server.cjs" <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
           const http = require('http');
+          const receiptPublicKeySha256 = crypto.createHash('sha256')
+            .update(fs.readFileSync(process.argv[2])).digest('hex');
+          const receiptIssuer = process.argv[3];
           const respond = (res, status, body) => {
             res.writeHead(status, { 'content-type': 'application/json' });
             res.end(JSON.stringify(body));
@@ -71,7 +76,12 @@ jobs:
           for (const port of [18081, 18082, 18083]) {
             http.createServer((req, res) => {
               if (req.url === '/health' && port === 18083) {
-                return respond(res, 200, { status: 'available', verifier: 'ed25519' });
+                return respond(res, 200, {
+                  status: 'available',
+                  verifier: 'ed25519',
+                  issuer: receiptIssuer,
+                  publicKeySha256: receiptPublicKeySha256,
+                });
               }
               if (req.url === '/health') return respond(res, 200, {
                 database: 'ok', telemetry: { serviceInstanceId: `instance-${port}` },
@@ -86,7 +96,7 @@ jobs:
             }).listen(port, '127.0.0.1');
           }
           NODE
-          node "$root/server.cjs" &
+          node "$root/server.cjs" "$root/receipt-public.pem" provider-backup-control-plane &
           server_pid=$!
           sleep 1
           printf '%s' 'random-contract-password' > "$root/password"
