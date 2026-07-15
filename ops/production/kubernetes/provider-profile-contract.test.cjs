@@ -75,6 +75,29 @@ try {
   assert.equal(summary.failureDomainCount, 3);
   assert.equal(summary.paidCallBudget, 0);
 
+  const boundProfilePath = path.join(root, 'bound-profile.json');
+  const evidencePath = path.join(root, 'evidence.json');
+  fs.writeFileSync(boundProfilePath, JSON.stringify(valid));
+  fs.writeFileSync(evidencePath, JSON.stringify({ environment: 'formal-pilot' }));
+  const bind = spawnSync(process.execPath, [
+    verifier, boundProfilePath, '--evidence', evidencePath, '--bind',
+  ], { encoding: 'utf8' });
+  assert.equal(bind.status, 0, bind.stderr);
+  const boundEvidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  assert.equal(boundEvidence.providerProfile.status, 'passed');
+  assert.match(boundEvidence.providerProfile.sha256, /^[0-9a-f]{64}$/);
+  const recheck = spawnSync(process.execPath, [
+    verifier, boundProfilePath, '--evidence', evidencePath,
+  ], { encoding: 'utf8' });
+  assert.equal(recheck.status, 0, recheck.stderr);
+  const tamperedProfile = clone(valid);
+  tamperedProfile.observation.continuousHours = 9;
+  fs.writeFileSync(boundProfilePath, JSON.stringify(tamperedProfile));
+  const tampered = spawnSync(process.execPath, [
+    verifier, boundProfilePath, '--evidence', evidencePath,
+  ], { encoding: 'utf8' });
+  assert.notEqual(tampered.status, 0);
+
   const production = clone(valid);
   production.environment = 'production';
   assert.notEqual(run('production', production).status, 0);
