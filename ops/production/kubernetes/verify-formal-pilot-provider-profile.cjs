@@ -110,6 +110,10 @@ if (!['barman-manifest', 'provider-checksum'].includes(profile.postgresql.backup
   fail('PostgreSQL backup checksum evidence must come from Barman or the provider.');
 }
 if (profile.postgresql.backup.isolatedRestore !== true) fail('PostgreSQL restore must be isolated.');
+if (adapterBindings.backup.fileName === 'cnpg-backup-adapter.cjs'
+  && profile.postgresql.backup.method !== 'barman-object-store') {
+  fail('cnpg-backup-adapter.cjs requires the Barman object-store backup profile.');
+}
 
 requireKeys(profile.redis, ['kind', 'dataInstances', 'sentinelCount', 'haAdapter'], 'redis');
 if (profile.redis.kind !== 'sentinel') fail('redis.kind must be sentinel.');
@@ -135,6 +139,10 @@ if (!['dump-to-object-store', 'csi-volume-snapshot'].includes(profile.search.bac
   fail('Unsupported search backup method.');
 }
 if (profile.search.isolatedRestore !== true) fail('Search restore must be isolated.');
+if (adapterBindings.search.fileName === 'meilisearch-kubernetes-search-adapter.cjs'
+  && profile.search.backupMethod !== 'csi-volume-snapshot') {
+  fail('meilisearch-kubernetes-search-adapter.cjs requires the CSI volume-snapshot profile.');
+}
 if (requireDns(profile.search.restoreNamespace, 'search.restoreNamespace') !== recoveryNamespace) {
   fail('Search restore must use the dedicated recovery namespace.');
 }
