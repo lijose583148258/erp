@@ -63,7 +63,7 @@ const rejectSensitiveFields = (value, location = 'profile') => {
 
 rejectSensitiveFields(profile);
 requireKeys(profile, [
-  'schemaVersion', 'environment', 'platform', 'postgresql', 'redis',
+  'schemaVersion', 'environment', 'platform', 'adapters', 'postgresql', 'redis',
   'objectStorage', 'search', 'observability', 'ai', 'observation',
 ], 'profile');
 if (profile.schemaVersion !== 1) fail('Unsupported provider profile schemaVersion.');
@@ -80,10 +80,26 @@ const applicationNamespace = requireDns(profile.platform.applicationNamespace, '
 const recoveryNamespace = requireDns(profile.platform.recoveryNamespace, 'platform.recoveryNamespace');
 if (applicationNamespace === recoveryNamespace) fail('Recovery resources require a dedicated namespace.');
 
+requireKeys(profile.adapters, [
+  'postgres', 'redis', 'objectStorage', 'search', 'backup', 'observability',
+], 'adapters');
+const adapterBindings = {};
+for (const [name, binding] of Object.entries(profile.adapters)) {
+  requireKeys(binding, ['fileName', 'sha256'], `adapters.${name}`);
+  const fileName = requireString(binding.fileName, `adapters.${name}.fileName`);
+  if (path.basename(fileName) !== fileName || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(fileName)) {
+    fail(`adapters.${name}.fileName must be a plain file name.`);
+  }
+  const sha256 = String(binding.sha256 || '').trim();
+  if (!/^[0-9a-f]{64}$/.test(sha256)) fail(`adapters.${name}.sha256 must be a lowercase SHA-256.`);
+  adapterBindings[name] = { fileName, sha256 };
+}
+
 requireKeys(profile.postgresql, ['kind', 'instances', 'haAdapter', 'backup'], 'postgresql');
 if (profile.postgresql.kind !== 'cloudnativepg') fail('postgresql.kind must be cloudnativepg.');
 requireInteger(profile.postgresql.instances, 3, 'postgresql.instances');
 if (profile.postgresql.haAdapter !== 'cnpg-ha-adapter.cjs') fail('Unexpected PostgreSQL HA adapter.');
+if (profile.postgresql.haAdapter !== adapterBindings.postgres.fileName) fail('PostgreSQL adapter binding mismatch.');
 requireKeys(profile.postgresql.backup, [
   'method', 'encrypted', 'checksumEvidence', 'isolatedRestore',
 ], 'postgresql.backup');
@@ -101,6 +117,7 @@ if (profile.redis.kind !== 'sentinel') fail('redis.kind must be sentinel.');
 requireInteger(profile.redis.dataInstances, 3, 'redis.dataInstances');
 requireInteger(profile.redis.sentinelCount, 3, 'redis.sentinelCount');
 if (profile.redis.haAdapter !== 'redis-kubernetes-ha-adapter.cjs') fail('Unexpected Redis HA adapter.');
+if (profile.redis.haAdapter !== adapterBindings.redis.fileName) fail('Redis adapter binding mismatch.');
 
 requireKeys(profile.objectStorage, [
   'kind', 'dataPods', 'haAdapter', 'pvcDeletePermission',
@@ -108,6 +125,7 @@ requireKeys(profile.objectStorage, [
 if (profile.objectStorage.kind !== 'minio-distributed') fail('objectStorage.kind must be minio-distributed.');
 requireInteger(profile.objectStorage.dataPods, 4, 'objectStorage.dataPods');
 if (profile.objectStorage.haAdapter !== 'minio-kubernetes-object-adapter.cjs') fail('Unexpected object-storage HA adapter.');
+if (profile.objectStorage.haAdapter !== adapterBindings.objectStorage.fileName) fail('Object-storage adapter binding mismatch.');
 if (profile.objectStorage.pvcDeletePermission !== false) fail('Object drill identity must not have PVC delete permission.');
 
 requireKeys(profile.search, [
@@ -179,6 +197,7 @@ process.stdout.write(`${JSON.stringify({
   recoveryNamespace,
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
+  adapters: adapterBindings,
   providerProfileSha256,
   evidenceBound: Boolean(evidenceValue),
 })}\n`);
