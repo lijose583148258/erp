@@ -34,9 +34,10 @@ The manifest requires two distinct node hostnames and two distinct
 collapsing both replicas into one failure domain.
 
 After deploying to the real staging topology, create an evidence document from
-`failure-domain-evidence.example.json`. Implement the non-shell provider
-adapters defined in `HA_ADAPTER_PROTOCOL.md`, then run the disruptive
-application-level drill before the final verifier. The verifier rejects manually
+`failure-domain-evidence.example.json`. Use the shipped CloudNativePG and
+Redis Kubernetes adapters under `adapters/`, bind their exact SHA-256 values
+into the provider profile, then run the disruptive application-level drill
+before the final verifier. The verifier rejects manually
 asserted PostgreSQL or Redis failover fields when the latest drill did not pass.
 
 After the drill updates the evidence document, run:
@@ -74,8 +75,11 @@ intentionally insufficient.
 
 ## Isolated PostgreSQL backup recovery drill
 
-Implement a provider adapter that follows `BACKUP_ADAPTER_PROTOCOL.md`. Run the
-drill only against approved non-production staging or pilot infrastructure:
+Use `adapters/cnpg-backup-adapter.cjs` with the signed receipt verifier under
+`receipt/`. The provider control plane must generate the signed Barman and
+object-storage evidence; the ERP namespace never receives the Ed25519 signing
+private key. Run the drill only against approved non-production staging or
+pilot infrastructure:
 
 ```bash
 BACKUP_DRILL_ENVIRONMENT=<formal-pilot> \
@@ -104,13 +108,30 @@ backup completion and restore RTO separately, and binds the report SHA-256 into
 enterprise evidence. It never restores over the active writer and does not
 claim a production-wide PITR objective from a single drill.
 
+## Signed PostgreSQL backup receipts
+
+The CNPG backup adapter accepts encryption and checksum claims only from the
+read-only verifier documented in `receipt/README.md`. Deploy
+`receipt/cnpg-backup-receipt-deployment.example.yaml` behind TLS or mTLS,
+with two replicas, a read-only provider-populated receipt volume, a public
+Ed25519 verification key, and a private bearer token. The provider signing key
+must remain outside the application, admission runner, GitHub, and verifier.
+
+For non-root Kubernetes workloads, project credential files with `0440`, set
+`runAsUser`, `runAsGroup`, and `fsGroup` consistently, and keep all
+other-user bits clear. A signed receipt is still not restore evidence: the
+backup drill must create an isolated CNPG cluster and read the synthetic ERP
+marker before admission.
+
 ## Storage and search resilience evidence
 
 The process-stop MinIO and Meilisearch scripts are controlled single-host
-sandbox evidence only and cannot pass formal admission. Implement the
-provider/operator operations in `STORAGE_SEARCH_ADAPTER_PROTOCOL.md`. Failure
-domains must be observed from the provider control plane; environment labels
-alone are rejected.
+sandbox evidence only and cannot pass formal admission. Use
+`adapters/minio-kubernetes-object-adapter.cjs` and
+`adapters/meilisearch-kubernetes-search-adapter.cjs`. The latter performs a
+completed Meilisearch dump, Retain-backed CSI snapshot transport, and isolated
+dump import into a new data PVC. Failure domains must be observed from the
+Kubernetes control plane; environment labels alone are rejected.
 
 Formal reports carry the same release identity, a provider topology timestamp,
 failure injection identity, and `providerAdapterVerified:true`. Search recovery
@@ -143,9 +164,9 @@ the metrics token Secret exists, then follow `OBSERVABILITY_RUNBOOK.md`.
 
 ## Trace and alert delivery admission
 
-Implement the secret-backed adapter in
-`OBSERVABILITY_ADAPTER_PROTOCOL.md`. After the automatic HA drill has recorded
-PostgreSQL and Redis failover trace IDs, run:
+Use `adapters/tempo-alert-receipt-adapter.cjs` with Tempo, Alertmanager, and
+an independent receiver receipt store. After the automatic HA drill has
+recorded PostgreSQL and Redis failover trace IDs, run:
 
 ```bash
 OBSERVABILITY_DRILL_ENVIRONMENT=<formal-pilot> \
@@ -356,7 +377,10 @@ release identity and two distinct HTTPS application targets. It checks
 provider-observed PostgreSQL, Redis Sentinel, object-storage, and search failure
 domains; both application instances; cross-instance session readback; direct
 provider search readback; executable backup and observability adapters; and
-private password-file permissions. It does not inject failure, create a backup,
+owner-only or current-process-group read-only password-file permissions. It
+accepts Kubernetes projected Secrets with mode `0440` only when the file group
+matches the runner's effective group, and still rejects group-write or any
+other-user access. It does not inject failure, create a backup,
 send an alert, or call an external AI provider.
 
 ```bash
