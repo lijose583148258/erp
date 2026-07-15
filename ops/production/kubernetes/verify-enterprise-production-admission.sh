@@ -217,6 +217,8 @@ jq -e '
   and .observability.droppedSpanRegression == false
   and (.observability.reportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and .observabilityDrill.status == "passed"
+  and .observabilityDrill.providerProfileSha256 == .providerProfile.sha256
+  and (.observabilityDrill.adapterSha256.observability | type == "string" and test("^[0-9a-f]{64}$"))
   and .observabilityDrill.environment == .environment
   and .observabilityDrill.changeTicket == .evidenceId
   and .observabilityDrill.commitSha == .commitSha
