@@ -88,9 +88,13 @@ BACKUP_DRILL_IMAGE_DIGEST=<sha256:digest> \
 node ops/production/kubernetes/run-backup-restore-drill.cjs \
   --adapter <provider-adapter> \
   --evidence <evidence.json> \
+  --provider-profile <hash-bound-provider-profile.json> \
   --report <backup-report.json> \
   --confirm-resource-creation
 ```
+
+Before any provider resource is created, the runner verifies the full release
+identity and rechecks the bound provider profile plus backup adapter SHA-256.
 
 The adapter must create a new isolated recovery target and remove it after
 verification. The runner creates a synthetic ERP marker, verifies encrypted
