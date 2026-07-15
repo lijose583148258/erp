@@ -168,6 +168,7 @@ jobs:
           };
           const requiredChecks = [
             'provider-profile-bound', 'all-adapters-profile-bound', 'all-adapters-executable',
+            'backup-receipt-verifier-bound-and-healthy',
             'postgres-provider-topology', 'postgres-preferred-endpoint',
             'redis-provider-topology', 'redis-preferred-endpoint',
             'objectStorage-provider-topology', 'objectStorage-preferred-endpoint',
@@ -185,6 +186,7 @@ jobs:
             ...release,
             providerProfileSha256: identity.providerProfile.sha256,
             adapterSha256,
+            backupReceiptVerifier: { ...providerProfile.postgresql.backup.receiptVerifier },
             startedAt: now,
             finishedAt: now,
             topology: {
