@@ -8,6 +8,7 @@ data:
   app-urls: https://app-a.example,https://app-b.example
   commit-sha: replace-with-40-character-git-sha
   application-image-digest: sha256:replace-with-64-hex-digest
+  pilot-observer-image-digest: sha256:replace-with-64-hex-digest
 ---
 apiVersion: v1
 kind: ConfigMap
