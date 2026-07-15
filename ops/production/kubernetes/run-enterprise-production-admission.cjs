@@ -71,7 +71,7 @@ if (providerProfile.environment !== release.environment) {
   throw new Error('Provider profile environment does not match the admission release.');
 }
 const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
-const providerOutput = execFileSync(process.execPath, [providerVerifier, resolved.providerProfile], {
+const providerOutput = execFileSync(process.execPath, [providerVerifier, resolved.providerProfile, '--evidence', resolved.evidence], {
   cwd: bundleRoot,
   encoding: 'utf8',
   stdio: ['ignore', 'pipe', 'inherit'],
