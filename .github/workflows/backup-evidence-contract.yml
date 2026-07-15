@@ -5,6 +5,7 @@ on:
     paths:
       - 'ops/production/kubernetes/run-backup-restore-drill.cjs'
       - 'ops/production/kubernetes/verify-backup-restore-evidence.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - 'ops/production/kubernetes/BACKUP_ADAPTER_PROTOCOL.md'
       - '.github/workflows/backup-evidence-contract.yml'
@@ -52,6 +53,8 @@ jobs:
             changeTicket: 'CHG-12345',
             commitSha: 'a'.repeat(40),
             imageDigest: `sha256:${'b'.repeat(64)}`,
+            providerProfileSha256: 'c'.repeat(64),
+            adapterSha256: { backup: 'd'.repeat(64) },
             startedAt: iso(-120000),
             markerCreatedAt: iso(-110000),
             recoveryPointAt: iso(-90000),
@@ -79,9 +82,17 @@ jobs:
             evidenceId: report.changeTicket,
             commitSha: report.commitSha,
             imageDigest: report.imageDigest,
+            providerProfile: {
+              status: 'passed',
+              environment: report.environment,
+              sha256: report.providerProfileSha256,
+              verifiedAt: iso(-130000),
+            },
             postgres: { backupRestoreReadback: true },
             backupDrill: {
               status: 'passed',
+              providerProfileSha256: report.providerProfileSha256,
+              adapterSha256: report.adapterSha256,
               checksumVerified: true,
               encrypted: true,
               markerReadback: true,
