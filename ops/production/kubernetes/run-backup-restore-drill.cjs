@@ -21,6 +21,7 @@ const resolveFile = (flag, label) => {
 };
 const adapter = resolveFile('--adapter', 'Backup adapter');
 const evidencePath = resolveFile('--evidence', 'Enterprise evidence');
+const providerProfilePath = resolveFile('--provider-profile', 'Provider profile');
 const reportValue = valueFor('--report');
 if (!reportValue) fail('Missing --report.');
 const reportPath = path.resolve(reportValue);
@@ -62,6 +63,29 @@ password = fs.readFileSync(passwordFile, 'utf8').trim();
 if (!password) fail('Backup drill password file is empty.');
 if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('Backup drill commit SHA is invalid.');
 if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('Backup drill image digest is invalid.');
+
+const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
+if (evidence.environment !== environment || evidence.evidenceId !== changeTicket
+  || evidence.commitSha !== commitSha || evidence.imageDigest !== imageDigest) {
+  fail('Backup drill release identity does not match enterprise evidence.');
+}
+const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const providerOutput = execFileSync(process.execPath, [
+  providerVerifier, providerProfilePath, '--evidence', evidencePath,
+], {
+  encoding: 'utf8',
+  timeout: timeoutMs,
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+let providerSummary;
+try { providerSummary = JSON.parse(providerOutput); } catch { fail('Provider profile verifier returned invalid JSON.'); }
+const adapterSha256 = crypto.createHash('sha256').update(fs.readFileSync(adapter)).digest('hex');
+if (providerSummary.adapters?.backup?.fileName !== path.basename(adapter)
+  || providerSummary.adapters?.backup?.sha256 !== adapterSha256) {
+  fail('Backup adapter does not match the bound provider profile.');
+}
+report.providerProfileSha256 = providerSummary.providerProfileSha256;
+report.adapterSha256 = { backup: adapterSha256 };
 
 const check = (name, passed, details = {}) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
@@ -107,7 +131,6 @@ const writeReport = () => {
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 };
 const bindEvidence = () => {
-  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
   const reportHash = crypto.createHash('sha256').update(fs.readFileSync(reportPath)).digest('hex');
   evidence.postgres = {
     ...evidence.postgres,
@@ -132,6 +155,8 @@ const bindEvidence = () => {
     restoreRtoSeconds: report.restoreRtoSeconds ?? null,
     recoveredThroughAt: report.recoveredThroughAt || null,
     reportSha256: reportHash,
+    providerProfileSha256: report.providerProfileSha256,
+    adapterSha256: report.adapterSha256,
   };
   fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
 };
