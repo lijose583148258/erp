@@ -39,6 +39,9 @@ try {
       failures: 0,
       p95Ms: 100,
       instanceRequests: { 'https://app-a.example': 100, 'https://app-b.example': 100 },
+      components: Object.fromEntries([
+        'object-storage', 'search-primary', 'search-secondary', 'prometheus', 'tempo', 'alertmanager',
+      ].map(name => [name, { url: `https://${name}.example/health`, probes: 480, failures: 0, lastStatus: 200 }])),
     },
   });
   const continuousHash = hash(continuousPath);
