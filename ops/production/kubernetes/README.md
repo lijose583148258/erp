@@ -391,6 +391,8 @@ FORMAL_PILOT_PREFLIGHT_IMAGE_DIGEST=<sha256:digest> \
 FORMAL_PILOT_PREFLIGHT_APP_URLS=<https-app-a>,<https-app-b> \
 FORMAL_PILOT_PREFLIGHT_USERNAME=<least-privilege-audit-user> \
 FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE=<private-secret-file> \
+FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=<https-receipt-verifier> \
+FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE=<ed25519-public-key> \
 node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
   --evidence <evidence.json> \
   --provider-profile <hash-bound-provider-profile.json> \
@@ -400,11 +402,15 @@ node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
   --object-adapter <object-adapter> \
   --search-adapter <search-adapter> \
   --backup-adapter <backup-adapter> \
-  --observability-adapter <observability-adapter>
+  --observability-adapter <observability-adapter> \
+  --backup-receipt-service <cnpg-backup-receipt-service.cjs>
 ```
 
 The preflight recomputes the provider profile SHA-256 and rejects an unbound or
-modified profile before contacting any disruptive adapter.
+modified profile before contacting any disruptive adapter. It also recomputes
+the signed-receipt service and Ed25519 public-key hashes, validates the key type,
+and requires the live verifier health response to return the same issuer and
+public-key fingerprint.
 
 A passing preflight is only permission and topology readiness. It is not
 failover, restore, alert-delivery, load, observation, or production-admission
@@ -428,8 +434,9 @@ production environments, fewer than three failure domains, shared application
 and recovery namespaces, unencrypted or manually asserted PostgreSQL backup
 integrity, insufficient Redis/MinIO topology, non-isolated search recovery,
 Alertmanager acceptance without a receiver-side delivery store, paid/external
-AI mode, and observations shorter than eight hours or seven pilot days. It also
-binds the plain file name and lowercase SHA-256 of all six provider adapters.
+AI mode, and observations shorter than eight hours or seven pilot days. It also binds
+the plain file name and lowercase SHA-256 of all six provider adapters plus the
+backup receipt service, Ed25519 public-key fingerprint, and provider issuer.
 The formal preflight rejects a renamed or byte-modified adapter before execution.
 
 Use `--bind` only for the reviewed profile before drills begin. Subsequent
