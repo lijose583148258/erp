@@ -71,6 +71,8 @@ jobs:
           grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'OBSERVATION_DURATION_MS' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'OBSERVATION_COLLECTOR_IMAGE_DIGEST' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'OBSERVATION_COMPONENT_HEALTH_URLS' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'component-health-urls' ops/production/kubernetes/formal-pilot-observation-resources.example.yaml
           grep -q 'persistentVolumeClaim:' ops/production/kubernetes/formal-pilot-observation-job.yaml
           ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'kind: CronJob' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
