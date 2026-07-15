@@ -157,6 +157,19 @@ try {
   assert.equal(evidence.observation.continuousReportSha256, continuousHash);
   assert.equal(evidence.observation.pilotLedgerSha256, hash(ledgerPath));
 
+  const continuousOriginal = fs.readFileSync(continuousPath, 'utf8');
+  const readinessTampered = JSON.parse(continuousOriginal);
+  readinessTampered.summary.readinessSemanticFailures = 1;
+  write(continuousPath, readinessTampered);
+  let readinessRejected = false;
+  try {
+    execFileSync(process.execPath, args.filter(value => value !== '--bind'), { stdio: 'pipe' });
+  } catch {
+    readinessRejected = true;
+  }
+  assert.equal(readinessRejected, true, 'semantic PostgreSQL/Redis readiness failure must be rejected');
+  fs.writeFileSync(continuousPath, continuousOriginal);
+
   const tampered = JSON.parse(fs.readFileSync(ledgerPath, 'utf8'));
   tampered.entries[0].dailyReportSha256 = '0'.repeat(64);
   write(ledgerPath, tampered);
