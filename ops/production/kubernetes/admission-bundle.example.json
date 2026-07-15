@@ -10,6 +10,7 @@
   "artifacts": {
     "evidence": "evidence/enterprise-evidence.json",
     "providerProfile": "provider/formal-pilot-provider-profile.json",
+    "preflightReport": "preflight/formal-pilot-preflight-report.json",
     "continuousReport": "observation/continuous-observation-report.json",
     "pilotLedger": "observation/pilot-observation-ledger.json",
     "dailyReportsDir": "observation/daily",
