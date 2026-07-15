@@ -99,6 +99,12 @@ const run = (urls, output) => new Promise(resolve => {
     assert.notEqual(duplicate.code, 0, 'existing daily AI receipt must not be overwritten');
     assert.equal(fs.readFileSync(output, 'utf8'), original, 'existing daily AI receipt changed');
 
+    const ssrfOutput = path.join(root, 'ssrf.json');
+    const ssrf = await run(['http://127.0.0.1@external.invalid', urls[1]], ssrfOutput);
+    assert.notEqual(ssrf.code, 0, 'credential-confused external URL must be rejected');
+    const ssrfReport = JSON.parse(fs.readFileSync(ssrfOutput, 'utf8'));
+    assert.match(ssrfReport.error, /credential-free/);
+
     externalEnabled = true;
     const rejectedOutput = path.join(root, 'external-enabled.json');
     const rejected = await run(urls, rejectedOutput);
