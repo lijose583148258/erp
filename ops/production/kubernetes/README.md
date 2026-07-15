@@ -159,9 +159,13 @@ OBSERVABILITY_METRICS_TOKEN_FILE=<secret-file> \
 node ops/production/kubernetes/run-observability-admission-drill.cjs \
   --adapter <trace-alert-adapter> \
   --evidence <evidence.json> \
+  --provider-profile <hash-bound-provider-profile.json> \
   --report <observability-report.json> \
   --confirm-alert-delivery
 ```
+
+Before trace lookup or alert submission, the runner rechecks the release,
+Provider Profile, HA trace Profile identity, and observability adapter SHA-256.
 
 The drill requires two healthy Prometheus targets, the reviewed alert families,
 no new dropped spans, a bounded exporter queue, collector acceptance, trace
