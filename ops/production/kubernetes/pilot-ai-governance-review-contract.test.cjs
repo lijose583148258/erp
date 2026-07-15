@@ -58,6 +58,7 @@ const run = (urls, output) => new Promise(resolve => {
       PILOT_AI_PASSWORD_FILE: passwordFile,
       PILOT_AI_METRICS_TOKEN_FILE: metricsTokenFile,
       PILOT_AI_REVIEWER: 'ai-governance-owner',
+      PILOT_AI_COLLECTOR_IMAGE_DIGEST: `sha256:${'e'.repeat(64)}`,
       PILOT_AI_OUTPUT: output,
       PILOT_AI_BUDGET_BREACHES: '0',
       PILOT_AI_PRIVACY_INCIDENTS: '0',
@@ -81,6 +82,11 @@ const run = (urls, output) => new Promise(resolve => {
     const report = JSON.parse(fs.readFileSync(output, 'utf8'));
     assert.equal(report.status, 'passed');
     assert.equal(report.source, 'runtime-probe');
+    assert.equal(report.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
+    assert.equal(
+      report.collectorSha256,
+      require('crypto').createHash('sha256').update(fs.readFileSync(collector)).digest('hex'),
+    );
     assert.equal(report.externalAiEnabled, false);
     assert.equal(report.paidModelCalls, 0);
     assert.equal(report.governedAiRequests, 2);
