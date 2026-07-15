@@ -344,6 +344,27 @@ local-only pilot evidence cannot be reused to approve external mode.
 
 ## Daily pilot recorder
 
+Generate the AI governance source report from both live application instances
+before recording the daily review. This probe refuses external-provider mode,
+performs one bounded local request per instance, compares prompt-free
+Prometheus counters, and stores only aggregate metadata and metric
+fingerprints. The four incident counters must be supplied explicitly by the
+daily reviewer and must all be zero.
+
+```bash
+PILOT_AI_APP_URLS=<https-app-a>,<https-app-b> \
+PILOT_AI_USERNAME=<least-privilege-ai-user> \
+PILOT_AI_PASSWORD_FILE=<private-secret-file> \
+PILOT_AI_METRICS_TOKEN_FILE=<private-metrics-token-file> \
+PILOT_AI_REVIEWER=<reviewer-id> \
+PILOT_AI_OUTPUT=<ai-governance-review.json> \
+PILOT_AI_BUDGET_BREACHES=0 \
+PILOT_AI_PRIVACY_INCIDENTS=0 \
+PILOT_AI_CROSS_TENANT_LEAKS=0 \
+PILOT_AI_UNRESOLVED_INCIDENTS=0 \
+node ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
+```
+
 Use `record-pilot-daily-review.cjs` once per UTC day. It accepts four
 metadata-only source reports: alert delivery/review, business-write
 reconciliation, incident resolution, and AI governance. The AI review records
