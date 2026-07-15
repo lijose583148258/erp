@@ -33,3 +33,13 @@ PostgreSQL and Redis failover trace ID must be found in the configured tracing
 backend. Likewise, an Alertmanager API acceptance response is not a delivery
 receipt; the adapter must query the actual pilot receiver or audited delivery
 store.
+
+## Formal runner binding
+
+Pass the hash-bound provider profile with
+`--provider-profile <profile.json>`. Before reading traces or submitting the
+synthetic alert, the runner revalidates the release identity, Profile hash, HA
+trace Profile identity, and observability adapter file name plus SHA-256. The
+report and enterprise evidence retain those hashes. Final admission compares
+them with the approved Profile and read-only preflight.
+
