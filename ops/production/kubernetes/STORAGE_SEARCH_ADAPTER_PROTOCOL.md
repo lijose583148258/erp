@@ -66,10 +66,15 @@ failover or restore gates.
 ## Formal runner
 
 Use `run-storage-search-admission-drill.cjs` with both provider adapters, the
-enterprise evidence file, a private reports directory, and
-`--confirm-disruptive`. Supply release identity, two distinct HTTPS ERP
-application URLs, an audit username, and a mounted password file through the
-`STORAGE_SEARCH_DRILL_*` environment variables. The runner rejects
-production-named environments, writes all three reports atomically, attempts
-recovery and isolated-resource cleanup after failures, and binds successful
-reports to enterprise evidence through the formal verifier.
+enterprise evidence file, the hash-bound profile through
+`--provider-profile <profile.json>`, a private reports directory, and
+`--confirm-disruptive`. Before login or provider mutation, the runner
+recomputes both adapter hashes and compares them with the approved profile.
+Supply release identity, two distinct HTTPS ERP application URLs, an audit
+username, and a mounted password file through the `STORAGE_SEARCH_DRILL_*`
+environment variables. The runner rejects production-named environments,
+writes all three reports atomically with the Profile and adapter identities,
+attempts recovery and isolated-resource cleanup after failures, and binds
+successful reports to enterprise evidence through the formal verifier. Final
+admission compares those identities with the read-only preflight and approved
+profile.
