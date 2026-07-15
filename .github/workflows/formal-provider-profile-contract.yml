@@ -1,0 +1,28 @@
+name: Formal provider profile contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/formal-provider-profile-contract.yml"
+      - "ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs"
+      - "ops/production/kubernetes/provider-profile-contract.test.cjs"
+      - "ops/production/kubernetes/formal-pilot-provider-profile.example.json"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-provider-profile-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate provider profile gate
+        run: |
+          node --check ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs
+          node ops/production/kubernetes/provider-profile-contract.test.cjs
