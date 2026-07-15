@@ -18,6 +18,7 @@ const environment = String(process.env.OBSERVATION_ENVIRONMENT || '').trim();
 const evidenceId = String(process.env.OBSERVATION_EVIDENCE_ID || '').trim();
 const commitSha = String(process.env.OBSERVATION_COMMIT_SHA || process.env.GITHUB_SHA || '').trim();
 const imageDigest = String(process.env.OBSERVATION_IMAGE_DIGEST || '').trim();
+const collectorImageDigest = String(process.env.OBSERVATION_COLLECTOR_IMAGE_DIGEST || '').trim();
 const report = {
   name: 'Enterprise Continuous Observation',
   version: '1.0',
@@ -30,6 +31,7 @@ const report = {
   instances: appUrls,
   commitSha,
   imageDigest,
+  collectorImageDigest,
   checks: [],
 };
 const latencies = [];
@@ -80,6 +82,7 @@ const validateConfig = () => {
   if (!username) fail('OBSERVATION_USERNAME is required.');
   if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('OBSERVATION_COMMIT_SHA must be a 40-character lowercase Git SHA.');
   if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('OBSERVATION_IMAGE_DIGEST must be an immutable sha256 digest.');
+  if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('OBSERVATION_COLLECTOR_IMAGE_DIGEST must be an immutable sha256 digest.');
   password = readSecretFile(passwordFile, 'Observation password');
   metricsToken = readSecretFile(metricsTokenFile, 'Metrics bearer token');
 };
