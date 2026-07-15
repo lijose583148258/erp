@@ -15,6 +15,14 @@ const valid = {
     applicationNamespace: 'ailaoda-pilot',
     recoveryNamespace: 'ailaoda-pilot-recovery',
   },
+  adapters: {
+    postgres: { fileName: 'cnpg-ha-adapter.cjs', sha256: 'a'.repeat(64) },
+    redis: { fileName: 'redis-kubernetes-ha-adapter.cjs', sha256: 'b'.repeat(64) },
+    objectStorage: { fileName: 'minio-kubernetes-object-adapter.cjs', sha256: 'c'.repeat(64) },
+    search: { fileName: 'meilisearch-kubernetes-search-adapter.cjs', sha256: 'd'.repeat(64) },
+    backup: { fileName: 'cnpg-backup-adapter.cjs', sha256: 'e'.repeat(64) },
+    observability: { fileName: 'tempo-alert-receipt-adapter.cjs', sha256: 'f'.repeat(64) },
+  },
   postgresql: {
     kind: 'cloudnativepg',
     instances: 3,
