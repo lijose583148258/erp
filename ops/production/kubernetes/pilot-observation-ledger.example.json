@@ -13,7 +13,9 @@
       "serviceIncidentsResolved": false,
       "reportFile": "2026-01-01.json",
       "dailyReportSha256": "replace-with-64-hex-daily-report-hash",
-      "continuousReportSha256": "replace-with-64-hex-continuous-report-hash"
+      "continuousReportSha256": "replace-with-64-hex-continuous-report-hash",
+      "aiGovernanceReviewCompleted": false,
+      "governedAiRequests": 0
     }
   ]
 }
