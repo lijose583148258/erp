@@ -90,6 +90,18 @@ const readSecretFile = (file, label) => {
   if (!value) fail(`${label} file is empty.`);
   return value;
 };
+const validBaseUrl = (value, component = false) => {
+  try {
+    const url = new URL(value);
+    if (url.username || url.password || url.search || url.hash) return false;
+    if (!component && url.pathname !== '/') return false;
+    if (url.protocol === 'https:') return Boolean(url.hostname);
+    if (url.protocol !== 'http:') return false;
+    return url.hostname === '127.0.0.1' || (component && url.hostname.endsWith('.svc'));
+  } catch {
+    return false;
+  }
+};
 const validateConfig = () => {
   if (!environment || !evidenceId || evidenceId.length < 5) {
     fail('OBSERVATION_ENVIRONMENT and OBSERVATION_EVIDENCE_ID are required.');
@@ -98,8 +110,8 @@ const validateConfig = () => {
     fail('OBSERVATION_DURATION_MS must be between 8 and 24 hours.');
   }
   if (appUrls.length < 2) fail('OBSERVATION_APP_URLS must contain at least two application instances.');
-  if (!appUrls.every(value => /^https:\/\//.test(value) || /^http:\/\/127\.0\.0\.1(?::\d+)?$/.test(value))) {
-    fail('Application URLs must use HTTPS, except explicit 127.0.0.1 staging tunnels.');
+  if (!appUrls.every(value => validBaseUrl(value, false))) {
+    fail('Application URLs must be credential-free HTTPS bases or explicit 127.0.0.1 staging tunnels.');
   }
   if (!username) fail('OBSERVATION_USERNAME is required.');
   const requiredComponents = ['object-storage', 'search-primary', 'search-secondary', 'prometheus', 'tempo', 'alertmanager'];
@@ -108,10 +120,8 @@ const validateConfig = () => {
     fail('OBSERVATION_COMPONENT_HEALTH_URLS must contain six uniquely named required components.');
   }
   if (!componentHealth.every(component => /^[a-z][a-z0-9-]{1,40}$/.test(component.name)
-    && (/^https:\/\//.test(component.url)
-      || /^http:\/\/127\.0\.0\.1(?::\d+)?/.test(component.url)
-      || /^http:\/\/[a-z0-9.-]+\.svc(?::\d+)?/.test(component.url)))) {
-    fail('Component health URLs must use HTTPS, 127.0.0.1, or internal Kubernetes service DNS.');
+    && validBaseUrl(component.url, true))) {
+    fail('Component health URLs must be credential-free HTTPS, 127.0.0.1, or internal Kubernetes service DNS.');
   }
   if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('OBSERVATION_COMMIT_SHA must be a 40-character lowercase Git SHA.');
   if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('OBSERVATION_IMAGE_DIGEST must be an immutable sha256 digest.');
@@ -185,7 +195,7 @@ const probeComponents = async () => Promise.all(componentHealth.map(async compon
   const state = componentProbes.get(component.name);
   state.probes += 1;
   try {
-    const response = await fetch(component.url, { signal: AbortSignal.timeout(10_000) });
+    const response = await fetch(component.url, { redirect: 'error', signal: AbortSignal.timeout(10_000) });
     await response.arrayBuffer();
     state.lastStatus = response.status;
     if (!response.ok) state.failures += 1;
