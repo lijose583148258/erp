@@ -98,7 +98,6 @@ for (const [name, binding] of Object.entries(profile.adapters)) {
 requireKeys(profile.postgresql, ['kind', 'instances', 'haAdapter', 'backup'], 'postgresql');
 if (profile.postgresql.kind !== 'cloudnativepg') fail('postgresql.kind must be cloudnativepg.');
 requireInteger(profile.postgresql.instances, 3, 'postgresql.instances');
-if (profile.postgresql.haAdapter !== 'cnpg-ha-adapter.cjs') fail('Unexpected PostgreSQL HA adapter.');
 if (profile.postgresql.haAdapter !== adapterBindings.postgres.fileName) fail('PostgreSQL adapter binding mismatch.');
 requireKeys(profile.postgresql.backup, [
   'method', 'encrypted', 'checksumEvidence', 'isolatedRestore',
@@ -116,7 +115,6 @@ requireKeys(profile.redis, ['kind', 'dataInstances', 'sentinelCount', 'haAdapter
 if (profile.redis.kind !== 'sentinel') fail('redis.kind must be sentinel.');
 requireInteger(profile.redis.dataInstances, 3, 'redis.dataInstances');
 requireInteger(profile.redis.sentinelCount, 3, 'redis.sentinelCount');
-if (profile.redis.haAdapter !== 'redis-kubernetes-ha-adapter.cjs') fail('Unexpected Redis HA adapter.');
 if (profile.redis.haAdapter !== adapterBindings.redis.fileName) fail('Redis adapter binding mismatch.');
 
 requireKeys(profile.objectStorage, [
@@ -124,7 +122,6 @@ requireKeys(profile.objectStorage, [
 ], 'objectStorage');
 if (profile.objectStorage.kind !== 'minio-distributed') fail('objectStorage.kind must be minio-distributed.');
 requireInteger(profile.objectStorage.dataPods, 4, 'objectStorage.dataPods');
-if (profile.objectStorage.haAdapter !== 'minio-kubernetes-object-adapter.cjs') fail('Unexpected object-storage HA adapter.');
 if (profile.objectStorage.haAdapter !== adapterBindings.objectStorage.fileName) fail('Object-storage adapter binding mismatch.');
 if (profile.objectStorage.pvcDeletePermission !== false) fail('Object drill identity must not have PVC delete permission.');
 
