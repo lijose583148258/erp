@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
@@ -13,9 +14,11 @@ const fail = message => {
 };
 
 const evidenceArgument = valueFor('--evidence');
+const providerProfileArgument = valueFor('--provider-profile');
 const postgresAdapterArgument = valueFor('--postgres-adapter');
 const redisAdapterArgument = valueFor('--redis-adapter');
 const evidencePath = evidenceArgument ? path.resolve(evidenceArgument) : '';
+const providerProfilePath = providerProfileArgument ? path.resolve(providerProfileArgument) : '';
 const postgresAdapter = postgresAdapterArgument ? path.resolve(postgresAdapterArgument) : '';
 const redisAdapter = redisAdapterArgument ? path.resolve(redisAdapterArgument) : '';
 const environment = String(process.env.HA_DRILL_ENVIRONMENT || '').trim();
@@ -37,6 +40,9 @@ if (!username || !passwordFile) fail('HA_DRILL_USERNAME and HA_DRILL_PASSWORD_FI
 if (!fs.existsSync(passwordFile)) fail('HA audit password file does not exist.');
 if (!evidenceArgument || !evidencePath || !fs.existsSync(evidencePath) || !fs.statSync(evidencePath).isFile()) {
   fail('Existing evidence JSON file is required.');
+}
+if (!providerProfilePath || !fs.existsSync(providerProfilePath) || !fs.statSync(providerProfilePath).isFile()) {
+  fail('Existing --provider-profile file is required.');
 }
 for (const adapter of [postgresAdapter, redisAdapter]) {
   if (!adapter || !fs.existsSync(adapter) || !fs.statSync(adapter).isFile()) fail(`Adapter file does not exist: ${adapter}`);
@@ -184,10 +190,31 @@ const validateTopology = (kind, topology, minimumDomains) => {
 };
 
 const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const providerOutput = execFileSync(process.execPath, [
+  providerVerifier, providerProfilePath, '--evidence', evidencePath,
+], {
+  encoding: 'utf8',
+  timeout: timeoutMs,
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+let providerSummary;
+try { providerSummary = JSON.parse(providerOutput); } catch { fail('Provider profile verifier returned invalid JSON.'); }
+const adapterSha256 = {};
+for (const [name, adapter] of Object.entries({ postgres: postgresAdapter, redis: redisAdapter })) {
+  const expected = providerSummary.adapters?.[name];
+  const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(adapter)).digest('hex');
+  if (!expected || expected.fileName !== path.basename(adapter) || expected.sha256 !== actualSha256) {
+    fail(`HA adapter ${name} does not match the bound provider profile.`);
+  }
+  adapterSha256[name] = actualSha256;
+}
 const drill = {
   status: 'failed',
   environment,
   changeTicket,
+  providerProfileSha256: providerSummary.providerProfileSha256,
+  adapterSha256,
   startedAt: new Date().toISOString(),
   postgres: {},
   redis: {},
