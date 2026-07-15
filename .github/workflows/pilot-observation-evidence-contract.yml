@@ -18,6 +18,7 @@ on:
       - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
       - "ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml"
       - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
+      - "ops/production/kubernetes/continuous-observation-report.example.json"
   push:
     branches:
       - codex/enterprise-cloud-sandbox
@@ -36,6 +37,7 @@ on:
       - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
       - "ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml"
       - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
+      - "ops/production/kubernetes/continuous-observation-report.example.json"
 
 permissions:
   contents: read
@@ -68,6 +70,7 @@ jobs:
           grep -q 'automountServiceAccountToken: false' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'OBSERVATION_DURATION_MS' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'OBSERVATION_COLLECTOR_IMAGE_DIGEST' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'persistentVolumeClaim:' ops/production/kubernetes/formal-pilot-observation-job.yaml
           ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'kind: CronJob' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
@@ -75,5 +78,7 @@ jobs:
           grep -q 'automountServiceAccountToken: false' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
           grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
           grep -q '/app/capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'PILOT_AI_COLLECTOR_IMAGE_DIGEST' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'pilot-observer-image-digest' ops/production/kubernetes/formal-pilot-observation-resources.example.yaml
           grep -q 'capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/Dockerfile.pilot-observer
           ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
