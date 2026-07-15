@@ -344,11 +344,13 @@ local-only pilot evidence cannot be reused to approve external mode.
 
 ## Daily pilot recorder
 
-Use `record-pilot-daily-review.cjs` once per UTC day. It accepts three
+Use `record-pilot-daily-review.cjs` once per UTC day. It accepts four
 metadata-only source reports: alert delivery/review, business-write
-reconciliation, and incident resolution. Unsupported fields are rejected so
-customer records, prompts, credentials, and incident payloads cannot be copied
-into the pilot evidence bundle.
+reconciliation, incident resolution, and AI governance. The AI review records
+governed request volume, budget/privacy/tenant-boundary incidents, and fallback
+verification without retaining prompts or responses. Unsupported fields are
+rejected so customer records, prompts, credentials, and incident payloads
+cannot be copied into the pilot evidence bundle.
 
 ```bash
 node ops/production/kubernetes/record-pilot-daily-review.cjs \
@@ -361,6 +363,7 @@ node ops/production/kubernetes/record-pilot-daily-review.cjs \
   --alert-review <alert-review.json> \
   --reconciliation <reconciliation.json> \
   --incident-review <incident-review.json> \
+  --ai-governance-review <ai-governance-review.json> \
   --daily-output <daily-reports-dir/YYYY-MM-DD.json> \
   --ledger <pilot-ledger.json>
 ```
@@ -368,7 +371,10 @@ node ops/production/kubernetes/record-pilot-daily-review.cjs \
 The recorder canonicalizes and hashes the support reports, writes the daily
 report atomically, and appends one immutable ledger entry. Replacing an existing
 date requires explicit `--replace-date`; the final verifier still recomputes
-every hash and rejects stale, missing, duplicate, or nonconsecutive days.
+every hash and rejects stale, missing, duplicate, or nonconsecutive days. Final
+admission also requires at least one governed AI request across the seven-day
+pilot, zero AI policy breaches, zero unresolved AI incidents, and verified
+fallback behavior on every daily review.
 
 ## Read-only formal pilot preflight
 
