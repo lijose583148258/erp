@@ -16,8 +16,8 @@ fs.mkdirSync(receipts, { mode: 0o700 });
 const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
 fs.writeFileSync(publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
 const token = crypto.randomBytes(32).toString('hex');
-fs.writeFileSync(tokenFile, token, { mode: 0o600 });
-fs.chmodSync(tokenFile, 0o600);
+fs.writeFileSync(tokenFile, token, { mode: 0o440 });
+fs.chmodSync(tokenFile, 0o440);
 
 const namespace = 'pilot';
 const backupId = 'ailaoda-backup-contract';
