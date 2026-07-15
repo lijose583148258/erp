@@ -12,6 +12,8 @@ const passwordFile = String(process.env.PILOT_AI_PASSWORD_FILE || '').trim();
 const metricsTokenFile = String(process.env.PILOT_AI_METRICS_TOKEN_FILE || '').trim();
 const reviewer = String(process.env.PILOT_AI_REVIEWER || '').trim();
 const checkedAt = String(process.env.PILOT_AI_CHECKED_AT || new Date().toISOString());
+const replaceOutput = ['1', 'true', 'yes', 'on'].includes(String(process.env.PILOT_AI_REPLACE_OUTPUT || '').trim().toLowerCase());
+const outputExisted = fs.existsSync(outputPath);
 const report = {
   schemaVersion: 1,
   status: 'failed',
@@ -42,6 +44,12 @@ const readPrivateFile = (file, label) => {
   const value = fs.readFileSync(file, 'utf8').trim();
   if (!value) fail(`${label} file is empty.`);
   return value;
+};
+const writeAtomic = value => {
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  const temporary = `${outputPath}.${process.pid}.tmp`;
+  fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  fs.renameSync(temporary, outputPath);
 };
 const requestJson = async (url, init = {}) => {
   const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
@@ -78,6 +86,7 @@ const fingerprint = values => crypto.createHash('sha256')
   .digest('hex');
 
 async function main() {
+  if (outputExisted && !replaceOutput) fail('Pilot AI output already exists; explicit PILOT_AI_REPLACE_OUTPUT is required.');
   if (appUrls.length < 2 || new Set(appUrls).size !== appUrls.length) fail('Two distinct application URLs are required.');
   if (!appUrls.every(value => /^https:\/\//.test(value) || /^http:\/\/127\.0\.0\.1(?::\d+)?$/.test(value))) {
     fail('Application URLs must use HTTPS, except explicit 127.0.0.1 contract endpoints.');
@@ -137,8 +146,7 @@ main().catch(error => {
   report.error = String(error?.message || error);
   process.exitCode = 1;
 }).finally(() => {
-  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
-  fs.writeFileSync(outputPath, `${JSON.stringify(report, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+  if (!outputExisted || replaceOutput) writeAtomic(report);
   console.log(`Pilot AI governance runtime review: ${report.status.toUpperCase()}`);
-  console.log(`Report: ${outputPath}`);
+  console.log(outputExisted && !replaceOutput ? 'Existing report preserved.' : `Report: ${outputPath}`);
 });
