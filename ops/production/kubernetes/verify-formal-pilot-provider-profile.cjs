@@ -188,12 +188,14 @@ requireKeys(profile.ai, ['mode', 'externalGateway', 'paidCallBudget'], 'ai');
 if (profile.ai.mode !== 'local-only' || profile.ai.externalGateway !== false || profile.ai.paidCallBudget !== 0) {
   fail('Formal pilot AI must remain local-only with zero paid-call budget.');
 }
-requireKeys(profile.observation, ['continuousHours', 'pilotDays'], 'observation');
+requireKeys(profile.observation, ['continuousHours', 'pilotDays', 'collectorImageDigest'], 'observation');
 if (typeof profile.observation.continuousHours !== 'number'
   || profile.observation.continuousHours < 8 || profile.observation.continuousHours > 24) {
   fail('observation.continuousHours must be between 8 and 24.');
 }
 requireInteger(profile.observation.pilotDays, 7, 'observation.pilotDays');
+const collectorImageDigest = requireString(profile.observation.collectorImageDigest, 'observation.collectorImageDigest');
+if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('observation.collectorImageDigest must be immutable.');
 
 const providerProfileSha256 = crypto.createHash('sha256').update(fs.readFileSync(profilePath)).digest('hex');
 if (bind && !evidenceValue) fail('--bind requires --evidence.');
@@ -228,6 +230,11 @@ process.stdout.write(`${JSON.stringify({
   recoveryNamespace,
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
+  observation: {
+    continuousHours: profile.observation.continuousHours,
+    pilotDays: profile.observation.pilotDays,
+    collectorImageDigest,
+  },
   adapters: adapterBindings,
   backupReceiptVerifier: {
     mode: profile.postgresql.backup.receiptVerifier.mode,
