@@ -7,6 +7,7 @@ on:
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
       - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
       - '.github/workflows/formal-pilot-preflight-contract.yml'
+      - 'ops/production/kubernetes/README.md'
   workflow_dispatch:
 
 permissions:
