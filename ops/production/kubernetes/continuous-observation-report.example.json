@@ -11,7 +11,45 @@
   "summary": {
     "failures": 1,
     "p95Ms": 0,
-    "instanceRequests": {}
+    "instanceRequests": {},
+    "components": {
+      "object-storage": {
+        "url": "https://object-storage.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "search-primary": {
+        "url": "https://search-primary.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "search-secondary": {
+        "url": "https://search-secondary.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "prometheus": {
+        "url": "https://prometheus.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "tempo": {
+        "url": "https://tempo.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "alertmanager": {
+        "url": "https://alertmanager.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      }
+    }
   },
   "collectorImageDigest": "sha256:replace-with-64-hex-observer-image-digest"
 }
