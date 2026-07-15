@@ -75,7 +75,13 @@ try {
       status: 'passed',
       checkedAt,
       reviewer: 'ai-governance-owner',
-      governedAiRequests: day === 0 ? 5 : 0,
+      source: 'runtime-probe',
+      instances: ['https://app-a.example', 'https://app-b.example'],
+      externalAiEnabled: false,
+      paidModelCalls: 0,
+      metricsBeforeSha256: 'c'.repeat(64),
+      metricsAfterSha256: 'd'.repeat(64),
+      governedAiRequests: day === 0 ? 5 : 2,
       budgetBreaches: 0,
       privacyIncidents: 0,
       crossTenantLeaks: 0,
@@ -134,7 +140,7 @@ try {
   assert.equal(evidence.observation.continuousHours, 8);
   assert.equal(evidence.observation.stagedPilotDays, 7);
   assert.equal(evidence.observation.aiGovernanceReviewCompleted, true);
-  assert.equal(evidence.observation.governedAiRequests, 5);
+  assert.equal(evidence.observation.governedAiRequests, 17);
   assert.equal(evidence.observation.continuousReportSha256, continuousHash);
   assert.equal(evidence.observation.pilotLedgerSha256, hash(ledgerPath));
 
