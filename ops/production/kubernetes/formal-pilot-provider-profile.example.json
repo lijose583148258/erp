@@ -59,7 +59,7 @@
   "search": {
     "kind": "meilisearch",
     "servingInstances": 2,
-    "backupMethod": "dump-to-object-store",
+    "backupMethod": "csi-volume-snapshot",
     "isolatedRestore": true,
     "restoreNamespace": "ailaoda-pilot-recovery"
   },
