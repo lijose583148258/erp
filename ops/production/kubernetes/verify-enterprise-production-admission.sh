@@ -147,6 +147,8 @@ jq -e '
   and .postgres.oldPrimaryRejoinedAsReplica == true
   and .postgres.backupRestoreReadback == true
   and .backupDrill.status == "passed"
+  and .backupDrill.providerProfileSha256 == .providerProfile.sha256
+  and (.backupDrill.adapterSha256.backup | type == "string" and test("^[0-9a-f]{64}$"))
   and .backupDrill.environment == .environment
   and .backupDrill.changeTicket == .evidenceId
   and .backupDrill.checksumVerified == true
