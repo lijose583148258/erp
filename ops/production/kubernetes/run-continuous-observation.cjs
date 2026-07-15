@@ -11,6 +11,18 @@ const appUrls = String(process.env.OBSERVATION_APP_URLS || '')
   .split(',')
   .map(value => value.trim().replace(/\/$/, ''))
   .filter(Boolean);
+const componentHealth = String(process.env.OBSERVATION_COMPONENT_HEALTH_URLS || '')
+  .split(',')
+  .map(value => value.trim())
+  .filter(Boolean)
+  .map(entry => {
+    const separator = entry.indexOf('=');
+    if (separator <= 0) failConfig('Component health entries must use name=url.');
+    return {
+      name: entry.slice(0, separator).trim(),
+      url: entry.slice(separator + 1).trim().replace(/\/$/, ''),
+    };
+  });
 const username = String(process.env.OBSERVATION_USERNAME || '').trim();
 const passwordFile = String(process.env.OBSERVATION_PASSWORD_FILE || '').trim();
 const metricsTokenFile = String(process.env.OBSERVATION_METRICS_TOKEN_FILE || '').trim();
@@ -19,6 +31,10 @@ const evidenceId = String(process.env.OBSERVATION_EVIDENCE_ID || '').trim();
 const commitSha = String(process.env.OBSERVATION_COMMIT_SHA || process.env.GITHUB_SHA || '').trim();
 const imageDigest = String(process.env.OBSERVATION_IMAGE_DIGEST || '').trim();
 const collectorImageDigest = String(process.env.OBSERVATION_COLLECTOR_IMAGE_DIGEST || '').trim();
+function failConfig(message) {
+  throw new Error(message);
+}
+
 const report = {
   name: 'Enterprise Continuous Observation',
   version: '1.0',
@@ -38,6 +54,10 @@ const latencies = [];
 const statuses = new Map();
 const instanceRequests = new Map(appUrls.map(instance => [instance, 0]));
 const samples = [];
+const componentProbes = new Map(componentHealth.map(component => [
+  component.name,
+  { url: component.url, probes: 0, failures: 0, lastStatus: 0 },
+]));
 let requestIndex = 0;
 let authRefreshes = 0;
 let authToken = '';
@@ -80,6 +100,17 @@ const validateConfig = () => {
     fail('Application URLs must use HTTPS, except explicit 127.0.0.1 staging tunnels.');
   }
   if (!username) fail('OBSERVATION_USERNAME is required.');
+  const requiredComponents = ['object-storage', 'search-primary', 'search-secondary', 'prometheus', 'tempo', 'alertmanager'];
+  if (componentHealth.length !== new Set(componentHealth.map(component => component.name)).size
+    || requiredComponents.some(name => !componentProbes.has(name))) {
+    fail('OBSERVATION_COMPONENT_HEALTH_URLS must contain six uniquely named required components.');
+  }
+  if (!componentHealth.every(component => /^[a-z][a-z0-9-]{1,40}$/.test(component.name)
+    && (/^https:\/\//.test(component.url)
+      || /^http:\/\/127\.0\.0\.1(?::\d+)?/.test(component.url)
+      || /^http:\/\/[a-z0-9.-]+\.svc(?::\d+)?/.test(component.url)))) {
+    fail('Component health URLs must use HTTPS, 127.0.0.1, or internal Kubernetes service DNS.');
+  }
   if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('OBSERVATION_COMMIT_SHA must be a 40-character lowercase Git SHA.');
   if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('OBSERVATION_IMAGE_DIGEST must be an immutable sha256 digest.');
   if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('OBSERVATION_COLLECTOR_IMAGE_DIGEST must be an immutable sha256 digest.');
@@ -135,6 +166,19 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
   latencies.push(performance.now() - started);
   statuses.set(status, (statuses.get(status) || 0) + 1);
 };
+const probeComponents = async () => Promise.all(componentHealth.map(async component => {
+  const state = componentProbes.get(component.name);
+  state.probes += 1;
+  try {
+    const response = await fetch(component.url, { signal: AbortSignal.timeout(10_000) });
+    await response.arrayBuffer();
+    state.lastStatus = response.status;
+    if (!response.ok) state.failures += 1;
+  } catch {
+    state.lastStatus = 0;
+    state.failures += 1;
+  }
+}));
 const metricsSnapshot = async () => Promise.all(appUrls.map(async instance => {
   const response = await fetch(`${instance}/metrics`, {
     headers: { authorization: `Bearer ${metricsToken}` },
@@ -160,6 +204,7 @@ async function main() {
   validateConfig();
   await login();
   const before = await metricsSnapshot();
+  await probeComponents();
   samples.push(...before);
   const routes = ['/health', '/ready', '/api/v1/dashboard', '/api/v1/customers?page=1&pageSize=30', '/api/v1/orders?page=1&pageSize=30'];
   const deadline = Date.now() + durationMs;
@@ -176,11 +221,15 @@ async function main() {
   const sampler = async () => {
     while (Date.now() < deadline) {
       await sleep(Math.min(60_000, Math.max(1, deadline - Date.now())));
-      if (Date.now() <= deadline + 5_000) samples.push(...await metricsSnapshot());
+      if (Date.now() <= deadline + 5_000) {
+        samples.push(...await metricsSnapshot());
+        await probeComponents();
+      }
     }
   };
   await Promise.all([...Array.from({ length: concurrency }, worker), sampler()]);
   const after = await metricsSnapshot();
+  await probeComponents();
   samples.push(...after);
 
   const statusObject = Object.fromEntries([...statuses.entries()].map(([key, value]) => [String(key), value]));
@@ -213,6 +262,7 @@ async function main() {
     authRefreshes,
     memory,
     metricSamples: samples.length,
+    components: Object.fromEntries(componentProbes),
   };
   report.summary = summary;
   check('no-network-http-or-rate-limit-failures', failures === 0, { failures, statuses: statusObject });
@@ -225,6 +275,9 @@ async function main() {
   });
   check('telemetry-not-dropped', memory.every(item => item.telemetryDroppedDelta === 0), { memory });
   check('telemetry-queue-bounded', memory.every(item => item.maxTelemetryQueue <= maxTelemetryQueue), { maxTelemetryQueue, memory });
+  check('required-components-continuously-healthy',
+    [...componentProbes.values()].every(state => state.probes >= 2 && state.failures === 0),
+    { components: summary.components });
   report.status = 'passed';
 }
 
