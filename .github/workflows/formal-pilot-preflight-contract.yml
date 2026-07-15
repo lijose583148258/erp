@@ -79,7 +79,7 @@ jobs:
           server_pid=$!
           sleep 1
           printf '%s' 'random-contract-password' > "$root/password"
-          chmod 600 "$root/password"
+          chmod 440 "$root/password"
           cat > "$root/evidence.json" <<JSON
           {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
           JSON
