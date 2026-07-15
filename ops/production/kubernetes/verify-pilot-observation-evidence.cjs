@@ -141,6 +141,12 @@ for (const entry of entries) {
         'status',
         'checkedAt',
         'reviewer',
+        'source',
+        'instances',
+        'externalAiEnabled',
+        'paidModelCalls',
+        'metricsBeforeSha256',
+        'metricsAfterSha256',
         'governedAiRequests',
         'budgetBreaches',
         'privacyIncidents',
@@ -149,7 +155,14 @@ for (const entry of entries) {
         'fallbackVerified',
       ],
       timestamp: 'checkedAt',
-      valid: value => Number(value.governedAiRequests) === governedAiRequests
+      valid: value => value.source === 'runtime-probe'
+        && Array.isArray(value.instances) && new Set(value.instances).size >= 2
+        && value.externalAiEnabled === false
+        && Number(value.paidModelCalls) === 0
+        && /^[0-9a-f]{64}$/.test(String(value.metricsBeforeSha256 || ''))
+        && /^[0-9a-f]{64}$/.test(String(value.metricsAfterSha256 || ''))
+        && Number(value.governedAiRequests) === governedAiRequests
+        && governedAiRequests >= 2
         && Number(value.budgetBreaches) === 0
         && Number(value.privacyIncidents) === 0
         && Number(value.crossTenantLeaks) === 0
