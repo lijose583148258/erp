@@ -119,6 +119,24 @@ if (!expectedBackupAdapterSha256
   || preflightReport.adapterSha256?.backup !== expectedBackupAdapterSha256) {
   throw new Error('Backup drill adapter identity does not match profile, preflight, report, and evidence.');
 }
+const resilienceReport = name => JSON.parse(fs.readFileSync(path.join(resolved.resilienceReportsDir, name), 'utf8').replace(/^\uFEFF/, ''));
+const objectStorageReport = resilienceReport('object-storage-failover-audit-v1.json');
+const searchFailoverReport = resilienceReport('meilisearch-failover-audit-v1.json');
+const searchRestoreReport = resilienceReport('meilisearch-dump-restore-audit-v1.json');
+for (const [name, reports] of Object.entries({
+  objectStorage: [objectStorageReport],
+  search: [searchFailoverReport, searchRestoreReport],
+})) {
+  const expectedSha256 = providerSummary.adapters?.[name]?.sha256;
+  if (!expectedSha256
+    || evidence.storageSearchDrill?.providerProfileSha256 !== providerSummary.providerProfileSha256
+    || evidence.storageSearchDrill?.adapterSha256?.[name] !== expectedSha256
+    || preflightReport.adapterSha256?.[name] !== expectedSha256
+    || reports.some(report => report.providerProfileSha256 !== providerSummary.providerProfileSha256
+      || report.adapterSha256?.[name] !== expectedSha256)) {
+    throw new Error(`Storage/search drill adapter identity mismatch: ${name}.`);
+  }
+}
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
