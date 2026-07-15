@@ -78,6 +78,10 @@ const providerOutput = execFileSync(process.execPath, [providerVerifier, resolve
   stdio: ['ignore', 'pipe', 'inherit'],
 }).trim();
 const providerSummary = JSON.parse(providerOutput);
+const continuousReportIdentity = JSON.parse(fs.readFileSync(resolved.continuousReport, 'utf8').replace(/^\uFEFF/, ''));
+if (continuousReportIdentity.collectorImageDigest !== providerSummary.observation?.collectorImageDigest) {
+  throw new Error('Continuous observer image digest does not match the approved provider profile.');
+}
 if (providerSummary.status !== 'passed' || providerSummary.environment !== release.environment) {
   throw new Error('Provider profile verification did not pass for this release environment.');
 }
