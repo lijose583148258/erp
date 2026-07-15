@@ -1,0 +1,12 @@
+{
+  "schemaVersion": 1,
+  "status": "not-run",
+  "checkedAt": "2026-01-01T23:00:00Z",
+  "reviewer": "replace-with-ai-governance-reviewer",
+  "governedAiRequests": 0,
+  "budgetBreaches": 1,
+  "privacyIncidents": 1,
+  "crossTenantLeaks": 1,
+  "unresolvedAiIncidents": 1,
+  "fallbackVerified": false
+}
