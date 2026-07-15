@@ -10,6 +10,7 @@ on:
       - 'ops/production/kubernetes/run-storage-search-admission-drill.cjs'
       - 'ops/production/kubernetes/STORAGE_SEARCH_ADAPTER_PROTOCOL.md'
       - 'ops/production/kubernetes/verify-storage-search-evidence.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - '.github/workflows/storage-search-evidence-contract.yml'
   workflow_dispatch:
@@ -59,9 +60,13 @@ jobs:
             commitSha: 'a'.repeat(40),
             imageDigest: `sha256:${'b'.repeat(64)}`,
           };
+          const providerProfileSha256 = 'd'.repeat(64);
+          const objectAdapterSha256 = 'e'.repeat(64);
+          const searchAdapterSha256 = 'f'.repeat(64);
           const base = {
             status: 'passed',
             ...identity,
+            providerProfileSha256,
             startedAt: new Date(Date.now() - 60_000).toISOString(),
             finishedAt: new Date(Date.now() - 1_000).toISOString(),
           };
@@ -70,6 +75,7 @@ jobs:
             ...base,
             scope: 'formal-cross-domain',
             providerAdapterVerified: true,
+            adapterSha256: { objectStorage: objectAdapterSha256 },
             failureInjectionId: 'object-failure-1',
             topologyObservedAt: base.startedAt,
             failureDomains: ['zone-a', 'zone-b'],
@@ -84,6 +90,7 @@ jobs:
             ...base,
             scope: 'formal-cross-domain',
             providerAdapterVerified: true,
+            adapterSha256: { search: searchAdapterSha256 },
             failureInjectionId: 'search-failure-1',
             topologyObservedAt: base.startedAt,
             failureDomains: ['zone-a', 'zone-b'],
@@ -97,6 +104,7 @@ jobs:
             ...base,
             scope: 'formal-isolated-provider-restore',
             providerAdapterVerified: true,
+            adapterSha256: { search: searchAdapterSha256 },
             dumpUid: 'dump-1',
             restoreResourceId: 'search-restore-1',
             cleanupVerified: true,
@@ -116,6 +124,12 @@ jobs:
           fs.writeFileSync(paths.restore, `${JSON.stringify(restoreReport, null, 2)}\n`);
           fs.writeFileSync(evidencePath, `${JSON.stringify({
             ...identity,
+            providerProfile: {
+              status: 'passed',
+              environment: identity.environment,
+              sha256: providerProfileSha256,
+              verifiedAt: base.startedAt,
+            },
             objectStorage: {},
             search: {},
           }, null, 2)}\n`);
@@ -129,9 +143,9 @@ jobs:
           const valid = run([]);
           if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Bound evidence was rejected.');
 
-          failoverReport.failoverMs = 999;
+          failoverReport.adapterSha256.search = '0'.repeat(64);
           fs.writeFileSync(paths.failover, `${JSON.stringify(failoverReport, null, 2)}\n`);
           const tampered = run([]);
-          if (tampered.status === 0) throw new Error('Tampered search report was accepted.');
+          if (tampered.status === 0) throw new Error('Tampered search adapter identity was accepted.');
           console.log('Storage and search evidence contract: PASSED');
           NODE
