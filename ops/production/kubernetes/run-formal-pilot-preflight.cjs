@@ -40,6 +40,10 @@ const adapters = {
   backup: resolveFile(valueFor('--backup-adapter'), 'Backup adapter', true),
   observability: resolveFile(valueFor('--observability-adapter'), 'Observability adapter', true),
 };
+const backupReceiptService = resolveFile(
+  valueFor('--backup-receipt-service'),
+  'Backup receipt service',
+);
 
 const environment = String(process.env.FORMAL_PILOT_PREFLIGHT_ENVIRONMENT || '').trim();
 const evidenceId = String(process.env.FORMAL_PILOT_PREFLIGHT_EVIDENCE_ID || '').trim();
@@ -50,6 +54,12 @@ const appUrls = String(process.env.FORMAL_PILOT_PREFLIGHT_APP_URLS || '').split(
 const username = String(process.env.FORMAL_PILOT_PREFLIGHT_USERNAME || '').trim();
 const passwordFile = resolveFile(String(process.env.FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE || '').trim(), 'Preflight password');
 const password = fs.readFileSync(passwordFile, 'utf8').trim();
+const backupReceiptUrl = String(process.env.FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL || '')
+  .trim().replace(/\/$/, '');
+const backupReceiptPublicKeyFile = resolveFile(
+  String(process.env.FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE || '').trim(),
+  'Backup receipt public key',
+);
 const timeoutMs = Math.max(5_000, Number(process.env.FORMAL_PILOT_PREFLIGHT_TIMEOUT_MS || 30_000));
 
 if (!environment || /prod/i.test(environment)) fail('Preflight requires non-production staging or formal pilot.');
@@ -61,6 +71,10 @@ if (appUrls.some(value => !/^https:\/\//i.test(value) && !/^http:\/\/127\.0\.0\.
   fail('Application URLs must use HTTPS; loopback HTTP is allowed only for contract tests.');
 }
 if (!username || !password) fail('Preflight username and password file are required.');
+if (!/^https:\/\//i.test(backupReceiptUrl)
+  && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(backupReceiptUrl)) {
+  fail('Backup receipt preflight URL must use HTTPS; loopback HTTP is contract-only.');
+}
 if (!privateCredentialFile(passwordFile)) {
   fail('Preflight password file must be owner-only or current-group read-only.');
 }
@@ -84,6 +98,19 @@ if (providerSummary.status !== 'passed' || providerSummary.environment !== envir
   || !/^[0-9a-f]{64}$/.test(String(providerSummary.providerProfileSha256 || ''))) {
   fail('Bound provider profile did not pass preflight verification.');
 }
+const receiptServiceSha256 = crypto.createHash('sha256').update(fs.readFileSync(backupReceiptService)).digest('hex');
+const receiptPublicKeySha256 = crypto.createHash('sha256').update(fs.readFileSync(backupReceiptPublicKeyFile)).digest('hex');
+let receiptPublicKey;
+try { receiptPublicKey = crypto.createPublicKey(fs.readFileSync(backupReceiptPublicKeyFile)); }
+catch { fail('Backup receipt public key is invalid.'); }
+if (receiptPublicKey.asymmetricKeyType !== 'ed25519') fail('Backup receipt public key must be Ed25519.');
+const expectedReceipt = providerSummary.backupReceiptVerifier;
+if (!expectedReceipt
+  || expectedReceipt.serviceFileName !== path.basename(backupReceiptService)
+  || expectedReceipt.serviceSha256 !== receiptServiceSha256
+  || expectedReceipt.publicKeySha256 !== receiptPublicKeySha256) {
+  fail('Backup receipt service or public key does not match the bound provider profile.');
+}
 const adapterSha256 = {};
 for (const [name, adapterPath] of Object.entries(adapters)) {
   const expected = providerSummary.adapters?.[name];
@@ -106,6 +133,13 @@ const report = {
   imageDigest,
   providerProfileSha256: providerSummary.providerProfileSha256,
   adapterSha256,
+  backupReceiptVerifier: {
+    mode: expectedReceipt.mode,
+    issuer: expectedReceipt.issuer,
+    serviceFileName: expectedReceipt.serviceFileName,
+    serviceSha256: receiptServiceSha256,
+    publicKeySha256: receiptPublicKeySha256,
+  },
   startedAt: new Date().toISOString(),
   checks: [],
 };
@@ -168,6 +202,14 @@ const writeReport = () => {
   });
   check('all-adapters-profile-bound', Object.keys(adapterSha256).length === 6, {
     adapterSha256,
+  });
+  const receiptHealth = await requestJson(backupReceiptUrl, '/health');
+  check('backup-receipt-verifier-bound-and-healthy', receiptHealth.response.status === 200
+    && receiptHealth.body?.status === 'available'
+    && receiptHealth.body?.verifier === 'ed25519', {
+    issuer: expectedReceipt.issuer,
+    serviceSha256: receiptServiceSha256,
+    publicKeySha256: receiptPublicKeySha256,
   });
   check('all-adapters-executable', Object.keys(adapters).length === 6, { adapterCount: 6 });
   const postgres = topology('postgres', 2);
