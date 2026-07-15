@@ -52,6 +52,14 @@ if (Number(report.serviceMonitorTargets) < 2 || report.alertRulesLoaded !== true
   throw new Error('Observability targets, telemetry, traces, or alert receipts are incomplete.');
 }
 const bound = evidence.observabilityDrill;
+if (report.providerProfileSha256 !== evidence.providerProfile?.sha256
+  || !/^[0-9a-f]{64}$/.test(String(report.adapterSha256?.observability || ''))
+  || bound?.providerProfileSha256 !== report.providerProfileSha256
+  || bound?.adapterSha256?.observability !== report.adapterSha256.observability
+  || evidence.observability?.providerProfileSha256 !== report.providerProfileSha256
+  || evidence.observability?.adapterSha256?.observability !== report.adapterSha256.observability) {
+  throw new Error('Observability report is not bound to the approved provider profile and adapter.');
+}
 if (evidence.observability?.bothApplicationTargetsUp !== true
   || evidence.observability?.serviceMonitorTargets < 2
   || evidence.observability?.alertRulesLoaded !== true
