@@ -14,8 +14,8 @@ const templateFile = path.join(tempRoot, 'restore-template.json');
 const readyFile = path.join(tempRoot, 'receipt-ready');
 fs.mkdirSync(binDir, { recursive: true });
 fs.mkdirSync(kubeState, { recursive: true });
-fs.writeFileSync(tokenFile, 'contract-token\n', { mode: 0o600 });
-fs.chmodSync(tokenFile, 0o600);
+fs.writeFileSync(tokenFile, 'contract-token\n', { mode: 0o440 });
+fs.chmodSync(tokenFile, 0o440);
 fs.writeFileSync(templateFile, JSON.stringify({
   apiVersion: 'postgresql.cnpg.io/v1',
   kind: 'Cluster',
