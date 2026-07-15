@@ -12,6 +12,8 @@ const passwordFile = String(process.env.PILOT_AI_PASSWORD_FILE || '').trim();
 const metricsTokenFile = String(process.env.PILOT_AI_METRICS_TOKEN_FILE || '').trim();
 const reviewer = String(process.env.PILOT_AI_REVIEWER || '').trim();
 const checkedAt = String(process.env.PILOT_AI_CHECKED_AT || new Date().toISOString());
+const collectorImageDigest = String(process.env.PILOT_AI_COLLECTOR_IMAGE_DIGEST || '').trim();
+const collectorSha256 = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex');
 const replaceOutput = ['1', 'true', 'yes', 'on'].includes(String(process.env.PILOT_AI_REPLACE_OUTPUT || '').trim().toLowerCase());
 const outputExisted = fs.existsSync(outputPath);
 const report = {
@@ -20,6 +22,8 @@ const report = {
   checkedAt,
   reviewer,
   source: 'runtime-probe',
+  collectorImageDigest,
+  collectorSha256,
   instances: appUrls,
   externalAiEnabled: false,
   paidModelCalls: 0,
@@ -87,6 +91,7 @@ const fingerprint = values => crypto.createHash('sha256')
 
 async function main() {
   if (outputExisted && !replaceOutput) fail('Pilot AI output already exists; explicit PILOT_AI_REPLACE_OUTPUT is required.');
+  if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('PILOT_AI_COLLECTOR_IMAGE_DIGEST is required.');
   if (appUrls.length < 2 || new Set(appUrls).size !== appUrls.length) fail('Two distinct application URLs are required.');
   if (!appUrls.every(value => /^https:\/\//.test(value) || /^http:\/\/127\.0\.0\.1(?::\d+)?$/.test(value))) {
     fail('Application URLs must use HTTPS, except explicit 127.0.0.1 contract endpoints.');
