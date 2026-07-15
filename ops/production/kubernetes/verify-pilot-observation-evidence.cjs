@@ -83,6 +83,7 @@ if (ledger.environment !== evidence.environment) fail('Pilot ledger environment 
 if (!Array.isArray(ledger.entries) || ledger.entries.length < 7) fail('Pilot ledger requires at least seven daily entries.');
 const entries = [...ledger.entries].sort((a, b) => isoMs(a.checkedAt, 'ledger checkedAt') - isoMs(b.checkedAt, 'ledger checkedAt'));
 const dates = new Set();
+let totalGovernedAiRequests = 0;
 for (const entry of entries) {
   const checkedMs = isoMs(entry.checkedAt, 'ledger checkedAt');
   if (checkedMs > nowMs + 300_000) fail('Pilot ledger contains a future daily report.');
@@ -94,6 +95,10 @@ for (const entry of entries) {
   if (entry.alertReviewCompleted !== true) fail(`Alert review is incomplete: ${date}.`);
   if (Number(entry.unreconciledBusinessWrites) !== 0) fail(`Unreconciled business writes exist: ${date}.`);
   if (entry.serviceIncidentsResolved !== true) fail(`Service incident review is incomplete: ${date}.`);
+  const governedAiRequests = Number(entry.governedAiRequests);
+  if (entry.aiGovernanceReviewCompleted !== true || !Number.isInteger(governedAiRequests) || governedAiRequests < 0) {
+    fail(`AI governance review is incomplete: ${date}.`);
+  }
   if (!hex40(entry.commitSha) || !digest(entry.imageDigest)) fail(`Release identity is invalid: ${date}.`);
   const reportFile = String(entry.reportFile || '');
   if (!reportFile || path.basename(reportFile) !== reportFile) fail(`Daily report filename is invalid: ${date}.`);
@@ -111,6 +116,9 @@ for (const entry of entries) {
   if (daily.alertReviewCompleted !== true || Number(daily.unreconciledBusinessWrites) !== 0 || daily.serviceIncidentsResolved !== true) {
     fail(`Daily report review or reconciliation failed: ${date}.`);
   }
+  if (daily.aiGovernanceReviewCompleted !== true || Number(daily.governedAiRequests) !== governedAiRequests) {
+    fail(`Daily AI governance identity is invalid: ${date}.`);
+  }
   const supportSpecs = {
     alertReview: {
       allowed: ['schemaVersion', 'status', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'],
@@ -126,6 +134,27 @@ for (const entry of entries) {
       allowed: ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unresolvedIncidents'],
       timestamp: 'checkedAt',
       valid: value => Number(value.unresolvedIncidents) === 0,
+    },
+    aiGovernance: {
+      allowed: [
+        'schemaVersion',
+        'status',
+        'checkedAt',
+        'reviewer',
+        'governedAiRequests',
+        'budgetBreaches',
+        'privacyIncidents',
+        'crossTenantLeaks',
+        'unresolvedAiIncidents',
+        'fallbackVerified',
+      ],
+      timestamp: 'checkedAt',
+      valid: value => Number(value.governedAiRequests) === governedAiRequests
+        && Number(value.budgetBreaches) === 0
+        && Number(value.privacyIncidents) === 0
+        && Number(value.crossTenantLeaks) === 0
+        && Number(value.unresolvedAiIncidents) === 0
+        && value.fallbackVerified === true,
     },
   };
   for (const [name, spec] of Object.entries(supportSpecs)) {
@@ -148,10 +177,12 @@ for (const entry of entries) {
       fail(`Daily support date does not match: ${date} ${name}.`);
     }
   }
+  totalGovernedAiRequests += governedAiRequests;
   if (entry.continuousReportSha256 && daily.continuousReportSha256 !== entry.continuousReportSha256) {
     fail(`Daily continuous-report reference does not match ledger: ${date}.`);
   }
 }
+if (totalGovernedAiRequests < 1) fail('Seven-day pilot contains no governed AI usage.');
 const firstCheckedMs = isoMs(entries[0].checkedAt, 'first ledger checkedAt');
 const lastCheckedMs = isoMs(entries.at(-1).checkedAt, 'last ledger checkedAt');
 const spanMs = lastCheckedMs - firstCheckedMs;
@@ -180,6 +211,8 @@ if (bind) {
     stagedPilotDays: dates.size,
     zeroUnreconciledBusinessWrites: true,
     alertReviewCompleted: true,
+    aiGovernanceReviewCompleted: true,
+    governedAiRequests: totalGovernedAiRequests,
     machineVerified: true,
     continuousReportSha256: continuousHash,
     pilotLedgerSha256: ledgerHash,
@@ -199,6 +232,10 @@ if (Number(boundEvidence.observation.stagedPilotDays) < 7 || Number(boundEvidenc
 if (boundEvidence.observation.zeroUnreconciledBusinessWrites !== true || boundEvidence.observation.alertReviewCompleted !== true) {
   fail('Bound reconciliation or alert review evidence is incomplete.');
 }
+if (boundEvidence.observation.aiGovernanceReviewCompleted !== true
+  || Number(boundEvidence.observation.governedAiRequests) !== totalGovernedAiRequests) {
+  fail('Bound AI governance evidence is incomplete.');
+}
 
 const verdict = {
   status: 'passed',
@@ -206,6 +243,7 @@ const verdict = {
   environment: evidence.environment,
   continuousHours: Number(actualHours.toFixed(3)),
   stagedPilotDays: dates.size,
+  governedAiRequests: totalGovernedAiRequests,
   continuousReportSha256: continuousHash,
   pilotLedgerSha256: ledgerHash,
   commitSha: continuous.commitSha,
