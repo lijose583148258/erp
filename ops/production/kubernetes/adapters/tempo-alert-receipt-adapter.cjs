@@ -29,13 +29,20 @@ for (const [label, value] of Object.entries({ tempoUrl, alertmanagerUrl, receipt
 }
 if (!serviceName) fail('OBS_ADAPTER_SERVICE_NAME is required.');
 
+const privateFile = file => {
+  if (process.platform === 'win32') return true;
+  const stat = fs.statSync(file);
+  if ((stat.mode & 0o007) !== 0 || (stat.mode & 0o022) !== 0) return false;
+  return (stat.mode & 0o040) === 0
+    || (typeof process.getegid === 'function' && stat.gid === process.getegid());
+};
 const readToken = (name, label) => {
   const value = String(process.env[name] || '').trim();
   if (!value) fail(`${name} is required.`);
   const file = path.resolve(value);
   if (!fs.existsSync(file) || !fs.statSync(file).isFile()) fail(`${label} token file does not exist.`);
-  if (process.platform !== 'win32' && (fs.statSync(file).mode & 0o077) !== 0) {
-    fail(`${label} token file must not be accessible by group or other users.`);
+  if (!privateFile(file)) {
+    fail(`${label} token file must be owner-only or current-group read-only.`);
   }
   const token = fs.readFileSync(file, 'utf8').trim();
   if (!token) fail(`${label} token file is empty.`);
