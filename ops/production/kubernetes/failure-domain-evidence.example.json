@@ -104,6 +104,10 @@
   },
   "backupDrill": {
     "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "backup": ""
+    },
     "environment": "",
     "changeTicket": "",
     "startedAt": "",
