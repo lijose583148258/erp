@@ -75,6 +75,16 @@ if (providerSummary.status !== 'passed' || providerSummary.environment !== envir
   || !/^[0-9a-f]{64}$/.test(String(providerSummary.providerProfileSha256 || ''))) {
   fail('Bound provider profile did not pass preflight verification.');
 }
+const adapterSha256 = {};
+for (const [name, adapterPath] of Object.entries(adapters)) {
+  const expected = providerSummary.adapters?.[name];
+  const actualFileName = path.basename(adapterPath);
+  const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(adapterPath)).digest('hex');
+  if (!expected || expected.fileName !== actualFileName || expected.sha256 !== actualSha256) {
+    fail(`Adapter ${name} does not match the bound provider profile.`);
+  }
+  adapterSha256[name] = actualSha256;
+}
 
 const report = {
   name: 'Formal Pilot Read-Only Environment Preflight',
@@ -86,6 +96,7 @@ const report = {
   commitSha,
   imageDigest,
   providerProfileSha256: providerSummary.providerProfileSha256,
+  adapterSha256,
   startedAt: new Date().toISOString(),
   checks: [],
 };
@@ -141,6 +152,9 @@ const writeReport = () => {
 (async () => {
   check('provider-profile-bound', providerSummary.evidenceBound === true, {
     providerProfileSha256: providerSummary.providerProfileSha256,
+  });
+  check('all-adapters-profile-bound', Object.keys(adapterSha256).length === 6, {
+    adapterSha256,
   });
   check('all-adapters-executable', Object.keys(adapters).length === 6, { adapterCount: 6 });
   const postgres = topology('postgres', 2);
