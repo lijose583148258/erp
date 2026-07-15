@@ -90,6 +90,11 @@
   },
   "haDrill": {
     "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "postgres": "",
+      "redis": ""
+    },
     "environment": "",
     "changeTicket": "",
     "startedAt": "",
