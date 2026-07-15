@@ -102,6 +102,73 @@ must expose `GET /v1/alerts/<drill-id>` and
 Alertmanager acceptance is deliberately not treated as receiver delivery.
 
 
+## CloudNativePG backup and isolated restore adapter
+
+`cnpg-backup-adapter.cjs` creates an on-demand CloudNativePG `Backup`
+resource, waits for CNPG and an independent object-store receipt to agree,
+then creates a one-instance recovery cluster in a dedicated namespace. The
+restored primary is queried with `psql` for the synthetic customer marker
+before cleanup. A CNPG `Completed` phase alone is not accepted as encryption
+or checksum evidence.
+
+Configure:
+
+- `CNPG_BACKUP_NAMESPACE`, `CNPG_BACKUP_CLUSTER`, and
+  `CNPG_BACKUP_RECOVERY_NAMESPACE`
+- `CNPG_BACKUP_RESTORE_TEMPLATE_FILE`, based on
+  `cnpg-backup-restore-template.example.json`
+- `CNPG_BACKUP_RECEIPT_URL` and private
+  `CNPG_BACKUP_RECEIPT_TOKEN_FILE`
+- `CNPG_BACKUP_ALLOW_RESOURCE_CREATION=true` only for the approved drill
+- optionally `CNPG_BACKUP_METHOD`, `CNPG_BACKUP_PLUGIN_NAME`,
+  `CNPG_BACKUP_DATABASE`, and marker table/column settings
+
+The receipt service must expose
+`GET /v1/cnpg/backups/<namespace>/<backup-id>` and return the exact backup and
+cluster identities, `encrypted: true`, `checksumVerified: true`, a supported
+checksum algorithm, completion time, and recovery point. Keep the recovery
+object store read-only and pre-provision referenced credentials in the recovery
+namespace. The restore template is rejected if it enables a WAL-archiver plugin,
+preventing an audit restore from writing into the source archive.
+
+Use CloudNativePG 1.27 or later with the Barman Cloud CNPG-I plugin. The adapter
+follows the official [CNPG Backup API](https://cloudnative-pg.io/docs/1.27/cloudnative-pg.v1/)
+and [Barman recovery model](https://cloudnative-pg.io/plugin-barman-cloud/docs/0.7.0/concepts/).
+
+
+## Meilisearch multi-zone and CSI recovery adapter
+
+`meilisearch-kubernetes-search-adapter.cjs` treats Meilisearch as two
+independently served indexes, not as a native distributed database. The ERP
+indexing path must keep both instances synchronized. During the formal drill the
+adapter removes one serving pod, proves the application and surviving provider
+still return the same order, waits for controller recovery, creates a Meilisearch
+dump, and snapshots the source PVC only after the dump task succeeds.
+
+Configure:
+
+- `MEILI_K8S_NAMESPACE`, `MEILI_K8S_RECOVERY_NAMESPACE`, and
+  `MEILI_K8S_SELECTOR`
+- `MEILI_K8S_DATA_VOLUME_NAME` and a CSI `MEILI_K8S_SNAPSHOT_CLASS` whose
+  deletion policy is `Retain`
+- private `MEILI_K8S_ENDPOINT_MAP_FILE` and `MEILI_K8S_TOKEN_FILE`
+- `MEILI_K8S_RESTORE_URL_TEMPLATE` containing `{restoreId}`
+- digest-pinned `MEILI_K8S_RESTORE_IMAGE` and a pre-provisioned recovery
+  secret named by `MEILI_K8S_RESTORE_SECRET`
+- `MEILI_K8S_ALLOW_POD_DELETE=true` and
+  `MEILI_K8S_ALLOW_RESOURCE_CREATION=true` only during an approved drill
+
+The source snapshot and its `VolumeSnapshotContent` must both be Ready and
+Retain-backed. For namespace isolation, the adapter creates a pre-provisioned
+`VolumeSnapshotContent` bound to a new `VolumeSnapshot` in the recovery
+namespace instead of relying on alpha cross-namespace PVC references. The
+restored deployment disables service-account token mounting, uses a
+digest-pinned image, and must pass health, marker, and exact document-count
+checks before cleanup. See the official Kubernetes
+[VolumeSnapshot model](https://kubernetes.io/docs/concepts/storage/volume-snapshots/)
+and Meilisearch [dump task API](https://specs.meilisearch.dev/specifications/text/0105-dumps-api.html/).
+
+
 ## Contract test
 
 `adapter-contract.test.cjs` creates an isolated fake `kubectl` executable and
