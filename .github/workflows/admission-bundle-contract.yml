@@ -122,6 +122,31 @@ jobs:
             providerProfileSha256: identity.providerProfile.sha256,
             adapterSha256: { backup: adapterSha256.backup },
           };
+          const objectStorageReport = {
+            status: 'passed',
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { objectStorage: adapterSha256.objectStorage },
+          };
+          const searchFailoverReport = {
+            status: 'passed',
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { search: adapterSha256.search },
+          };
+          const searchRestoreReport = {
+            status: 'passed',
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { search: adapterSha256.search },
+          };
+          identity.storageSearchDrill = {
+            status: 'passed',
+            environment: identity.environment,
+            evidenceId: identity.evidenceId,
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: {
+              objectStorage: adapterSha256.objectStorage,
+              search: adapterSha256.search,
+            },
+          };
           const requiredChecks = [
             'provider-profile-bound', 'all-adapters-profile-bound', 'all-adapters-executable',
             'postgres-provider-topology', 'postgres-preferred-endpoint',
@@ -183,6 +208,10 @@ jobs:
               fs.writeFileSync(target, JSON.stringify(value));
             }
           }
+          const resilienceRoot = path.join(root, artifacts.resilienceReportsDir);
+          fs.writeFileSync(path.join(resilienceRoot, 'object-storage-failover-audit-v1.json'), JSON.stringify(objectStorageReport));
+          fs.writeFileSync(path.join(resilienceRoot, 'meilisearch-failover-audit-v1.json'), JSON.stringify(searchFailoverReport));
+          fs.writeFileSync(path.join(resilienceRoot, 'meilisearch-dump-restore-audit-v1.json'), JSON.stringify(searchRestoreReport));
           const manifest = {
             schemaVersion: 1,
             namespace: 'ailaoda-pilot',
@@ -224,6 +253,13 @@ jobs:
           if (tamperedBackupAdapter.status === 0) throw new Error('Tampered backup adapter hash was accepted.');
           backupReport.adapterSha256.backup = providerProfile.adapters.backup.sha256;
           fs.writeFileSync(path.join(root, artifacts.backupReport), JSON.stringify(backupReport));
+
+          searchRestoreReport.adapterSha256.search = '0'.repeat(64);
+          fs.writeFileSync(path.join(resilienceRoot, 'meilisearch-dump-restore-audit-v1.json'), JSON.stringify(searchRestoreReport));
+          const tamperedSearchAdapter = run();
+          if (tamperedSearchAdapter.status === 0) throw new Error('Tampered search adapter hash was accepted.');
+          searchRestoreReport.adapterSha256.search = providerProfile.adapters.search.sha256;
+          fs.writeFileSync(path.join(resilienceRoot, 'meilisearch-dump-restore-audit-v1.json'), JSON.stringify(searchRestoreReport));
 
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
