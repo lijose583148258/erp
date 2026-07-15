@@ -8,6 +8,8 @@ on:
       - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
       - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
       - "ops/production/kubernetes/record-pilot-daily-review.cjs"
+      - "ops/production/kubernetes/capture-pilot-ai-governance-review.cjs"
+      - "ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs"
       - "ops/production/kubernetes/pilot-daily-report.example.json"
       - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
       - "ops/production/kubernetes/pilot-observation-ledger.example.json"
@@ -23,6 +25,8 @@ on:
       - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
       - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
       - "ops/production/kubernetes/record-pilot-daily-review.cjs"
+      - "ops/production/kubernetes/capture-pilot-ai-governance-review.cjs"
+      - "ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs"
       - "ops/production/kubernetes/pilot-daily-report.example.json"
       - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
       - "ops/production/kubernetes/pilot-observation-ledger.example.json"
@@ -52,6 +56,8 @@ jobs:
       - name: Verify observation evidence binding
         run: |
           node --check ops/production/kubernetes/run-continuous-observation.cjs
+          node --check ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
+          node ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs
           node ops/production/kubernetes/observation-evidence-contract.test.cjs
 
       - name: Verify persistent observer boundary
