@@ -83,14 +83,23 @@ jobs:
           cat > "$root/evidence.json" <<JSON
           {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
           JSON
-          cat > "$root/provider-profile.json" <<'JSON'
+          adapter_sha="$(sha256sum "$root/adapter" | awk '{print $1}')"
+          cat > "$root/provider-profile.json" <<JSON
           {
             "schemaVersion":1,
             "environment":"formal-pilot",
             "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery"},
-            "postgresql":{"kind":"cloudnativepg","instances":3,"haAdapter":"cnpg-ha-adapter.cjs","backup":{"method":"barman-object-store","encrypted":true,"checksumEvidence":"barman-manifest","isolatedRestore":true}},
-            "redis":{"kind":"sentinel","dataInstances":3,"sentinelCount":3,"haAdapter":"redis-kubernetes-ha-adapter.cjs"},
-            "objectStorage":{"kind":"minio-distributed","dataPods":4,"haAdapter":"minio-kubernetes-object-adapter.cjs","pvcDeletePermission":false},
+            "adapters":{
+              "postgres":{"fileName":"postgres","sha256":"${adapter_sha}"},
+              "redis":{"fileName":"redis","sha256":"${adapter_sha}"},
+              "objectStorage":{"fileName":"object","sha256":"${adapter_sha}"},
+              "search":{"fileName":"search","sha256":"${adapter_sha}"},
+              "backup":{"fileName":"backup","sha256":"${adapter_sha}"},
+              "observability":{"fileName":"observability","sha256":"${adapter_sha}"}
+            },
+            "postgresql":{"kind":"cloudnativepg","instances":3,"haAdapter":"postgres","backup":{"method":"barman-object-store","encrypted":true,"checksumEvidence":"barman-manifest","isolatedRestore":true}},
+            "redis":{"kind":"sentinel","dataInstances":3,"sentinelCount":3,"haAdapter":"redis"},
+            "objectStorage":{"kind":"minio-distributed","dataPods":4,"haAdapter":"object","pvcDeletePermission":false},
             "search":{"kind":"meilisearch","servingInstances":2,"backupMethod":"dump-to-object-store","isolatedRestore":true,"restoreNamespace":"ailaoda-pilot-recovery"},
             "observability":{"traceBackend":"tempo","alertRoute":"pilot-operations","deliveryReceiptStore":"webhook-audit-store"},
             "ai":{"mode":"local-only","externalGateway":false,"paidCallBudget":0},
@@ -116,7 +125,7 @@ jobs:
             --search-adapter "$root/search" \
             --backup-adapter "$root/backup" \
             --observability-adapter "$root/observability"
-          node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||!/^[0-9a-f]{64}$/.test(r.providerProfileSha256)||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
+          node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||!/^[0-9a-f]{64}$/.test(r.providerProfileSha256)||Object.keys(r.adapterSha256||{}).length!==6||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
           chmod 644 "$root/password"
           if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
             --evidence "$root/evidence.json" --provider-profile "$root/provider-profile.json" \
