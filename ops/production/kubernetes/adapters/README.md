@@ -76,6 +76,32 @@ does not prove erasure coding by itself: the formal runner's post-isolation ERP
 download and SHA-256 comparison remain mandatory data-durability evidence.
 
 
+## Tempo, Alertmanager, and receipt-store adapter
+
+`tempo-alert-receipt-adapter.cjs` implements the formal observability protocol
+without shelling out. It queries Tempo through
+`GET /api/traces/<traceID>`, submits and resolves the synthetic alert through
+Alertmanager `POST /api/v2/alerts`, and obtains delivery evidence from an
+independent receiver audit store.
+
+Configure:
+
+- `OBS_ADAPTER_TEMPO_URL`
+- `OBS_ADAPTER_ALERTMANAGER_URL`
+- `OBS_ADAPTER_RECEIPT_URL`
+- `OBS_ADAPTER_TEMPO_TOKEN_FILE`
+- `OBS_ADAPTER_ALERTMANAGER_TOKEN_FILE`
+- `OBS_ADAPTER_RECEIPT_TOKEN_FILE`
+- optionally `OBS_ADAPTER_SERVICE_NAME`, `OBS_ADAPTER_STATE_DIR`, and
+  `OBS_ADAPTER_TIMEOUT_MS`
+
+All URLs must use HTTPS; loopback HTTP is accepted only by the isolated
+contract. Token files must be private to the runner identity. The receipt store
+must expose `GET /v1/alerts/<drill-id>` and
+`GET /v1/alerts/<drill-id>/resolution`, returning only delivery metadata.
+Alertmanager acceptance is deliberately not treated as receiver delivery.
+
+
 ## Contract test
 
 `adapter-contract.test.cjs` creates an isolated fake `kubectl` executable and
