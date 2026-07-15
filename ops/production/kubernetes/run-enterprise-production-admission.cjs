@@ -109,6 +109,16 @@ for (const name of ['postgres', 'redis']) {
     throw new Error(`HA drill adapter identity mismatch: ${name}.`);
   }
 }
+const backupReport = JSON.parse(fs.readFileSync(resolved.backupReport, 'utf8').replace(/^\uFEFF/, ''));
+const expectedBackupAdapterSha256 = providerSummary.adapters?.backup?.sha256;
+if (!expectedBackupAdapterSha256
+  || evidence.backupDrill?.providerProfileSha256 !== providerSummary.providerProfileSha256
+  || evidence.backupDrill?.adapterSha256?.backup !== expectedBackupAdapterSha256
+  || backupReport.providerProfileSha256 !== providerSummary.providerProfileSha256
+  || backupReport.adapterSha256?.backup !== expectedBackupAdapterSha256
+  || preflightReport.adapterSha256?.backup !== expectedBackupAdapterSha256) {
+  throw new Error('Backup drill adapter identity does not match profile, preflight, report, and evidence.');
+}
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
