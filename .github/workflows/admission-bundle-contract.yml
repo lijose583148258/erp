@@ -10,6 +10,7 @@ on:
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
       - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
       - '.github/workflows/admission-bundle-contract.yml'
+      - 'ops/production/kubernetes/README.md'
   workflow_dispatch:
 
 permissions:
