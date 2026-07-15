@@ -262,6 +262,14 @@ jobs:
           preflightReport.adapterSha256.search = providerProfile.adapters.search.sha256;
           fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
 
+          preflightReport.backupReceiptVerifier.publicKeySha256 = '0'.repeat(64);
+          fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
+          const tamperedReceiptTrust = run();
+          if (tamperedReceiptTrust.status === 0) throw new Error('Tampered receipt trust was accepted.');
+          preflightReport.backupReceiptVerifier.publicKeySha256 =
+            providerProfile.postgresql.backup.receiptVerifier.publicKeySha256;
+          fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
+
           identity.haDrill.adapterSha256.redis = '0'.repeat(64);
           fs.writeFileSync(path.join(root, artifacts.evidence), JSON.stringify(identity));
           const tamperedHaAdapter = run();
