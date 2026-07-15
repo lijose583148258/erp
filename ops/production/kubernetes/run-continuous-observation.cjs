@@ -131,7 +131,7 @@ const validateConfig = () => {
 };
 
 const requestJson = async (url, init = {}) => {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
+  const response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(10_000) });
   const body = await response.json().catch(() => null);
   return { response, body };
 };
@@ -159,6 +159,7 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
   try {
     let token = authToken;
     let response = await fetch(`${baseUrl}${route}`, {
+      redirect: 'error',
       headers: requiresAuth ? { authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(10_000),
     });
@@ -166,6 +167,7 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
       authRefreshes += 1;
       token = await login();
       response = await fetch(`${baseUrl}${route}`, {
+        redirect: 'error',
         headers: { authorization: `Bearer ${token}` },
         signal: AbortSignal.timeout(10_000),
       });
@@ -206,6 +208,7 @@ const probeComponents = async () => Promise.all(componentHealth.map(async compon
 }));
 const metricsSnapshot = async () => Promise.all(appUrls.map(async instance => {
   const response = await fetch(`${instance}/metrics`, {
+    redirect: 'error',
     headers: { authorization: `Bearer ${metricsToken}` },
     signal: AbortSignal.timeout(10_000),
   });
