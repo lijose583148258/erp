@@ -67,6 +67,11 @@ spec:
                 configMapKeyRef:
                   name: ailaoda-pilot-observation
                   key: application-image-digest
+            - name: OBSERVATION_COLLECTOR_IMAGE_DIGEST
+              valueFrom:
+                configMapKeyRef:
+                  name: ailaoda-pilot-observation
+                  key: pilot-observer-image-digest
             - name: OBSERVATION_DURATION_MS
               value: "28800000"
             - name: OBSERVATION_CONCURRENCY
