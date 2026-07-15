@@ -1,0 +1,54 @@
+{
+  "schemaVersion": 1,
+  "environment": "replace-with-formal-pilot-environment",
+  "platform": {
+    "kind": "kubernetes-native",
+    "failureDomains": ["replace-zone-a", "replace-zone-b", "replace-zone-c"],
+    "applicationNamespace": "ailaoda-pilot",
+    "recoveryNamespace": "ailaoda-pilot-recovery"
+  },
+  "postgresql": {
+    "kind": "cloudnativepg",
+    "instances": 3,
+    "haAdapter": "cnpg-ha-adapter.cjs",
+    "backup": {
+      "method": "barman-object-store",
+      "encrypted": true,
+      "checksumEvidence": "barman-manifest",
+      "isolatedRestore": true
+    }
+  },
+  "redis": {
+    "kind": "sentinel",
+    "dataInstances": 3,
+    "sentinelCount": 3,
+    "haAdapter": "redis-kubernetes-ha-adapter.cjs"
+  },
+  "objectStorage": {
+    "kind": "minio-distributed",
+    "dataPods": 4,
+    "haAdapter": "minio-kubernetes-object-adapter.cjs",
+    "pvcDeletePermission": false
+  },
+  "search": {
+    "kind": "meilisearch",
+    "servingInstances": 2,
+    "backupMethod": "dump-to-object-store",
+    "isolatedRestore": true,
+    "restoreNamespace": "ailaoda-pilot-recovery"
+  },
+  "observability": {
+    "traceBackend": "tempo",
+    "alertRoute": "replace-with-reviewed-pilot-route",
+    "deliveryReceiptStore": "webhook-audit-store"
+  },
+  "ai": {
+    "mode": "local-only",
+    "externalGateway": false,
+    "paidCallBudget": 0
+  },
+  "observation": {
+    "continuousHours": 8,
+    "pilotDays": 7
+  }
+}
