@@ -267,8 +267,10 @@ Required environment:
 The account needs only login and read access to dashboard, customers, and
 orders. Secrets are read from files and are never written to the report. The
 runner refreshes an expired JWT, samples process memory and telemetry every
-minute, and continuously probes MinIO, both Meilisearch serving nodes,
-Prometheus, Tempo, and Alertmanager. Any final application or component HTTP
+minute, requires every readiness response to prove PostgreSQL availability and
+configured Redis Sentinel connectivity, and continuously probes MinIO, both
+Meilisearch serving nodes, Prometheus, Tempo, and Alertmanager. Any final
+application or component HTTP
 4xx/5xx/429 or network failure fails the observation. It writes the continuous
 report consumed by the observation evidence verifier.
 The report is bound to the pilot environment, evidence ID, Git commit, and
