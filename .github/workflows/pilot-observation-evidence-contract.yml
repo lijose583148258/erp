@@ -2,6 +2,19 @@ name: Pilot Observation Evidence Contract
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/pilot-observation-evidence-contract.yml"
+      - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
+      - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
+      - "ops/production/kubernetes/record-pilot-daily-review.cjs"
+      - "ops/production/kubernetes/pilot-daily-report.example.json"
+      - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
+      - "ops/production/kubernetes/pilot-observation-ledger.example.json"
+      - "ops/production/kubernetes/run-continuous-observation.cjs"
+      - "ops/production/kubernetes/Dockerfile.pilot-observer"
+      - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
+      - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
   push:
     branches:
       - codex/enterprise-cloud-sandbox
