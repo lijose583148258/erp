@@ -365,6 +365,15 @@ PILOT_AI_UNRESOLVED_INCIDENTS=0 \
 node ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
 ```
 
+For Kubernetes, build the digest-pinned pilot-observer image and apply
+`formal-pilot-ai-daily-review-cronjob.example.yaml`. Its schedule is UTC,
+concurrent runs are forbidden, service-account credentials are disabled, and
+the daily output filename is date-scoped on the evidence PVC. The companion
+ConfigMap intentionally starts all incident counters at `1`; the assigned
+reviewer must inspect that day's alerts and explicitly set all four counters to
+`0` before the CronJob can pass. Existing daily output is preserved unless
+`PILOT_AI_REPLACE_OUTPUT` is deliberately enabled.
+
 Use `record-pilot-daily-review.cjs` once per UTC day. It accepts four
 metadata-only source reports: alert delivery/review, business-write
 reconciliation, incident resolution, and AI governance. The AI review records
