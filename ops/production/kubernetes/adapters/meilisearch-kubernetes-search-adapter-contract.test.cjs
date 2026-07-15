@@ -213,14 +213,20 @@ try {
   const resources = JSON.parse(fs.readFileSync(path.join(kubeState, 'restore.json'), 'utf8')).items;
   const content = resources.find(item => item.kind === 'VolumeSnapshotContent');
   const snapshot = resources.find(item => item.kind === 'VolumeSnapshot');
-  const pvc = resources.find(item => item.kind === 'PersistentVolumeClaim');
+  const pvcs = resources.filter(item => item.kind === 'PersistentVolumeClaim');
+  const backupPvc = pvcs.find(item => item.spec.dataSource);
+  const dataPvc = pvcs.find(item => !item.spec.dataSource);
   const deployment = resources.find(item => item.kind === 'Deployment');
   assert.equal(content.spec.source.snapshotHandle, 'snapshot-handle-1');
   assert.equal(content.spec.deletionPolicy, 'Retain');
   assert.equal(content.spec.volumeSnapshotRef.namespace, 'pilot-recovery');
   assert.equal(snapshot.metadata.namespace, 'pilot-recovery');
-  assert.equal(pvc.spec.dataSource.name, restoreId);
-  assert.equal(deployment.spec.template.spec.containers[0].image, imageDigest);
+  assert.equal(backupPvc.spec.dataSource.name, restoreId);
+  assert.equal(dataPvc.metadata.name, restoreId);
+  const container = deployment.spec.template.spec.containers[0];
+  assert.equal(container.image, imageDigest);
+  assert(container.args.includes('--import-dump=/backup/dumps/dump-contract-1.dump'));
+  assert.equal(container.volumeMounts.find(item => item.name === 'backup').readOnly, true);
   assert.equal(deployment.spec.template.spec.automountServiceAccountToken, false);
 
   assert.equal(run('restore-status', [restoreId]).status, 'completed');
