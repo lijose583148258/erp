@@ -5,6 +5,8 @@ on:
     paths:
       - 'ops/production/kubernetes/run-enterprise-production-admission.cjs'
       - 'ops/production/kubernetes/admission-bundle.example.json'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
+      - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
       - '.github/workflows/admission-bundle-contract.yml'
   workflow_dispatch:
 
@@ -38,8 +40,45 @@ jobs:
             commitSha: 'a'.repeat(40),
             imageDigest: `sha256:${'b'.repeat(64)}`,
           };
+          const providerProfile = {
+            schemaVersion: 1,
+            environment: 'formal-pilot',
+            platform: {
+              kind: 'kubernetes-native',
+              failureDomains: ['zone-a', 'zone-b', 'zone-c'],
+              applicationNamespace: 'ailaoda-pilot',
+              recoveryNamespace: 'ailaoda-pilot-recovery',
+            },
+            postgresql: {
+              kind: 'cloudnativepg', instances: 3, haAdapter: 'cnpg-ha-adapter.cjs',
+              backup: {
+                method: 'barman-object-store', encrypted: true,
+                checksumEvidence: 'barman-manifest', isolatedRestore: true,
+              },
+            },
+            redis: {
+              kind: 'sentinel', dataInstances: 3, sentinelCount: 3,
+              haAdapter: 'redis-kubernetes-ha-adapter.cjs',
+            },
+            objectStorage: {
+              kind: 'minio-distributed', dataPods: 4,
+              haAdapter: 'minio-kubernetes-object-adapter.cjs', pvcDeletePermission: false,
+            },
+            search: {
+              kind: 'meilisearch', servingInstances: 2,
+              backupMethod: 'dump-to-object-store', isolatedRestore: true,
+              restoreNamespace: 'ailaoda-pilot-recovery',
+            },
+            observability: {
+              traceBackend: 'tempo', alertRoute: 'pilot-operations',
+              deliveryReceiptStore: 'webhook-audit-store',
+            },
+            ai: { mode: 'local-only', externalGateway: false, paidCallBudget: 0 },
+            observation: { continuousHours: 8, pilotDays: 7 },
+          };
           const artifacts = {
             evidence: 'evidence/enterprise-evidence.json',
+            providerProfile: 'provider/profile.json',
             continuousReport: 'observation/continuous.json',
             pilotLedger: 'observation/ledger.json',
             dailyReportsDir: 'observation/daily',
@@ -56,7 +95,8 @@ jobs:
               fs.mkdirSync(target, { recursive: true });
             } else {
               fs.mkdirSync(path.dirname(target), { recursive: true });
-              fs.writeFileSync(target, key === 'evidence' ? JSON.stringify(identity) : '{}');
+              const value = key === 'evidence' ? identity : key === 'providerProfile' ? providerProfile : {};
+              fs.writeFileSync(target, JSON.stringify(value));
             }
           }
           const manifest = {
@@ -77,5 +117,12 @@ jobs:
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
           const escaped = run();
           if (escaped.status === 0) throw new Error('Bundle path traversal was accepted.');
+
+          manifest.artifacts.backupReport = artifacts.backupReport;
+          providerProfile.environment = 'different-pilot';
+          fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
+          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+          const mismatchedProvider = run();
+          if (mismatchedProvider.status === 0) throw new Error('Mismatched provider environment was accepted.');
           console.log('Admission bundle contract: PASSED');
           NODE
