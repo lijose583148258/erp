@@ -127,8 +127,15 @@ const server = http.createServer((request, response) => {
     send(response, 404, { error: 'not_found' });
     return;
   }
-  const namespace = decodeURIComponent(match[1]);
-  const backupId = decodeURIComponent(match[2]);
+  let namespace;
+  let backupId;
+  try {
+    namespace = decodeURIComponent(match[1]);
+    backupId = decodeURIComponent(match[2]);
+  } catch {
+    send(response, 400, { error: 'invalid_identity' });
+    return;
+  }
   if (!safeName(namespace) || !safeName(backupId)) {
     send(response, 400, { error: 'invalid_identity' });
     return;
