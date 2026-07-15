@@ -3,7 +3,11 @@
   "environment": "replace-with-formal-pilot-environment",
   "platform": {
     "kind": "kubernetes-native",
-    "failureDomains": ["replace-zone-a", "replace-zone-b", "replace-zone-c"],
+    "failureDomains": [
+      "replace-zone-a",
+      "replace-zone-b",
+      "replace-zone-c"
+    ],
     "applicationNamespace": "ailaoda-pilot",
     "recoveryNamespace": "ailaoda-pilot-recovery"
   },
@@ -41,7 +45,14 @@
       "method": "barman-object-store",
       "encrypted": true,
       "checksumEvidence": "barman-manifest",
-      "isolatedRestore": true
+      "isolatedRestore": true,
+      "receiptVerifier": {
+        "mode": "ed25519-provider-signed",
+        "issuer": "replace-with-provider-control-plane-issuer",
+        "publicKeySha256": "replace-with-receipt-public-key-sha256",
+        "serviceFileName": "cnpg-backup-receipt-service.cjs",
+        "serviceSha256": "replace-with-receipt-service-sha256"
+      }
     }
   },
   "redis": {
