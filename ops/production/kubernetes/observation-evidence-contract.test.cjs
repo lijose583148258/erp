@@ -47,6 +47,7 @@ try {
     const alertPath = path.join(sourceDir, 'alert.json');
     const reconciliationPath = path.join(sourceDir, 'reconciliation.json');
     const incidentPath = path.join(sourceDir, 'incident.json');
+    const aiGovernancePath = path.join(sourceDir, 'ai-governance.json');
     write(alertPath, {
       schemaVersion: 1,
       status: 'passed',
@@ -69,6 +70,18 @@ try {
       reviewer: 'pilot-owner',
       unresolvedIncidents: 0,
     });
+    write(aiGovernancePath, {
+      schemaVersion: 1,
+      status: 'passed',
+      checkedAt,
+      reviewer: 'ai-governance-owner',
+      governedAiRequests: day === 0 ? 5 : 0,
+      budgetBreaches: 0,
+      privacyIncidents: 0,
+      crossTenantLeaks: 0,
+      unresolvedAiIncidents: 0,
+      fallbackVerified: true,
+    });
     execFileSync(process.execPath, [
       dailyRecorder,
       '--environment', 'formal-pilot',
@@ -80,6 +93,7 @@ try {
       '--alert-review', alertPath,
       '--reconciliation', reconciliationPath,
       '--incident-review', incidentPath,
+      '--ai-governance-review', aiGovernancePath,
       '--daily-output', path.join(dailyDir, date + '.json'),
       '--ledger', ledgerPath,
     ], { stdio: 'pipe' });
@@ -95,6 +109,8 @@ try {
       stagedPilotDays: 0,
       zeroUnreconciledBusinessWrites: false,
       alertReviewCompleted: false,
+      aiGovernanceReviewCompleted: false,
+      governedAiRequests: 0,
       machineVerified: false,
       continuousReportSha256: '',
       pilotLedgerSha256: '',
@@ -117,6 +133,8 @@ try {
   assert.equal(evidence.observation.machineVerified, true);
   assert.equal(evidence.observation.continuousHours, 8);
   assert.equal(evidence.observation.stagedPilotDays, 7);
+  assert.equal(evidence.observation.aiGovernanceReviewCompleted, true);
+  assert.equal(evidence.observation.governedAiRequests, 5);
   assert.equal(evidence.observation.continuousReportSha256, continuousHash);
   assert.equal(evidence.observation.pilotLedgerSha256, hash(ledgerPath));
 
