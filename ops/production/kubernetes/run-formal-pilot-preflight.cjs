@@ -19,6 +19,14 @@ const resolveFile = (value, label, executable = false) => {
   return absolute;
 };
 
+const privateCredentialFile = file => {
+  if (process.platform === 'win32') return true;
+  const stat = fs.statSync(file);
+  if ((stat.mode & 0o007) !== 0 || (stat.mode & 0o022) !== 0) return false;
+  return (stat.mode & 0o040) === 0
+    || (typeof process.getegid === 'function' && stat.gid === process.getegid());
+};
+
 const evidencePath = resolveFile(valueFor('--evidence'), 'Enterprise evidence');
 const providerProfilePath = resolveFile(valueFor('--provider-profile'), 'Provider profile');
 const reportValue = valueFor('--report');
@@ -53,8 +61,8 @@ if (appUrls.some(value => !/^https:\/\//i.test(value) && !/^http:\/\/127\.0\.0\.
   fail('Application URLs must use HTTPS; loopback HTTP is allowed only for contract tests.');
 }
 if (!username || !password) fail('Preflight username and password file are required.');
-if (process.platform !== 'win32' && (fs.statSync(passwordFile).mode & 0o077) !== 0) {
-  fail('Preflight password file must not be accessible by group or other users.');
+if (!privateCredentialFile(passwordFile)) {
+  fail('Preflight password file must be owner-only or current-group read-only.');
 }
 
 const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
