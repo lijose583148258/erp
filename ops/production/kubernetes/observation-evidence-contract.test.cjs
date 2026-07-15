@@ -38,6 +38,8 @@ try {
     summary: {
       failures: 0,
       p95Ms: 100,
+      readinessSamples: 480,
+      readinessSemanticFailures: 0,
       instanceRequests: { 'https://app-a.example': 100, 'https://app-b.example': 100 },
       components: Object.fromEntries([
         'object-storage', 'search-primary', 'search-secondary', 'prometheus', 'tempo', 'alertmanager',
