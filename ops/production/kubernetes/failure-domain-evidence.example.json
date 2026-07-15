@@ -54,7 +54,11 @@
     "serviceMonitorTargets": 0,
     "alertRulesLoaded": false,
     "alertDeliveryDrill": false,
-    "reportSha256": ""
+    "reportSha256": "",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "observability": ""
+    }
   },
   "observation": {
     "continuousHours": 0,
@@ -144,6 +148,10 @@
   },
   "observabilityDrill": {
     "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "observability": ""
+    },
     "environment": "",
     "changeTicket": "",
     "commitSha": "",
