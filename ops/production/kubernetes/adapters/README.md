@@ -152,7 +152,8 @@ Configure:
 - `MEILI_K8S_DATA_VOLUME_NAME` and a CSI `MEILI_K8S_SNAPSHOT_CLASS` whose
   deletion policy is `Retain`
 - private `MEILI_K8S_ENDPOINT_MAP_FILE` and `MEILI_K8S_TOKEN_FILE`
-- `MEILI_K8S_RESTORE_URL_TEMPLATE` containing `{restoreId}`
+- `MEILI_K8S_RESTORE_URL_TEMPLATE` containing `{restoreId}`, and optionally
+  `MEILI_K8S_DUMP_SUBPATH` when dumps are not under `dumps/`
 - digest-pinned `MEILI_K8S_RESTORE_IMAGE` and a pre-provisioned recovery
   secret named by `MEILI_K8S_RESTORE_SECRET`
 - `MEILI_K8S_ALLOW_POD_DELETE=true` and
@@ -162,9 +163,10 @@ The source snapshot and its `VolumeSnapshotContent` must both be Ready and
 Retain-backed. For namespace isolation, the adapter creates a pre-provisioned
 `VolumeSnapshotContent` bound to a new `VolumeSnapshot` in the recovery
 namespace instead of relying on alpha cross-namespace PVC references. The
-restored deployment disables service-account token mounting, uses a
-digest-pinned image, and must pass health, marker, and exact document-count
-checks before cleanup. See the official Kubernetes
+snapshot is mounted read-only only to obtain the completed `.dump`; Meilisearch
+imports that dump into a separate empty data PVC. The restored deployment
+disables service-account token mounting, uses a digest-pinned image, and must
+pass health, marker, and exact document-count checks before cleanup. See the official Kubernetes
 [VolumeSnapshot model](https://kubernetes.io/docs/concepts/storage/volume-snapshots/)
 and Meilisearch [dump task API](https://specs.meilisearch.dev/specifications/text/0105-dumps-api.html/).
 
