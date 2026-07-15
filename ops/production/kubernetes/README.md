@@ -370,3 +370,26 @@ node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
 A passing preflight is only permission and topology readiness. It is not
 failover, restore, alert-delivery, load, observation, or production-admission
 evidence.
+
+## Formal provider profile gate
+
+Before creating provider-specific adapters or authorizing a disruptive drill, copy
+`formal-pilot-provider-profile.example.json` into the private evidence workspace,
+replace every placeholder with control-plane-observed metadata, and run:
+
+```bash
+node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \
+  <formal-pilot-provider-profile.json>
+```
+
+The profile is metadata only. The verifier rejects secret-like fields,
+production environments, fewer than three failure domains, shared application
+and recovery namespaces, unencrypted or manually asserted PostgreSQL backup
+integrity, insufficient Redis/MinIO topology, non-isolated search recovery,
+Alertmanager acceptance without a receiver-side delivery store, paid/external
+AI mode, and observations shorter than eight hours or seven pilot days.
+
+A passing profile does not prove runtime readiness. It freezes the provider
+contract that the read-only preflight, disruptive adapters, recovery drills, and
+final evidence bundle must subsequently prove against the real control plane.
+
