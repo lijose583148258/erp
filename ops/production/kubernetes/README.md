@@ -260,13 +260,17 @@ Required environment:
 - `OBSERVATION_USERNAME` and `OBSERVATION_PASSWORD_FILE`
 - `OBSERVATION_METRICS_TOKEN_FILE`
 - `OBSERVATION_COMMIT_SHA` and immutable `OBSERVATION_IMAGE_DIGEST`
+- immutable `OBSERVATION_COLLECTOR_IMAGE_DIGEST`
+- `OBSERVATION_COMPONENT_HEALTH_URLS`: named internal endpoints for object storage, both search nodes, Prometheus, Tempo, and Alertmanager
 - `OBSERVATION_DURATION_MS`: 28,800,000 through 86,400,000
 
 The account needs only login and read access to dashboard, customers, and
 orders. Secrets are read from files and are never written to the report. The
 runner refreshes an expired JWT, samples process memory and telemetry every
-minute, treats every final HTTP 4xx/5xx/429 or network failure as a failure, and
-writes the continuous report consumed by the observation evidence verifier.
+minute, and continuously probes MinIO, both Meilisearch serving nodes,
+Prometheus, Tempo, and Alertmanager. Any final application or component HTTP
+4xx/5xx/429 or network failure fails the observation. It writes the continuous
+report consumed by the observation evidence verifier.
 The report is bound to the pilot environment, evidence ID, Git commit, and
 application image digest. Copy it from the evidence PVC only after the Job has
 completed successfully; a partial file from a running or terminated Job cannot
