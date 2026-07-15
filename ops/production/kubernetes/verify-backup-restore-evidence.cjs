@@ -51,6 +51,12 @@ if (!Number.isFinite(Number(report.backupCompletionSeconds)) || Number(report.ba
   throw new Error('Backup completion, verified marker RPO, or restore RTO evidence is invalid.');
 }
 const bound = evidence.backupDrill;
+if (report.providerProfileSha256 !== evidence.providerProfile?.sha256
+  || !/^[0-9a-f]{64}$/.test(String(report.adapterSha256?.backup || ''))
+  || bound?.providerProfileSha256 !== report.providerProfileSha256
+  || bound?.adapterSha256?.backup !== report.adapterSha256.backup) {
+  throw new Error('Backup report is not bound to the approved provider profile and adapter.');
+}
 if (evidence.postgres?.backupRestoreReadback !== true || bound?.status !== 'passed'
   || bound?.reportSha256 !== reportHash || bound?.cleanupVerified !== true
   || bound?.checksumVerified !== true || bound?.encrypted !== true
