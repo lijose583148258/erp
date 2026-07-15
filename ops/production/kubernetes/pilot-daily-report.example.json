@@ -22,6 +22,12 @@
     "incidentReview": {
       "file": "2026-01-01.incidentReview.json",
       "sha256": "replace-with-64-hex-hash"
+    },
+    "aiGovernance": {
+      "file": "2026-01-01.aiGovernance.json",
+      "sha256": "replace-with-64-hex-hash"
     }
-  }
+  },
+  "aiGovernanceReviewCompleted": false,
+  "governedAiRequests": 0
 }
