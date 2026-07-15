@@ -10,7 +10,8 @@ const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ailaoda-cnpg-receipt-contrac
 const receipts = path.join(root, 'receipts');
 const publicKeyFile = path.join(root, 'public.pem');
 const tokenFile = path.join(root, 'token');
-const readyFile = path.join(root, 'ready');
+const stdoutFile = path.join(root, 'stdout.log');
+const stderrFile = path.join(root, 'stderr.log');
 fs.mkdirSync(receipts, { mode: 0o700 });
 const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
 fs.writeFileSync(publicKeyFile, publicKey.export({ type: 'spki', format: 'pem' }));
@@ -54,6 +55,8 @@ const writeReceipt = envelope => {
 writeReceipt(sign());
 
 const port = 28000 + Math.floor(Math.random() * 4000);
+const stdoutFd = fs.openSync(stdoutFile, 'w');
+const stderrFd = fs.openSync(stderrFile, 'w');
 const child = spawn(process.execPath, [service], {
   env: {
     ...process.env,
@@ -65,22 +68,18 @@ const child = spawn(process.execPath, [service], {
     CNPG_RECEIPT_ISSUER: issuer,
     CNPG_RECEIPT_MAX_AGE_HOURS: '1',
   },
-  stdio: ['ignore', 'pipe', 'pipe'],
+  stdio: ['ignore', stdoutFd, stderrFd],
 });
-let stdout = '';
-let stderr = '';
-child.stdout.on('data', chunk => {
-  stdout += chunk;
-  if (stdout.includes('listening')) fs.writeFileSync(readyFile, '1');
-});
-child.stderr.on('data', chunk => { stderr += chunk; });
 const deadline = Date.now() + 5000;
-while (!fs.existsSync(readyFile) && Date.now() < deadline) {
+let stdout = '';
+while (!stdout.includes('listening') && Date.now() < deadline) {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  stdout = fs.readFileSync(stdoutFile, 'utf8');
 }
-if (!fs.existsSync(readyFile)) {
+if (!stdout.includes('listening')) {
   child.kill('SIGTERM');
-  throw new Error(`Receipt service did not start: ${stderr}`);
+  const startupError = fs.readFileSync(stderrFile, 'utf8');
+  throw new Error(`Receipt service did not start: ${startupError}`);
 }
 
 const baseUrl = `http://127.0.0.1:${port}`;
@@ -131,8 +130,10 @@ const request = (pathname, authorization = `Bearer ${token}`) => fetch(`${baseUr
     const stillHealthy = await request('/health', '');
     assert.equal(stillHealthy.status, 200);
 
-    assert(!stdout.includes(token));
-    assert(!stderr.includes(token));
+    const finalStdout = fs.readFileSync(stdoutFile, 'utf8');
+    const finalStderr = fs.readFileSync(stderrFile, 'utf8');
+    assert(!finalStdout.includes(token));
+    assert(!finalStderr.includes(token));
     console.log('Signed CNPG backup receipt service contract: PASSED');
   } finally {
     child.kill('SIGTERM');
