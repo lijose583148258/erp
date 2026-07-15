@@ -1,0 +1,37 @@
+name: CloudNativePG Backup Adapter Contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/cnpg-backup-adapter-contract.yml"
+      - "ops/production/kubernetes/adapters/cnpg-backup-adapter.cjs"
+      - "ops/production/kubernetes/adapters/cnpg-backup-adapter-contract.test.cjs"
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/cnpg-backup-adapter-contract.yml"
+      - "ops/production/kubernetes/adapters/cnpg-backup-adapter.cjs"
+      - "ops/production/kubernetes/adapters/cnpg-backup-adapter-contract.test.cjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cnpg-backup-adapter-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adapter-contract:
+    name: Simulated encrypted backup and isolated restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report runtime
+        run: node --version
+
+      - name: Run isolated adapter contract
+        run: node ops/production/kubernetes/adapters/cnpg-backup-adapter-contract.test.cjs
