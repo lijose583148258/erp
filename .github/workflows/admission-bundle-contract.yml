@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'ops/production/kubernetes/run-enterprise-production-admission.cjs'
+      - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - 'ops/production/kubernetes/failure-domain-evidence.example.json'
       - 'ops/production/kubernetes/admission-bundle.example.json'
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
       - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
@@ -28,6 +30,7 @@ jobs:
         run: |
           node --check ops/production/kubernetes/run-enterprise-production-admission.cjs
           node <<'NODE'
+          const crypto = require('crypto');
           const fs = require('fs');
           const os = require('os');
           const path = require('path');
@@ -75,6 +78,13 @@ jobs:
             },
             ai: { mode: 'local-only', externalGateway: false, paidCallBudget: 0 },
             observation: { continuousHours: 8, pilotDays: 7 },
+          };
+          const providerProfileText = JSON.stringify(providerProfile);
+          identity.providerProfile = {
+            status: 'passed',
+            environment: identity.environment,
+            sha256: crypto.createHash('sha256').update(providerProfileText).digest('hex'),
+            verifiedAt: '2026-07-15T00:00:00Z',
           };
           const artifacts = {
             evidence: 'evidence/enterprise-evidence.json',
