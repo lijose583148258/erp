@@ -60,6 +60,8 @@ const componentProbes = new Map(componentHealth.map(component => [
 ]));
 let requestIndex = 0;
 let authRefreshes = 0;
+let readinessSamples = 0;
+let readinessSemanticFailures = 0;
 let authToken = '';
 let loginPromise = null;
 let password = '';
@@ -158,8 +160,21 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
         signal: AbortSignal.timeout(10_000),
       });
     }
-    await response.arrayBuffer();
-    status = response.status;
+    if (route === '/ready') {
+      readinessSamples += 1;
+      const body = await response.json().catch(() => null);
+      const semanticReady = response.ok
+        && body?.status === 'ready'
+        && body?.database === 'ok'
+        && body?.redis?.configured === true
+        && body?.redis?.ready === true
+        && body?.redis?.mode === 'sentinel';
+      if (!semanticReady) readinessSemanticFailures += 1;
+      status = semanticReady ? response.status : 503;
+    } else {
+      await response.arrayBuffer();
+      status = response.status;
+    }
   } catch {
     status = 0;
   }
@@ -260,6 +275,8 @@ async function main() {
     p99Ms: percentile(latencies, 0.99),
     throughputRps: latencies.length / (durationMs / 1000),
     authRefreshes,
+    readinessSamples,
+    readinessSemanticFailures,
     memory,
     metricSamples: samples.length,
     components: Object.fromEntries(componentProbes),
@@ -268,6 +285,9 @@ async function main() {
   check('no-network-http-or-rate-limit-failures', failures === 0, { failures, statuses: statusObject });
   check('p95-under-two-seconds', summary.p95Ms < 2_000, { p95Ms: summary.p95Ms });
   check('both-instances-served', appUrls.every(instance => (instanceRequests.get(instance) || 0) > 0), { instanceRequests: summary.instanceRequests });
+  check('postgres-and-redis-sentinel-continuously-ready',
+    readinessSamples > 0 && readinessSemanticFailures === 0,
+    { readinessSamples, readinessSemanticFailures });
   check('rss-within-envelope', memory.every(item => item.maxRssMb <= maxRssMb && item.growthRssMb <= maxRssGrowthMb), {
     maxRssMb,
     maxRssGrowthMb,
