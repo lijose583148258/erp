@@ -16,6 +16,7 @@ const resolveFile = (value, label) => {
 };
 const adapter = resolveFile(valueFor('--adapter'), 'Observability adapter');
 const evidencePath = resolveFile(valueFor('--evidence'), 'Enterprise evidence');
+const providerProfilePath = resolveFile(valueFor('--provider-profile'), 'Provider profile');
 const reportValue = valueFor('--report');
 if (!reportValue) fail('Missing --report.');
 const reportPath = path.resolve(reportValue);
@@ -58,6 +59,22 @@ if (evidence.environment !== environment || evidence.evidenceId !== changeTicket
   || evidence.commitSha !== commitSha || evidence.imageDigest !== imageDigest) {
   fail('Observability drill identity does not match enterprise evidence.');
 }
+const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const providerOutput = execFileSync(process.execPath, [
+  providerVerifier, providerProfilePath, '--evidence', evidencePath,
+], {
+  encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+let providerSummary;
+try { providerSummary = JSON.parse(providerOutput); } catch { fail('Provider profile verifier returned invalid JSON.'); }
+const adapterSha256 = crypto.createHash('sha256').update(fs.readFileSync(adapter)).digest('hex');
+if (providerSummary.adapters?.observability?.fileName !== path.basename(adapter)
+  || providerSummary.adapters?.observability?.sha256 !== adapterSha256) {
+  fail('Observability adapter does not match the bound provider profile.');
+}
+if (evidence.haDrill?.providerProfileSha256 !== providerSummary.providerProfileSha256) {
+  fail('HA trace evidence was produced under a different provider profile.');
+}
 const haTraceIds = [
   ...(evidence.haDrill?.postgres?.traceIds || []),
   ...(evidence.haDrill?.redis?.traceIds || []),
@@ -75,6 +92,8 @@ const report = {
   changeTicket,
   commitSha,
   imageDigest,
+  providerProfileSha256: providerSummary.providerProfileSha256,
+  adapterSha256: { observability: adapterSha256 },
   startedAt: new Date().toISOString(),
   checks: [],
 };
@@ -155,6 +174,8 @@ const writeAndBind = () => {
     alertRulesLoaded: report.alertRulesLoaded === true,
     alertDeliveryDrill: report.alertDelivered === true && report.alertResolved === true,
     reportSha256,
+    providerProfileSha256: report.providerProfileSha256,
+    adapterSha256: report.adapterSha256,
   };
   evidence.observabilityDrill = {
     status: report.status,
