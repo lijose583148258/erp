@@ -206,7 +206,9 @@ const writeReport = () => {
   const receiptHealth = await requestJson(backupReceiptUrl, '/health');
   check('backup-receipt-verifier-bound-and-healthy', receiptHealth.response.status === 200
     && receiptHealth.body?.status === 'available'
-    && receiptHealth.body?.verifier === 'ed25519', {
+    && receiptHealth.body?.verifier === 'ed25519'
+    && receiptHealth.body?.issuer === expectedReceipt.issuer
+    && receiptHealth.body?.publicKeySha256 === receiptPublicKeySha256, {
     issuer: expectedReceipt.issuer,
     serviceSha256: receiptServiceSha256,
     publicKeySha256: receiptPublicKeySha256,
