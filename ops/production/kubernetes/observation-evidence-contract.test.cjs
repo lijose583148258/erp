@@ -13,6 +13,9 @@ const dailyDir = path.join(tempRoot, 'daily');
 fs.mkdirSync(dailyDir, { recursive: true });
 const commitSha = 'a'.repeat(40);
 const imageDigest = 'sha256:' + 'b'.repeat(64);
+const collectorImageDigest = 'sha256:' + 'e'.repeat(64);
+const aiCollectorHash = hashFile => crypto.createHash('sha256').update(fs.readFileSync(hashFile)).digest('hex');
+const aiCollectorSha256 = aiCollectorHash(path.join(__dirname, 'capture-pilot-ai-governance-review.cjs'));
 const hash = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
 const write = (file, value) => fs.writeFileSync(file, JSON.stringify(value, null, 2) + '\n');
 
@@ -30,6 +33,7 @@ try {
     durationMs: 28_800_000,
     commitSha,
     imageDigest,
+    collectorImageDigest,
     checks: [{ name: 'contract', status: 'passed' }],
     summary: {
       failures: 0,
@@ -76,6 +80,8 @@ try {
       checkedAt,
       reviewer: 'ai-governance-owner',
       source: 'runtime-probe',
+      collectorImageDigest,
+      collectorSha256: aiCollectorSha256,
       instances: ['https://app-a.example', 'https://app-b.example'],
       externalAiEnabled: false,
       paidModelCalls: 0,
@@ -117,6 +123,7 @@ try {
       alertReviewCompleted: false,
       aiGovernanceReviewCompleted: false,
       governedAiRequests: 0,
+      collectorImageDigest: '',
       machineVerified: false,
       continuousReportSha256: '',
       pilotLedgerSha256: '',
@@ -141,6 +148,7 @@ try {
   assert.equal(evidence.observation.stagedPilotDays, 7);
   assert.equal(evidence.observation.aiGovernanceReviewCompleted, true);
   assert.equal(evidence.observation.governedAiRequests, 17);
+  assert.equal(evidence.observation.collectorImageDigest, collectorImageDigest);
   assert.equal(evidence.observation.continuousReportSha256, continuousHash);
   assert.equal(evidence.observation.pilotLedgerSha256, hash(ledgerPath));
 
@@ -167,6 +175,7 @@ try {
         OBSERVATION_EVIDENCE_ID: 'CHG-12345',
         OBSERVATION_COMMIT_SHA: commitSha,
         OBSERVATION_IMAGE_DIGEST: imageDigest,
+        OBSERVATION_COLLECTOR_IMAGE_DIGEST: collectorImageDigest,
       },
       stdio: 'pipe',
     });
