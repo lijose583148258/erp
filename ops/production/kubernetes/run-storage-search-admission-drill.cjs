@@ -92,14 +92,19 @@ const check = (report, name, passed, details = {}) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
   if (!passed) fail(`Check failed: ${name}`);
 };
+const adapterInvocation = (adapter, operation, operationArgs) => path.extname(adapter).toLowerCase() === '.cjs'
+  ? { command: process.execPath, args: [adapter, operation, ...operationArgs.map(String)] }
+  : { command: adapter, args: [operation, ...operationArgs.map(String)] };
 const adapterJson = (adapter, operation, ...operationArgs) => {
-  const output = execFileSync(adapter, [operation, ...operationArgs.map(String)], {
+  const invocation = adapterInvocation(adapter, operation, operationArgs);
+  const output = execFileSync(invocation.command, invocation.args, {
     encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'inherit'],
   }).trim();
   try { return JSON.parse(output); } catch { fail(`Adapter returned invalid JSON for ${operation}.`); }
 };
 const adapterRun = (adapter, operation, ...operationArgs) => {
-  execFileSync(adapter, [operation, ...operationArgs.map(String)], {
+  const invocation = adapterInvocation(adapter, operation, operationArgs);
+  execFileSync(invocation.command, invocation.args, {
     encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'ignore', 'inherit'],
   });
 };
