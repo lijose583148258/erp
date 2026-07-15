@@ -358,6 +358,7 @@ FORMAL_PILOT_PREFLIGHT_USERNAME=<least-privilege-audit-user> \
 FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE=<private-secret-file> \
 node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
   --evidence <evidence.json> \
+  --provider-profile <hash-bound-provider-profile.json> \
   --report <preflight-report.json> \
   --postgres-adapter <postgres-adapter> \
   --redis-adapter <redis-adapter> \
@@ -366,6 +367,9 @@ node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
   --backup-adapter <backup-adapter> \
   --observability-adapter <observability-adapter>
 ```
+
+The preflight recomputes the provider profile SHA-256 and rejects an unbound or
+modified profile before contacting any disruptive adapter.
 
 A passing preflight is only permission and topology readiness. It is not
 failover, restore, alert-delivery, load, observation, or production-admission
