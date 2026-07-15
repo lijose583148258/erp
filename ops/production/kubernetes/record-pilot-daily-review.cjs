@@ -108,6 +108,12 @@ requireStrictKeys(aiGovernance, [
   'status',
   'checkedAt',
   'reviewer',
+  'source',
+  'instances',
+  'externalAiEnabled',
+  'paidModelCalls',
+  'metricsBeforeSha256',
+  'metricsAfterSha256',
   'governedAiRequests',
   'budgetBreaches',
   'privacyIncidents',
@@ -117,7 +123,12 @@ requireStrictKeys(aiGovernance, [
 ], 'AI governance review');
 const governedAiRequests = Number(aiGovernance.governedAiRequests);
 if (aiGovernance.schemaVersion !== 1 || aiGovernance.status !== 'passed'
-  || !Number.isInteger(governedAiRequests) || governedAiRequests < 0
+  || aiGovernance.source !== 'runtime-probe'
+  || !Array.isArray(aiGovernance.instances) || new Set(aiGovernance.instances).size < 2
+  || aiGovernance.externalAiEnabled !== false || Number(aiGovernance.paidModelCalls) !== 0
+  || !/^[0-9a-f]{64}$/.test(String(aiGovernance.metricsBeforeSha256 || ''))
+  || !/^[0-9a-f]{64}$/.test(String(aiGovernance.metricsAfterSha256 || ''))
+  || !Number.isInteger(governedAiRequests) || governedAiRequests < 2
   || Number(aiGovernance.budgetBreaches) !== 0
   || Number(aiGovernance.privacyIncidents) !== 0
   || Number(aiGovernance.crossTenantLeaks) !== 0
