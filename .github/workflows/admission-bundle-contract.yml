@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - 'ops/production/kubernetes/run-enterprise-production-admission.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-preflight-evidence.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - 'ops/production/kubernetes/failure-domain-evidence.example.json'
       - 'ops/production/kubernetes/admission-bundle.example.json'
@@ -96,9 +97,47 @@ jobs:
             sha256: crypto.createHash('sha256').update(providerProfileText).digest('hex'),
             verifiedAt: '2026-07-15T00:00:00Z',
           };
+          const adapterSha256 = Object.fromEntries(
+            Object.entries(providerProfile.adapters).map(([name, binding]) => [name, binding.sha256]),
+          );
+          const requiredChecks = [
+            'provider-profile-bound', 'all-adapters-profile-bound', 'all-adapters-executable',
+            'postgres-provider-topology', 'postgres-preferred-endpoint',
+            'redis-provider-topology', 'redis-preferred-endpoint',
+            'objectStorage-provider-topology', 'objectStorage-preferred-endpoint',
+            'search-provider-topology', 'search-preferred-endpoint',
+            'two-distinct-application-instances', 'least-privilege-audit-login',
+            'cross-instance-session-readback', 'application-search-marker',
+            'provider-search-marker-readback',
+          ].map(name => ({ name, status: 'passed' }));
+          const now = new Date().toISOString();
+          const preflightReport = {
+            name: 'Formal Pilot Read-Only Environment Preflight',
+            version: '1.0',
+            status: 'passed',
+            mode: 'read-only',
+            ...release,
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256,
+            startedAt: now,
+            finishedAt: now,
+            topology: {
+              postgresFailureDomains: 2,
+              redisFailureDomains: 3,
+              redisSentinelCount: 3,
+              objectStorageFailureDomains: 2,
+              searchFailureDomains: 2,
+            },
+            checks: [
+              ...requiredChecks,
+              { name: 'application-health-and-readiness', status: 'passed' },
+              { name: 'application-health-and-readiness', status: 'passed' },
+            ],
+          };
           const artifacts = {
             evidence: 'evidence/enterprise-evidence.json',
             providerProfile: 'provider/profile.json',
+            preflightReport: 'preflight/report.json',
             continuousReport: 'observation/continuous.json',
             pilotLedger: 'observation/ledger.json',
             dailyReportsDir: 'observation/daily',
@@ -115,7 +154,9 @@ jobs:
               fs.mkdirSync(target, { recursive: true });
             } else {
               fs.mkdirSync(path.dirname(target), { recursive: true });
-              const value = key === 'evidence' ? identity : key === 'providerProfile' ? providerProfile : {};
+              const value = key === 'evidence' ? identity
+                : key === 'providerProfile' ? providerProfile
+                  : key === 'preflightReport' ? preflightReport : {};
               fs.writeFileSync(target, JSON.stringify(value));
             }
           }
@@ -139,6 +180,14 @@ jobs:
           if (escaped.status === 0) throw new Error('Bundle path traversal was accepted.');
 
           manifest.artifacts.backupReport = artifacts.backupReport;
+          preflightReport.adapterSha256.search = '0'.repeat(64);
+          fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
+          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+          const tamperedPreflight = run();
+          if (tamperedPreflight.status === 0) throw new Error('Tampered preflight adapter hash was accepted.');
+          preflightReport.adapterSha256.search = providerProfile.adapters.search.sha256;
+          fs.writeFileSync(path.join(root, artifacts.preflightReport), JSON.stringify(preflightReport));
+
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
