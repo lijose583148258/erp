@@ -51,6 +51,31 @@ deletion. The ERP runner independently proves post-failover session creation
 and cross-instance readback, so a label change alone cannot pass the drill.
 
 
+## Distributed MinIO Kubernetes adapter
+
+`minio-kubernetes-object-adapter.cjs` implements the formal object-storage
+failover operations for a distributed MinIO StatefulSet or operator deployment.
+It discovers Ready data pods and their zones from Kubernetes, requires at least
+four Ready pods across two zones, removes one preferred pod without touching its
+PVC, waits for the controller to recreate it, and records private per-injection
+state.
+
+Configure:
+
+- `MINIO_K8S_NAMESPACE`
+- `MINIO_K8S_SELECTOR` for MinIO data pods only
+- `MINIO_K8S_ALLOW_POD_DELETE=true` only during the approved pilot drill
+- optionally `MINIO_K8S_MIN_READY`, `MINIO_K8S_STATE_DIR`, and
+  `MINIO_K8S_TIMEOUT_MS`
+
+The drill identity needs get/list access to Pods and Nodes, delete access only
+to MinIO data Pods in a dedicated pilot namespace, and no PVC delete permission.
+Kubernetes RBAC cannot constrain Pod deletion by label, so use a dedicated
+namespace plus an admission policy for the configured selector. The adapter
+does not prove erasure coding by itself: the formal runner's post-isolation ERP
+download and SHA-256 comparison remain mandatory data-durability evidence.
+
+
 ## Contract test
 
 `adapter-contract.test.cjs` creates an isolated fake `kubectl` executable and
