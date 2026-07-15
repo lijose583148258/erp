@@ -20,6 +20,7 @@ if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(String(manifest.namespace || ''))) {
 const artifactTypes = {
   evidence: 'file',
   providerProfile: 'file',
+  preflightReport: 'file',
   continuousReport: 'file',
   pilotLedger: 'file',
   dailyReportsDir: 'directory',
@@ -80,6 +81,22 @@ const providerSummary = JSON.parse(providerOutput);
 if (providerSummary.status !== 'passed' || providerSummary.environment !== release.environment) {
   throw new Error('Provider profile verification did not pass for this release environment.');
 }
+const preflightVerifier = path.join(__dirname, 'verify-formal-pilot-preflight-evidence.cjs');
+const preflightOutput = execFileSync(process.execPath, [
+  preflightVerifier,
+  '--report', resolved.preflightReport,
+  '--evidence', resolved.evidence,
+  '--provider-profile', resolved.providerProfile,
+], {
+  cwd: bundleRoot,
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+const preflightSummary = JSON.parse(preflightOutput);
+if (preflightSummary.status !== 'passed'
+  || preflightSummary.providerProfileSha256 !== providerSummary.providerProfileSha256) {
+  throw new Error('Formal preflight evidence verification did not pass.');
+}
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
@@ -89,6 +106,7 @@ if (args.includes('--check-only')) {
     namespace: manifest.namespace,
     release,
     provider: providerSummary,
+    preflight: preflightSummary,
     artifacts: artifactSummary,
   }, null, 2));
   process.exit(0);
