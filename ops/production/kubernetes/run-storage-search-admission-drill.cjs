@@ -159,7 +159,16 @@ const finishReports = () => {
   writeReport('meilisearch-failover-audit-v1.json', searchFailoverReport);
   writeReport('meilisearch-dump-restore-audit-v1.json', searchRestoreReport);
 };
-const makeId = prefix => `${prefix}-${evidenceId.replace(/[^A-Za-z0-9_.-]/g, '-').slice(0, 40)}-${crypto.randomBytes(6).toString('hex')}`;
+const makeId = prefix => {
+  const normalizedPrefix = String(prefix).toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-+|-+$/g, '');
+  const nonce = crypto.randomBytes(6).toString('hex');
+  const maximumEvidenceLength = 63 - normalizedPrefix.length - nonce.length - 2;
+  if (!normalizedPrefix || maximumEvidenceLength < 1) fail('Storage/search resource ID prefix is too long.');
+  const normalizedEvidence = evidenceId.toLowerCase().replace(/[^a-z0-9-]/g, '-')
+    .replace(/^-+|-+$/g, '').slice(0, maximumEvidenceLength).replace(/-+$/g, '');
+  if (!normalizedEvidence) fail('Storage/search evidence ID cannot form a Kubernetes resource name.');
+  return `${normalizedPrefix}-${normalizedEvidence}-${nonce}`;
+};
 
 (async () => {
   const login = await json(await api(appUrls[0], '/api/v1/auth/login', {
