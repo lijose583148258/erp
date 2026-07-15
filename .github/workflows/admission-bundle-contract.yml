@@ -110,6 +110,18 @@ jobs:
               redis: adapterSha256.redis,
             },
           };
+          const backupReport = {
+            status: 'passed',
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { backup: adapterSha256.backup },
+          };
+          identity.backupDrill = {
+            status: 'passed',
+            environment: identity.environment,
+            changeTicket: identity.evidenceId,
+            providerProfileSha256: identity.providerProfile.sha256,
+            adapterSha256: { backup: adapterSha256.backup },
+          };
           const requiredChecks = [
             'provider-profile-bound', 'all-adapters-profile-bound', 'all-adapters-executable',
             'postgres-provider-topology', 'postgres-preferred-endpoint',
@@ -166,7 +178,8 @@ jobs:
               fs.mkdirSync(path.dirname(target), { recursive: true });
               const value = key === 'evidence' ? identity
                 : key === 'providerProfile' ? providerProfile
-                  : key === 'preflightReport' ? preflightReport : {};
+                  : key === 'preflightReport' ? preflightReport
+                    : key === 'backupReport' ? backupReport : {};
               fs.writeFileSync(target, JSON.stringify(value));
             }
           }
@@ -204,6 +217,13 @@ jobs:
           if (tamperedHaAdapter.status === 0) throw new Error('Tampered HA adapter hash was accepted.');
           identity.haDrill.adapterSha256.redis = providerProfile.adapters.redis.sha256;
           fs.writeFileSync(path.join(root, artifacts.evidence), JSON.stringify(identity));
+
+          backupReport.adapterSha256.backup = '0'.repeat(64);
+          fs.writeFileSync(path.join(root, artifacts.backupReport), JSON.stringify(backupReport));
+          const tamperedBackupAdapter = run();
+          if (tamperedBackupAdapter.status === 0) throw new Error('Tampered backup adapter hash was accepted.');
+          backupReport.adapterSha256.backup = providerProfile.adapters.backup.sha256;
+          fs.writeFileSync(path.join(root, artifacts.backupReport), JSON.stringify(backupReport));
 
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
