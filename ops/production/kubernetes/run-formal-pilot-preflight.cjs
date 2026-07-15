@@ -19,6 +19,7 @@ const resolveFile = (value, label, executable = false) => {
 };
 
 const evidencePath = resolveFile(valueFor('--evidence'), 'Enterprise evidence');
+const providerProfilePath = resolveFile(valueFor('--provider-profile'), 'Provider profile');
 const reportValue = valueFor('--report');
 if (!reportValue) fail('Missing --report.');
 const reportPath = path.resolve(reportValue);
@@ -60,6 +61,20 @@ if (evidence.environment !== environment || evidence.evidenceId !== evidenceId
   || evidence.commitSha !== commitSha || evidence.imageDigest !== imageDigest) {
   fail('Preflight identity does not match enterprise evidence.');
 }
+const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const providerOutput = execFileSync(process.execPath, [
+  providerVerifier, providerProfilePath, '--evidence', evidencePath,
+], {
+  encoding: 'utf8',
+  timeout: timeoutMs,
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+let providerSummary;
+try { providerSummary = JSON.parse(providerOutput); } catch { fail('Provider profile verifier returned invalid JSON.'); }
+if (providerSummary.status !== 'passed' || providerSummary.environment !== environment
+  || !/^[0-9a-f]{64}$/.test(String(providerSummary.providerProfileSha256 || ''))) {
+  fail('Bound provider profile did not pass preflight verification.');
+}
 
 const report = {
   name: 'Formal Pilot Read-Only Environment Preflight',
@@ -70,6 +85,7 @@ const report = {
   evidenceId,
   commitSha,
   imageDigest,
+  providerProfileSha256: providerSummary.providerProfileSha256,
   startedAt: new Date().toISOString(),
   checks: [],
 };
@@ -123,6 +139,9 @@ const writeReport = () => {
 };
 
 (async () => {
+  check('provider-profile-bound', providerSummary.evidenceBound === true, {
+    providerProfileSha256: providerSummary.providerProfileSha256,
+  });
   check('all-adapters-executable', Object.keys(adapters).length === 6, { adapterCount: 6 });
   const postgres = topology('postgres', 2);
   const redis = topology('redis', 3, 3);
