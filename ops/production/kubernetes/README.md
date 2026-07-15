@@ -356,6 +356,7 @@ PILOT_AI_APP_URLS=<https-app-a>,<https-app-b> \
 PILOT_AI_USERNAME=<least-privilege-ai-user> \
 PILOT_AI_PASSWORD_FILE=<private-secret-file> \
 PILOT_AI_METRICS_TOKEN_FILE=<private-metrics-token-file> \
+PILOT_AI_COLLECTOR_IMAGE_DIGEST=<sha256:pilot-observer-image-digest> \
 PILOT_AI_REVIEWER=<reviewer-id> \
 PILOT_AI_OUTPUT=<ai-governance-review.json> \
 PILOT_AI_BUDGET_BREACHES=0 \
@@ -364,6 +365,8 @@ PILOT_AI_CROSS_TENANT_LEAKS=0 \
 PILOT_AI_UNRESOLVED_INCIDENTS=0 \
 node ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
 ```
+
+The generated report binds both the observer image digest and the exact collector source hash; the final verifier recomputes the source hash and requires every daily report to match the continuous observer image.
 
 For Kubernetes, build the digest-pinned pilot-observer image and apply
 `formal-pilot-ai-daily-review-cronjob.example.yaml`. Its schedule is UTC,
