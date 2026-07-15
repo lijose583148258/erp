@@ -55,13 +55,23 @@ const writeAtomic = value => {
   fs.writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
   fs.renameSync(temporary, outputPath);
 };
+const validBaseUrl = value => {
+  try {
+    const url = new URL(value);
+    return !url.username && !url.password && !url.search && !url.hash && url.pathname === '/'
+      && (url.protocol === 'https:' || (url.protocol === 'http:' && url.hostname === '127.0.0.1'));
+  } catch {
+    return false;
+  }
+};
 const requestJson = async (url, init = {}) => {
-  const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
+  const response = await fetch(url, { ...init, redirect: 'error', signal: AbortSignal.timeout(10_000) });
   const body = await response.json().catch(() => null);
   return { response, body };
 };
 const fetchMetrics = async (instance, token) => {
   const response = await fetch(`${instance}/metrics`, {
+    redirect: 'error',
     headers: { authorization: `Bearer ${token}` },
     signal: AbortSignal.timeout(10_000),
   });
@@ -93,8 +103,8 @@ async function main() {
   if (outputExisted && !replaceOutput) fail('Pilot AI output already exists; explicit PILOT_AI_REPLACE_OUTPUT is required.');
   if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('PILOT_AI_COLLECTOR_IMAGE_DIGEST is required.');
   if (appUrls.length < 2 || new Set(appUrls).size !== appUrls.length) fail('Two distinct application URLs are required.');
-  if (!appUrls.every(value => /^https:\/\//.test(value) || /^http:\/\/127\.0\.0\.1(?::\d+)?$/.test(value))) {
-    fail('Application URLs must use HTTPS, except explicit 127.0.0.1 contract endpoints.');
+  if (!appUrls.every(validBaseUrl)) {
+    fail('Application URLs must be credential-free HTTPS bases or explicit 127.0.0.1 contract endpoints.');
   }
   if (!username || reviewer.length < 2) fail('Pilot AI username and reviewer are required.');
   const checkedMs = Date.parse(checkedAt);
