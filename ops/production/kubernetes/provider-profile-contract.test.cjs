@@ -73,6 +73,7 @@ const valid = {
   observation: {
     continuousHours: 8,
     pilotDays: 7,
+    collectorImageDigest: `sha256:${'e'.repeat(64)}`,
   },
 };
 const run = (name, value) => {
@@ -89,6 +90,7 @@ try {
   assert.equal(summary.status, 'passed');
   assert.equal(summary.failureDomainCount, 3);
   assert.equal(summary.paidCallBudget, 0);
+  assert.equal(summary.observation.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
 
   const boundProfilePath = path.join(root, 'bound-profile.json');
   const evidencePath = path.join(root, 'evidence.json');
@@ -151,6 +153,10 @@ try {
   paidAi.ai.externalGateway = true;
   paidAi.ai.paidCallBudget = 1;
   assert.notEqual(run('paid-ai', paidAi).status, 0);
+
+  const mutableCollector = clone(valid);
+  mutableCollector.observation.collectorImageDigest = 'latest';
+  assert.notEqual(run('mutable-collector', mutableCollector).status, 0);
 
   const shortObservation = clone(valid);
   shortObservation.observation.continuousHours = 2;
