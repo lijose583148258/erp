@@ -1,7 +1,15 @@
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
-const profileValue = process.argv[2] || '';
+const args = process.argv.slice(2);
+const profileValue = args[0] || '';
+const valueFor = name => {
+  const index = args.indexOf(name);
+  return index >= 0 ? args[index + 1] : '';
+};
+const evidenceValue = valueFor('--evidence');
+const bind = args.includes('--bind');
 const fail = message => {
   process.stderr.write(`${message}\n`);
   process.exit(1);
@@ -138,6 +146,30 @@ if (typeof profile.observation.continuousHours !== 'number'
 }
 requireInteger(profile.observation.pilotDays, 7, 'observation.pilotDays');
 
+const providerProfileSha256 = crypto.createHash('sha256').update(fs.readFileSync(profilePath)).digest('hex');
+if (bind && !evidenceValue) fail('--bind requires --evidence.');
+if (evidenceValue) {
+  const evidencePath = path.resolve(evidenceValue);
+  if (!fs.existsSync(evidencePath) || !fs.statSync(evidencePath).isFile()) fail('Enterprise evidence does not exist.');
+  const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
+  if (evidence.environment !== environment) fail('Provider profile environment does not match enterprise evidence.');
+  if (bind) {
+    evidence.providerProfile = {
+      status: 'passed',
+      environment,
+      sha256: providerProfileSha256,
+      verifiedAt: new Date().toISOString(),
+    };
+    const temporary = `${evidencePath}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, `${JSON.stringify(evidence, null, 2)}\n`, { encoding: 'utf8', mode: 0o600 });
+    fs.renameSync(temporary, evidencePath);
+  } else if (evidence.providerProfile?.status !== 'passed'
+    || evidence.providerProfile?.environment !== environment
+    || evidence.providerProfile?.sha256 !== providerProfileSha256
+    || !Number.isFinite(Date.parse(String(evidence.providerProfile?.verifiedAt || '')))) {
+    fail('Provider profile is not hash-bound to enterprise evidence.');
+  }
+}
 process.stdout.write(`${JSON.stringify({
   status: 'passed',
   environment,
@@ -147,4 +179,6 @@ process.stdout.write(`${JSON.stringify({
   recoveryNamespace,
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
+  providerProfileSha256,
+  evidenceBound: Boolean(evidenceValue),
 })}\n`);
