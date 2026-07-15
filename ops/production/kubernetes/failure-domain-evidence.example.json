@@ -5,6 +5,12 @@
   "observedAt": "2026-01-01T00:00:00Z",
   "commitSha": "replace-with-40-character-git-sha",
   "imageDigest": "sha256:replace-with-64-hex-digest",
+  "providerProfile": {
+    "status": "not-bound",
+    "environment": "",
+    "sha256": "",
+    "verifiedAt": ""
+  },
   "postgres": {
     "automaticElection": false,
     "failureDomains": [],
