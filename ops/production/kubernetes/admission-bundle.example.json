@@ -9,6 +9,7 @@
   },
   "artifacts": {
     "evidence": "evidence/enterprise-evidence.json",
+    "providerProfile": "provider/formal-pilot-provider-profile.json",
     "continuousReport": "observation/continuous-observation-report.json",
     "pilotLedger": "observation/pilot-observation-ledger.json",
     "dailyReportsDir": "observation/daily",
