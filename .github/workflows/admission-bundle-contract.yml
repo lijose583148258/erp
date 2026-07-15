@@ -68,6 +68,13 @@ jobs:
               backup: {
                 method: 'barman-object-store', encrypted: true,
                 checksumEvidence: 'barman-manifest', isolatedRestore: true,
+                receiptVerifier: {
+                  mode: 'ed25519-provider-signed',
+                  issuer: 'provider-backup-control-plane',
+                  publicKeySha256: '1'.repeat(64),
+                  serviceFileName: 'cnpg-backup-receipt-service.cjs',
+                  serviceSha256: '2'.repeat(64),
+                },
               },
             },
             redis: {
