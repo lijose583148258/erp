@@ -31,6 +31,7 @@ const outputValue = valueFor('--output');
 const outputPath = outputValue ? path.resolve(outputValue) : '';
 const bind = has('--bind');
 const sha256 = file => crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+const aiCollectorHash = sha256(path.join(__dirname, 'capture-pilot-ai-governance-review.cjs'));
 const readJson = file => JSON.parse(fs.readFileSync(file, 'utf8').replace(/^\uFEFF/, ''));
 const isoMs = (value, label) => {
   const result = Date.parse(String(value || ''));
@@ -66,6 +67,7 @@ if (elapsedMs < declaredDurationMs * 0.98 || elapsedMs > declaredDurationMs + 90
 }
 if (!hex40(continuous.commitSha)) fail('Continuous report commitSha is invalid.');
 if (!digest(continuous.imageDigest)) fail('Continuous report imageDigest is invalid.');
+if (!digest(continuous.collectorImageDigest)) fail('Continuous report collectorImageDigest is invalid.');
 if (Number(continuous?.summary?.failures) !== 0) fail('Continuous observation contains network or HTTP 5xx failures.');
 if (!Number.isFinite(Number(continuous?.summary?.p95Ms)) || Number(continuous.summary.p95Ms) >= 2_000) {
   fail('Continuous observation p95 is missing or above two seconds.');
@@ -142,6 +144,8 @@ for (const entry of entries) {
         'checkedAt',
         'reviewer',
         'source',
+        'collectorImageDigest',
+        'collectorSha256',
         'instances',
         'externalAiEnabled',
         'paidModelCalls',
@@ -156,6 +160,8 @@ for (const entry of entries) {
       ],
       timestamp: 'checkedAt',
       valid: value => value.source === 'runtime-probe'
+        && value.collectorImageDigest === continuous.collectorImageDigest
+        && value.collectorSha256 === aiCollectorHash
         && Array.isArray(value.instances) && new Set(value.instances).size >= 2
         && value.externalAiEnabled === false
         && Number(value.paidModelCalls) === 0
@@ -226,6 +232,7 @@ if (bind) {
     alertReviewCompleted: true,
     aiGovernanceReviewCompleted: true,
     governedAiRequests: totalGovernedAiRequests,
+    collectorImageDigest: continuous.collectorImageDigest,
     machineVerified: true,
     continuousReportSha256: continuousHash,
     pilotLedgerSha256: ledgerHash,
@@ -246,7 +253,8 @@ if (boundEvidence.observation.zeroUnreconciledBusinessWrites !== true || boundEv
   fail('Bound reconciliation or alert review evidence is incomplete.');
 }
 if (boundEvidence.observation.aiGovernanceReviewCompleted !== true
-  || Number(boundEvidence.observation.governedAiRequests) !== totalGovernedAiRequests) {
+  || Number(boundEvidence.observation.governedAiRequests) !== totalGovernedAiRequests
+  || boundEvidence.observation.collectorImageDigest !== continuous.collectorImageDigest) {
   fail('Bound AI governance evidence is incomplete.');
 }
 
@@ -257,6 +265,7 @@ const verdict = {
   continuousHours: Number(actualHours.toFixed(3)),
   stagedPilotDays: dates.size,
   governedAiRequests: totalGovernedAiRequests,
+  collectorImageDigest: continuous.collectorImageDigest,
   continuousReportSha256: continuousHash,
   pilotLedgerSha256: ledgerHash,
   commitSha: continuous.commitSha,
