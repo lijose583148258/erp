@@ -48,6 +48,7 @@ const alertPath = resolveInput('--alert-review', 'Alert review');
 const reconciliationPath = resolveInput('--reconciliation', 'Reconciliation');
 const incidentPath = resolveInput('--incident-review', 'Incident review');
 const aiGovernancePath = resolveInput('--ai-governance-review', 'AI governance review');
+const aiCollectorPath = path.join(__dirname, 'capture-pilot-ai-governance-review.cjs');
 const dailyOutputValue = valueFor('--daily-output');
 const ledgerValue = valueFor('--ledger');
 if (!dailyOutputValue || !ledgerValue) fail('--daily-output and --ledger are required.');
@@ -109,6 +110,8 @@ requireStrictKeys(aiGovernance, [
   'checkedAt',
   'reviewer',
   'source',
+  'collectorImageDigest',
+  'collectorSha256',
   'instances',
   'externalAiEnabled',
   'paidModelCalls',
@@ -124,6 +127,8 @@ requireStrictKeys(aiGovernance, [
 const governedAiRequests = Number(aiGovernance.governedAiRequests);
 if (aiGovernance.schemaVersion !== 1 || aiGovernance.status !== 'passed'
   || aiGovernance.source !== 'runtime-probe'
+  || !/^sha256:[0-9a-f]{64}$/.test(String(aiGovernance.collectorImageDigest || ''))
+  || aiGovernance.collectorSha256 !== sha256(aiCollectorPath)
   || !Array.isArray(aiGovernance.instances) || new Set(aiGovernance.instances).size < 2
   || aiGovernance.externalAiEnabled !== false || Number(aiGovernance.paidModelCalls) !== 0
   || !/^[0-9a-f]{64}$/.test(String(aiGovernance.metricsBeforeSha256 || ''))
