@@ -181,6 +181,30 @@ try {
   }
   assert.equal(rejected, true, 'tampered daily report hash must be rejected');
 
+  const ssrfReportPath = path.join(tempRoot, 'ssrf-run.json');
+  let ssrfRejected = false;
+  try {
+    execFileSync(process.execPath, [observationRunner], {
+      env: {
+        ...process.env,
+        OBSERVATION_OUTPUT: ssrfReportPath,
+        OBSERVATION_DURATION_MS: '28800000',
+        OBSERVATION_ENVIRONMENT: 'formal-pilot',
+        OBSERVATION_EVIDENCE_ID: 'CHG-12345',
+        OBSERVATION_COMMIT_SHA: commitSha,
+        OBSERVATION_IMAGE_DIGEST: imageDigest,
+        OBSERVATION_COLLECTOR_IMAGE_DIGEST: collectorImageDigest,
+        OBSERVATION_APP_URLS: 'http://127.0.0.1@external.invalid,http://127.0.0.1:2',
+        OBSERVATION_USERNAME: 'pilot-user',
+      },
+      stdio: 'pipe',
+    });
+  } catch {
+    ssrfRejected = true;
+  }
+  assert.equal(ssrfRejected, true, 'credential-confused observer URL must be rejected');
+  assert.match(JSON.parse(fs.readFileSync(ssrfReportPath, 'utf8')).error, /credential-free/);
+
   const shortRunReport = path.join(tempRoot, 'short-run.json');
   let shortRunRejected = false;
   try {
