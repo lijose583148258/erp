@@ -19,6 +19,7 @@ const restoreSecret = String(process.env.MEILI_K8S_RESTORE_SECRET || '').trim();
 const restoreSecretKey = String(process.env.MEILI_K8S_RESTORE_SECRET_KEY || 'masterKey').trim();
 const restoreStorage = String(process.env.MEILI_K8S_RESTORE_STORAGE || '10Gi').trim();
 const indexUid = String(process.env.MEILI_K8S_INDEX_UID || 'orders').trim();
+const dumpSubpath = String(process.env.MEILI_K8S_DUMP_SUBPATH || 'dumps').trim();
 const stateRoot = path.resolve(String(process.env.MEILI_K8S_STATE_DIR || '/tmp/ailaoda-meili-drill'));
 const timeoutMs = Math.max(10_000, Number(process.env.MEILI_K8S_TIMEOUT_MS || 120_000));
 const minimumReady = Math.max(2, Number(process.env.MEILI_K8S_MIN_READY || 2));
@@ -50,6 +51,10 @@ if (!dnsLabel(restoreSecret) || !/^[A-Za-z0-9._-]{1,253}$/.test(restoreSecretKey
   fail('Restore secret name or key is invalid.');
 }
 if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(indexUid)) fail('MEILI_K8S_INDEX_UID is invalid.');
+if (!/^[A-Za-z0-9._-]+(?:\/[A-Za-z0-9._-]+)*$/.test(dumpSubpath)
+  || dumpSubpath.split('/').some(part => part === '.' || part === '..')) {
+  fail('MEILI_K8S_DUMP_SUBPATH must be a safe relative path.');
+}
 
 let endpointMap;
 try { endpointMap = JSON.parse(fs.readFileSync(endpointMapFile, 'utf8').replace(/^\uFEFF/, '')); }
@@ -163,8 +168,13 @@ const snapshotResource = (backupId, pvc) => ({
   },
 });
 const restoreContentName = restoreId => `meili-restore-${crypto.createHash('sha256').update(restoreId).digest('hex').slice(0, 16)}`;
+const childName = (restoreId, suffix) => {
+  const hash = crypto.createHash('sha256').update(`${restoreId}:${suffix}`).digest('hex').slice(0, 8);
+  return `${restoreId.slice(0, Math.max(1, 63 - suffix.length - hash.length - 2))}-${suffix}-${hash}`;
+};
 const restoreResources = (backup, restoreId) => {
   const contentName = restoreContentName(restoreId);
+  const backupPvcName = childName(restoreId, 'backup');
   return {
   apiVersion: 'v1',
   kind: 'List',
@@ -201,7 +211,7 @@ const restoreResources = (backup, restoreId) => {
       apiVersion: 'v1',
       kind: 'PersistentVolumeClaim',
       metadata: {
-        name: restoreId,
+        name: backupPvcName,
         namespace: recoveryNamespace,
         labels: { 'erp.ailaoda.io/search-restore': restoreId },
       },
@@ -213,6 +223,19 @@ const restoreResources = (backup, restoreId) => {
           kind: 'VolumeSnapshot',
           name: restoreId,
         },
+      },
+    },
+    {
+      apiVersion: 'v1',
+      kind: 'PersistentVolumeClaim',
+      metadata: {
+        name: restoreId,
+        namespace: recoveryNamespace,
+        labels: { 'erp.ailaoda.io/search-restore': restoreId },
+      },
+      spec: {
+        accessModes: ['ReadWriteOnce'],
+        resources: { requests: { storage: restoreStorage } },
       },
     },
     {
@@ -234,7 +257,11 @@ const restoreResources = (backup, restoreId) => {
               name: 'meilisearch',
               image: restoreImage,
               imagePullPolicy: 'IfNotPresent',
-              args: ['--db-path=/meili_data/data.ms', '--http-addr=0.0.0.0:7700'],
+              args: [
+                '--db-path=/meili_data/data.ms',
+                `--import-dump=/backup/${dumpSubpath}/${backup.dumpUid}.dump`,
+                '--http-addr=0.0.0.0:7700',
+              ],
               env: [{
                 name: 'MEILI_MASTER_KEY',
                 valueFrom: { secretKeyRef: { name: restoreSecret, key: restoreSecretKey } },
@@ -247,9 +274,15 @@ const restoreResources = (backup, restoreId) => {
                 runAsNonRoot: true,
                 seccompProfile: { type: 'RuntimeDefault' },
               },
-              volumeMounts: [{ name: 'data', mountPath: '/meili_data' }],
+              volumeMounts: [
+                { name: 'data', mountPath: '/meili_data' },
+                { name: 'backup', mountPath: '/backup', readOnly: true },
+              ],
             }],
-            volumes: [{ name: 'data', persistentVolumeClaim: { claimName: restoreId } }],
+            volumes: [
+              { name: 'data', persistentVolumeClaim: { claimName: restoreId } },
+              { name: 'backup', persistentVolumeClaim: { claimName: backupPvcName } },
+            ],
           },
         },
       },
@@ -460,7 +493,8 @@ const restoreResources = (backup, restoreId) => {
       const restoreId = operationArgs[0];
       readState(restoreId);
       kubectl(['delete', 'deployment.apps', restoreId, 'service', restoreId,
-        'persistentvolumeclaim', restoreId, 'volumesnapshot.snapshot.storage.k8s.io', restoreId,
+        'persistentvolumeclaim', restoreId, 'persistentvolumeclaim', childName(restoreId, 'backup'),
+        'volumesnapshot.snapshot.storage.k8s.io', restoreId,
         '-n', recoveryNamespace, '--wait=false']);
       kubectl(['delete', 'volumesnapshotcontent.snapshot.storage.k8s.io',
         restoreContentName(restoreId), '--wait=false']);
@@ -469,12 +503,15 @@ const restoreResources = (backup, restoreId) => {
     case 'cleanup-status': {
       const restoreId = operationArgs[0];
       readState(restoreId);
-      const namespacedKinds = [
-        'deployment.apps', 'service', 'persistentvolumeclaim',
-        'volumesnapshot.snapshot.storage.k8s.io',
+      const namespacedResources = [
+        ['deployment.apps', restoreId],
+        ['service', restoreId],
+        ['persistentvolumeclaim', restoreId],
+        ['persistentvolumeclaim', childName(restoreId, 'backup')],
+        ['volumesnapshot.snapshot.storage.k8s.io', restoreId],
       ];
-      const namespacedRemoved = namespacedKinds.every(kind =>
-        kubeResult(['get', kind, restoreId, '-n', recoveryNamespace, '-o', 'json']).status !== 0);
+      const namespacedRemoved = namespacedResources.every(([kind, name]) =>
+        kubeResult(['get', kind, name, '-n', recoveryNamespace, '-o', 'json']).status !== 0);
       const contentRemoved = kubeResult([
         'get', 'volumesnapshotcontent.snapshot.storage.k8s.io',
         restoreContentName(restoreId), '-o', 'json',
