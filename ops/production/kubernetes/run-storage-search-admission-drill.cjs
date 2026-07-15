@@ -17,6 +17,7 @@ const resolveFile = (value, label) => {
 const objectAdapter = resolveFile(valueFor('--object-adapter'), 'Object storage adapter');
 const searchAdapter = resolveFile(valueFor('--search-adapter'), 'Search adapter');
 const evidencePath = resolveFile(valueFor('--evidence'), 'Enterprise evidence');
+const providerProfilePath = resolveFile(valueFor('--provider-profile'), 'Provider profile');
 const reportsValue = valueFor('--reports-dir');
 if (!reportsValue) fail('Missing --reports-dir.');
 const reportsDir = path.resolve(reportsValue);
@@ -50,15 +51,36 @@ if (evidence.environment !== environment || evidence.evidenceId !== evidenceId
   || evidence.commitSha !== commitSha || evidence.imageDigest !== imageDigest) {
   fail('Storage/search drill identity does not match enterprise evidence.');
 }
+const providerVerifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const providerOutput = execFileSync(process.execPath, [
+  providerVerifier, providerProfilePath, '--evidence', evidencePath,
+], {
+  encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+let providerSummary;
+try { providerSummary = JSON.parse(providerOutput); } catch { fail('Provider profile verifier returned invalid JSON.'); }
+const adapterSha256 = {};
+for (const [name, adapter] of Object.entries({ objectStorage: objectAdapter, search: searchAdapter })) {
+  const expected = providerSummary.adapters?.[name];
+  const actualSha256 = crypto.createHash('sha256').update(fs.readFileSync(adapter)).digest('hex');
+  if (!expected || expected.fileName !== path.basename(adapter) || expected.sha256 !== actualSha256) {
+    fail(`Storage/search adapter ${name} does not match the bound provider profile.`);
+  }
+  adapterSha256[name] = actualSha256;
+}
 
 const identity = { environment, evidenceId, commitSha, imageDigest };
-const baseReport = (name, scope) => ({
+const baseReport = (name, scope, adapterName) => ({
   name, version: '1.0', status: 'failed', scope, providerAdapterVerified: true,
-  ...identity, startedAt: new Date().toISOString(), checks: [],
+  ...identity,
+  providerProfileSha256: providerSummary.providerProfileSha256,
+  adapterSha256: { [adapterName]: adapterSha256[adapterName] },
+  startedAt: new Date().toISOString(),
+  checks: [],
 });
-const objectReport = baseReport('Formal Object Storage Cross-Domain Failover Drill', 'formal-cross-domain');
-const searchFailoverReport = baseReport('Formal Search Cross-Domain Failover Drill', 'formal-cross-domain');
-const searchRestoreReport = baseReport('Formal Search Isolated Provider Restore Drill', 'formal-isolated-provider-restore');
+const objectReport = baseReport('Formal Object Storage Cross-Domain Failover Drill', 'formal-cross-domain', 'objectStorage');
+const searchFailoverReport = baseReport('Formal Search Cross-Domain Failover Drill', 'formal-cross-domain', 'search');
+const searchRestoreReport = baseReport('Formal Search Isolated Provider Restore Drill', 'formal-isolated-provider-restore', 'search');
 let objectInjectionId = '';
 let searchInjectionId = '';
 let restoreId = '';
