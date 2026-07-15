@@ -16,6 +16,7 @@ on:
       - "ops/production/kubernetes/run-continuous-observation.cjs"
       - "ops/production/kubernetes/Dockerfile.pilot-observer"
       - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
+      - "ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml"
       - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
   push:
     branches:
@@ -33,6 +34,7 @@ on:
       - "ops/production/kubernetes/run-continuous-observation.cjs"
       - "ops/production/kubernetes/Dockerfile.pilot-observer"
       - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
+      - "ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml"
       - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
 
 permissions:
@@ -68,3 +70,10 @@ jobs:
           grep -q 'OBSERVATION_DURATION_MS' ops/production/kubernetes/formal-pilot-observation-job.yaml
           grep -q 'persistentVolumeClaim:' ops/production/kubernetes/formal-pilot-observation-job.yaml
           ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'kind: CronJob' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'concurrencyPolicy: Forbid' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'automountServiceAccountToken: false' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q '/app/capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/Dockerfile.pilot-observer
+          ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
