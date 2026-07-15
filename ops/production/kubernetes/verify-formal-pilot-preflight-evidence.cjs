@@ -49,6 +49,18 @@ for (const name of expectedNames) {
     fail(`Formal preflight adapter hash mismatch: ${name}.`);
   }
 }
+const expectedReceipt = profile.postgresql?.backup?.receiptVerifier;
+const observedReceipt = report.backupReceiptVerifier;
+for (const field of ['mode', 'issuer', 'serviceFileName', 'serviceSha256', 'publicKeySha256']) {
+  if (!expectedReceipt || !observedReceipt || observedReceipt[field] !== expectedReceipt[field]) {
+    fail(`Formal preflight backup receipt trust mismatch: ${field}.`);
+  }
+}
+if (observedReceipt.mode !== 'ed25519-provider-signed'
+  || !/^[0-9a-f]{64}$/.test(String(observedReceipt.serviceSha256 || ''))
+  || !/^[0-9a-f]{64}$/.test(String(observedReceipt.publicKeySha256 || ''))) {
+  fail('Formal preflight backup receipt trust is invalid.');
+}
 const startedAt = Date.parse(String(report.startedAt || ''));
 const finishedAt = Date.parse(String(report.finishedAt || ''));
 const maxAgeMs = Math.max(60_000, Number(process.env.FORMAL_PREFLIGHT_MAX_AGE_MS || 86_400_000));
@@ -64,6 +76,7 @@ for (const required of [
   'provider-profile-bound',
   'all-adapters-profile-bound',
   'all-adapters-executable',
+  'backup-receipt-verifier-bound-and-healthy',
   'postgres-provider-topology',
   'postgres-preferred-endpoint',
   'redis-provider-topology',
@@ -96,5 +109,6 @@ process.stdout.write(`${JSON.stringify({
   evidenceId: evidence.evidenceId,
   providerProfileSha256: profileHash,
   adapterCount: expectedNames.length,
+  backupReceiptVerifier: observedReceipt,
   checkedAt: new Date().toISOString(),
 })}\n`);
