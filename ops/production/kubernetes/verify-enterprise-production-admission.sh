@@ -128,6 +128,9 @@ jq -e '
   and (.providerProfile.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.providerProfile.verifiedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
   and .haDrill.status == "passed"
+  and .haDrill.providerProfileSha256 == .providerProfile.sha256
+  and (.haDrill.adapterSha256.postgres | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.haDrill.adapterSha256.redis | type == "string" and test("^[0-9a-f]{64}$"))
   and .haDrill.environment == .environment
   and .haDrill.changeTicket == .evidenceId
   and (.haDrill.startedAt | type == "string" and length > 0)
