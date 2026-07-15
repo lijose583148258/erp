@@ -48,3 +48,9 @@ tested provider backup and recovery path.
 
 CloudNativePG recovery must bootstrap a new cluster from the selected Backup or
 object-store archive. It must not use in-place recovery.
+
+The formal runner requires `--provider-profile <bound-profile.json>`. Before
+creating a backup or restore resource it verifies the complete release identity,
+recomputes the profile hash, and matches the backup adapter file name and
+SHA-256. The report and enterprise evidence retain those hashes; final admission
+compares them with the read-only preflight.
