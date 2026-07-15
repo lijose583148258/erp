@@ -47,6 +47,7 @@ const continuousPath = resolveInput('--continuous-report', 'Continuous report');
 const alertPath = resolveInput('--alert-review', 'Alert review');
 const reconciliationPath = resolveInput('--reconciliation', 'Reconciliation');
 const incidentPath = resolveInput('--incident-review', 'Incident review');
+const aiGovernancePath = resolveInput('--ai-governance-review', 'AI governance review');
 const dailyOutputValue = valueFor('--daily-output');
 const ledgerValue = valueFor('--ledger');
 if (!dailyOutputValue || !ledgerValue) fail('--daily-output and --ledger are required.');
@@ -101,11 +102,40 @@ if (incidentReview.schemaVersion !== 1 || incidentReview.status !== 'passed'
 }
 if (new Date(parseTime(incidentReview.checkedAt, 'Incident review')).toISOString().slice(0, 10) !== date) fail('Incident review date does not match daily report.');
 
+const aiGovernance = readJson(aiGovernancePath);
+requireStrictKeys(aiGovernance, [
+  'schemaVersion',
+  'status',
+  'checkedAt',
+  'reviewer',
+  'governedAiRequests',
+  'budgetBreaches',
+  'privacyIncidents',
+  'crossTenantLeaks',
+  'unresolvedAiIncidents',
+  'fallbackVerified',
+], 'AI governance review');
+const governedAiRequests = Number(aiGovernance.governedAiRequests);
+if (aiGovernance.schemaVersion !== 1 || aiGovernance.status !== 'passed'
+  || !Number.isInteger(governedAiRequests) || governedAiRequests < 0
+  || Number(aiGovernance.budgetBreaches) !== 0
+  || Number(aiGovernance.privacyIncidents) !== 0
+  || Number(aiGovernance.crossTenantLeaks) !== 0
+  || Number(aiGovernance.unresolvedAiIncidents) !== 0
+  || aiGovernance.fallbackVerified !== true
+  || String(aiGovernance.reviewer || '').trim().length < 2) {
+  fail('AI governance review is incomplete or contains a policy breach.');
+}
+if (new Date(parseTime(aiGovernance.checkedAt, 'AI governance review')).toISOString().slice(0, 10) !== date) {
+  fail('AI governance review date does not match daily report.');
+}
+
 fs.mkdirSync(dailyDir, { recursive: true });
 const supportValues = {
   alertReview: alertReview,
   reconciliation,
   incidentReview,
+  aiGovernance,
 };
 const support = {};
 for (const [name, value] of Object.entries(supportValues)) {
@@ -126,6 +156,8 @@ const daily = {
   alertReviewCompleted: true,
   unreconciledBusinessWrites: 0,
   serviceIncidentsResolved: true,
+  aiGovernanceReviewCompleted: true,
+  governedAiRequests,
   support,
 };
 writeAtomic(dailyOutput, daily);
@@ -143,6 +175,8 @@ const entry = {
   alertReviewCompleted: true,
   unreconciledBusinessWrites: 0,
   serviceIncidentsResolved: true,
+  aiGovernanceReviewCompleted: true,
+  governedAiRequests,
 };
 if (existingIndex >= 0) ledger.entries.splice(existingIndex, 1, entry);
 else ledger.entries.push(entry);
