@@ -393,7 +393,9 @@ production environments, fewer than three failure domains, shared application
 and recovery namespaces, unencrypted or manually asserted PostgreSQL backup
 integrity, insufficient Redis/MinIO topology, non-isolated search recovery,
 Alertmanager acceptance without a receiver-side delivery store, paid/external
-AI mode, and observations shorter than eight hours or seven pilot days.
+AI mode, and observations shorter than eight hours or seven pilot days. It also
+binds the plain file name and lowercase SHA-256 of all six provider adapters.
+The formal preflight rejects a renamed or byte-modified adapter before execution.
 
 Use `--bind` only for the reviewed profile before drills begin. Subsequent
 checks omit `--bind`; they recompute the raw profile SHA-256 and reject any
