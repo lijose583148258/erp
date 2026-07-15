@@ -32,6 +32,13 @@ const valid = {
       encrypted: true,
       checksumEvidence: 'barman-manifest',
       isolatedRestore: true,
+      receiptVerifier: {
+        mode: 'ed25519-provider-signed',
+        issuer: 'provider-backup-control-plane',
+        publicKeySha256: '1'.repeat(64),
+        serviceFileName: 'cnpg-backup-receipt-service.cjs',
+        serviceSha256: '2'.repeat(64),
+      },
     },
   },
   redis: {
@@ -122,6 +129,14 @@ try {
   const unverifiedBackup = clone(valid);
   unverifiedBackup.postgresql.backup.checksumEvidence = 'manual';
   assert.notEqual(run('unverified-backup', unverifiedBackup).status, 0);
+
+  const unboundReceiptKey = clone(valid);
+  unboundReceiptKey.postgresql.backup.receiptVerifier.publicKeySha256 = 'manual';
+  assert.notEqual(run('unbound-receipt-key', unboundReceiptKey).status, 0);
+
+  const receiptSecret = clone(valid);
+  receiptSecret.postgresql.backup.receiptVerifier.privateKey = 'forbidden';
+  assert.notEqual(run('receipt-private-key', receiptSecret).status, 0);
 
   const incompatibleSearchAdapter = clone(valid);
   incompatibleSearchAdapter.search.backupMethod = 'dump-to-object-store';
