@@ -88,6 +88,11 @@ const run = (urls, output) => new Promise(resolve => {
     assert.match(report.metricsBeforeSha256, /^[0-9a-f]{64}$/);
     assert.match(report.metricsAfterSha256, /^[0-9a-f]{64}$/);
 
+    const original = fs.readFileSync(output, 'utf8');
+    const duplicate = await run(urls, output);
+    assert.notEqual(duplicate.code, 0, 'existing daily AI receipt must not be overwritten');
+    assert.equal(fs.readFileSync(output, 'utf8'), original, 'existing daily AI receipt changed');
+
     externalEnabled = true;
     const rejectedOutput = path.join(root, 'external-enabled.json');
     const rejected = await run(urls, rejectedOutput);
