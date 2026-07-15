@@ -72,6 +72,11 @@ if (Number(continuous?.summary?.failures) !== 0) fail('Continuous observation co
 if (!Number.isFinite(Number(continuous?.summary?.p95Ms)) || Number(continuous.summary.p95Ms) >= 2_000) {
   fail('Continuous observation p95 is missing or above two seconds.');
 }
+if (!Number.isInteger(Number(continuous?.summary?.readinessSamples))
+  || Number(continuous.summary.readinessSamples) < 1
+  || Number(continuous.summary.readinessSemanticFailures) !== 0) {
+  fail('Continuous PostgreSQL/Redis Sentinel readiness evidence is incomplete.');
+}
 const instanceRequests = Object.values(continuous?.summary?.instanceRequests || {}).map(Number);
 if (instanceRequests.length < 2 || instanceRequests.some(value => !Number.isFinite(value) || value <= 0)) {
   fail('Continuous observation did not serve requests from two application instances.');
