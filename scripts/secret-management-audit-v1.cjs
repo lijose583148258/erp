@@ -85,6 +85,25 @@ if (!promotionAudit.includes('sensitiveValues.some(value => serialized.includes(
   add('P1', 'scripts/cloud-postgres-promotion-audit-v1.cjs', 'Promotion evidence must fail closed if a runtime credential enters serialized evidence.');
 }
 
+const observationWorkflow = read('.github/workflows/enterprise-pilot-observation.yml');
+for (const secretName of ['POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'JWT_SECRET', 'METRICS_BEARER_TOKEN']) {
+  if (new RegExp(`${secretName}:\\s*sandbox-`, 'i').test(observationWorkflow)) {
+    add('P0', '.github/workflows/enterprise-pilot-observation.yml', `${secretName} must not be derived from a public workflow run identifier.`);
+  }
+}
+for (const requiredToken of [
+  'Generate ephemeral observation secrets',
+  'openssl rand -hex 32',
+  '::add-mask::',
+  'AUDIT_DATABASE_URL',
+  "github.event_name == 'pull_request' && '1'",
+  'One-minute observation is reserved for pull-request smoke validation',
+]) {
+  if (!observationWorkflow.includes(requiredToken)) {
+    add('P1', '.github/workflows/enterprise-pilot-observation.yml', `Observation workflow is missing secret-control token: ${requiredToken}`);
+  }
+}
+
 if (findings.length) {
   console.error('Secret Management Audit: FAIL');
   for (const finding of findings) {

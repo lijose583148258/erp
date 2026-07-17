@@ -59,11 +59,15 @@ least eight hours (`HA_SOAK_DURATION_MS=28800000`) and retain the report. A
 
 ### Low-cost cloud observation
 
-`.github/workflows/enterprise-pilot-observation.yml` is manual-only and does
-not run on source pushes. Select a 30-300 minute segment and assign a stable
-label. Each run uploads the soak report, service state, logs, commit, and run ID
-for 30 days. Start with 30 minutes; spend longer runner time only after the
-short segment is green.
+`.github/workflows/enterprise-pilot-observation.yml` runs a one-minute smoke
+segment only when observation infrastructure changes in a pull request. That
+smoke proves workflow startup, generated-secret wiring, dual-instance readiness,
+and evidence upload; it is not duration evidence. For pilot observation, launch
+the workflow manually, select a 30-300 minute segment, and assign a stable label.
+Each run uploads the soak report, service state, logs, commit, and run ID for 30
+days. Start with 30 minutes; spend longer runner time only after the short segment
+is green. Database, Redis, JWT, metrics, and audit-account credentials are
+generated per run and masked rather than derived from the public run identifier.
 
 GitHub-hosted segments reset the runner and service processes between runs.
 Their accumulated duration is useful pilot evidence, but it is not equivalent
