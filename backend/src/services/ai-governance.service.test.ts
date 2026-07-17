@@ -1,3 +1,12 @@
+jest.mock('./ai-budget.service', () => ({
+  AIBudgetService: {
+    getStatus: jest.fn(() => ({ dailyTokenBudget: 0, budgetConfigured: false })),
+    reserve: jest.fn(async () => ({ allowed: true })),
+    recordProviderSuccess: jest.fn(async () => undefined),
+    recordProviderFailure: jest.fn(async () => undefined),
+  },
+}));
+
 import { AIGovernanceService } from './ai-governance.service';
 import { aiAssistSchema } from '../validators/ai';
 import { renderPrometheusMetrics } from '../middleware/metricsMiddleware';
