@@ -8,6 +8,7 @@ describe('governed AI gateway', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    process.env.NODE_ENV = 'test';
     for (const key of Object.keys(process.env)) {
       if (key.startsWith('AI_GATEWAY_')) delete process.env[key];
     }
