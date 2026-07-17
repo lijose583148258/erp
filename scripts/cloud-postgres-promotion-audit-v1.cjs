@@ -6,7 +6,6 @@ const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const reportPath = path.join(process.cwd(), 'output/audit/cloud-postgres-promotion-audit-v1.json');
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
 const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-const account = { username: 'cloud_postgres_failover', password: 'CloudPostgresFailover12345!', role: 'admin' };
 const customerName = `PG-FAILOVER-${runId}`;
 const report = { name: 'Cloud PostgreSQL Streaming Promotion Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
@@ -43,7 +42,19 @@ const tokenAccepted = async token => {
   return results.every(Boolean);
 };
 
+const resolveAuditAccount = () => {
+  const username = String(process.env.CLOUD_AUDIT_USERNAME || '').trim();
+  const passwordFile = String(process.env.CLOUD_AUDIT_PASSWORD_FILE || '').trim();
+  if (!username || !passwordFile) {
+    throw new Error('CLOUD_AUDIT_USERNAME and CLOUD_AUDIT_PASSWORD_FILE are required.');
+  }
+  const password = fs.readFileSync(path.resolve(passwordFile), 'utf8').trim();
+  if (!password) throw new Error('Cloud audit password file is empty.');
+  return { username, password, role: 'admin' };
+};
+
 async function main() {
+  const account = resolveAuditAccount();
   await ensureUiAuditUser(account);
   const login = await fetch(`${instances[0]}/api/v1/auth/login`, {
     method: 'POST',
@@ -112,7 +123,12 @@ async function main() {
     'old-primary-rebuilt-as-stopped-standby',
     standbyConfig.includes('standby-signal') && !standbyConfig.includes('standby-signal-missing')
       && standbyConfig.includes('primary_conninfo') && standbyConfig.includes('postgres-replica'),
-    { standbyConfig },
+    {
+      standbySignal: standbyConfig.includes('standby-signal') && !standbyConfig.includes('standby-signal-missing'),
+      primaryConninfoPresent: standbyConfig.includes('primary_conninfo'),
+      upstreamHost: standbyConfig.includes('postgres-replica') ? 'postgres-replica' : null,
+      credentialsIncluded: false,
+    },
   );
   report.originalPrimaryState = 'rebuilt-as-stopped-standby';
   report.status = 'passed';
@@ -126,7 +142,23 @@ main().catch(error => {
   report.finishedAt = new Date().toISOString();
   report.originalPrimaryState ||= 'left-stopped-to-prevent-split-brain';
   fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  const sensitiveValues = [
+    process.env.POSTGRES_REPLICATION_PASSWORD,
+    process.env.POSTGRES_PASSWORD,
+    (() => {
+      const file = String(process.env.CLOUD_AUDIT_PASSWORD_FILE || '').trim();
+      return file && fs.existsSync(file) ? fs.readFileSync(file, 'utf8').trim() : '';
+    })(),
+  ].map(value => String(value || '').trim()).filter(value => value.length >= 8);
+  let serialized = JSON.stringify(report, null, 2);
+  if (sensitiveValues.some(value => serialized.includes(value))) {
+    report.status = 'failed';
+    report.error = 'Promotion evidence contained an unredacted database credential.';
+    process.exitCode = 1;
+    serialized = JSON.stringify(report, null, 2);
+    for (const value of sensitiveValues) serialized = serialized.split(value).join('[REDACTED]');
+  }
+  fs.writeFileSync(reportPath, `${serialized}\n`, 'utf8');
   console.log(`Cloud PostgreSQL Streaming Promotion Audit: ${report.status.toUpperCase()}`);
   console.log(`Report: ${reportPath}`);
 });
