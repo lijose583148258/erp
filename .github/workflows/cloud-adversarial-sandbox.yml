@@ -93,13 +93,13 @@ jobs:
       - name: Verify security regression units
         run: >-
           npm --prefix backend test -- --runInBand
+          src/database/base-schema-bootstrap.test.ts
           src/middleware/errorHandler.test.ts
           src/services/ai-governance.service.test.ts
 
       - name: Prepare isolated database
         run: |
-          # Clean-install workaround: the current prepare command assumes base tables already exist.
-          npx prisma db push --schema backend/prisma --skip-generate
+          npm --prefix backend run db:manage -- prepare
           npm --prefix backend run db:manage -- prepare
           npm --prefix backend run db:manage -- bootstrap-admin
 

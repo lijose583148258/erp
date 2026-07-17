@@ -102,6 +102,8 @@ $env:AILAODA_ADMIN_EMAIL = "admin@example.com"
 npm --prefix backend run db:manage -- bootstrap-admin
 ```
 
+`prepare` is idempotent. For a completely empty SQLite database it creates the Prisma base schema before applying additive runtime repairs; for an existing complete database it applies repairs only. A non-empty database missing core tables is treated as a partial/corrupt database and stops for backup inspection instead of being rewritten automatically.
+
 There is no supported default production login. Published demo passwords are blocked before a production token is issued. Store the administrator password in an approved password manager and clear temporary shell variables when finished:
 
 ```powershell
