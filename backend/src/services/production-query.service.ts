@@ -91,33 +91,6 @@ const resolveEffectiveQuantityPerUnit = (item: {
   return Number.isFinite(quantityPerUnit) && quantityPerUnit > 0 ? quantityPerUnit : 0;
 };
 
-type BomExtraRow = {
-  id: number;
-  bom_type: string | null;
-  status: string | null;
-  formulation_mode: string | null;
-  standard_batch_size: number | null;
-  batch_size_unit: string | null;
-  density: number | null;
-  solid_content: number | null;
-  effective_from: string | null;
-  effective_to: string | null;
-  process_json: string | null;
-  quality_spec_json: string | null;
-};
-
-type BomItemExtraRow = {
-  id: number;
-  material_code: string | null;
-  ingredient_role: string | null;
-  dosage_mode: string | null;
-  percentage: number | null;
-  allowed_variance_rate: number | null;
-  process_stage: string | null;
-  substitute_group: string | null;
-  yield_contribution: number | null;
-};
-
 export class ProductionQueryService {
   static async getSummary() {
     const [bomCount, workOrders, batches] = await Promise.all([
@@ -181,56 +154,23 @@ export class ProductionQueryService {
   }
 
   static async listBoms() {
-    const [items, bomExtras, bomItemExtras] = await Promise.all([
-      prisma.productionBom.findMany({
-        orderBy: { createdAt: 'desc' },
-        include: {
-          creator: { select: { id: true, username: true, role: true } },
-          items: { orderBy: { id: 'asc' } },
-          workOrders: {
-            select: { id: true, workOrderNo: true, status: true, targetQuantity: true, producedQuantity: true, lossQuantity: true },
-            orderBy: { createdAt: 'desc' },
-            take: 5,
-          },
+    const items = await prisma.productionBom.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        creator: { select: { id: true, username: true, role: true } },
+        items: { orderBy: { id: 'asc' } },
+        workOrders: {
+          select: { id: true, workOrderNo: true, status: true, targetQuantity: true, producedQuantity: true, lossQuantity: true },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
         },
-      }),
-      prisma.$queryRawUnsafe<BomExtraRow[]>(`
-        SELECT id, bom_type, status, formulation_mode, standard_batch_size, batch_size_unit, density, solid_content, effective_from, effective_to, process_json, quality_spec_json
-        FROM production_boms
-      `),
-      prisma.$queryRawUnsafe<BomItemExtraRow[]>(`
-        SELECT id, material_code, ingredient_role, dosage_mode, percentage, allowed_variance_rate, process_stage, substitute_group, yield_contribution
-        FROM production_bom_items
-      `),
-    ]);
-
-    const bomExtraMap = new Map(bomExtras.map(item => [item.id, item]));
-    const bomItemExtraMap = new Map(bomItemExtras.map(item => [item.id, item]));
+      },
+    });
 
     return items.map(item => ({
       ...item,
-      bomType: bomExtraMap.get(item.id)?.bom_type || 'standard',
-      status: bomExtraMap.get(item.id)?.status || 'draft',
-      formulationMode: bomExtraMap.get(item.id)?.formulation_mode || null,
-      standardBatchSize: bomExtraMap.get(item.id)?.standard_batch_size ?? null,
-      batchSizeUnit: bomExtraMap.get(item.id)?.batch_size_unit || null,
-      density: bomExtraMap.get(item.id)?.density ?? null,
-      solidContent: bomExtraMap.get(item.id)?.solid_content ?? null,
-      effectiveFrom: bomExtraMap.get(item.id)?.effective_from || null,
-      effectiveTo: bomExtraMap.get(item.id)?.effective_to || null,
-      processJson: bomExtraMap.get(item.id)?.process_json || null,
-      qualitySpecJson: bomExtraMap.get(item.id)?.quality_spec_json || null,
-      items: item.items.map(bomItem => ({
-        ...bomItem,
-        materialCode: bomItemExtraMap.get(bomItem.id)?.material_code || null,
-        ingredientRole: bomItemExtraMap.get(bomItem.id)?.ingredient_role || null,
-        dosageMode: bomItemExtraMap.get(bomItem.id)?.dosage_mode || null,
-        percentage: bomItemExtraMap.get(bomItem.id)?.percentage ?? null,
-        allowedVarianceRate: bomItemExtraMap.get(bomItem.id)?.allowed_variance_rate ?? null,
-        processStage: bomItemExtraMap.get(bomItem.id)?.process_stage || null,
-        substituteGroup: bomItemExtraMap.get(bomItem.id)?.substitute_group || null,
-        yieldContribution: bomItemExtraMap.get(bomItem.id)?.yield_contribution ?? null,
-      })),
+      effectiveFrom: serializeDate(item.effectiveFrom),
+      effectiveTo: serializeDate(item.effectiveTo),
       createdAt: serializeDate(item.createdAt),
       updatedAt: serializeDate(item.updatedAt),
     }));

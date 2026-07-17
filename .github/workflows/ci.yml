@@ -9,6 +9,8 @@ on:
 jobs:
   source-checks:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./ci.db
 
     steps:
       - name: Checkout
@@ -38,5 +40,25 @@ jobs:
       - name: Build frontend
         run: npm run build
 
-      - name: Static release gates
-        run: npm run test
+      - name: Default credential release gate
+        run: npm run audit:auth:default-credentials
+
+      - name: Refactor freeze gate
+        run: npm run audit:refactor:freeze
+
+      - name: Frontend unit tests
+        run: npm run test:unit:frontend
+
+      - name: Backend unit tests
+        run: npm --prefix backend test -- --runInBand
+
+      - name: Upload source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: source-check-evidence
+          path: |
+            output/audit/
+            backend/coverage/
+          if-no-files-found: ignore
+          retention-days: 14

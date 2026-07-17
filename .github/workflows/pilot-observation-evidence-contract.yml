@@ -1,0 +1,86 @@
+name: Pilot Observation Evidence Contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/pilot-observation-evidence-contract.yml"
+      - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
+      - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
+      - "ops/production/kubernetes/record-pilot-daily-review.cjs"
+      - "ops/production/kubernetes/capture-pilot-ai-governance-review.cjs"
+      - "ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs"
+      - "ops/production/kubernetes/pilot-daily-report.example.json"
+      - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
+      - "ops/production/kubernetes/pilot-observation-ledger.example.json"
+      - "ops/production/kubernetes/run-continuous-observation.cjs"
+      - "ops/production/kubernetes/Dockerfile.pilot-observer"
+      - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
+      - "ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml"
+      - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
+      - "ops/production/kubernetes/continuous-observation-report.example.json"
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/pilot-observation-evidence-contract.yml"
+      - "ops/production/kubernetes/verify-pilot-observation-evidence.cjs"
+      - "ops/production/kubernetes/observation-evidence-contract.test.cjs"
+      - "ops/production/kubernetes/record-pilot-daily-review.cjs"
+      - "ops/production/kubernetes/capture-pilot-ai-governance-review.cjs"
+      - "ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs"
+      - "ops/production/kubernetes/pilot-daily-report.example.json"
+      - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
+      - "ops/production/kubernetes/pilot-observation-ledger.example.json"
+      - "ops/production/kubernetes/run-continuous-observation.cjs"
+      - "ops/production/kubernetes/Dockerfile.pilot-observer"
+      - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
+      - "ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml"
+      - "ops/production/kubernetes/formal-pilot-observation-resources.example.yaml"
+      - "ops/production/kubernetes/continuous-observation-report.example.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pilot-observation-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  evidence-contract:
+    name: Reject forged or incomplete observation evidence
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report runtime
+        run: node --version
+
+      - name: Verify observation evidence binding
+        run: |
+          node --check ops/production/kubernetes/run-continuous-observation.cjs
+          node --check ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
+          node ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs
+          node ops/production/kubernetes/observation-evidence-contract.test.cjs
+
+      - name: Verify persistent observer boundary
+        run: |
+          grep -q 'activeDeadlineSeconds: 90000' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'automountServiceAccountToken: false' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'OBSERVATION_DURATION_MS' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'OBSERVATION_COLLECTOR_IMAGE_DIGEST' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'OBSERVATION_COMPONENT_HEALTH_URLS' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'component-health-urls' ops/production/kubernetes/formal-pilot-observation-resources.example.yaml
+          grep -q 'persistentVolumeClaim:' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-observation-job.yaml
+          grep -q 'kind: CronJob' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'concurrencyPolicy: Forbid' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'automountServiceAccountToken: false' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q '/app/capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'PILOT_AI_COLLECTOR_IMAGE_DIGEST' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'pilot-observer-image-digest' ops/production/kubernetes/formal-pilot-observation-resources.example.yaml
+          grep -q 'capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/Dockerfile.pilot-observer
+          ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml

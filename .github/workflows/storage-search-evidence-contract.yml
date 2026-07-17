@@ -1,0 +1,151 @@
+name: Storage search evidence contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/minio-application-failover-audit-v1.cjs'
+      - 'scripts/meilisearch-application-failover-audit-v1.cjs'
+      - 'scripts/meilisearch-dump-restore-audit-v1.cjs'
+      - 'scripts/refresh-enterprise-pilot-evidence-v1.cjs'
+      - 'ops/production/kubernetes/run-storage-search-admission-drill.cjs'
+      - 'ops/production/kubernetes/STORAGE_SEARCH_ADAPTER_PROTOCOL.md'
+      - 'ops/production/kubernetes/verify-storage-search-evidence.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
+      - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - '.github/workflows/storage-search-evidence-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: storage-search-evidence-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static syntax checks
+        run: |
+          node --check scripts/minio-application-failover-audit-v1.cjs
+          node --check scripts/meilisearch-application-failover-audit-v1.cjs
+          node --check scripts/meilisearch-dump-restore-audit-v1.cjs
+          node --check scripts/refresh-enterprise-pilot-evidence-v1.cjs
+          node --check ops/production/kubernetes/run-storage-search-admission-drill.cjs
+          node --check ops/production/kubernetes/verify-storage-search-evidence.cjs
+          grep -q "surviving-provider-query" ops/production/kubernetes/run-storage-search-admission-drill.cjs
+          grep -q "verify-live-query" ops/production/kubernetes/STORAGE_SEARCH_ADAPTER_PROTOCOL.md
+          ! grep -R -E 'MinioFailoverAudit12345|MeiliFailoverAudit12345|EnterprisePilot(Admin|Sales)12345' \
+            scripts/minio-application-failover-audit-v1.cjs \
+            scripts/meilisearch-application-failover-audit-v1.cjs \
+            scripts/refresh-enterprise-pilot-evidence-v1.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+      - name: Verify release binding and tamper rejection
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'storage-search-evidence-'));
+          const evidencePath = path.join(dir, 'evidence.json');
+          const identity = {
+            environment: 'formal-pilot',
+            evidenceId: 'CHG-12345',
+            commitSha: 'a'.repeat(40),
+            imageDigest: `sha256:${'b'.repeat(64)}`,
+          };
+          const providerProfileSha256 = 'd'.repeat(64);
+          const objectAdapterSha256 = 'e'.repeat(64);
+          const searchAdapterSha256 = 'f'.repeat(64);
+          const base = {
+            status: 'passed',
+            ...identity,
+            providerProfileSha256,
+            startedAt: new Date(Date.now() - 60_000).toISOString(),
+            finishedAt: new Date(Date.now() - 1_000).toISOString(),
+          };
+          const checks = names => names.map(name => ({ name, status: 'passed' }));
+          const objectReport = {
+            ...base,
+            scope: 'formal-cross-domain',
+            providerAdapterVerified: true,
+            adapterSha256: { objectStorage: objectAdapterSha256 },
+            failureInjectionId: 'object-failure-1',
+            topologyObservedAt: base.startedAt,
+            failureDomains: ['zone-a', 'zone-b'],
+            failoverMs: 25,
+            sha256: 'c'.repeat(64),
+            checks: checks([
+              'dual-write-contract-created', 'protected-primary-download', 'primary-stopped',
+              'protected-secondary-failover-download', 'sha256-byte-integrity', 'primary-restored',
+            ]),
+          };
+          const failoverReport = {
+            ...base,
+            scope: 'formal-cross-domain',
+            providerAdapterVerified: true,
+            adapterSha256: { search: searchAdapterSha256 },
+            failureInjectionId: 'search-failure-1',
+            topologyObservedAt: base.startedAt,
+            failureDomains: ['zone-a', 'zone-b'],
+            failoverMs: 30,
+            checks: checks([
+              'known-order-primary-hit', 'primary-stopped', 'known-order-secondary-hit',
+              'surviving-provider-query', 'primary-restored',
+            ]),
+          };
+          const restoreReport = {
+            ...base,
+            scope: 'formal-isolated-provider-restore',
+            providerAdapterVerified: true,
+            adapterSha256: { search: searchAdapterSha256 },
+            dumpUid: 'dump-1',
+            restoreResourceId: 'search-restore-1',
+            cleanupVerified: true,
+            checks: checks([
+              'primary-index-evidence', 'provider-backup-started', 'provider-backup-completed',
+              'isolated-restore-started', 'isolated-restore-ready', 'restored-document-counts',
+              'restored-query-equivalence', 'isolated-restore-cleanup',
+            ]),
+          };
+          const paths = {
+            object: path.join(dir, 'object-storage-failover-audit-v1.json'),
+            failover: path.join(dir, 'meilisearch-failover-audit-v1.json'),
+            restore: path.join(dir, 'meilisearch-dump-restore-audit-v1.json'),
+          };
+          fs.writeFileSync(paths.object, `${JSON.stringify(objectReport, null, 2)}\n`);
+          fs.writeFileSync(paths.failover, `${JSON.stringify(failoverReport, null, 2)}\n`);
+          fs.writeFileSync(paths.restore, `${JSON.stringify(restoreReport, null, 2)}\n`);
+          fs.writeFileSync(evidencePath, `${JSON.stringify({
+            ...identity,
+            providerProfile: {
+              status: 'passed',
+              environment: identity.environment,
+              sha256: providerProfileSha256,
+              verifiedAt: base.startedAt,
+            },
+            objectStorage: {},
+            search: {},
+          }, null, 2)}\n`);
+
+          const verifier = path.resolve('ops/production/kubernetes/verify-storage-search-evidence.cjs');
+          const run = extra => spawnSync(process.execPath, [
+            verifier, '--reports-dir', dir, '--evidence', evidencePath, ...extra,
+          ], { encoding: 'utf8' });
+          const bound = run(['--bind']);
+          if (bound.status !== 0) throw new Error(bound.stderr || bound.stdout || 'Binding failed.');
+          const valid = run([]);
+          if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Bound evidence was rejected.');
+
+          failoverReport.adapterSha256.search = '0'.repeat(64);
+          fs.writeFileSync(paths.failover, `${JSON.stringify(failoverReport, null, 2)}\n`);
+          const tampered = run([]);
+          if (tampered.status === 0) throw new Error('Tampered search adapter identity was accepted.');
+          console.log('Storage and search evidence contract: PASSED');
+          NODE

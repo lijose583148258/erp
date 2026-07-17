@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP AI Feature Governance"
+  short_description: "Governed AI feature planning for ERP data safety."
+  default_prompt: "Use $erp-ai-feature-governance to plan ERP AI assistant, OCR, import, and analytics features with privacy, permissions, evals, and audit evidence."

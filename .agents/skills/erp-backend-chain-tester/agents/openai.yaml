@@ -1,0 +1,8 @@
+interface:
+  display_name: "ERP Backend Chain Tester"
+  short_description: "Write/read chain checks"
+  default_prompt: "Use $erp-backend-chain-tester to execute this role with strict timeboxes, evidence capture, and minimal-risk fixes."
+
+policy:
+  allow_implicit_invocation: true
+

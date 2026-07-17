@@ -1,0 +1,4 @@
+interface:
+  display_name: "ERP Commercial PM"
+  short_description: "Commercial ERP/CRM product criteria and roadmap discipline."
+  default_prompt: "Use $erp-commercial-product-manager to convert ERP/CRM research into scoped audit criteria and product-ready recommendations."

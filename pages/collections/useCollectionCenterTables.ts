@@ -7,7 +7,7 @@ import {
   CollectionMilestoneRecord,
   CollectionOverdueRecord,
   CollectionPromiseRecord,
-} from '../../services/collections.service';
+} from '../../src/services/collections.service';
 import {
   exportRows,
   formatDateTime,

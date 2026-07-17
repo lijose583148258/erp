@@ -1,0 +1,131 @@
+name: Observability evidence contract
+
+on:
+  pull_request:
+    paths:
+      - 'ops/production/kubernetes/run-automatic-ha-drill.cjs'
+      - 'ops/production/kubernetes/run-observability-admission-drill.cjs'
+      - 'ops/production/kubernetes/verify-observability-evidence.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
+      - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - 'ops/production/kubernetes/OBSERVABILITY_ADAPTER_PROTOCOL.md'
+      - '.github/workflows/observability-evidence-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observability-evidence-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static syntax checks
+        run: |
+          node --check ops/production/kubernetes/run-automatic-ha-drill.cjs
+          node --check ops/production/kubernetes/run-observability-admission-drill.cjs
+          node --check ops/production/kubernetes/verify-observability-evidence.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+      - name: Verify observability binding and tamper rejection
+        shell: bash
+        run: |
+          node <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'observability-evidence-'));
+          const reportPath = path.join(dir, 'report.json');
+          const evidencePath = path.join(dir, 'evidence.json');
+          const identity = {
+            environment: 'formal-pilot',
+            changeTicket: 'CHG-12345',
+            commitSha: 'a'.repeat(40),
+            imageDigest: `sha256:${'b'.repeat(64)}`,
+          };
+          const passed = name => ({ name, status: 'passed' });
+          const report = {
+            name: 'Enterprise Observability Admission Drill',
+            version: '1.0',
+            status: 'passed',
+            ...identity,
+            providerProfileSha256: 'c'.repeat(64),
+            adapterSha256: { observability: 'd'.repeat(64) },
+            startedAt: new Date(Date.now() - 60_000).toISOString(),
+            finishedAt: new Date(Date.now() - 1_000).toISOString(),
+            serviceMonitorTargets: 2,
+            alertRulesLoaded: true,
+            noDroppedSpanRegression: true,
+            failoverTracesPresent: true,
+            alertDelivered: true,
+            alertResolved: true,
+            traceCount: 4,
+            receiptId: 'receipt-1',
+            checks: [
+              passed('two-prometheus-application-targets'),
+              passed('required-alert-rules-loaded'),
+              passed('telemetry-export-envelope'),
+              passed('application-trace-probe'),
+              passed('application-trace-probe'),
+              ...Array.from({ length: 4 }, () => passed('ha-trace-backend-readback')),
+              passed('synthetic-alert-submitted'),
+              passed('alert-delivery-receipt'),
+              passed('alert-resolution-receipt'),
+            ],
+          };
+          fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+          const reportSha256 = crypto.createHash('sha256').update(fs.readFileSync(reportPath)).digest('hex');
+          const evidence = {
+            environment: identity.environment,
+            evidenceId: identity.changeTicket,
+            commitSha: identity.commitSha,
+            imageDigest: identity.imageDigest,
+            providerProfile: {
+              status: 'passed',
+              environment: identity.environment,
+              sha256: report.providerProfileSha256,
+              verifiedAt: report.startedAt,
+            },
+            observability: {
+              bothApplicationTargetsUp: true,
+              serviceMonitorTargets: 2,
+              alertRulesLoaded: true,
+              alertsDelivered: true,
+              alertDeliveryDrill: true,
+              failoverTracesPresent: true,
+              droppedSpanRegression: false,
+              reportSha256,
+              providerProfileSha256: report.providerProfileSha256,
+              adapterSha256: report.adapterSha256,
+            },
+            observabilityDrill: {
+              status: 'passed',
+              ...identity,
+              traceCount: 4,
+              receiptId: report.receiptId,
+              reportSha256,
+              providerProfileSha256: report.providerProfileSha256,
+              adapterSha256: report.adapterSha256,
+            },
+          };
+          fs.writeFileSync(evidencePath, `${JSON.stringify(evidence, null, 2)}\n`);
+          const verifier = path.resolve('ops/production/kubernetes/verify-observability-evidence.cjs');
+          const run = () => spawnSync(process.execPath, [
+            verifier, '--report', reportPath, '--evidence', evidencePath,
+          ], { encoding: 'utf8' });
+
+          const valid = run();
+          if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid evidence was rejected.');
+          report.adapterSha256.observability = '0'.repeat(64);
+          fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`);
+          const tampered = run();
+          if (tampered.status === 0) throw new Error('Tampered observability adapter identity was accepted.');
+          console.log('Observability evidence contract: PASSED');
+          NODE

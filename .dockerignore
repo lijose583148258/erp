@@ -1,6 +1,11 @@
+.git
+.github
 node_modules
 dist
-backend
+output
+graphify-out
+backend/node_modules
+backend/dist
 Chemerp_v1.0
 爱劳达软件治理中心
 测试

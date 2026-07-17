@@ -41,8 +41,8 @@ type RoleRow = {
   isSystem: number | boolean;
   isActive: number | boolean;
   dataScopesJson: string | null;
-  createdAt: string;
-  updatedAt: string;
+  createdAt: string | Date;
+  updatedAt: string | Date;
 };
 
 type RolePermissionRow = {
@@ -97,114 +97,108 @@ function assertRoleCode(code: string) {
 
 async function upsertPermissionDefinitions() {
   for (const permission of PERMISSION_DEFINITIONS) {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO auth_permissions (code, resource, action, label, description, "group", created_at)
-       VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-       ON CONFLICT(code) DO UPDATE SET
-         resource = excluded.resource,
-         action = excluded.action,
-         label = excluded.label,
-         description = excluded.description,
-         "group" = excluded."group"`,
-      permission.code,
-      permission.resource,
-      permission.action,
-      permission.label,
-      permission.description || null,
-      permission.group,
-    );
+    await prisma.authPermission.upsert({
+      where: { code: permission.code },
+      create: {
+        code: permission.code,
+        resource: permission.resource,
+        action: permission.action,
+        label: permission.label,
+        description: permission.description || null,
+        group: permission.group,
+      },
+      update: {
+        resource: permission.resource,
+        action: permission.action,
+        label: permission.label,
+        description: permission.description || null,
+        group: permission.group,
+      },
+    });
   }
 }
 
 async function upsertSystemRoles() {
   for (const [role, policy] of Object.entries(ROLE_POLICIES) as Array<[BuiltInRole, typeof ROLE_POLICIES[BuiltInRole]]>) {
-    await prisma.$executeRawUnsafe(
-      `INSERT INTO auth_roles (code, name, description, is_system, is_active, data_scopes_json, created_at, updated_at)
-       VALUES (?, ?, ?, 1, 1, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-       ON CONFLICT(code) DO UPDATE SET
-         name = excluded.name,
-         description = excluded.description,
-         is_system = 1,
-         is_active = 1,
-         data_scopes_json = COALESCE(auth_roles.data_scopes_json, excluded.data_scopes_json),
-         updated_at = CURRENT_TIMESTAMP`,
-      role,
-      role,
-      `Built-in ${role} role`,
-      JSON.stringify(policy.dataScopes),
-    );
+    const existingRole = await prisma.authRole.findUnique({
+      where: { code: role },
+      select: { dataScopesJson: true },
+    });
+    await prisma.authRole.upsert({
+      where: { code: role },
+      create: {
+        code: role,
+        name: role,
+        description: `Built-in ${role} role`,
+        isSystem: true,
+        isActive: true,
+        dataScopesJson: JSON.stringify(policy.dataScopes),
+      },
+      update: {
+        name: role,
+        description: `Built-in ${role} role`,
+        isSystem: true,
+        isActive: true,
+        dataScopesJson: existingRole?.dataScopesJson || JSON.stringify(policy.dataScopes),
+      },
+    });
 
-    const existingPermissions = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
-      'SELECT COUNT(*) AS count FROM auth_role_permissions WHERE role_code = ?',
-      role,
-    );
-    if (Number(existingPermissions[0]?.count || 0) === 0) {
+    const existingPermissions = await prisma.authRolePermission.count({
+      where: { roleCode: role },
+    });
+    if (existingPermissions === 0) {
       await replaceRolePermissions(role, [...policy.permissions]);
     }
   }
 }
 
 async function replaceRolePermissions(roleCode: string, permissions: Permission[]) {
-  await prisma.$executeRawUnsafe('DELETE FROM auth_role_permissions WHERE role_code = ?', roleCode);
+  await prisma.authRolePermission.deleteMany({ where: { roleCode } });
   for (const permission of permissions) {
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO auth_role_permissions (role_code, permission_code, created_at)
-       VALUES (?, ?, CURRENT_TIMESTAMP)`,
-      roleCode,
-      permission,
-    );
+    await prisma.authRolePermission.upsert({
+      where: { roleCode_permissionCode: { roleCode, permissionCode: permission } },
+      create: { roleCode, permissionCode: permission },
+      update: {},
+    });
   }
 }
 
 async function ensurePolicyMigrationTable() {
-  await prisma.$executeRawUnsafe(
-    `CREATE TABLE IF NOT EXISTS auth_policy_migrations (
-      id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
-      code TEXT NOT NULL,
-      description TEXT,
-      applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`,
-  );
-  await prisma.$executeRawUnsafe(
-    'CREATE UNIQUE INDEX IF NOT EXISTS auth_policy_migrations_code_key ON auth_policy_migrations(code)',
-  );
+  // The runtime schema repair owns table creation for SQLite. PostgreSQL artifacts
+  // get this table from the Prisma model, so the seed path only reads/writes rows.
 }
 
 async function hasPolicyMigration(code: string): Promise<boolean> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
-    'SELECT COUNT(*) AS count FROM auth_policy_migrations WHERE code = ?',
-    code,
-  );
-  return Number(rows[0]?.count || 0) > 0;
+  const migration = await prisma.authPolicyMigration.findUnique({
+    where: { code },
+    select: { id: true },
+  });
+  return migration !== null;
 }
 
 async function markPolicyMigration(code: string, description: string) {
-  await prisma.$executeRawUnsafe(
-    `INSERT OR IGNORE INTO auth_policy_migrations (code, description, applied_at)
-     VALUES (?, ?, CURRENT_TIMESTAMP)`,
-    code,
-    description,
-  );
+  await prisma.authPolicyMigration.upsert({
+    where: { code },
+    create: { code, description },
+    update: {},
+  });
 }
 
 async function grantMissingRolePermissions(roleCode: string, permissions: Permission[]) {
   for (const permission of permissions) {
-    await prisma.$executeRawUnsafe(
-      `INSERT OR IGNORE INTO auth_role_permissions (role_code, permission_code, created_at)
-       VALUES (?, ?, CURRENT_TIMESTAMP)`,
-      roleCode,
-      permission,
-    );
+    await prisma.authRolePermission.upsert({
+      where: { roleCode_permissionCode: { roleCode, permissionCode: permission } },
+      create: { roleCode, permissionCode: permission },
+      update: {},
+    });
   }
 }
 
 async function revokeRolePermissions(roleCode: string, permissions: Permission[]) {
   for (const permission of permissions) {
-    await prisma.$executeRawUnsafe(
-      'DELETE FROM auth_role_permissions WHERE role_code = ? AND permission_code = ?',
-      roleCode,
-      permission,
-    );
+    await prisma.authRolePermission.deleteMany({
+      where: { roleCode, permissionCode: permission },
+    });
   }
 }
 
@@ -273,6 +267,26 @@ async function applyAuthorizationPolicyMigrations() {
       'Replace fixed commercial platform role guards with explicit platform governance permissions for admin and manager roles.',
     );
   }
+
+  const metricsPermissionCode = '2026-07-08-system-metrics-read-permission-v1';
+  if (!(await hasPolicyMigration(metricsPermissionCode))) {
+    await grantMissingRolePermissions('admin', ['system.metrics.read']);
+    await markPolicyMigration(
+      metricsPermissionCode,
+      'Protect Prometheus metrics behind an explicit admin-only system.metrics.read permission.',
+    );
+  }
+
+  const governedAIPermissionCode = '2026-07-13-governed-ai-assistant-permission-v1';
+  if (!(await hasPolicyMigration(governedAIPermissionCode))) {
+    for (const role of ['admin', 'manager', 'sales', 'warehouse', 'finance'] as BuiltInRole[]) {
+      await grantMissingRolePermissions(role, ['ai.assistant.use']);
+    }
+    await markPolicyMigration(
+      governedAIPermissionCode,
+      'Grant the governed aggregate-only AI assistant boundary to built-in roles without granting access to protected business records.',
+    );
+  }
 }
 
 export async function ensureAuthorizationPolicySeed() {
@@ -298,52 +312,58 @@ export async function ensureAuthorizationPolicySeed() {
 
 export async function listPermissions() {
   await ensureAuthorizationPolicySeed();
-  return prisma.$queryRawUnsafe(
-    `SELECT code, resource, action, label, description, "group" AS permissionGroup
-     FROM auth_permissions
-     ORDER BY "group", resource, action`,
-  );
+  const permissions = await prisma.authPermission.findMany({
+    orderBy: [
+      { group: 'asc' },
+      { resource: 'asc' },
+      { action: 'asc' },
+    ],
+  });
+  return permissions.map(permission => ({
+    code: permission.code,
+    resource: permission.resource,
+    action: permission.action,
+    label: permission.label,
+    description: permission.description,
+    permissionGroup: permission.group,
+  }));
 }
 
 export async function listRoles(): Promise<AuthRoleView[]> {
   await ensureAuthorizationPolicySeed();
-  const roles = await prisma.$queryRawUnsafe<RoleRow[]>(
-    `SELECT
-       id,
-       code,
-       name,
-       description,
-       is_system AS isSystem,
-       is_active AS isActive,
-       data_scopes_json AS dataScopesJson,
-       created_at AS createdAt,
-       updated_at AS updatedAt
-     FROM auth_roles
-     ORDER BY is_system DESC, code ASC`,
-  );
-  const rolePermissions = await prisma.$queryRawUnsafe<RolePermissionRow[]>(
-    `SELECT role_code AS roleCode, permission_code AS permissionCode
-     FROM auth_role_permissions
-     ORDER BY role_code, permission_code`,
-  );
-  const permissionMap = new Map<string, Permission[]>();
-  for (const row of rolePermissions) {
-    if (!permissionMap.has(row.roleCode)) {
-      permissionMap.set(row.roleCode, []);
-    }
-    permissionMap.get(row.roleCode)!.push(row.permissionCode as Permission);
-  }
-  return roles.map((role) => normalizeRole(role, permissionMap.get(role.code) || []));
+  const roles = await prisma.authRole.findMany({
+    include: {
+      permissions: {
+        select: { permissionCode: true },
+        orderBy: { permissionCode: 'asc' },
+      },
+    },
+    orderBy: [
+      { isSystem: 'desc' },
+      { code: 'asc' },
+    ],
+  });
+  return roles.map((role) => normalizeRole({
+    id: role.id,
+    code: role.code,
+    name: role.name,
+    description: role.description,
+    isSystem: role.isSystem,
+    isActive: role.isActive,
+    dataScopesJson: role.dataScopesJson,
+    createdAt: role.createdAt,
+    updatedAt: role.updatedAt,
+  }, role.permissions.map(row => row.permissionCode as Permission)));
 }
 
 export async function roleExistsAndActive(roleCode: string): Promise<boolean> {
   try {
     await ensureAuthorizationPolicySeed();
-    const rows = await prisma.$queryRawUnsafe<Array<{ count: unknown }>>(
-      'SELECT COUNT(*) AS count FROM auth_roles WHERE code = ? AND is_active = 1',
-      roleCode,
-    );
-    return Number(rows[0]?.count || 0) > 0;
+    const role = await prisma.authRole.findFirst({
+      where: { code: roleCode, isActive: true },
+      select: { id: true },
+    });
+    return role !== null;
   } catch {
     return false;
   }
@@ -352,14 +372,14 @@ export async function roleExistsAndActive(roleCode: string): Promise<boolean> {
 export async function getPermissionsForRole(roleCode: string): Promise<Permission[]> {
   await ensureAuthorizationPolicySeed();
 
-  const rows = await prisma.$queryRawUnsafe<Array<{ permissionCode: string }>>(
-    `SELECT rp.permission_code AS permissionCode
-     FROM auth_role_permissions rp
-     INNER JOIN auth_roles r ON r.code = rp.role_code
-     WHERE r.code = ? AND r.is_active = 1
-     ORDER BY rp.permission_code`,
-     roleCode,
-  );
+  const rows = await prisma.authRolePermission.findMany({
+    where: {
+      roleCode,
+      role: { isActive: true },
+    },
+    select: { permissionCode: true },
+    orderBy: { permissionCode: 'asc' },
+  });
 
   const permissions = rows
     .map((row) => row.permissionCode)
@@ -370,15 +390,12 @@ export async function getPermissionsForRole(roleCode: string): Promise<Permissio
 export async function getDataScopesForRole(roleCode: string): Promise<DataScope[]> {
   await ensureAuthorizationPolicySeed();
 
-  const rows = await prisma.$queryRawUnsafe<Array<{ dataScopesJson: string | null }>>(
-    `SELECT data_scopes_json AS dataScopesJson
-     FROM auth_roles
-     WHERE code = ? AND is_active = 1
-     LIMIT 1`,
-     roleCode,
-  );
+  const role = await prisma.authRole.findFirst({
+    where: { code: roleCode, isActive: true },
+    select: { dataScopesJson: true },
+  });
 
-  const scopes = parseDataScopes(rows[0]?.dataScopesJson || null);
+  const scopes = parseDataScopes(role?.dataScopesJson || null);
   return scopes;
 }
 
@@ -391,23 +408,21 @@ export async function createRole(input: SaveRoleInput, operatorId?: number): Pro
   assertPermissionCodes(input.permissions);
 
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `INSERT INTO auth_roles (code, name, description, is_system, is_active, data_scopes_json, created_by, created_at, updated_at)
-       VALUES (?, ?, ?, 0, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-      input.code,
-      input.name,
-      input.description || null,
-      input.isActive === false ? 0 : 1,
-      JSON.stringify(input.dataScopes || []),
-      operatorId || null,
-    );
+    await tx.authRole.create({
+      data: {
+        code: input.code!,
+        name: input.name,
+        description: input.description || null,
+        isSystem: false,
+        isActive: input.isActive !== false,
+        dataScopesJson: JSON.stringify(input.dataScopes || []),
+        createdBy: operatorId || null,
+      },
+    });
     for (const permission of input.permissions) {
-      await tx.$executeRawUnsafe(
-        `INSERT INTO auth_role_permissions (role_code, permission_code, created_at)
-         VALUES (?, ?, CURRENT_TIMESTAMP)`,
-        input.code,
-        permission,
-      );
+      await tx.authRolePermission.create({
+        data: { roleCode: input.code!, permissionCode: permission },
+      });
     }
   });
 
@@ -430,53 +445,40 @@ export async function updateRole(roleCode: string, input: SaveRoleInput, operato
   assertPermissionCodes(input.permissions);
   const before = (await listRoles()).find((item) => item.code === roleCode) || null;
 
-  const existing = await prisma.$queryRawUnsafe<Array<{
-    name: string;
-    description: string | null;
-    isSystem: unknown;
-    isActive: unknown;
-    dataScopesJson: string | null;
-  }>>(
-    `SELECT
-       name,
-       description,
-       is_system AS isSystem,
-       is_active AS isActive,
-       data_scopes_json AS dataScopesJson
-     FROM auth_roles
-     WHERE code = ?
-     LIMIT 1`,
-    roleCode,
-  );
-  if (existing.length === 0) {
+  const existing = await prisma.authRole.findUnique({
+    where: { code: roleCode },
+    select: {
+      name: true,
+      description: true,
+      isSystem: true,
+      isActive: true,
+      dataScopesJson: true,
+    },
+  });
+  if (!existing) {
     throw new Error('Role not found.');
   }
-  const current = existing[0];
-  const isSystemRole = toBool(current.isSystem as number | boolean);
-  const nextName = isSystemRole ? current.name : input.name;
-  const nextDescription = isSystemRole ? current.description : input.description || null;
-  const nextIsActive = isSystemRole ? 1 : input.isActive === false ? 0 : 1;
-  const nextDataScopes = input.dataScopes ?? parseDataScopes(current.dataScopesJson || null);
+  const isSystemRole = existing.isSystem;
+  const nextName = isSystemRole ? existing.name : input.name;
+  const nextDescription = isSystemRole ? existing.description : input.description || null;
+  const nextIsActive = isSystemRole ? true : input.isActive !== false;
+  const nextDataScopes = input.dataScopes ?? parseDataScopes(existing.dataScopesJson || null);
 
   await prisma.$transaction(async (tx) => {
-    await tx.$executeRawUnsafe(
-      `UPDATE auth_roles
-       SET name = ?, description = ?, is_active = ?, data_scopes_json = ?, updated_at = CURRENT_TIMESTAMP
-       WHERE code = ?`,
-      nextName,
-      nextDescription,
-      nextIsActive,
-      JSON.stringify(nextDataScopes),
-      roleCode,
-    );
-    await tx.$executeRawUnsafe('DELETE FROM auth_role_permissions WHERE role_code = ?', roleCode);
+    await tx.authRole.update({
+      where: { code: roleCode },
+      data: {
+        name: nextName,
+        description: nextDescription,
+        isActive: nextIsActive,
+        dataScopesJson: JSON.stringify(nextDataScopes),
+      },
+    });
+    await tx.authRolePermission.deleteMany({ where: { roleCode } });
     for (const permission of input.permissions) {
-      await tx.$executeRawUnsafe(
-        `INSERT INTO auth_role_permissions (role_code, permission_code, created_at)
-         VALUES (?, ?, CURRENT_TIMESTAMP)`,
-        roleCode,
-        permission,
-      );
+      await tx.authRolePermission.create({
+        data: { roleCode, permissionCode: permission },
+      });
     }
   });
 

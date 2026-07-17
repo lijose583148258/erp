@@ -58,7 +58,24 @@ async function resolveLocation({
     const location = locations.find((item) => String(item.code) === locationCode);
     if (location) return location;
   }
-  throw new Error(`location ${locationCode} not found`);
+
+  let warehouse = warehouses[0];
+  if (!warehouse) {
+    const warehousePayload = await apiFetch(page, '/warehouses', {
+      method: 'POST',
+      data: { code: 'WH-SHIP-AUDIT', name: 'Shipping Audit Warehouse', type: 'physical' },
+    });
+    if (!warehousePayload.ok) throw new Error(`shipping warehouse fixture create failed: ${warehousePayload.status}`);
+    warehouse = warehousePayload.json?.data;
+  }
+  if (!warehouse?.id) throw new Error('shipping warehouse fixture id missing');
+
+  const locationPayload = await apiFetch(page, `/warehouses/${warehouse.id}/locations`, {
+    method: 'POST',
+    data: { code: locationCode, name: 'Finished Goods Audit Location', type: 'internal' },
+  });
+  if (!locationPayload.ok) throw new Error(`location ${locationCode} fixture create failed: ${locationPayload.status}`);
+  return locationPayload.json?.data;
 }
 
 async function seedShipmentStock({

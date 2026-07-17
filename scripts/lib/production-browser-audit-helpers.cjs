@@ -1,19 +1,21 @@
 function buildBomPasteText(items) {
-  return items.map((item) => [
-    item.materialName,
-    item.materialCode,
-    item.ingredientRole,
-    item.dosageMode,
-    item.percentage,
-    item.quantityPerUnit,
-    item.unit,
-    item.lossRate,
-    item.allowedVarianceRate,
-    item.processStage,
-    item.substituteGroup,
-    item.yieldContribution,
-    item.notes,
-  ].join('\t')).join('\n');
+  return items
+    .map((item) => [
+      item.materialName,
+      item.materialCode,
+      item.ingredientRole,
+      item.dosageMode,
+      item.percentage,
+      item.quantityPerUnit,
+      item.unit,
+      item.lossRate,
+      item.allowedVarianceRate,
+      item.processStage,
+      item.substituteGroup,
+      item.yieldContribution,
+      item.notes,
+    ].join('\t'))
+    .join('\n');
 }
 
 function parsePayload(payload) {
@@ -41,11 +43,13 @@ async function loginViaUi(page, {
   withTimebox,
   timeout,
   shotDir,
+  account,
 }) {
   await withTimebox(page, recordStep, 'open-login', timeout, async () => {
     await page.goto(appUrl, { waitUntil: 'domcontentloaded' });
     await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
   }, shotDir);
+
   const username = page.locator('input[name="username"]');
   const password = page.locator('input[name="password"]');
   const submit = page.locator('button[type="submit"]');
@@ -53,11 +57,21 @@ async function loginViaUi(page, {
     recordStep({ step: 'login-form-detection', result: 'skipped', reason: 'login form not found, using existing session' });
     return;
   }
+
   await withTimebox(page, recordStep, 'submit-login', timeout, async () => {
-    await username.fill(process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin');
-    await password.fill(process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!');
+    await username.fill(account?.username || process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin');
+    await password.fill(account?.password || process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!');
     await Promise.all([page.waitForTimeout(1200), submit.click()]);
   }, shotDir);
+}
+
+async function readAuthTokenFromStorage(page) {
+  return page.evaluate(() => (
+    window.localStorage.getItem('token')
+    || window.localStorage.getItem('auth_token')
+    || window.localStorage.getItem('erp_auth_token')
+    || ''
+  )).catch(() => '');
 }
 
 async function switchProductionDesk(page, { testId, fallbackName, expectedText }, waitForBodyText, timeout) {
@@ -70,8 +84,8 @@ async function switchProductionDesk(page, { testId, fallbackName, expectedText }
   await waitForBodyText(page, [expectedText], timeout);
 }
 
-async function setControlValue(page, query, value, index = 0) {
-  await page.evaluate(({ query: controlQuery, nextValue, targetIndex }) => {
+async function setControlValue(page, query, value) {
+  await page.evaluate(({ query: controlQuery, nextValue }) => {
     const normalize = (text) => String(text || '').replace(/\s+/g, '');
     const setNativeValue = (element, rawValue) => {
       const prototype = element instanceof HTMLTextAreaElement
@@ -97,45 +111,58 @@ async function setControlValue(page, query, value, index = 0) {
         .filter(Boolean);
     }
 
-    const element = matches[targetIndex];
-    if (!element) throw new Error(`control not found: ${controlQuery.kind}=${controlQuery.text} index=${targetIndex}`);
+    const element = matches[0];
+    if (!element) throw new Error(`control not found: ${controlQuery.kind}=${controlQuery.text}`);
     setNativeValue(element, nextValue);
-  }, { query, nextValue: value, targetIndex: index });
+  }, { query, nextValue: value });
 }
 
-async function setControlByLabel(page, label, value, index = 0) {
-  await setControlValue(page, { kind: 'label', text: label }, value, index);
+async function setControlByLabel(page, label, value) {
+  await setControlValue(page, { kind: 'label', text: label }, value);
 }
 
-async function setControlByPlaceholder(page, placeholder, value, index = 0) {
-  await setControlValue(page, { kind: 'placeholder', text: placeholder }, value, index);
+async function setControlByPlaceholder(page, placeholder, value) {
+  await setControlValue(page, { kind: 'placeholder', text: placeholder }, value);
+}
+
+async function setControlByTestId(page, testId, value) {
+  await page.evaluate(({ nextTestId, nextValue }) => {
+    const element = document.querySelector(`[data-testid="${nextTestId}"]`);
+    if (!element) throw new Error(`control not found: testId=${nextTestId}`);
+
+    const prototype = element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype
+      : element instanceof HTMLSelectElement
+        ? HTMLSelectElement.prototype
+        : HTMLInputElement.prototype;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, 'value');
+    if (!descriptor?.set) throw new Error(`control value setter not found for testId=${nextTestId}`);
+    descriptor.set.call(element, nextValue);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  }, { nextTestId: testId, nextValue: value });
 }
 
 async function fillBomHeaderFields(page, testData) {
-  const bomSection = page.locator('section').filter({ has: page.getByTestId('production-bom-line-grid') }).first();
+  await page.getByTestId('production-bom-product-name').fill(testData.bomName);
+  await page.getByTestId('production-bom-output-unit').fill(testData.outputUnit);
+  await page.getByTestId('production-bom-standard-batch-size').fill(testData.standardBatchSize);
   const advancedToggle = page.getByTestId('production-bom-toggle-advanced');
   if (await advancedToggle.count()) {
-    const toggleText = await advancedToggle.innerText();
-    if (/展开/.test(toggleText)) await advancedToggle.click();
+    const isVisible = await page.getByTestId('production-bom-density').count().catch(() => 0);
+    if (!isVisible) await advancedToggle.click();
   }
-  const inputs = bomSection.locator('input');
-  const selects = bomSection.locator('select');
-  const textareas = bomSection.locator('textarea');
-
-  await inputs.nth(0).fill(testData.bomName);
-  await inputs.nth(1).fill(testData.bomVersion);
-  await selects.nth(0).selectOption(testData.bomType);
-  await selects.nth(1).selectOption(testData.bomStatus);
-  await selects.nth(2).selectOption(testData.formulationMode);
-  await inputs.nth(2).fill(testData.outputUnit);
-  await inputs.nth(3).fill(testData.standardBatchSize);
-  await inputs.nth(4).fill(testData.batchSizeUnit);
-  await inputs.nth(5).fill(testData.density);
-  await inputs.nth(6).fill(testData.solidContent);
-  await textareas.nth(0).fill(testData.processSummary);
-  await inputs.nth(7).fill(testData.effectiveFrom);
-  await inputs.nth(8).fill(testData.effectiveTo);
-  await textareas.nth(1).fill(testData.qualitySummary);
+  await setControlByTestId(page, 'production-bom-version', testData.bomVersion);
+  await setControlByTestId(page, 'production-bom-type', testData.bomType);
+  await setControlByTestId(page, 'production-bom-status', testData.bomStatus);
+  await setControlByTestId(page, 'production-bom-formulation-mode', testData.formulationMode);
+  await setControlByTestId(page, 'production-bom-batch-size-unit', testData.batchSizeUnit);
+  await setControlByTestId(page, 'production-bom-density', testData.density);
+  await setControlByTestId(page, 'production-bom-solid-content', testData.solidContent);
+  await setControlByTestId(page, 'production-bom-effective-from', testData.effectiveFrom);
+  await setControlByTestId(page, 'production-bom-effective-to', testData.effectiveTo);
+  await setControlByTestId(page, 'production-bom-process-text', testData.processSummary);
+  await setControlByTestId(page, 'production-bom-quality-spec-text', testData.qualitySummary);
 }
 
 module.exports = {
@@ -143,8 +170,10 @@ module.exports = {
   fillBomHeaderFields,
   loginViaUi,
   parsePayload,
+  readAuthTokenFromStorage,
   setControlByLabel,
   setControlByPlaceholder,
+  setControlByTestId,
   switchProductionDesk,
   waitForAnyBodyText,
 };

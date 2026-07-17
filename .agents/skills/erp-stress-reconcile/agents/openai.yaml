@@ -1,0 +1,8 @@
+interface:
+  display_name: "ERP Stress & Reconcile"
+  short_description: "Concurrency and reconciliation"
+  default_prompt: "Use $erp-stress-reconcile to execute this role with strict timeboxes, evidence capture, and minimal-risk fixes."
+
+policy:
+  allow_implicit_invocation: true
+

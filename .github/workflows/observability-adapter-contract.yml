@@ -1,0 +1,28 @@
+name: Observability adapter contract
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/observability-adapter-contract.yml"
+      - "ops/production/kubernetes/adapters/tempo-alert-receipt-adapter.cjs"
+      - "ops/production/kubernetes/adapters/observability-adapter-contract.test.cjs"
+      - "ops/production/kubernetes/adapters/README.md"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: observability-adapter-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify Tempo, Alertmanager, and receiver receipt operations
+        run: |
+          node --check ops/production/kubernetes/adapters/tempo-alert-receipt-adapter.cjs
+          node ops/production/kubernetes/adapters/observability-adapter-contract.test.cjs

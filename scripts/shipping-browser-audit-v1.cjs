@@ -2,6 +2,7 @@
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { apiFetch: fetchApi, loginApi: loginWithApi, unwrapList } = require('./lib/shipping-browser-api-helpers.cjs');
+const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   MOJIBAKE_MARKERS,
   REQUIRED_ROUTE_COPY,
@@ -33,6 +34,16 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'shipping-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
 const DATA = createShippingAuditData(RUN_ID);
+const MANAGER_AUDIT_ACCOUNT = {
+  username: process.env.AUDIT_SHIPPING_MANAGER_USERNAME || 'shipping_browser_manager',
+  password: process.env.AUDIT_SHIPPING_MANAGER_PASSWORD || 'AuditSmoke12345!',
+  role: 'manager',
+};
+const SALES_AUDIT_ACCOUNT = {
+  username: process.env.AUDIT_SHIPPING_SALES_USERNAME || 'shipping_browser_sales',
+  password: process.env.AUDIT_SHIPPING_SALES_PASSWORD || 'AuditSmoke12345!',
+  role: 'sales',
+};
 
 const report = createShippingReport({ appUrl: APP_URL, runId: RUN_ID, data: DATA });
 const recordStep = createReportRecorder(report);
@@ -69,7 +80,8 @@ function assertNoMojibake(text, scopeName) {
 
 async function seedManagerLoginState(page) {
   return withTimebox(page, 'seed-manager-login-state', TIMEOUTS.login, async () => {
-    managerAuth = await loginApi(page, 'manager', 'manager123');
+    const account = await ensureUiAuditUser(MANAGER_AUDIT_ACCOUNT);
+    managerAuth = await loginApi(page, account.username, account.password);
     await page.addInitScript(({ savedToken, savedUser }) => {
       const appUser = {
         id: String(savedUser.id),
@@ -95,7 +107,8 @@ async function seedManagerLoginState(page) {
 
 async function ensureSalesAuth(page) {
   if (!salesAuth) {
-    salesAuth = await loginApi(page, 'sales', 'sales123');
+    const account = await ensureUiAuditUser(SALES_AUDIT_ACCOUNT);
+    salesAuth = await loginApi(page, account.username, account.password);
   }
   return salesAuth;
 }
@@ -230,8 +243,15 @@ async function dispatchLinkedShipment(page) {
     if (!report.linkedShipment?.id) throw new Error('linked shipment id missing');
 
     await page.reload({ waitUntil: 'domcontentloaded', timeout: TIMEOUTS.route });
-    await page.locator(`[data-testid="shipment-dispatch-${report.linkedShipment.id}"]`).waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
-    await page.locator(`[data-testid="shipment-dispatch-${report.linkedShipment.id}"]`).click();
+    const gridSearch = page.getByTestId('shipping-grid-search-input');
+    await gridSearch.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await gridSearch.fill(report.linkedShipment.trackingNo || report.linkedShipment.shipmentNo || String(report.linkedShipment.id));
+    const shipmentRow = page.getByTestId(`shipment-row-${String(report.linkedShipment.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`);
+    await shipmentRow.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const dispatchButton = shipmentRow.getByTestId(`shipment-dispatch-${report.linkedShipment.id}`);
+    await dispatchButton.waitFor({ state: 'attached', timeout: TIMEOUTS.readBack });
+    await dispatchButton.scrollIntoViewIfNeeded();
+    await dispatchButton.click();
 
     let shipment = null;
     for (let index = 0; index < 20; index += 1) {
@@ -266,9 +286,26 @@ async function uploadReceiptViaUi(page) {
     if (!report.linkedShipment?.id) throw new Error('linked shipment id missing before receipt upload');
     const proofPath = createReceiptFixture(SHOT_DIR, RUN_ID);
 
-    await page.locator(`[data-testid="shipment-receipt-button-${report.linkedShipment.id}"]`).waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
-    await page.locator(`[data-testid="shipment-receipt-button-${report.linkedShipment.id}"]`).click();
+    const gridSearch = page.getByTestId('shipping-grid-search-input');
+    await gridSearch.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await gridSearch.fill(report.linkedShipment.trackingNo || report.linkedShipment.shipmentNo || String(report.linkedShipment.id));
+    const shipmentRow = page.getByTestId(`shipment-row-${String(report.linkedShipment.id).replace(/[^a-zA-Z0-9_-]/g, '-')}`);
+    await shipmentRow.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    const receiptButton = shipmentRow.getByTestId(`shipment-receipt-button-${report.linkedShipment.id}`);
+    await receiptButton.waitFor({ state: 'attached', timeout: TIMEOUTS.readBack });
+    await receiptButton.scrollIntoViewIfNeeded();
+    await receiptButton.click();
+    const receiptResponsePromise = page.waitForResponse((response) => (
+      response.url().includes(`/api/shipping/${report.linkedShipment.id}/receipt`)
+      && response.request().method() === 'POST'
+    ), { timeout: TIMEOUTS.save }).catch(() => null);
     await page.getByTestId('shipment-receipt-input').setInputFiles(proofPath);
+    const receiptResponse = await receiptResponsePromise;
+    if (!receiptResponse) throw new Error('receipt upload did not submit POST');
+    const receiptResponseText = await receiptResponse.text().catch(() => '');
+    if (!receiptResponse.ok()) {
+      throw new Error(`receipt upload failed: ${receiptResponse.status()} ${compactText(receiptResponseText, 800)}`);
+    }
 
     let shipment = null;
     for (let index = 0; index < 20; index += 1) {

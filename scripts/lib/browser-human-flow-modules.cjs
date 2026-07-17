@@ -1,12 +1,38 @@
 const fs = require('fs');
 const path = require('path');
-const XLSX = require('xlsx');
+const ExcelJS = require('exceljs');
 const { createProductionSmokeModule } = require('./browser-human-flow-production-module.cjs');
 const {
   assertNoNewConsoleErrors,
   findCreatedSalesOrderRow,
   getConsoleErrorCount,
 } = require('./browser-human-flow-shared.cjs');
+
+function normalizeExcelValue(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object' && 'text' in value) return String(value.text || '');
+  if (typeof value === 'object' && 'result' in value) return String(value.result || '');
+  return String(value);
+}
+
+function worksheetToObjects(worksheet) {
+  if (!worksheet) return [];
+  const headers = [];
+  worksheet.getRow(1).eachCell({ includeEmpty: true }, (cell, column) => {
+    headers[column - 1] = normalizeExcelValue(cell.value).trim() || `Column ${column}`;
+  });
+
+  const rows = [];
+  worksheet.eachRow({ includeEmpty: false }, (row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record = {};
+    headers.forEach((header, index) => {
+      record[header] = normalizeExcelValue(row.getCell(index + 1).value);
+    });
+    rows.push(record);
+  });
+  return rows;
+}
 
 function createBrowserHumanFlowModules({
   DATA,
@@ -104,9 +130,9 @@ function createBrowserHumanFlowModules({
       await download.saveAs(exportPath);
       const exportSize = fs.statSync(exportPath).size;
       if (exportSize < 1000) throw new Error(`CRM export file is unexpectedly small: ${exportSize} bytes`);
-      const workbook = XLSX.readFile(exportPath);
-      const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
-      const exportedRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.readFile(exportPath);
+      const exportedRows = worksheetToObjects(workbook.worksheets[0]);
       if (!exportedRows.some((row) => Object.values(row).some((value) => String(value).includes(DATA.crm.nameZh)))) {
         throw new Error('CRM filtered server export does not contain the searched customer');
       }
@@ -241,7 +267,7 @@ function createBrowserHumanFlowModules({
   async function moduleShipping(page) {
     await openHash(page, '#shipping', 'shipping', ['出货物流', 'Shipment', '物流']);
 
-    const stockBackedProduct = 'QA-GLUE-BARTER-1776434928717';
+    const stockBackedProduct = DATA.shipping.productName;
     let createdShipmentId = '';
 
     function shipmentRow() {
@@ -250,6 +276,33 @@ function createBrowserHumanFlowModules({
       }
       return page.locator('[data-testid^="shipment-row-"]').filter({ hasText: stockBackedProduct }).first();
     }
+
+    await withTimeout('shipping-seed-finished-goods', TIMEOUTS.save, async () => {
+      const result = await page.evaluate(async (payload) => {
+        const token = window.localStorage.getItem('token');
+        const response = await fetch('/api/assets/batches', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify(payload),
+        });
+        return { status: response.status, body: await response.text() };
+      }, {
+        productName: stockBackedProduct,
+        batchNo: DATA.shipping.batchNo,
+        productionDate: new Date().toISOString().slice(0, 10),
+        expiryDate: new Date(Date.now() + 365 * 86400000).toISOString().slice(0, 10),
+        stockQuantity: DATA.shipping.quantity + 2,
+        unit: 'kg',
+        notes: `Human-flow shipping stock ${RUN_ID}`,
+      });
+      if (result.status !== 201) {
+        throw new Error(`shipping finished-goods seed failed: ${result.status} ${result.body.slice(0, 300)}`);
+      }
+      recordStep({ step: 'shipping-seed-finished-goods', result: 'passed', productName: stockBackedProduct, batchNo: DATA.shipping.batchNo });
+    });
 
     await withTimeout('shipping-create-from-ocr', TIMEOUTS.save, async () => {
       await page.locator('[data-testid="shipping-desk-ocr"]').click();
@@ -505,6 +558,7 @@ function createBrowserHumanFlowModules({
     });
     const shot = await safeScreenshot(page, 'warehouse-inbound-readback');
     recordStep({ step: 'warehouse-inbound-readback', result: 'passed', evidence: shot });
+    await ensureRole(page, 'admin');
     return shot;
   }
 

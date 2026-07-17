@@ -1,0 +1,35 @@
+name: Signed CNPG Receipt Contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/signed-cnpg-receipt-contract.yml"
+      - "ops/production/kubernetes/receipt/**"
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/signed-cnpg-receipt-contract.yml"
+      - "ops/production/kubernetes/receipt/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: signed-cnpg-receipt-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  receipt-contract:
+    name: Verify signed, stale, and tampered receipts
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check service syntax
+        run: node --check ops/production/kubernetes/receipt/cnpg-backup-receipt-service.cjs
+
+      - name: Run isolated receipt contract
+        run: node ops/production/kubernetes/receipt/cnpg-backup-receipt-service-contract.test.cjs

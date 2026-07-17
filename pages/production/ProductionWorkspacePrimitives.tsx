@@ -23,8 +23,8 @@ export const StatCard = ({ title, value, color, icon }: { title: string; value: 
   </div>
 );
 
-export const SummaryChip = ({ label, value }: { label: string; value: string }) => (
-  <div className="rounded-[20px] border border-slate-100 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-4 py-3">
+export const SummaryChip = ({ label, value, dataTestId }: { label: string; value: string; dataTestId?: string }) => (
+  <div data-testid={dataTestId} className="rounded-[20px] border border-slate-100 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-4 py-3">
     <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{label}</div>
     <div className="mt-2 text-sm font-black text-slate-900 dark:text-white">{value}</div>
   </div>

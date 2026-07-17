@@ -25,6 +25,7 @@ export interface PaginationQuery {
 export interface LoginRequest {
     username: string;
     password: string;
+    mfaCode?: string;
 }
 
 export interface LoginResponse {

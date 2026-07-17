@@ -1,0 +1,37 @@
+name: Meilisearch Kubernetes Adapter Contract
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/meilisearch-kubernetes-adapter-contract.yml"
+      - "ops/production/kubernetes/adapters/meilisearch-kubernetes-search-adapter.cjs"
+      - "ops/production/kubernetes/adapters/meilisearch-kubernetes-search-adapter-contract.test.cjs"
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/meilisearch-kubernetes-adapter-contract.yml"
+      - "ops/production/kubernetes/adapters/meilisearch-kubernetes-search-adapter.cjs"
+      - "ops/production/kubernetes/adapters/meilisearch-kubernetes-search-adapter-contract.test.cjs"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: meilisearch-kubernetes-adapter-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  adapter-contract:
+    name: Simulated multi-zone failover and CSI restore
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report runtime
+        run: node --version
+
+      - name: Run isolated adapter contract
+        run: node ops/production/kubernetes/adapters/meilisearch-kubernetes-search-adapter-contract.test.cjs

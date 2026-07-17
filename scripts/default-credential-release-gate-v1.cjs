@@ -1,13 +1,15 @@
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const path = require('path');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
-const JSON_REPORT = path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.json');
-const MD_REPORT = path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.md');
+const JSON_REPORT = path.resolve(process.env.DEFAULT_CREDENTIAL_REPORT_PATH || path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.json'));
+const MD_REPORT = path.resolve(process.env.DEFAULT_CREDENTIAL_MARKDOWN_PATH || path.join(OUTPUT_DIR, 'default-credential-release-gate-v1.md'));
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '');
 const ORIGIN_REPORT = path.join(ROOT, 'output', 'audit', 'stable-runtime-origin-v1.json');
+const UI_AUDIT_HELPER = path.join(ROOT, 'scripts', 'lib', 'ui-audit-user.cjs');
 
 const DEMO_ACCOUNTS = [
   { username: 'admin', password: 'admin123' },
@@ -33,7 +35,9 @@ function readJsonIfExists(filePath) {
 function postJson(url, data, timeoutMs = 10_000) {
   return new Promise((resolve) => {
     const body = JSON.stringify(data);
-    const request = http.request(url, {
+    const target = new URL(url);
+    const client = target.protocol === 'https:' ? https : http;
+    const request = client.request(target, {
       method: 'POST',
       timeout: timeoutMs,
       headers: {
@@ -70,6 +74,7 @@ async function main() {
 
   for (const account of DEMO_ACCOUNTS) {
     const response = await postJson(`${APP_URL}/api/auth/login`, account);
+    const explicitRejection = [400, 401, 403].includes(Number(response.statusCode));
     results.push({
       username: account.username,
       accepted: response.statusCode === 200 && Boolean(response.json?.data?.token),
@@ -77,6 +82,8 @@ async function main() {
       businessAccess: response.statusCode === 200
         && Boolean(response.json?.data?.token)
         && response.json?.data?.user?.mustChangePassword !== true,
+      explicitRejection,
+      transportVerified: Number.isInteger(response.statusCode),
       statusCode: response.statusCode,
       message: response.json?.message || response.error || null,
     });
@@ -85,11 +92,35 @@ async function main() {
   const accepted = results.filter(item => item.accepted);
   const businessAccepted = results.filter(item => item.businessAccess);
   const findings = [];
-  if (strictMode && businessAccepted.length > 0) {
+  const auditHelperSource = fs.readFileSync(UI_AUDIT_HELPER, 'utf8');
+  const prohibitedAuditCredentialLiterals = [
+    { value: 'AuditSmoke12345!', label: 'fixed UI audit password' },
+    { value: "process.env.AUDIT_UI_USERNAME || 'ui_smoke_admin'", label: 'fallback UI audit username' },
+    { value: "process.env.AUDIT_UI_PASSWORD || 'AuditSmoke12345!'", label: 'fallback UI audit password' },
+  ];
+  const auditCredentialViolations = prohibitedAuditCredentialLiterals
+    .filter(item => auditHelperSource.includes(item.value))
+    .map(item => item.label);
+  if (auditCredentialViolations.length > 0) {
+    findings.push({
+      level: 'P0',
+      area: 'audit-default-credentials',
+      message: `audit harness contains prohibited credential fallbacks: ${auditCredentialViolations.join(', ')}`,
+    });
+  }
+  if (strictMode && accepted.length > 0) {
     findings.push({
       level: 'P0',
       area: 'default-credentials',
-      message: `default demo credentials can enter business area in release mode: ${businessAccepted.map(item => item.username).join(', ')}`,
+      message: `default demo credentials can obtain API token in release mode: ${accepted.map(item => item.username).join(', ')}`,
+    });
+  }
+  const inconclusive = results.filter(item => !item.explicitRejection && !item.accepted);
+  if (strictMode && inconclusive.length > 0) {
+    findings.push({
+      level: 'P0',
+      area: 'default-credentials',
+      message: `default credential rejection was not proven for: ${inconclusive.map(item => `${item.username}(${item.statusCode || 'transport-error'})`).join(', ')}`,
     });
   }
   if (!strictMode && accepted.length > 0) {
@@ -102,7 +133,11 @@ async function main() {
 
   const report = {
     name: 'Default Credential Release Gate',
-    version: '1.0',
+    version: '2.0',
+    environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
+    evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
+    commitSha: String(process.env.ENTERPRISE_EVIDENCE_COMMIT_SHA || process.env.GITHUB_SHA || '').trim(),
+    imageDigest: String(process.env.ENTERPRISE_EVIDENCE_IMAGE_DIGEST || '').trim(),
     appUrl: APP_URL,
     strictMode,
     origin: origin ? {
@@ -116,7 +151,8 @@ async function main() {
     generatedAt: new Date().toISOString(),
   };
 
-  fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  fs.mkdirSync(path.dirname(JSON_REPORT), { recursive: true });
+  fs.mkdirSync(path.dirname(MD_REPORT), { recursive: true });
   fs.writeFileSync(JSON_REPORT, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
 
   const md = [];
@@ -144,6 +180,7 @@ async function main() {
     strictMode,
     accepted: accepted.map(item => item.username),
     businessAccess: businessAccepted.map(item => item.username),
+    findings,
     jsonReport: JSON_REPORT,
     markdownReport: MD_REPORT,
   }, null, 2));

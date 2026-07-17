@@ -1,0 +1,23 @@
+{
+  "schemaVersion": 1,
+  "status": "not-run",
+  "checkedAt": "2026-01-01T23:00:00Z",
+  "reviewer": "replace-with-ai-governance-reviewer",
+  "source": "runtime-probe",
+  "collectorImageDigest": "sha256:replace-with-64-hex-digest",
+  "collectorSha256": "replace-with-64-hex-collector-source-hash",
+  "instances": [
+    "https://replace-with-app-a",
+    "https://replace-with-app-b"
+  ],
+  "externalAiEnabled": false,
+  "paidModelCalls": 0,
+  "governedAiRequests": 0,
+  "budgetBreaches": 1,
+  "privacyIncidents": 1,
+  "crossTenantLeaks": 1,
+  "unresolvedAiIncidents": 1,
+  "fallbackVerified": false,
+  "metricsBeforeSha256": "replace-with-64-hex-metrics-fingerprint",
+  "metricsAfterSha256": "replace-with-64-hex-metrics-fingerprint"
+}

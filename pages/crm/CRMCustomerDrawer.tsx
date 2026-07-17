@@ -21,7 +21,7 @@ type Props = {
   loadingAi: boolean;
   onClose: () => void;
   onUploadLicense: (e: React.ChangeEvent<HTMLInputElement>) => void;
-  licenseInputRef: React.RefObject<HTMLInputElement>;
+  licenseInputRef: React.RefObject<HTMLInputElement | null>;
   onAddContact: () => void;
   onUpdateContact: <K extends keyof Contact>(idx: number, field: K, value: Contact[K]) => void;
   onAddAddress: () => void;

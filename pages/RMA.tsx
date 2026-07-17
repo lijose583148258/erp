@@ -8,7 +8,7 @@ import {
 } from 'lucide-react';
 import DataTable, { Column } from '../components/DataTable';
 import { StatusBadge } from '../components/ui/StatusBadge';
-import { customerService } from '../services/customer.service';
+import { customerService } from '../src/services/customer.service';
 import { rmaService } from '../services/rma.service';
 import { RmaRecord, RmaStatus } from '../types';
 import { useAppContext } from '../app/AppContext';

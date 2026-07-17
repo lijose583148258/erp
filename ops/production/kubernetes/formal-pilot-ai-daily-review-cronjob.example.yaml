@@ -1,0 +1,133 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: ailaoda-pilot-ai-daily-review
+  labels:
+    app: ailaoda-pilot-ai-review
+spec:
+  schedule: "30 22 * * *"
+  timeZone: Etc/UTC
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 1800
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 900
+      ttlSecondsAfterFinished: 604800
+      template:
+        metadata:
+          labels:
+            app: ailaoda-pilot-ai-review
+        spec:
+          restartPolicy: Never
+          automountServiceAccountToken: false
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1000
+            runAsGroup: 1000
+            fsGroup: 1000
+            fsGroupChangePolicy: OnRootMismatch
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: ai-review
+              image: ghcr.io/replace/ailaoda-pilot-observer@sha256:replace-with-64-hex-digest
+              imagePullPolicy: IfNotPresent
+              command: ["/bin/sh", "-ec"]
+              args:
+                - |
+                  umask 077
+                  export PILOT_AI_CHECKED_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                  export PILOT_AI_OUTPUT="/evidence/daily-source/$(date -u +%F).aiGovernance.runtime.json"
+                  exec node /app/capture-pilot-ai-governance-review.cjs
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                - name: PILOT_AI_APP_URLS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-observation
+                      key: app-urls
+                - name: PILOT_AI_USERNAME
+                  valueFrom:
+                    secretKeyRef:
+                      name: ailaoda-pilot-observer
+                      key: username
+                - name: PILOT_AI_PASSWORD_FILE
+                  value: /run/secrets/pilot/password
+                - name: PILOT_AI_METRICS_TOKEN_FILE
+                  value: /run/secrets/metrics/token
+                - name: PILOT_AI_COLLECTOR_IMAGE_DIGEST
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-observation
+                      key: pilot-observer-image-digest
+                - name: PILOT_AI_REVIEWER
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-ai-daily-review
+                      key: reviewer
+                - name: PILOT_AI_BUDGET_BREACHES
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-ai-daily-review
+                      key: budget-breaches
+                - name: PILOT_AI_PRIVACY_INCIDENTS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-ai-daily-review
+                      key: privacy-incidents
+                - name: PILOT_AI_CROSS_TENANT_LEAKS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-ai-daily-review
+                      key: cross-tenant-leaks
+                - name: PILOT_AI_UNRESOLVED_INCIDENTS
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-ai-daily-review
+                      key: unresolved-ai-incidents
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 250m
+                  memory: 128Mi
+              volumeMounts:
+                - name: pilot-secret
+                  mountPath: /run/secrets/pilot
+                  readOnly: true
+                - name: metrics-secret
+                  mountPath: /run/secrets/metrics
+                  readOnly: true
+                - name: evidence
+                  mountPath: /evidence
+                - name: tmp
+                  mountPath: /tmp
+          volumes:
+            - name: pilot-secret
+              secret:
+                secretName: ailaoda-pilot-observer
+                items:
+                  - key: password
+                    path: password
+                defaultMode: 0440
+            - name: metrics-secret
+              secret:
+                secretName: ailaoda-metrics-token
+                items:
+                  - key: token
+                    path: token
+                defaultMode: 0440
+            - name: evidence
+              persistentVolumeClaim:
+                claimName: ailaoda-pilot-evidence
+            - name: tmp
+              emptyDir:
+                sizeLimit: 32Mi

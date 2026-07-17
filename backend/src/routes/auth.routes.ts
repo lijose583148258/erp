@@ -1,13 +1,51 @@
-import { Router } from 'express';
+import { createHash } from 'node:crypto';
+import { Request, Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { AuthController } from '../controllers/auth.controller';
 import { authenticate, authorizePermission } from '../middleware/auth';
 import { body } from 'express-validator';
 import { validateRequest } from '../middleware/validateRequest';
 import { validateZod } from '../middleware/validateZod';
 import { refreshTokenSchema } from '../validators';
+import { createLoginRateLimitStore } from '../services/distributed-rate-limit.service';
 
 const router = Router();
 const authController = new AuthController();
+
+const loginRateLimitMessage = {
+    success: false,
+    message: 'Too many login attempts. Please try again later.',
+    errorCode: 'LOGIN_RATE_LIMITED',
+};
+
+const loginIpLimiter = rateLimit({
+    windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+    max: Number(process.env.LOGIN_IP_RATE_LIMIT_MAX || 100),
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    store: createLoginRateLimitStore('ip'),
+    message: loginRateLimitMessage,
+});
+
+const loginAccountKey = (request: Request) => {
+    const rawUsername = typeof request.body?.username === 'string' ? request.body.username : 'anonymous';
+    const normalizedUsername = rawUsername.normalize('NFKC').trim().toLowerCase() || 'anonymous';
+    const usernameHash = createHash('sha256').update(normalizedUsername).digest('hex').slice(0, 32);
+    const address = request.ip || request.socket.remoteAddress || 'unknown';
+    return `${address}:${usernameHash}`;
+};
+
+const loginAccountLimiter = rateLimit({
+    windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
+    max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 8),
+    standardHeaders: true,
+    legacyHeaders: false,
+    skipSuccessfulRequests: false,
+    keyGenerator: loginAccountKey,
+    store: createLoginRateLimitStore('account'),
+    message: loginRateLimitMessage,
+});
 
 const loginValidation = [
     body('username')
@@ -52,7 +90,7 @@ const registerValidation = [
         .withMessage('业务线类型无效'),
 ];
 
-router.post('/login', loginValidation, validateRequest, authController.login);
+router.post('/login', loginIpLimiter, loginAccountLimiter, loginValidation, validateRequest, authController.login);
 router.post('/register', authenticate, authorizePermission('team.write'), registerValidation, validateRequest, authController.register);
 router.post('/refresh', validateZod(refreshTokenSchema), authController.refreshToken);
 router.get('/me', authenticate, authController.getCurrentUser);

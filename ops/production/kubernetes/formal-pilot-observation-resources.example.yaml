@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ailaoda-pilot-observation
+data:
+  environment: replace-with-formal-pilot
+  evidence-id: replace-with-change-ticket
+  app-urls: https://app-a.example,https://app-b.example
+  commit-sha: replace-with-40-character-git-sha
+  application-image-digest: sha256:replace-with-64-hex-digest
+  pilot-observer-image-digest: sha256:replace-with-64-hex-digest
+  component-health-urls: >-
+    object-storage=http://replace-minio.ailaoda-pilot.svc:9000/minio/health/ready,
+    search-primary=http://replace-search-primary.ailaoda-pilot.svc:7700/health,
+    search-secondary=http://replace-search-secondary.ailaoda-pilot.svc:7700/health,
+    prometheus=http://replace-prometheus.monitoring.svc:9090/-/ready,
+    tempo=http://replace-tempo.monitoring.svc:3200/ready,
+    alertmanager=http://replace-alertmanager.monitoring.svc:9093/-/ready
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ailaoda-pilot-ai-daily-review
+data:
+  reviewer: replace-with-ai-governance-reviewer
+  # Fail closed until the daily reviewer explicitly confirms all four values.
+  budget-breaches: "1"
+  privacy-incidents: "1"
+  cross-tenant-leaks: "1"
+  unresolved-ai-incidents: "1"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ailaoda-pilot-evidence
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi

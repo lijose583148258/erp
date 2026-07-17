@@ -8,23 +8,23 @@ const {
   createProcurementApiAuditSupport,
   createProcurementAuditData,
 } = require('./lib/procurement-api-audit-support.cjs');
+const { createAuditPrismaClient, ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-const runtimeDbPath = process.env.AILAODA_RUNTIME_DB_PATH || 'D:/AilaoDaRuntime/stable.db';
-const runtimeDatabaseUrl = `file:${runtimeDbPath.replace(/\\/g, '/')}`;
-process.env.DATABASE_URL = runtimeDatabaseUrl;
-
-const { PrismaClient } = require('../backend/node_modules/@prisma/client');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'procurement-api-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-const prisma = new PrismaClient({
-  datasources: {
-    db: {
-      url: runtimeDatabaseUrl,
-    },
-  },
-});
+const prisma = createAuditPrismaClient();
+const SALES_ACCOUNT = {
+  username: process.env.AUDIT_SALES_USERNAME || 'procurement_audit_sales',
+  password: process.env.AUDIT_SALES_PASSWORD || 'ProcurementAuditSales12345!',
+  role: 'sales',
+};
+const MANAGER_ACCOUNT = {
+  username: process.env.AUDIT_MANAGER_USERNAME || 'procurement_audit_manager',
+  password: process.env.AUDIT_MANAGER_PASSWORD || 'ProcurementAuditManager12345!',
+  role: 'manager',
+};
 
 const DATA = createProcurementAuditData(RUN_ID);
 
@@ -61,8 +61,10 @@ const {
 
 async function run() {
   try {
+    await ensureUiAuditUser(SALES_ACCOUNT);
+    await ensureUiAuditUser(MANAGER_ACCOUNT);
     // 步骤 1：管理员登录
-    const manager = await login('manager', 'manager123');
+    const manager = await login(MANAGER_ACCOUNT.username, MANAGER_ACCOUNT.password);
     recordStep({ step: 'login-manager', result: 'passed', userId: manager.user.id });
 
     // 步骤 2：创建供应商
@@ -107,7 +109,7 @@ async function run() {
     recordStep({ step: 'verify-supplier-readback', result: 'passed', supplierId: supplier.id });
 
     // 步骤 4：确保有可用的销售订单
-    const sales = await login('sales', 'sales123');
+    const sales = await login(SALES_ACCOUNT.username, SALES_ACCOUNT.password);
     const auditCustomer = await createAuditCustomer(sales.token);
     report.customer = { id: String(auditCustomer.id), name: auditCustomer.name || DATA.customerName };
     recordStep({ step: 'create-audit-customer', result: 'passed', customerId: auditCustomer.id });

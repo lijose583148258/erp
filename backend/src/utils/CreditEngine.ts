@@ -1,5 +1,8 @@
+import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+
+type CreditDataClient = Pick<Prisma.TransactionClient, 'customer' | 'order'>;
 
 export type CreditStatus = 'healthy' | 'warning' | 'critical' | 'overlimit';
 
@@ -16,8 +19,8 @@ export class CreditEngine {
      * 计算客户当前的信用风险敞口
      * 敞口 = 所有未结清(pending/processing/shipped)订单的总金额 - 部分付款金额
      */
-    static async getExposure(customerId: number): Promise<CreditExposure> {
-        const customer = await prisma.customer.findUnique({
+    static async getExposure(customerId: number, db: CreditDataClient = prisma): Promise<CreditExposure> {
+        const customer = await db.customer.findUnique({
             where: { id: customerId },
             select: { creditLimit: true }
         });
@@ -26,7 +29,7 @@ export class CreditEngine {
         const limit = customer?.creditLimit != null ? Number(customer.creditLimit) : 0;
 
         // 获取所有未完全结清的订单 (排除已完成/已取消)
-        const activeOrders = await prisma.order.findMany({
+        const activeOrders = await db.order.findMany({
             where: {
                 customerId,
                 status: { notIn: ['completed', 'cancelled'] },
@@ -67,8 +70,8 @@ export class CreditEngine {
      *   0     = 明确禁止赊账 → 拒绝所有新订单
      *   > 0   = 正常信用额度检查
      */
-    static async checkOrder(customerId: number, newOrderAmount: number) {
-        const customer = await prisma.customer.findUnique({
+    static async checkOrder(customerId: number, newOrderAmount: number, db: CreditDataClient = prisma) {
+        const customer = await db.customer.findUnique({
             where: { id: customerId },
             select: {
                 creditLimit: true,
@@ -122,7 +125,7 @@ export class CreditEngine {
             };
         }
 
-        const exposure = await this.getExposure(customerId);
+        const exposure = await this.getExposure(customerId, db);
 
         let projectedUsage = 0;
         if (exposure.creditLimit > 0) {

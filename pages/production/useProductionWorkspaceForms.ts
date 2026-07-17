@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type SetStateAction } from 'react';
 import { type BomItemDraft } from './ProductionBomLineGrid';
 import {
   TEMPLATES,
@@ -8,7 +8,17 @@ import {
   type StepDraft,
 } from './productionWorkspaceConfig';
 
+const useTouchedState = () => {
+  const [touched, setTouched] = useState(false);
+  return {
+    touched,
+    markTouched: () => setTouched(true),
+    clearTouched: () => setTouched(false),
+  };
+};
+
 export const useProductionBomForm = () => {
+  const touch = useTouchedState();
   const [bomProductName, setBomProductName] = useState('');
   const [bomVersion, setBomVersion] = useState('v1');
   const [bomType, setBomType] = useState<BomType>('standard');
@@ -47,42 +57,94 @@ export const useProductionBomForm = () => {
 
   return {
     bomProductName,
-    setBomProductName,
+    setBomProductName: (value: string) => {
+      touch.markTouched();
+      setBomProductName(value);
+    },
     bomVersion,
-    setBomVersion,
+    setBomVersion: (value: string) => {
+      touch.markTouched();
+      setBomVersion(value);
+    },
     bomType,
-    setBomType,
+    setBomType: (value: BomType) => {
+      touch.markTouched();
+      setBomType(value);
+    },
     bomStatus,
-    setBomStatus,
+    setBomStatus: (value: BomLifecycleStatus) => {
+      touch.markTouched();
+      setBomStatus(value);
+    },
     bomFormulationMode,
-    setBomFormulationMode,
+    setBomFormulationMode: (value: string) => {
+      touch.markTouched();
+      setBomFormulationMode(value);
+    },
     bomOutputUnit,
-    setBomOutputUnit,
+    setBomOutputUnit: (value: string) => {
+      touch.markTouched();
+      setBomOutputUnit(value);
+    },
     bomStandardBatchSize,
-    setBomStandardBatchSize,
+    setBomStandardBatchSize: (value: string) => {
+      touch.markTouched();
+      setBomStandardBatchSize(value);
+    },
     bomBatchSizeUnit,
-    setBomBatchSizeUnit,
+    setBomBatchSizeUnit: (value: string) => {
+      touch.markTouched();
+      setBomBatchSizeUnit(value);
+    },
     bomDensity,
-    setBomDensity,
+    setBomDensity: (value: string) => {
+      touch.markTouched();
+      setBomDensity(value);
+    },
     bomSolidContent,
-    setBomSolidContent,
+    setBomSolidContent: (value: string) => {
+      touch.markTouched();
+      setBomSolidContent(value);
+    },
     bomEffectiveFrom,
-    setBomEffectiveFrom,
+    setBomEffectiveFrom: (value: string) => {
+      touch.markTouched();
+      setBomEffectiveFrom(value);
+    },
     bomEffectiveTo,
-    setBomEffectiveTo,
+    setBomEffectiveTo: (value: string) => {
+      touch.markTouched();
+      setBomEffectiveTo(value);
+    },
     bomProcessText,
-    setBomProcessText,
+    setBomProcessText: (value: string) => {
+      touch.markTouched();
+      setBomProcessText(value);
+    },
     bomQualitySpecText,
-    setBomQualitySpecText,
+    setBomQualitySpecText: (value: string) => {
+      touch.markTouched();
+      setBomQualitySpecText(value);
+    },
     bomNotes,
-    setBomNotes,
+    setBomNotes: (value: string) => {
+      touch.markTouched();
+      setBomNotes(value);
+    },
     bomItems,
-    setBomItems,
+    setBomItems: (value: SetStateAction<BomItemDraft[]>) => {
+      touch.markTouched();
+      setBomItems(value);
+    },
     resetBomForm,
+    touched: touch.touched,
+    markTouched: touch.markTouched,
+    clearTouched: touch.clearTouched,
   };
 };
 
 export const useProductionWorkOrderForm = (createInitialSteps: () => StepDraft[]) => {
+  const touch = useTouchedState();
   const [woProductName, setWoProductName] = useState('');
   const [woTargetQuantity, setWoTargetQuantity] = useState('');
   const [woProducedQuantity, setWoProducedQuantity] = useState('');
@@ -105,26 +167,55 @@ export const useProductionWorkOrderForm = (createInitialSteps: () => StepDraft[]
 
   return {
     woProductName,
-    setWoProductName,
+    setWoProductName: (value: string) => {
+      touch.markTouched();
+      setWoProductName(value);
+    },
+    setWoProductNameSilently: setWoProductName,
     woTargetQuantity,
-    setWoTargetQuantity,
+    setWoTargetQuantity: (value: string) => {
+      touch.markTouched();
+      setWoTargetQuantity(value);
+    },
     woProducedQuantity,
-    setWoProducedQuantity,
+    setWoProducedQuantity: (value: string) => {
+      touch.markTouched();
+      setWoProducedQuantity(value);
+    },
     woLossQuantity,
-    setWoLossQuantity,
+    setWoLossQuantity: (value: string) => {
+      touch.markTouched();
+      setWoLossQuantity(value);
+    },
     woPlannedStartAt,
-    setWoPlannedStartAt,
+    setWoPlannedStartAt: (value: string) => {
+      touch.markTouched();
+      setWoPlannedStartAt(value);
+    },
     woPlannedEndAt,
-    setWoPlannedEndAt,
+    setWoPlannedEndAt: (value: string) => {
+      touch.markTouched();
+      setWoPlannedEndAt(value);
+    },
     woNote,
-    setWoNote,
+    setWoNote: (value: string) => {
+      touch.markTouched();
+      setWoNote(value);
+    },
     woSteps,
-    setWoSteps,
+    setWoSteps: (value: SetStateAction<StepDraft[]>) => {
+      touch.markTouched();
+      setWoSteps(value);
+    },
     resetWoForm,
+    touched: touch.touched,
+    markTouched: touch.markTouched,
+    clearTouched: touch.clearTouched,
   };
 };
 
 export const useProductionQualityForm = () => {
+  const touch = useTouchedState();
   const [qcResult, setQcResult] = useState<'pass' | 'fail'>('pass');
   const [qcDefectRate, setQcDefectRate] = useState('');
   const [qcNote, setQcNote] = useState('');
@@ -139,18 +230,34 @@ export const useProductionQualityForm = () => {
 
   return {
     qcResult,
-    setQcResult,
+    setQcResult: (value: 'pass' | 'fail') => {
+      touch.markTouched();
+      setQcResult(value);
+    },
     qcDefectRate,
-    setQcDefectRate,
+    setQcDefectRate: (value: string) => {
+      touch.markTouched();
+      setQcDefectRate(value);
+    },
     qcNote,
-    setQcNote,
+    setQcNote: (value: string) => {
+      touch.markTouched();
+      setQcNote(value);
+    },
     qcCheckedBy,
-    setQcCheckedBy,
+    setQcCheckedBy: (value: string) => {
+      touch.markTouched();
+      setQcCheckedBy(value);
+    },
     resetQualityForm,
+    touched: touch.touched,
+    markTouched: touch.markTouched,
+    clearTouched: touch.clearTouched,
   };
 };
 
 export const useProductionAdjustmentForm = () => {
+  const touch = useTouchedState();
   const [templateId, setTemplateId] = useState(TEMPLATES[0].id);
   const [adjustmentQuantity, setAdjustmentQuantity] = useState('');
   const [adjustmentReason, setAdjustmentReason] = useState(TEMPLATES[0].reason);
@@ -164,12 +271,27 @@ export const useProductionAdjustmentForm = () => {
   return {
     selectedTemplate,
     templateId,
-    setTemplateId,
+    setTemplateId: (value: string) => {
+      touch.markTouched();
+      setTemplateId(value);
+    },
     adjustmentQuantity,
-    setAdjustmentQuantity,
+    setAdjustmentQuantity: (value: string) => {
+      touch.markTouched();
+      setAdjustmentQuantity(value);
+    },
     adjustmentReason,
-    setAdjustmentReason,
+    setAdjustmentReason: (value: string) => {
+      touch.markTouched();
+      setAdjustmentReason(value);
+    },
     adjustmentNote,
-    setAdjustmentNote,
+    setAdjustmentNote: (value: string) => {
+      touch.markTouched();
+      setAdjustmentNote(value);
+    },
+    touched: touch.touched,
+    markTouched: touch.markTouched,
+    clearTouched: touch.clearTouched,
   };
 };

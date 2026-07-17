@@ -1,4 +1,5 @@
 import { AppError, ErrorCode } from '../middleware/errorHandler';
+import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import { buildBusinessNo } from '../utils/businessNo';
 import { ReceiptDiscrepancyService } from './receipt-discrepancy.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
@@ -181,7 +182,7 @@ export async function postProcurementReceiptIfMissing(
 
   const receiptLocationId = await resolveProcurementReceiptLocationId(tx);
   const receiptNo = buildBusinessNo('PRC');
-  await tx.$executeRawUnsafe(
+  await executeRawCompat(tx, 
     `INSERT INTO purchase_receipts
       (receipt_no, purchase_order_id, quantity, accepted_quantity, rejected_quantity, unit, batch_no, stock_entry_ref, note, received_by, received_at, created_at)
      VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
@@ -235,22 +236,22 @@ function normalizeReceiptRow(row: PurchaseReceiptRow) {
 }
 
 export async function listPurchaseReceipts(tx: TransactionClient, purchaseOrderId: number) {
-  const rows = await tx.$queryRawUnsafe<PurchaseReceiptRow[]>(
+  const rows = await queryRawCompat<PurchaseReceiptRow[]>(tx, 
     `SELECT
        id,
-       receipt_no AS receiptNo,
-       purchase_order_id AS purchaseOrderId,
+       receipt_no AS "receiptNo",
+       purchase_order_id AS "purchaseOrderId",
        quantity,
-       accepted_quantity AS acceptedQuantity,
-       rejected_quantity AS rejectedQuantity,
+       accepted_quantity AS "acceptedQuantity",
+       rejected_quantity AS "rejectedQuantity",
        unit,
-       batch_no AS batchNo,
-       stock_entry_ref AS stockEntryRef,
-       discrepancy_reason AS discrepancyReason,
+       batch_no AS "batchNo",
+       stock_entry_ref AS "stockEntryRef",
+       discrepancy_reason AS "discrepancyReason",
        note,
-       received_by AS receivedBy,
-       received_at AS receivedAt,
-       created_at AS createdAt
+       received_by AS "receivedBy",
+       received_at AS "receivedAt",
+       created_at AS "createdAt"
      FROM purchase_receipts
      WHERE purchase_order_id = ?
      ORDER BY id ASC`,
@@ -260,12 +261,12 @@ export async function listPurchaseReceipts(tx: TransactionClient, purchaseOrderI
 }
 
 export async function getPurchaseReceiptTotals(tx: TransactionClient, purchaseOrderId: number) {
-  const rows = await tx.$queryRawUnsafe<PurchaseReceiptTotalsRow[]>(
+  const rows = await queryRawCompat<PurchaseReceiptTotalsRow[]>(tx, 
     `SELECT
-       COALESCE(SUM(quantity), 0) AS processedQuantity,
-       COALESCE(SUM(accepted_quantity), 0) AS acceptedQuantity,
-       COALESCE(SUM(rejected_quantity), 0) AS rejectedQuantity,
-       COUNT(*) AS receiptCount
+       COALESCE(SUM(quantity), 0) AS "processedQuantity",
+       COALESCE(SUM(accepted_quantity), 0) AS "acceptedQuantity",
+       COALESCE(SUM(rejected_quantity), 0) AS "rejectedQuantity",
+       COUNT(*) AS "receiptCount"
      FROM purchase_receipts
      WHERE purchase_order_id = ?`,
     purchaseOrderId,
@@ -351,7 +352,7 @@ export async function createPurchaseReceiptBatch(
   const discrepancyReason = toOptionalReceiptText(input.discrepancyReason);
   const receiptNote = toOptionalReceiptText(input.note);
 
-  await tx.$executeRawUnsafe(
+  await executeRawCompat(tx, 
     `INSERT INTO purchase_receipts
       (receipt_no, purchase_order_id, quantity, accepted_quantity, rejected_quantity, unit, batch_no, stock_entry_ref, discrepancy_reason, note, received_by, received_at, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
@@ -389,7 +390,7 @@ export async function createPurchaseReceiptBatch(
     }, tx);
   }
 
-  const receiptRows = await tx.$queryRawUnsafe<Array<{ id: number }>>(
+  const receiptRows = await queryRawCompat<Array<{ id: number }>>(tx, 
     `SELECT id FROM purchase_receipts WHERE receipt_no = ? LIMIT 1`,
     receiptNo,
   );

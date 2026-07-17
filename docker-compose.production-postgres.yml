@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  ailao-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.postgres
+    image: ailao-erp-crm:postgres
+    container_name: ailao-erp-crm-postgres
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
+    ports:
+      - "${AILAODA_HTTP_PORT:-5001}:5001"
+    environment:
+      NODE_ENV: production
+      AILAODA_DEPLOYMENT_MODE: saas
+      AILAODA_PRISMA_PROVIDER: postgresql
+      AILAODA_BLOCK_DEMO_CREDENTIALS: "true"
+      PORT: 5001
+      SERVE_FRONTEND: "true"
+      TRUST_PROXY: "true"
+      FRONTEND_DIST_DIR: /app/dist
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ailaoda}:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/${POSTGRES_DB:-ailaoda}?schema=public
+      BACKUP_DIR: /data/backups
+      LOG_DIR: /data/logs
+      UPLOAD_DIR: /data/uploads
+      FILE_STORAGE_DRIVER: ${FILE_STORAGE_DRIVER:-local}
+      REDIS_URL: redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set before PostgreSQL deployment}@redis:6379/0
+      AUTH_TOKEN_STORE_DRIVER: redis
+      LOGIN_RATE_LIMIT_STORE: redis
+      LOGIN_IP_RATE_LIMIT_MAX: ${LOGIN_IP_RATE_LIMIT_MAX:-100}
+      REALTIME_BUS_DRIVER: redis
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set before PostgreSQL deployment}
+      CORS_ORIGIN: ${CORS_ORIGIN:-http://127.0.0.1:5001,http://localhost:5001}
+    volumes:
+      - ailao-data-postgres:/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  postgres:
+    image: postgres:16-bookworm
+    container_name: ailao-postgres-production
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ailaoda}
+      POSTGRES_USER: ${POSTGRES_USER:-ailaoda}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set before PostgreSQL deployment}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ailao-postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  redis:
+    image: redis:7.4-bookworm
+    container_name: ailao-redis-production
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+      - --requirepass
+      - ${REDIS_PASSWORD:?REDIS_PASSWORD must be set before PostgreSQL deployment}
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD:?REDIS_PASSWORD must be set before PostgreSQL deployment}
+    volumes:
+      - ailao-redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  ailao-data-postgres:
+  ailao-postgres-data:
+  ailao-redis-data:

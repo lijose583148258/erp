@@ -1,4 +1,5 @@
 import type { TransactionClient } from './stock-movement.service';
+import { queryRawCompat } from '../utils/raw-sql-compat';
 import type {
   ReceiptDiscrepancyCounterpartyType,
   ReceiptDiscrepancySourceType,
@@ -23,7 +24,7 @@ export async function resolveToleranceDecision(tx: TransactionClient, input: {
   quantity: number;
   referenceQuantity?: number | null;
 }) {
-  const rows = await tx.$queryRawUnsafe<RawRow[]>(
+  const rows = await queryRawCompat<RawRow[]>(tx, 
     `${RULE_SELECT_SQL}
      WHERE status = 'active'
        AND (source_type = 'all' OR source_type = ?)

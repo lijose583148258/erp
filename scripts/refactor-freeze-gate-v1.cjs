@@ -15,6 +15,7 @@ const MD_REPORT = path.join(OUTPUT_DIR, 'refactor-freeze-gate-v1.md');
 const PLAN_FILE = path.join(ROOT, '爱劳达软件治理中心', '43_P3重构冻结门禁与低复杂度治理计划_20260618.md');
 const REQUIRED_PLAN_TARGETS = [
   'pages/ProductionWorkspaceV2.tsx',
+  'backend/src/database/postgres-migration.ts',
   'pages/WarehouseWorkspace.tsx',
   'pages/team/RoleManagementPanel.tsx',
 ];

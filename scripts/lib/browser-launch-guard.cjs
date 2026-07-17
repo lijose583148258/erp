@@ -4,7 +4,14 @@ const { spawn } = require('child_process');
 const { chromium } = require('playwright');
 
 const EDGE_PATH = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const CHROME_PATH = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
+const CHROME_PATH = process.env.BROWSER_AUDIT_EXECUTABLE_PATH
+  || [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    '/usr/bin/google-chrome',
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/chromium',
+  ].find((candidate) => fs.existsSync(candidate))
+  || 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
 
 function normalizeProbeText(value, limit = 320) {
   if (!value) return '';
@@ -47,16 +54,7 @@ function buildLaunchStrategies() {
     ];
   }
 
-  const strategies = [
-    {
-      name: 'playwright-chromium',
-      options: browserOptions,
-    },
-  ];
-
-  if (process.env.BROWSER_GUARD_SKIP_PROBE === '1') {
-    return strategies;
-  }
+  const strategies = [];
 
   if (fs.existsSync(EDGE_PATH)) {
     strategies.push({
@@ -71,6 +69,19 @@ function buildLaunchStrategies() {
       options: { headless: true, executablePath: CHROME_PATH },
     });
   }
+
+  if (process.env.BROWSER_GUARD_SKIP_PROBE === '1') {
+    strategies.push({
+      name: 'playwright-chromium',
+      options: browserOptions,
+    });
+    return strategies;
+  }
+
+  strategies.push({
+    name: 'playwright-chromium',
+    options: browserOptions,
+  });
 
   return strategies;
 }

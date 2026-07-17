@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { childOutputTailBase64, decodeChildOutputDetails } = require('./lib/child-output-decoder.cjs');
 
 const ROOT = process.cwd();
@@ -342,6 +343,32 @@ async function main() {
       }
       return { endpoints: results };
     }, 60_000);
+
+    await withTimeout('pilot-stability', async signal => {
+      const task = npmStepArgs('test:pilot-stability');
+      const result = await new Promise((resolve, reject) => {
+        const child = spawn(task.command, task.args, {
+          cwd: ROOT,
+          env: { ...process.env, APP_URL },
+          windowsHide: true,
+          shell: false,
+          signal,
+        });
+        let stdout = '';
+        let stderr = '';
+        child.stdout.on('data', chunk => { stdout += chunk.toString('utf8'); });
+        child.stderr.on('data', chunk => { stderr += chunk.toString('utf8'); });
+        child.on('error', reject);
+        child.on('close', code => {
+          if (code !== 0) {
+            reject(new Error(`test:pilot-stability failed with exit code ${code}\n${stdout.slice(-800)}\n${stderr.slice(-800)}`));
+            return;
+          }
+          resolve({ stdout: stdout.slice(-800), stderr: stderr.slice(-800) });
+        });
+      });
+      return result;
+    }, 900_000);
 
     report.status = 'passed';
   } catch (error) {

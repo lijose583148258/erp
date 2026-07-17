@@ -1,0 +1,110 @@
+name: AI evidence contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/ai-governed-runtime-audit-v1.cjs'
+      - 'scripts/crm-ai-assistant-browser-audit-v1.cjs'
+      - 'ops/production/kubernetes/verify-ai-evidence.cjs'
+      - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - '.github/workflows/ai-evidence-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-evidence-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static security and syntax checks
+        run: |
+          node --check scripts/ai-governed-runtime-audit-v1.cjs
+          node --check scripts/crm-ai-assistant-browser-audit-v1.cjs
+          node --check ops/production/kubernetes/verify-ai-evidence.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+          ! grep -E "sales123|AIRuntimeAudit.*!" scripts/ai-governed-runtime-audit-v1.cjs scripts/crm-ai-assistant-browser-audit-v1.cjs
+      - name: Verify AI binding and tamper rejection
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require('fs');
+          const os = require('os');
+          const path = require('path');
+          const { spawnSync } = require('child_process');
+
+          const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-evidence-'));
+          const evidencePath = path.join(dir, 'evidence.json');
+          const identity = {
+            environment: 'formal-pilot',
+            evidenceId: 'CHG-12345',
+            commitSha: 'a'.repeat(40),
+            imageDigest: `sha256:${'b'.repeat(64)}`,
+          };
+          const finishedAt = new Date(Date.now() - 1_000).toISOString();
+          const runtimeChecks = [
+            'dedicated-audit-login', 'default-local-only', 'shared-budget-and-circuit-configured',
+            'sentinel-shared-ai-limit', 'client-provider-fields-rejected-or-limited',
+            'ai-prometheus-outcomes', 'metrics-do-not-leak-prompts',
+          ].map(name => ({ name, status: 'passed' }));
+          const runtime = {
+            name: 'Governed AI Runtime Audit', version: '2.0', status: 'passed',
+            ...identity, finishedAt, instances: ['https://app-a.example', 'https://app-b.example'],
+            checks: runtimeChecks,
+          };
+          const browserSteps = [
+            'browser-external-ai-policy-redteam', 'assert-browser-external-ai-disabled',
+            'assert-hidden-data-request-refused', 'assert-server-governed-ai-fallback',
+            'click-ai-quick-analysis',
+          ].map(step => ({ step, result: 'passed' }));
+          const browser = roleLabel => ({
+            name: 'CRM AI Assistant Browser Audit', version: '2.0', status: 'passed',
+            ...identity, finishedAt, roleLabel, steps: browserSteps, consoleErrors: [],
+          });
+          const contractChecks = [
+            'local-only-default', 'sensitive-input-refusal', 'obfuscated-input-refusal',
+            'prompt-injection-refusal', 'aggregate-context-allowlist', 'client-provider-field-rejection',
+            'provider-failure-fallback', 'redirect-deny', 'bounded-safe-output',
+            'unsafe-output-rejection', 'oversized-output-rejection', 'prompt-free-metrics',
+            'budget-fail-closed', 'budget-exhaustion', 'shared-circuit-open', 'circuit-threshold-open',
+          ];
+          const contract = {
+            schemaVersion: 1, name: 'Governed AI Contract Attestation', status: 'passed',
+            repository: 'lijose583148258/erp', workflow: 'AI Governance Contract',
+            runId: '123', runUrl: 'https://github.com/lijose583148258/erp/actions/runs/123',
+            commitSha: identity.commitSha, generatedAt: finishedAt,
+            providerMode: 'mocked', paidModelCalls: 0, checks: contractChecks,
+          };
+          const reports = {
+            'ai-governed-runtime-audit-v1.json': runtime,
+            'crm-ai-assistant-browser-audit-report-v1.json': browser('admin'),
+            'crm-ai-assistant-browser-audit-report-v1-sales.json': browser('sales'),
+            'crm-ai-assistant-browser-audit-report-v1-governed.json': browser('admin-governed'),
+            'ai-governance-contract-attestation.json': contract,
+          };
+          for (const [name, report] of Object.entries(reports)) {
+            fs.writeFileSync(path.join(dir, name), `${JSON.stringify(report, null, 2)}\n`);
+          }
+          fs.writeFileSync(evidencePath, `${JSON.stringify(identity, null, 2)}\n`);
+
+          const verifier = path.resolve('ops/production/kubernetes/verify-ai-evidence.cjs');
+          const run = extra => spawnSync(process.execPath, [
+            verifier, '--reports-dir', dir, '--evidence', evidencePath, ...extra,
+          ], { encoding: 'utf8' });
+          const bound = run(['--bind']);
+          if (bound.status !== 0) throw new Error(bound.stderr || bound.stdout || 'Binding failed.');
+          const valid = run([]);
+          if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid evidence was rejected.');
+
+          contract.paidModelCalls = 1;
+          fs.writeFileSync(path.join(dir, 'ai-governance-contract-attestation.json'), `${JSON.stringify(contract, null, 2)}\n`);
+          const tampered = run([]);
+          if (tampered.status === 0) throw new Error('Paid or tampered AI attestation was accepted.');
+          console.log('AI evidence contract: PASSED');
+          NODE

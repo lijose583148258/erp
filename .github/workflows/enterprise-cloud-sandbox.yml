@@ -1,0 +1,388 @@
+name: Enterprise Cloud Sandbox
+
+on:
+  workflow_call:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/enterprise-cloud-sandbox.yml"
+      - "ops/cloud-sandbox/**"
+      - "scripts/**"
+      - "backend/**"
+      - "package*.json"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-cloud-sandbox-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-evidence-gate:
+    name: Current enterprise source evidence
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Verify enterprise pilot artifacts exist
+        id: gate
+        shell: bash
+        run: |
+          set +e
+          required=(
+            scripts/refresh-enterprise-pilot-evidence-v1.cjs
+            scripts/enterprise-pilot-readiness-audit-v1.cjs
+            scripts/redis-sentinel-automatic-failover-audit-v1.cjs
+            scripts/minio-application-failover-audit-v1.cjs
+            scripts/meilisearch-application-failover-audit-v1.cjs
+            scripts/ai-governed-runtime-audit-v1.cjs
+            ops/production/kubernetes/ailaoda-ha.yaml
+            docs/runbooks/ENTERPRISE_PILOT_RUNBOOK.md
+          )
+          missing=()
+          for file in "${required[@]}"; do
+            [[ -f "$file" ]] || missing+=("$file")
+          done
+          mkdir -p cloud-evidence
+          printf '%s\n' "${missing[@]}" > cloud-evidence/missing-enterprise-artifacts.txt
+          node -e 'const fs=require("fs"); const missing=fs.readFileSync("cloud-evidence/missing-enterprise-artifacts.txt","utf8").split(/\r?\n/).filter(Boolean); fs.writeFileSync("cloud-evidence/source-gate.json", JSON.stringify({name:"Enterprise cloud source gate",status:missing.length?"blocked":"passed",commit:process.env.GITHUB_SHA,missing,checkedAt:new Date().toISOString()},null,2)+"\n")'
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Remote branch is missing ${#missing[@]} enterprise pilot artifacts. Cloud runtime results must not be used as application readiness evidence."
+            exit 1
+          fi
+
+      - name: Upload source evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-source-gate
+          path: cloud-evidence/
+          retention-days: 14
+
+  cloud-runtime-stack:
+    name: Provision and audit enterprise dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
+      MINIO_ROOT_USER: ailaoda-sandbox
+      GRAFANA_ADMIN_USER: sandbox-admin
+      AILAODA_IMAGE_TAG: ${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate ephemeral sandbox secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          emit_secret() {
+            local name="$1"
+            local value
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::${value}"
+            printf '%s=%s\n' "${name}" "${value}" >> "${GITHUB_ENV}"
+          }
+          emit_secret POSTGRES_PASSWORD
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
+
+      - name: Record toolchain
+        run: |
+          mkdir -p cloud-evidence
+          {
+            docker version
+            docker compose version
+            uname -a
+          } | tee cloud-evidence/toolchain.txt
+
+      - name: Pull fixed dependency images
+        run: docker compose pull --ignore-buildable
+
+      - name: Start dependency topology
+        run: docker compose up -d --wait --wait-timeout 180
+
+      - name: Audit dependency health and topology
+        shell: bash
+        run: |
+          set -euo pipefail
+          probe() {
+            local name="$1"
+            local url="$2"
+            echo "Probing ${name}: ${url}"
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "${url}" > /dev/null
+            echo "Probe passed: ${name}"
+          }
+          probe minio-primary http://127.0.0.1:9000/minio/health/live
+          probe minio-secondary http://127.0.0.1:9010/minio/health/live
+          probe meilisearch-primary http://127.0.0.1:7700/health
+          probe meilisearch-secondary http://127.0.0.1:7710/health
+          probe prometheus http://127.0.0.1:9090/-/ready
+          probe grafana http://127.0.0.1:3001/api/health
+          probe otel-collector http://127.0.0.1:8888/metrics
+          docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
+          docker compose exec -T postgres-replica psql -U ailaoda -d ailaoda -tAc 'select pg_is_in_recovery()' | grep -Fx t
+          docker compose exec -T redis-primary redis-cli ping | grep -Fx PONG
+          docker compose exec -T redis-replica redis-cli INFO replication | tr -d '\r' | grep -Fx role:slave
+          wait_for_sentinel_quorum() {
+            local service="$1"
+            for attempt in {1..30}; do
+              if docker compose exec -T "${service}" redis-cli -p 26379 SENTINEL ckquorum ailaoda-primary | grep -F OK; then
+                return 0
+              fi
+              echo "Waiting for Sentinel quorum on ${service} (attempt ${attempt}/30)"
+              sleep 1
+            done
+            return 1
+          }
+          wait_for_sentinel_quorum sentinel-1
+          wait_for_sentinel_quorum sentinel-2
+          wait_for_sentinel_quorum sentinel-3
+          node -e 'const fs=require("fs"); fs.writeFileSync("cloud-evidence/runtime-stack.json", JSON.stringify({name:"Enterprise cloud dependency stack",status:"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,dependencies:{postgres:"ready",postgresReplica:"streaming",redisPrimary:"ready",redisReplica:"replicating",sentinelQuorum:3,minioEndpoints:2,meilisearchEndpoints:2,prometheus:"ready",grafana:"ready",otelCollector:"ready"},checkedAt:new Date().toISOString()},null,2)+"\n")'
+
+      - name: Capture diagnostics
+        if: always()
+        run: |
+          docker compose ps -a > cloud-evidence/compose-ps.txt
+          docker compose logs --no-color > cloud-evidence/compose.log 2>&1 || true
+
+      - name: Upload runtime evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-cloud-runtime-evidence
+          path: cloud-evidence/
+          retention-days: 14
+
+      - name: Stop sandbox
+        if: always()
+        run: docker compose down -v --remove-orphans
+
+  cloud-application-audit:
+    name: Deploy dual app and simulate human workflows
+    needs: source-evidence-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
+      MINIO_ROOT_USER: ailaoda-sandbox
+      GRAFANA_ADMIN_USER: sandbox-admin
+      AILAODA_IMAGE_TAG: ${{ github.run_id }}
+      APP_URL: http://127.0.0.1:5006/
+      SECONDARY_APP_URL: http://127.0.0.1:5008/
+      AUDIT_PRISMA_PROVIDER: postgresql
+      AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
+      BROWSER_AUDIT_VISIBLE: "0"
+      BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Generate ephemeral sandbox and audit secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated_secret=""
+          emit_secret() {
+            local name="$1"
+            generated_secret="$(openssl rand -hex 32)"
+            echo "::add-mask::${generated_secret}"
+            printf '%s=%s\n' "${name}" "${generated_secret}" >> "${GITHUB_ENV}"
+          }
+          emit_secret POSTGRES_PASSWORD
+          postgres_password="${generated_secret}"
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
+
+          audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          audit_password="$(openssl rand -hex 24)Aa1!"
+          audit_password_file="${RUNNER_TEMP}/ailaoda-cloud-audit-password"
+          echo "::add-mask::${audit_password}"
+          umask 077
+          printf '%s' "${audit_password}" > "${audit_password_file}"
+          {
+            printf 'CLOUD_AUDIT_USERNAME=%s\n' "${audit_username}"
+            printf 'CLOUD_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AUDIT_UI_USERNAME=%s\n' "${audit_username}"
+            printf 'AUDIT_UI_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AUDIT_UI_ROLE=admin\n'
+            printf 'AI_RUNTIME_AUDIT_USERNAME=%s\n' "${audit_username}"
+            printf 'AI_RUNTIME_AUDIT_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AILAODA_LOAD_USERNAME=%s\n' "${audit_username}"
+            printf 'AILAODA_LOAD_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_ADMIN_USERNAME=%s\n' "${audit_username}"
+            printf 'CONCURRENCY_ADMIN_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_SALES_USERNAME=cloud_ha_sales_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'CONCURRENCY_SALES_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_FINANCE_USERNAME=cloud_ha_finance_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'CONCURRENCY_FINANCE_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'CONCURRENCY_MANAGER_USERNAME=cloud_ha_manager_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
+            printf 'CONCURRENCY_MANAGER_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install application dependencies
+        run: |
+          npm ci
+          npm --prefix backend ci
+
+      - name: Verify cloud runner Chrome
+        run: google-chrome --version
+
+      - name: Start dependency topology
+        run: |
+          mkdir -p cloud-evidence
+          docker compose pull --ignore-buildable
+          docker compose up -d --wait --wait-timeout 180
+
+      - name: Build PostgreSQL schema and application image
+        run: |
+          npm run build:backend:postgres-artifact
+          node node_modules/prisma/build/index.js db push --schema=output/postgres-prisma-artifact/prisma --skip-generate
+          docker compose --profile application build app-primary
+
+      - name: Start dual application instances
+        run: docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+
+      - name: Verify application readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5006 5008; do
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/health" | tee "cloud-evidence/health-${port}.json"
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" | tee "cloud-evidence/ready-${port}.json"
+          done
+
+      - name: Simulate human ERP workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run audit:ui:unsaved-changes
+          npm run audit:ui:complex-input-governance
+          npm run audit:orders:browser
+          npm run audit:procurement:browser
+          npm run audit:warehouse:transfer:browser
+          npm run audit:shipping:browser
+          npm run audit:collection:human-flow
+
+      - name: Verify shared session across app instances
+        run: |
+          node - <<'NODE'
+          const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
+          (async () => {
+            const fs = require('fs');
+            const password = fs.readFileSync(process.env.CLOUD_AUDIT_PASSWORD_FILE, 'utf8').trim();
+            const roleAccounts = [
+              { username: process.env.CONCURRENCY_ADMIN_USERNAME, password, role: 'admin' },
+              { username: process.env.CONCURRENCY_SALES_USERNAME, password, role: 'sales' },
+              { username: process.env.CONCURRENCY_FINANCE_USERNAME, password, role: 'finance' },
+              { username: process.env.CONCURRENCY_MANAGER_USERNAME, password, role: 'manager' },
+            ];
+            const [account] = await Promise.all(roleAccounts.map(ensureUiAuditUser));
+            const login = await fetch(process.env.APP_URL + 'api/v1/auth/login', {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify(account),
+            });
+            if (!login.ok) throw new Error('Primary login failed: ' + login.status);
+            const body = await login.json();
+            const token = body?.data?.token;
+            if (!token) throw new Error('Primary login returned no token');
+            const secondary = await fetch(process.env.SECONDARY_APP_URL + 'api/v1/auth/me', {
+              headers: { authorization: 'Bearer ' + token },
+            });
+            if (!secondary.ok) throw new Error('Secondary rejected primary token: ' + secondary.status);
+            require('fs').writeFileSync('cloud-evidence/shared-session.json', JSON.stringify({
+              status: 'passed',
+              primaryLogin: login.status,
+              secondaryReadback: secondary.status,
+              checkedAt: new Date().toISOString(),
+            }, null, 2) + '\n');
+          })().catch(error => { console.error(error); process.exit(1); });
+          NODE
+
+      - name: Verify telemetry ingestion
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --silent http://127.0.0.1:8888/metrics > cloud-evidence/otel-collector-metrics.txt
+          docker compose logs --no-color otel-collector > cloud-evidence/otel-collector.log 2>&1
+          grep -E "Traces|ResourceSpans|ailaoda-erp-crm" cloud-evidence/otel-collector.log > cloud-evidence/otel-trace-proof.txt
+
+      - name: Verify AI isolation red team
+        run: npm run audit:ai:isolation
+
+      - name: Verify governed AI runtime
+        run: npm run audit:ai:governed-runtime
+
+      - name: Run dual-instance load gate
+        run: npm run audit:load:ha
+        env:
+          AILAODA_LOAD_REQUESTS: "1000"
+          AILAODA_LOAD_CONCURRENCY: "25"
+
+      - name: Run short HA soak gate
+        run: npm run audit:soak:ha
+        env:
+          HA_SOAK_DURATION_MS: "45000"
+          HA_SOAK_CONCURRENCY: "8"
+
+      - name: Exercise Redis Sentinel controlled failover
+        run: node ./scripts/cloud-redis-sentinel-failover-audit-v1.cjs
+
+      - name: Exercise search and object storage failover
+        run: node ./scripts/cloud-degradable-dependency-failover-audit-v1.cjs
+
+      - name: Reconcile concurrent business writes
+        run: npm run audit:concurrency:consistency
+
+      - name: Exercise PostgreSQL logical backup restore
+        run: node ./scripts/cloud-postgres-backup-restore-audit-v1.cjs
+
+      - name: Exercise PostgreSQL streaming promotion
+        run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
+
+      - name: Issue enterprise pilot technical verdict
+        run: node ./scripts/cloud-enterprise-pilot-verdict-v1.cjs
+
+      - name: Capture application evidence
+        if: always()
+        shell: bash
+        run: |
+          docker compose --profile application ps -a > cloud-evidence/application-compose-ps.txt || true
+          docker compose --profile application logs --no-color > cloud-evidence/application-compose.log 2>&1 || true
+          cp -r output/audit cloud-evidence/audit 2>/dev/null || true
+          cp -r output/playwright cloud-evidence/playwright 2>/dev/null || true
+          node -e 'const fs=require("fs"); fs.mkdirSync("cloud-evidence",{recursive:true}); const failed=process.env.JOB_STATUS!=="success"; fs.writeFileSync("cloud-evidence/application-audit-summary.json",JSON.stringify({name:"Enterprise cloud application audit",status:failed?"failed":"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,checkedAt:new Date().toISOString()},null,2)+"\n")'
+        env:
+          JOB_STATUS: ${{ job.status }}
+
+      - name: Upload application evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-cloud-application-evidence
+          path: cloud-evidence/
+          retention-days: 14
+
+      - name: Stop sandbox
+        if: always()
+        run: |
+          docker compose --profile application down -v --remove-orphans
+          rm -f "${CLOUD_AUDIT_PASSWORD_FILE:-}"

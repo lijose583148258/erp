@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import prisma from '../config/database';
+import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
@@ -90,15 +91,19 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
             let signedReceiptUrl: string | null = null;
             if (hasReceiptFile) {
                 try {
-                    signedReceiptUrl = storeReceiptFile(shipment.shipmentNo, req.body.fileName, req.body.mimeType, req.body.dataUrl);
-                } catch {
+                    signedReceiptUrl = await storeReceiptFile(shipment.shipmentNo, req.body.fileName, req.body.mimeType, req.body.dataUrl);
+                } catch (error) {
+                    const storageError = error instanceof Error ? error.message : '';
+                    if (storageError.startsWith('S3_')) {
+                        throw new AppError('RECEIPT_STORAGE_UNAVAILABLE', 503, ErrorCode.INTERNAL_ERROR);
+                    }
                     throw new AppError('INVALID_RECEIPT_FILE', 400, ErrorCode.VALIDATION_ERROR);
                 }
             }
 
             const receiptNo = buildBusinessNo('SPR');
             const receivedAt = new Date();
-            await tx.$executeRawUnsafe(
+            await executeRawCompat(tx, 
                 `INSERT INTO shipment_receipts
                   (receipt_no, shipment_id, quantity, accepted_quantity, rejected_quantity, unit, signed_receipt_url, discrepancy_reason, note, received_by, received_at, created_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
@@ -115,7 +120,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 receivedAt,
             );
 
-            const receiptRows = await tx.$queryRawUnsafe<Array<{ id: number }>>(
+            const receiptRows = await queryRawCompat<Array<{ id: number }>>(tx, 
                 `SELECT id FROM shipment_receipts WHERE receipt_no = ? LIMIT 1`,
                 receiptNo,
             );
@@ -218,6 +223,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
             SHIPMENT_ALREADY_FULLY_RECEIVED: '发货单已完成全部签收',
             SHIPMENT_RECEIPT_EXCEEDS_REMAINING: '签收数量超过剩余未签收数量',
             INVALID_RECEIPT_FILE: '签收文件格式不支持或文件过大',
+            RECEIPT_STORAGE_UNAVAILABLE: '签收凭证存储暂不可用，请稍后重试',
             RECEIPT_DISCREPANCY_BLOCKED_BY_TOLERANCE: '签收差异超过容差规则，已阻止处理',
         };
         return res.status(statusCode).json({

@@ -99,15 +99,34 @@ export class ProductionMutationService {
           bomNo,
           productName: input.productName,
           version: input.version || 'v1',
+          bomType: input.bomType || 'standard',
+          status: input.status || 'draft',
+          formulationMode: input.formulationMode || null,
           outputUnit: input.outputUnit,
+          standardBatchSize: input.standardBatchSize ?? null,
+          batchSizeUnit: input.batchSizeUnit || null,
+          density: input.density ?? null,
+          solidContent: input.solidContent ?? null,
+          effectiveFrom: toDateOrNull(input.effectiveFrom),
+          effectiveTo: toDateOrNull(input.effectiveTo),
+          processJson: input.processJson || null,
+          qualitySpecJson: input.qualitySpecJson || null,
           notes: input.notes || null,
           createdBy,
           items: {
             create: items.map(item => ({
               materialName: item.materialName,
+              materialCode: item.materialCode || null,
+              ingredientRole: item.ingredientRole || null,
+              dosageMode: item.dosageMode || null,
+              percentage: item.percentage ?? null,
               quantityPerUnit: Number(item.quantityPerUnit || 0),
               unit: item.unit,
               lossRate: Number(item.lossRate || 0),
+              allowedVarianceRate: item.allowedVarianceRate ?? null,
+              processStage: item.processStage || null,
+              substituteGroup: item.substituteGroup || null,
+              yieldContribution: item.yieldContribution ?? null,
               notes: item.notes || null,
             })),
           },
@@ -117,44 +136,6 @@ export class ProductionMutationService {
           items: { orderBy: { id: 'asc' } },
         },
       });
-
-      await tx.$executeRawUnsafe(
-        `UPDATE production_boms
-         SET bom_type = ?, status = ?, formulation_mode = ?, standard_batch_size = ?, batch_size_unit = ?, density = ?, solid_content = ?, effective_from = ?, effective_to = ?, process_json = ?, quality_spec_json = ?
-         WHERE id = ?`,
-        input.bomType || 'standard',
-        input.status || 'draft',
-        input.formulationMode || null,
-        input.standardBatchSize ?? null,
-        input.batchSizeUnit || null,
-        input.density ?? null,
-        input.solidContent ?? null,
-        toDateOrNull(input.effectiveFrom)?.toISOString() || null,
-        toDateOrNull(input.effectiveTo)?.toISOString() || null,
-        input.processJson || null,
-        input.qualitySpecJson || null,
-        created.id,
-      );
-
-      for (const [index, createdItem] of created.items.entries()) {
-        const item = items[index];
-        if (!item) continue;
-
-        await tx.$executeRawUnsafe(
-          `UPDATE production_bom_items
-           SET material_code = ?, ingredient_role = ?, dosage_mode = ?, percentage = ?, allowed_variance_rate = ?, process_stage = ?, substitute_group = ?, yield_contribution = ?
-           WHERE id = ?`,
-          item.materialCode || null,
-          item.ingredientRole || null,
-          item.dosageMode || null,
-          item.percentage ?? null,
-          item.allowedVarianceRate ?? null,
-          item.processStage || null,
-          item.substituteGroup || null,
-          item.yieldContribution ?? null,
-          createdItem.id,
-        );
-      }
 
       const refreshed = await tx.productionBom.findUnique({
         where: { id: created.id },
@@ -229,21 +210,7 @@ export class ProductionMutationService {
         throw new Error(`Work order not found: ${id}`);
       }
 
-      let bomItemsForValidation = workOrder.bom?.items || [];
-      if (workOrder.bom?.items?.length) {
-        const itemIds = workOrder.bom.items.map(item => item.id);
-        const extraRows = await tx.$queryRawUnsafe<Array<{ id: number; allowed_variance_rate: number | null }>>(
-          `SELECT id, allowed_variance_rate
-           FROM production_bom_items
-           WHERE id IN (${itemIds.map(() => '?').join(',')})`,
-          ...itemIds,
-        );
-        const varianceByItemId = new Map(extraRows.map(row => [Number(row.id), row.allowed_variance_rate]));
-        bomItemsForValidation = workOrder.bom.items.map(item => ({
-          ...item,
-          allowedVarianceRate: varianceByItemId.get(item.id) ?? null,
-        }));
-      }
+      const bomItemsForValidation = workOrder.bom?.items || [];
 
       if (workOrder.status === status) {
         return readWorkOrderDetail(tx, workOrder.id);

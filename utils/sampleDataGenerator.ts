@@ -3,6 +3,7 @@
  * 用于演示智能表格识别功能
  */
 import { reportClientIssue } from './clientIssue';
+import { exportRowsToXlsx } from './spreadsheetIO';
 
 // 客户信息示例数据
 export const sampleCustomerData = [
@@ -81,11 +82,7 @@ export const downloadCSV = (data: string[][], filename: string) => {
  */
 export const downloadExcel = async (data: string[][], filename: string) => {
   try {
-    const XLSX = await import('xlsx');
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Sheet1');
-    XLSX.writeFile(wb, filename);
+    await exportRowsToXlsx(data, filename, 'Sheet1');
   } catch (error) {
     reportClientIssue('sample-excel-export', error, 'warning');
     downloadCSV(data, filename.replace('.xlsx', '.csv'));

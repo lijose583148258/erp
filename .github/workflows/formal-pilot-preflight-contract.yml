@@ -1,0 +1,176 @@
+name: Formal pilot preflight contract
+
+on:
+  pull_request:
+    paths:
+      - 'ops/production/kubernetes/run-formal-pilot-preflight.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
+      - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
+      - '.github/workflows/formal-pilot-preflight-contract.yml'
+      - 'ops/production/kubernetes/README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: formal-pilot-preflight-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - name: Exercise read-only preflight contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check ops/production/kubernetes/run-formal-pilot-preflight.cjs
+          root="$(mktemp -d)"
+          trap 'kill "${server_pid:-}" 2>/dev/null || true; rm -rf "$root"' EXIT
+          cat > "$root/adapter" <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          kind="$(basename "$0")"
+          operation="${1:-}"
+          now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          case "$kind:$operation" in
+            postgres:topology) printf '{"failureDomains":["zone-a","zone-b"],"observedAt":"%s"}\n' "$now" ;;
+            postgres:discover) printf '{"id":"pg-a","failureDomain":"zone-a"}\n' ;;
+            redis:topology) printf '{"failureDomains":["zone-a","zone-b","zone-c"],"sentinelCount":3,"observedAt":"%s"}\n' "$now" ;;
+            redis:discover) printf '{"id":"redis-a","failureDomain":"zone-a"}\n' ;;
+            object:topology) printf '{"failureDomains":["zone-a","zone-b"],"observedAt":"%s"}\n' "$now" ;;
+            object:discover) printf '{"id":"object-a","failureDomain":"zone-a"}\n' ;;
+            search:topology) printf '{"failureDomains":["zone-a","zone-b"],"observedAt":"%s"}\n' "$now" ;;
+            search:discover) printf '{"id":"search-a","failureDomain":"zone-a"}\n' ;;
+            search:verify-live-query) printf '{"found":true,"endpointId":"search-a","failureDomain":"zone-a"}\n' ;;
+            *) printf '{}\n' ;;
+          esac
+          SH
+          chmod 700 "$root/adapter"
+          for name in postgres redis object search backup observability; do
+            cp "$root/adapter" "$root/$name"
+            chmod 700 "$root/$name"
+          done
+          cp "$root/adapter" "$root/receipt-service"
+          chmod 700 "$root/receipt-service"
+          node - "$root/receipt-public.pem" <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const { publicKey } = crypto.generateKeyPairSync('ed25519');
+          fs.writeFileSync(process.argv[2], publicKey.export({ type: 'spki', format: 'pem' }));
+          NODE
+          cat > "$root/server.cjs" <<'NODE'
+          const crypto = require('crypto');
+          const fs = require('fs');
+          const http = require('http');
+          const receiptPublicKeySha256 = crypto.createHash('sha256')
+            .update(fs.readFileSync(process.argv[2])).digest('hex');
+          const receiptIssuer = process.argv[3];
+          const respond = (res, status, body) => {
+            res.writeHead(status, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(body));
+          };
+          for (const port of [18081, 18082, 18083]) {
+            http.createServer((req, res) => {
+              if (req.url === '/health' && port === 18083) {
+                return respond(res, 200, {
+                  status: 'available',
+                  verifier: 'ed25519',
+                  issuer: receiptIssuer,
+                  publicKeySha256: receiptPublicKeySha256,
+                });
+              }
+              if (req.url === '/health') return respond(res, 200, {
+                database: 'ok', telemetry: { serviceInstanceId: `instance-${port}` },
+              });
+              if (req.url === '/api/v1/ready') return respond(res, 200, { database: 'ok' });
+              if (req.url === '/api/v1/auth/login' && req.method === 'POST') {
+                return respond(res, 200, { data: { token: 'contract-token' } });
+              }
+              if (req.url === '/api/v1/auth/me') return respond(res, 200, { data: { id: 'audit-user' } });
+              if (req.url.startsWith('/api/v1/orders')) return respond(res, 200, { data: [{ id: 'order-1' }] });
+              return respond(res, 404, {});
+            }).listen(port, '127.0.0.1');
+          }
+          NODE
+          node "$root/server.cjs" "$root/receipt-public.pem" provider-backup-control-plane &
+          server_pid=$!
+          sleep 1
+          printf '%s' 'random-contract-password' > "$root/password"
+          chmod 440 "$root/password"
+          cat > "$root/evidence.json" <<JSON
+          {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
+          JSON
+          adapter_sha="$(sha256sum "$root/adapter" | awk '{print $1}')"
+          receipt_service_sha="$(sha256sum "$root/receipt-service" | awk '{print $1}')"
+          receipt_key_sha="$(sha256sum "$root/receipt-public.pem" | awk '{print $1}')"
+          cat > "$root/provider-profile.json" <<JSON
+          {
+            "schemaVersion":1,
+            "environment":"formal-pilot",
+            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery"},
+            "adapters":{
+              "postgres":{"fileName":"postgres","sha256":"${adapter_sha}"},
+              "redis":{"fileName":"redis","sha256":"${adapter_sha}"},
+              "objectStorage":{"fileName":"object","sha256":"${adapter_sha}"},
+              "search":{"fileName":"search","sha256":"${adapter_sha}"},
+              "backup":{"fileName":"backup","sha256":"${adapter_sha}"},
+              "observability":{"fileName":"observability","sha256":"${adapter_sha}"}
+            },
+            "postgresql":{"kind":"cloudnativepg","instances":3,"haAdapter":"postgres","backup":{"method":"barman-object-store","encrypted":true,"checksumEvidence":"barman-manifest","isolatedRestore":true,"receiptVerifier":{"mode":"ed25519-provider-signed","issuer":"provider-backup-control-plane","publicKeySha256":"${receipt_key_sha}","serviceFileName":"receipt-service","serviceSha256":"${receipt_service_sha}"}}},
+            "redis":{"kind":"sentinel","dataInstances":3,"sentinelCount":3,"haAdapter":"redis"},
+            "objectStorage":{"kind":"minio-distributed","dataPods":4,"haAdapter":"object","pvcDeletePermission":false},
+            "search":{"kind":"meilisearch","servingInstances":2,"backupMethod":"dump-to-object-store","isolatedRestore":true,"restoreNamespace":"ailaoda-pilot-recovery"},
+            "observability":{"traceBackend":"tempo","alertRoute":"pilot-operations","deliveryReceiptStore":"webhook-audit-store"},
+            "ai":{"mode":"local-only","externalGateway":false,"paidCallBudget":0},
+            "observation":{"continuousHours":8,"pilotDays":7,"collectorImageDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+          }
+          JSON
+          node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \
+            "$root/provider-profile.json" --evidence "$root/evidence.json" --bind
+          export FORMAL_PILOT_PREFLIGHT_ENVIRONMENT=formal-pilot
+          export FORMAL_PILOT_PREFLIGHT_EVIDENCE_ID=CHG-12345
+          export FORMAL_PILOT_PREFLIGHT_COMMIT_SHA="${GITHUB_SHA}"
+          export FORMAL_PILOT_PREFLIGHT_IMAGE_DIGEST="sha256:$(printf 'b%.0s' {1..64})"
+          export FORMAL_PILOT_PREFLIGHT_APP_URLS=http://127.0.0.1:18081,http://127.0.0.1:18082
+          export FORMAL_PILOT_PREFLIGHT_USERNAME=audit-user
+          export FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE="$root/password"
+          export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=http://127.0.0.1:18083
+          export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE="$root/receipt-public.pem"
+          node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+            --evidence "$root/evidence.json" \
+            --provider-profile "$root/provider-profile.json" \
+            --report "$root/report.json" \
+            --postgres-adapter "$root/postgres" \
+            --redis-adapter "$root/redis" \
+            --object-adapter "$root/object" \
+            --search-adapter "$root/search" \
+            --backup-adapter "$root/backup" \
+            --observability-adapter "$root/observability" \
+            --backup-receipt-service "$root/receipt-service"
+          node -e 'const r=require(process.argv[1]); if(r.status!=="passed"||r.mode!=="read-only"||!/^[0-9a-f]{64}$/.test(r.providerProfileSha256)||Object.keys(r.adapterSha256||{}).length!==6||!/^[0-9a-f]{64}$/.test(r.backupReceiptVerifier?.publicKeySha256)||r.checks.some(x=>x.status!=="passed")) process.exit(1)' "$root/report.json"
+          printf '\n' >> "$root/search"
+          if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+            --evidence "$root/evidence.json" --provider-profile "$root/provider-profile.json" \
+            --report "$root/tampered-adapter.json" \
+            --postgres-adapter "$root/postgres" --redis-adapter "$root/redis" \
+            --object-adapter "$root/object" --search-adapter "$root/search" \
+            --backup-adapter "$root/backup" --observability-adapter "$root/observability"; then
+            echo "Tampered adapter was accepted" >&2
+            exit 1
+          fi
+          cp "$root/adapter" "$root/search"
+          chmod 700 "$root/search"
+          chmod 644 "$root/password"
+          if node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
+            --evidence "$root/evidence.json" --provider-profile "$root/provider-profile.json" \
+            --report "$root/rejected.json" \
+            --postgres-adapter "$root/postgres" --redis-adapter "$root/redis" \
+            --object-adapter "$root/object" --search-adapter "$root/search" \
+            --backup-adapter "$root/backup" --observability-adapter "$root/observability"; then
+            echo "Insecure password permissions were accepted" >&2
+            exit 1
+          fi

@@ -1,0 +1,87 @@
+name: AI Governance Contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/enterprise-cloud-sandbox
+    paths:
+      - ".github/workflows/ai-governance-contract.yml"
+      - "backend/src/services/ai-governance.service.ts"
+      - "backend/src/services/ai-governance.service.test.ts"
+      - "backend/src/services/ai-budget.service.ts"
+      - "backend/src/services/ai-budget.service.test.ts"
+      - "backend/src/middleware/metricsMiddleware.ts"
+      - "backend/src/validators/ai.ts"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ai-governance-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  governed-ai:
+    name: Safe external AI boundary
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+
+      - name: Install backend dependencies
+        run: npm ci
+
+      - name: Run governed AI contract
+        run: npm test -- --runInBand src/services/ai-governance.service.test.ts src/services/ai-budget.service.test.ts
+        env:
+          NODE_ENV: test
+
+      - name: Write zero-cost contract attestation
+        working-directory: .
+        shell: bash
+        run: |
+          mkdir -p ai-contract-evidence
+          node <<'NODE'
+          const fs = require('fs');
+          const report = {
+            schemaVersion: 1,
+            name: 'Governed AI Contract Attestation',
+            status: 'passed',
+            repository: process.env.GITHUB_REPOSITORY,
+            workflow: process.env.GITHUB_WORKFLOW,
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            runUrl: `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`,
+            commitSha: process.env.GITHUB_SHA,
+            generatedAt: new Date().toISOString(),
+            providerMode: 'mocked',
+            paidModelCalls: 0,
+            checks: [
+              'local-only-default', 'sensitive-input-refusal', 'obfuscated-input-refusal',
+              'prompt-injection-refusal', 'aggregate-context-allowlist', 'client-provider-field-rejection',
+              'provider-failure-fallback', 'redirect-deny', 'bounded-safe-output',
+              'unsafe-output-rejection', 'oversized-output-rejection', 'prompt-free-metrics',
+              'budget-fail-closed', 'budget-exhaustion', 'shared-circuit-open',
+              'circuit-threshold-open',
+            ],
+          };
+          fs.writeFileSync('ai-contract-evidence/ai-governance-contract-attestation.json', `${JSON.stringify(report, null, 2)}\n`);
+          NODE
+
+      - name: Upload governed AI attestation
+        uses: actions/upload-artifact@v4
+        with:
+          name: ai-governance-contract-attestation
+          path: ai-contract-evidence/ai-governance-contract-attestation.json
+          retention-days: 30

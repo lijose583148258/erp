@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "evidenceId": "replace-with-change-ticket-or-drill-id",
+  "environment": "replace-with-real-staging-environment",
+  "observedAt": "2026-01-01T00:00:00Z",
+  "commitSha": "replace-with-40-character-git-sha",
+  "imageDigest": "sha256:replace-with-64-hex-digest",
+  "providerProfile": {
+    "status": "not-bound",
+    "environment": "",
+    "sha256": "",
+    "verifiedAt": ""
+  },
+  "postgres": {
+    "automaticElection": false,
+    "failureDomains": [],
+    "writerBefore": "",
+    "writerAfter": "",
+    "rtoSeconds": 0,
+    "maxRtoSeconds": 60,
+    "postFailoverWriteReadback": false,
+    "oldPrimaryRejoinedAsReplica": false,
+    "backupRestoreReadback": false
+  },
+  "redis": {
+    "automaticElection": false,
+    "sentinelCount": 0,
+    "failureDomains": [],
+    "masterBefore": "",
+    "masterAfter": "",
+    "rtoSeconds": 0,
+    "maxRtoSeconds": 30,
+    "applicationWriteReadback": false,
+    "oldMasterRejoinedAsReplica": false
+  },
+  "objectStorage": {
+    "crossFailureDomainDurability": false,
+    "applicationReadFailover": false,
+    "writeReadback": false,
+    "reportSha256": ""
+  },
+  "search": {
+    "applicationFallback": false,
+    "indexRecoveryReadback": false,
+    "backupRestoreReadback": false,
+    "failoverReportSha256": "",
+    "restoreReportSha256": ""
+  },
+  "observability": {
+    "bothApplicationTargetsUp": false,
+    "alertsDelivered": false,
+    "failoverTracesPresent": false,
+    "droppedSpanRegression": false,
+    "serviceMonitorTargets": 0,
+    "alertRulesLoaded": false,
+    "alertDeliveryDrill": false,
+    "reportSha256": "",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "observability": ""
+    }
+  },
+  "observation": {
+    "continuousHours": 0,
+    "stagedPilotDays": 0,
+    "zeroUnreconciledBusinessWrites": false,
+    "alertReviewCompleted": false,
+    "machineVerified": false,
+    "continuousReportSha256": "",
+    "pilotLedgerSha256": ""
+  },
+  "ai": {
+    "externalEnabled": false,
+    "roleIsolationPassed": false,
+    "aggregateOnlyBoundaryPassed": false,
+    "dailyBudgetEnforced": false,
+    "circuitBreakerPassed": false,
+    "promptFreeTelemetryPassed": false,
+    "localFallbackPassed": false,
+    "externalGatewayAllowlistPassed": false,
+    "secretManagerBacked": false,
+    "redTeamPassed": false,
+    "outputSafetyPassed": false,
+    "responseLimitPassed": false,
+    "redirectBoundaryPassed": false,
+    "serverInputSafetyPassed": false,
+    "contextAllowlistPassed": false
+  },
+  "approvals": {
+    "platformOwner": "",
+    "databaseOwner": "",
+    "securityOwner": "",
+    "businessPilotOwner": ""
+  },
+  "haDrill": {
+    "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "postgres": "",
+      "redis": ""
+    },
+    "environment": "",
+    "changeTicket": "",
+    "startedAt": "",
+    "finishedAt": "",
+    "postgres": {},
+    "redis": {}
+  },
+  "backupDrill": {
+    "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "backup": ""
+    },
+    "environment": "",
+    "changeTicket": "",
+    "startedAt": "",
+    "finishedAt": "",
+    "backupId": null,
+    "restoreId": null,
+    "checksumVerified": false,
+    "encrypted": false,
+    "markerReadback": false,
+    "schemaCompatible": false,
+    "cleanupVerified": false,
+    "backupCompletionSeconds": null,
+    "recoveryPointAt": "",
+    "verifiedMarkerRpoSeconds": null,
+    "restoreRtoSeconds": null,
+    "recoveredThroughAt": "",
+    "reportSha256": ""
+  },
+  "storageSearchDrill": {
+    "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "objectStorage": "",
+      "search": ""
+    },
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "objectStorageReportSha256": "",
+    "searchFailoverReportSha256": "",
+    "searchRestoreReportSha256": ""
+  },
+  "observabilityDrill": {
+    "status": "not-run",
+    "providerProfileSha256": "",
+    "adapterSha256": {
+      "observability": ""
+    },
+    "environment": "",
+    "changeTicket": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "startedAt": "",
+    "finishedAt": "",
+    "traceCount": 0,
+    "receiptId": null,
+    "reportSha256": ""
+  },
+  "loadReconciliation": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "requests": 0,
+    "concurrency": 0,
+    "failures": null,
+    "p95Ms": null,
+    "p99Ms": null,
+    "throughputRps": null,
+    "reconciledPaidAmount": null,
+    "loadReportSha256": "",
+    "concurrencyReportSha256": ""
+  },
+  "aiDrill": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "externalEnabled": false,
+    "paidModelCalls": null,
+    "runtimeReportSha256": "",
+    "adminBrowserReportSha256": "",
+    "salesBrowserReportSha256": "",
+    "governedBrowserReportSha256": "",
+    "contractReportSha256": ""
+  },
+  "securityDrill": {
+    "status": "not-run",
+    "environment": "",
+    "evidenceId": "",
+    "commitSha": "",
+    "imageDigest": "",
+    "verifiedAt": "",
+    "cspPassed": false,
+    "csrfBoundaryPassed": false,
+    "mfaPassed": false,
+    "secretsPassed": false,
+    "distributedAuthPassed": false,
+    "dependencyAuditPassed": false,
+    "defaultCredentialsRejected": false,
+    "readinessReportSha256": "",
+    "defaultCredentialReportSha256": ""
+  }
+}

@@ -192,6 +192,7 @@ function getTasks(profile) {
     task('stable-entrypoint-policy', 'node', ['scripts/stable-entrypoint-policy-audit-v1.cjs']),
     task('legacy-interface-disconnect', 'node', ['scripts/legacy-interface-disconnect-audit-v1.cjs']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
+    npmTask('pilot-stability', ['run', 'test:pilot-stability']),
     npxTask('business-rejection-log-classification', ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     npxTask('runtime-db-integrity', ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),

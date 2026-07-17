@@ -1,0 +1,57 @@
+{
+  "name": "Enterprise Continuous Observation",
+  "version": "1.0",
+  "status": "not-run",
+  "startedAt": "",
+  "finishedAt": "",
+  "durationMs": 28800000,
+  "commitSha": "replace-with-40-character-git-sha",
+  "imageDigest": "sha256:replace-with-64-hex-digest",
+  "checks": [],
+  "summary": {
+    "failures": 1,
+    "p95Ms": 0,
+    "instanceRequests": {},
+    "components": {
+      "object-storage": {
+        "url": "https://object-storage.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "search-primary": {
+        "url": "https://search-primary.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "search-secondary": {
+        "url": "https://search-secondary.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "prometheus": {
+        "url": "https://prometheus.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "tempo": {
+        "url": "https://tempo.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      },
+      "alertmanager": {
+        "url": "https://alertmanager.example/health",
+        "probes": 0,
+        "failures": 1,
+        "lastStatus": 0
+      }
+    },
+    "readinessSamples": 0,
+    "readinessSemanticFailures": 1
+  },
+  "collectorImageDigest": "sha256:replace-with-64-hex-observer-image-digest"
+}

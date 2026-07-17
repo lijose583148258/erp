@@ -278,26 +278,28 @@ function worstRisk(risks: Marker['cleanupRisk'][]) {
 }
 
 async function getTables() {
-  const tables = await prisma.$queryRawUnsafe<SqliteTableRow[]>(
+  const tables = (await prisma.$queryRawUnsafe(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-  );
+  )) as SqliteTableRow[];
   return tables.map(row => row.name).filter(name => !EXCLUDED_TABLES.has(name));
 }
 
 async function getColumns(table: string) {
-  return prisma.$queryRawUnsafe<SqliteColumnRow[]>(`PRAGMA table_info(${quoteIdentifier(table)})`);
+  return (await prisma.$queryRawUnsafe(`PRAGMA table_info(${quoteIdentifier(table)})`)) as SqliteColumnRow[];
 }
 
 async function countRows(table: string) {
-  const rows = await prisma.$queryRawUnsafe<CountRow[]>(`SELECT COUNT(*) AS count FROM ${quoteIdentifier(table)}`);
+  const rows = (await prisma.$queryRawUnsafe(
+    `SELECT COUNT(*) AS count FROM ${quoteIdentifier(table)}`,
+  )) as CountRow[];
   return toNumber(rows[0]?.count);
 }
 
 async function countPattern(table: string, column: string, pattern: string) {
-  const rows = await prisma.$queryRawUnsafe<CountRow[]>(
+  const rows = (await prisma.$queryRawUnsafe(
     `SELECT COUNT(*) AS count FROM ${quoteIdentifier(table)} WHERE CAST(${quoteIdentifier(column)} AS TEXT) LIKE ?`,
     `%${pattern}%`,
-  );
+  )) as CountRow[];
   return toNumber(rows[0]?.count);
 }
 
@@ -306,10 +308,10 @@ async function getSamples(table: string, column: string, patterns: string[], col
   const selectSql = selectedColumns.map(name => quoteIdentifier(name)).join(', ');
   const whereSql = patterns.map(() => `CAST(${quoteIdentifier(column)} AS TEXT) LIKE ?`).join(' OR ');
   const params = patterns.map(pattern => `%${pattern}%`);
-  return prisma.$queryRawUnsafe<SampleRow[]>(
+  return (await prisma.$queryRawUnsafe(
     `SELECT ${selectSql} FROM ${quoteIdentifier(table)} WHERE ${whereSql} LIMIT 5`,
     ...params,
-  );
+  )) as SampleRow[];
 }
 
 async function run() {

@@ -1,0 +1,313 @@
+services:
+  postgres:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_DB: ailaoda
+      POSTGRES_USER: ailaoda
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:?required}
+    volumes:
+      - postgres-primary-data:/var/lib/postgresql/data
+      - ./postgres-init-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
+    ports:
+      - "55432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailaoda -d ailaoda"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  postgres-replica:
+    image: postgres:16.9-alpine
+    environment:
+      POSTGRES_DB: ailaoda
+      POSTGRES_USER: ailaoda
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_REPLICATION_PASSWORD: ${POSTGRES_REPLICATION_PASSWORD:?required}
+      PGDATA: /var/lib/postgresql/data
+    entrypoint:
+      - /bin/bash
+      - -ec
+      - |
+        if [ ! -s "$$PGDATA/PG_VERSION" ]; then
+          rm -rf "$$PGDATA"/*
+          mkdir -p "$$PGDATA"
+          chown -R postgres:postgres "$$PGDATA"
+          until gosu postgres env PGPASSWORD="$$POSTGRES_REPLICATION_PASSWORD" pg_basebackup -h postgres -U ailaoda_replica -D "$$PGDATA" -Fp -Xs -P -R; do
+            sleep 2
+          done
+          chmod 700 "$$PGDATA"
+        fi
+        exec docker-entrypoint.sh postgres
+    volumes:
+      - postgres-replica-data:/var/lib/postgresql/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ailaoda -d ailaoda"]
+      interval: 2s
+      timeout: 3s
+      retries: 60
+
+  postgres-router:
+    image: haproxy:3.1-alpine
+    volumes:
+      - ./haproxy-postgres.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-replica:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 5432"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-primary:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    networks:
+      default:
+        ipv4_address: 172.29.0.240
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  redis-replica:
+    image: redis:7.4.2-alpine
+    command: ["redis-server", "--replicaof", "172.29.0.240", "6379", "--replica-announce-ip", "172.29.0.241", "--replica-announce-port", "6379", "--appendonly", "yes"]
+    networks:
+      default:
+        ipv4_address: 172.29.0.241
+    ports:
+      - "6381:6379"
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+
+  sentinel-1: &sentinel
+    image: redis:7.4.2-alpine
+    environment:
+      SENTINEL_START_DELAY: "0"
+    networks:
+      default:
+        ipv4_address: 172.29.0.242
+    command:
+      - sh
+      - -ec
+      - |
+        sleep "$$SENTINEL_START_DELAY"
+        printf 'port 26379\nsentinel monitor ailaoda-primary 172.29.0.240 6379 2\nsentinel down-after-milliseconds ailaoda-primary 30000\nsentinel failover-timeout ailaoda-primary 180000\nsentinel parallel-syncs ailaoda-primary 1\n' > /tmp/sentinel.conf
+        exec redis-server /tmp/sentinel.conf --sentinel
+    ports:
+      - "26379:26379"
+    depends_on:
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_started
+
+  sentinel-2:
+    <<: *sentinel
+    environment:
+      SENTINEL_START_DELAY: "2"
+    networks:
+      default:
+        ipv4_address: 172.29.0.243
+    ports:
+      - "26380:26379"
+
+  sentinel-3:
+    <<: *sentinel
+    environment:
+      SENTINEL_START_DELAY: "4"
+    networks:
+      default:
+        ipv4_address: 172.29.0.244
+    ports:
+      - "26381:26379"
+
+  minio-primary:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio-secondary:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+    ports:
+      - "9010:9000"
+      - "9011:9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio-primary:
+        condition: service_healthy
+      minio-secondary:
+        condition: service_healthy
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        mc alias set primary http://minio-primary:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+        mc alias set secondary http://minio-secondary:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+        mc mb --ignore-existing primary/ailaoda-files
+        mc mb --ignore-existing secondary/ailaoda-files
+        exec tail -f /dev/null
+    healthcheck:
+      test: ["CMD-SHELL", "mc stat primary/ailaoda-files >/dev/null && mc stat secondary/ailaoda-files >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?required}
+
+  meilisearch-primary:
+    image: getmeili/meilisearch:v1.15.2
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?required}
+    ports:
+      - "7700:7700"
+
+  meilisearch-secondary:
+    image: getmeili/meilisearch:v1.15.2
+    environment:
+      MEILI_MASTER_KEY: ${MEILI_MASTER_KEY:?required}
+    ports:
+      - "7710:7700"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.123.0
+    command: ["--config=/etc/otelcol/config.yml"]
+    volumes:
+      - ./otel-collector.yml:/etc/otelcol/config.yml:ro
+    ports:
+      - "4318:4318"
+      - "8888:8888"
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    command: ["--config.file=/etc/prometheus/prometheus.yml"]
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9090:9090"
+
+  grafana:
+    image: grafana/grafana:11.6.0
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:?required}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?required}
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    ports:
+      - "3001:3000"
+
+  app-primary: &app
+    profiles: ["application"]
+    build:
+      context: ../..
+      dockerfile: Dockerfile.postgres
+    image: ailaoda-enterprise-cloud:${AILAODA_IMAGE_TAG:-sandbox}
+    environment: &app-environment
+      NODE_ENV: production
+      AILAODA_DEPLOYMENT_MODE: saas
+      AILAODA_PRISMA_PROVIDER: postgresql
+      AILAODA_BLOCK_DEMO_CREDENTIALS: "true"
+      SERVE_FRONTEND: "true"
+      PORT: "5001"
+      DATABASE_URL: postgresql://ailaoda:${POSTGRES_PASSWORD:?required}@postgres-router:5432/ailaoda?schema=public
+      JWT_SECRET: ${JWT_SECRET:?required}
+      REDIS_URL: ""
+      REDIS_SENTINELS: sentinel-1:26379,sentinel-2:26379,sentinel-3:26379
+      REDIS_MASTER_NAME: ailaoda-primary
+      CACHE_DRIVER: redis
+      AUTH_TOKEN_STORE_DRIVER: redis
+      LOGIN_RATE_LIMIT_STORE: redis
+      LOGIN_RATE_LIMIT_MAX: "1000"
+      LOGIN_IP_RATE_LIMIT_MAX: "1000"
+      API_RATE_LIMIT_MAX: "10000"
+      API_RATE_LIMIT_WINDOW_MS: "900000"
+      REALTIME_BUS_DRIVER: redis
+      FILE_STORAGE_DRIVER: s3
+      S3_ENDPOINT: http://minio-primary:9000
+      S3_ENDPOINTS: http://minio-secondary:9000
+      S3_MIN_WRITE_SUCCESSES: "1"
+      S3_REQUEST_TIMEOUT_MS: "2000"
+      S3_REGION: us-east-1
+      S3_BUCKET: ailaoda-files
+      S3_ACCESS_KEY_ID: ${MINIO_ROOT_USER:?required}
+      S3_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD:?required}
+      S3_FORCE_PATH_STYLE: "true"
+      SEARCH_DRIVER: meilisearch
+      SEARCH_ENDPOINT: http://meilisearch-primary:7700
+      SEARCH_ENDPOINTS: http://meilisearch-secondary:7700
+      MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:?required}
+      SEARCH_REQUEST_TIMEOUT_MS: "2000"
+      SEARCH_MIN_WRITE_SUCCESSES: "1"
+      SEARCH_RESULT_CACHE_TTL_SECONDS: "5"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
+      OTEL_SERVICE_NAME: ailaoda-erp-crm
+      AILAODA_METRICS_BEARER_TOKEN: ${METRICS_BEARER_TOKEN:?required}
+      AI_GATEWAY_EXTERNAL_ENABLED: "false"
+      AI_DAILY_TOKEN_BUDGET: "50000"
+      AI_CIRCUIT_FAILURE_THRESHOLD: "5"
+      CORS_ORIGIN: http://127.0.0.1:5006,http://localhost:5006,http://127.0.0.1:5008,http://localhost:5008
+    ports:
+      - "5006:5001"
+    depends_on:
+      postgres-router:
+        condition: service_healthy
+      redis-primary:
+        condition: service_healthy
+      redis-replica:
+        condition: service_started
+      minio-init:
+        condition: service_healthy
+      meilisearch-primary:
+        condition: service_started
+      otel-collector:
+        condition: service_started
+
+  app-secondary:
+    <<: *app
+    environment:
+      <<: *app-environment
+      OTEL_SERVICE_INSTANCE_ID: github-sandbox-secondary
+    ports:
+      - "5008:5001"
+
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.29.0.0/24
+
+volumes:
+  postgres-primary-data:
+  postgres-replica-data:

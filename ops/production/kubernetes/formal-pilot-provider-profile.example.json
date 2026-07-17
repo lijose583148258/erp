@@ -1,0 +1,92 @@
+{
+  "schemaVersion": 1,
+  "environment": "replace-with-formal-pilot-environment",
+  "platform": {
+    "kind": "kubernetes-native",
+    "failureDomains": [
+      "replace-zone-a",
+      "replace-zone-b",
+      "replace-zone-c"
+    ],
+    "applicationNamespace": "ailaoda-pilot",
+    "recoveryNamespace": "ailaoda-pilot-recovery"
+  },
+  "adapters": {
+    "postgres": {
+      "fileName": "cnpg-ha-adapter.cjs",
+      "sha256": "replace-with-postgres-adapter-sha256"
+    },
+    "redis": {
+      "fileName": "redis-kubernetes-ha-adapter.cjs",
+      "sha256": "replace-with-redis-adapter-sha256"
+    },
+    "objectStorage": {
+      "fileName": "minio-kubernetes-object-adapter.cjs",
+      "sha256": "replace-with-object-adapter-sha256"
+    },
+    "search": {
+      "fileName": "meilisearch-kubernetes-search-adapter.cjs",
+      "sha256": "replace-with-search-adapter-sha256"
+    },
+    "backup": {
+      "fileName": "cnpg-backup-adapter.cjs",
+      "sha256": "replace-with-backup-adapter-sha256"
+    },
+    "observability": {
+      "fileName": "tempo-alert-receipt-adapter.cjs",
+      "sha256": "replace-with-observability-adapter-sha256"
+    }
+  },
+  "postgresql": {
+    "kind": "cloudnativepg",
+    "instances": 3,
+    "haAdapter": "cnpg-ha-adapter.cjs",
+    "backup": {
+      "method": "barman-object-store",
+      "encrypted": true,
+      "checksumEvidence": "barman-manifest",
+      "isolatedRestore": true,
+      "receiptVerifier": {
+        "mode": "ed25519-provider-signed",
+        "issuer": "replace-with-provider-control-plane-issuer",
+        "publicKeySha256": "replace-with-receipt-public-key-sha256",
+        "serviceFileName": "cnpg-backup-receipt-service.cjs",
+        "serviceSha256": "replace-with-receipt-service-sha256"
+      }
+    }
+  },
+  "redis": {
+    "kind": "sentinel",
+    "dataInstances": 3,
+    "sentinelCount": 3,
+    "haAdapter": "redis-kubernetes-ha-adapter.cjs"
+  },
+  "objectStorage": {
+    "kind": "minio-distributed",
+    "dataPods": 4,
+    "haAdapter": "minio-kubernetes-object-adapter.cjs",
+    "pvcDeletePermission": false
+  },
+  "search": {
+    "kind": "meilisearch",
+    "servingInstances": 2,
+    "backupMethod": "csi-volume-snapshot",
+    "isolatedRestore": true,
+    "restoreNamespace": "ailaoda-pilot-recovery"
+  },
+  "observability": {
+    "traceBackend": "tempo",
+    "alertRoute": "replace-with-reviewed-pilot-route",
+    "deliveryReceiptStore": "webhook-audit-store"
+  },
+  "ai": {
+    "mode": "local-only",
+    "externalGateway": false,
+    "paidCallBudget": 0
+  },
+  "observation": {
+    "continuousHours": 8,
+    "pilotDays": 7,
+    "collectorImageDigest": "sha256:replace-with-64-hex-pilot-observer-image-digest"
+  }
+}

@@ -8,10 +8,18 @@ services:
     image: ailao-erp-crm:latest
     container_name: ailao-erp-crm
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
     ports:
       - "${AILAODA_HTTP_PORT:-5001}:5001"
     environment:
       NODE_ENV: production
+      AILAODA_BLOCK_DEMO_CREDENTIALS: "true"
       AILAODA_DEPLOYMENT_MODE: ${AILAODA_DEPLOYMENT_MODE:-private}
       PORT: 5001
       SERVE_FRONTEND: "true"
@@ -21,6 +29,25 @@ services:
       BACKUP_DIR: ${BACKUP_DIR:-/data/backups}
       LOG_DIR: ${LOG_DIR:-/data/logs}
       UPLOAD_DIR: ${UPLOAD_DIR:-/data/uploads}
+      FILE_STORAGE_DRIVER: ${FILE_STORAGE_DRIVER:-local}
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://minio:9000}
+      S3_ENDPOINTS: ${S3_ENDPOINTS:-}
+      S3_MIN_WRITE_SUCCESSES: ${S3_MIN_WRITE_SUCCESSES:-1}
+      S3_REQUEST_TIMEOUT_MS: ${S3_REQUEST_TIMEOUT_MS:-3000}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-ailaoda-files}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-}
+      S3_FORCE_PATH_STYLE: ${S3_FORCE_PATH_STYLE:-true}
+      SEARCH_DRIVER: ${SEARCH_DRIVER:-prisma}
+      SEARCH_ENDPOINT: ${SEARCH_ENDPOINT:-}
+      SEARCH_ENDPOINTS: ${SEARCH_ENDPOINTS:-}
+      MEILISEARCH_URL: ${MEILISEARCH_URL:-http://meilisearch:7700}
+      MEILISEARCH_API_KEY: ${MEILISEARCH_API_KEY:-}
+      SEARCH_INDEX_PREFIX: ${SEARCH_INDEX_PREFIX:-ailaoda}
+      SEARCH_MAX_QUERY_LENGTH: ${SEARCH_MAX_QUERY_LENGTH:-120}
+      SEARCH_REQUEST_TIMEOUT_MS: ${SEARCH_REQUEST_TIMEOUT_MS:-1500}
+      SEARCH_RESULT_CACHE_TTL_SECONDS: ${SEARCH_RESULT_CACHE_TTL_SECONDS:-5}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-90}
       BACKUP_RETENTION_MODE: ${BACKUP_RETENTION_MODE:-report-only}
       BACKUP_MAX_FILES: ${BACKUP_MAX_FILES:-800}
@@ -29,8 +56,22 @@ services:
       CORS_ORIGIN: ${CORS_ORIGIN:-http://127.0.0.1:5001,http://localhost:5001}
       API_RATE_LIMIT_WINDOW_MS: ${API_RATE_LIMIT_WINDOW_MS:-900000}
       API_RATE_LIMIT_MAX: ${API_RATE_LIMIT_MAX:-2000}
+      REDIS_URL: ${REDIS_URL:-}
+      REDIS_PASSWORD: ${REDIS_PASSWORD:-}
+      REDIS_SENTINELS: ${REDIS_SENTINELS:-}
+      REDIS_MASTER_NAME: ${REDIS_MASTER_NAME:-}
+      REDIS_SENTINEL_PASSWORD: ${REDIS_SENTINEL_PASSWORD:-}
+      CACHE_DRIVER: ${CACHE_DRIVER:-}
+      AUTH_TOKEN_STORE_DRIVER: ${AUTH_TOKEN_STORE_DRIVER:-}
+      LOGIN_RATE_LIMIT_STORE: ${LOGIN_RATE_LIMIT_STORE:-}
+      REALTIME_BUS_DRIVER: ${REALTIME_BUS_DRIVER:-}
+      AILAODA_METRICS_BEARER_TOKEN_FILE: /run/secrets/ailaoda_metrics_bearer_token
+      OTEL_EXPORTER_OTLP_ENDPOINT: ${OTEL_EXPORTER_OTLP_ENDPOINT:-}
+      OTEL_SERVICE_NAME: ${OTEL_SERVICE_NAME:-ailaoda-erp-crm}
     volumes:
       - ailao-data:/data
+    secrets:
+      - ailaoda_metrics_bearer_token
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5001/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
       interval: 30s
@@ -38,5 +79,115 @@ services:
       retries: 3
       start_period: 20s
 
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address ":9001"
+    profiles:
+      - object-storage
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID must be set before MinIO rehearsal}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY must be set before MinIO rehearsal}
+    ports:
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - ailao-minio-data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.14
+    profiles:
+      - search
+    restart: unless-stopped
+    environment:
+      MEILI_ENV: production
+      MEILI_MASTER_KEY: ${MEILISEARCH_API_KEY:?MEILISEARCH_API_KEY must be set before Meilisearch rehearsal}
+      MEILI_NO_ANALYTICS: "true"
+    ports:
+      - "${MEILISEARCH_PORT:-7700}:7700"
+    volumes:
+      - ailao-meili-data:/meili_data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:7700/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  prometheus:
+    image: prom/prometheus:v2.55.1
+    profiles:
+      - observability
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=${PROMETHEUS_RETENTION:-15d}
+      - --web.enable-lifecycle
+    ports:
+      - "${PROMETHEUS_PORT:-9090}:9090"
+    volumes:
+      - ./ops/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./ops/prometheus/rules:/etc/prometheus/rules:ro
+      - ailao-prometheus-data:/prometheus
+    secrets:
+      - ailaoda_metrics_bearer_token
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:9090/-/healthy"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    profiles:
+      - observability
+    restart: unless-stopped
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set before observability rehearsal}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    ports:
+      - "${GRAFANA_PORT:-3001}:3000"
+    volumes:
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - ailao-grafana-data:/var/lib/grafana
+    depends_on:
+      - prometheus
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.116.1
+    profiles:
+      - observability
+    restart: unless-stopped
+    command:
+      - --config=/etc/otelcol/config.yml
+    ports:
+      - "${OTEL_GRPC_PORT:-4317}:4317"
+      - "${OTEL_HTTP_PORT:-4318}:4318"
+    volumes:
+      - ./ops/otelcol/config.yml:/etc/otelcol/config.yml:ro
+    healthcheck:
+      test: ["CMD", "/otelcol-contrib", "--version"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
 volumes:
   ailao-data:
+  ailao-minio-data:
+  ailao-meili-data:
+  ailao-prometheus-data:
+  ailao-grafana-data:
+
+secrets:
+  ailaoda_metrics_bearer_token:
+    file: ${AILAODA_METRICS_BEARER_TOKEN_FILE:?AILAODA_METRICS_BEARER_TOKEN_FILE must point to a metrics token file}

@@ -1,0 +1,33 @@
+{
+  "schemaVersion": 1,
+  "date": "2026-01-01",
+  "checkedAt": "2026-01-01T23:00:00Z",
+  "status": "not-run",
+  "commitSha": "replace-with-40-character-git-sha",
+  "imageDigest": "sha256:replace-with-64-hex-digest",
+  "continuousReportSha256": "replace-with-64-hex-continuous-report-hash",
+  "alertReviewCompleted": false,
+  "unreconciledBusinessWrites": 1,
+  "serviceIncidentsResolved": false,
+  "environment": "replace-with-real-staging-environment",
+  "support": {
+    "alertReview": {
+      "file": "2026-01-01.alertReview.json",
+      "sha256": "replace-with-64-hex-hash"
+    },
+    "reconciliation": {
+      "file": "2026-01-01.reconciliation.json",
+      "sha256": "replace-with-64-hex-hash"
+    },
+    "incidentReview": {
+      "file": "2026-01-01.incidentReview.json",
+      "sha256": "replace-with-64-hex-hash"
+    },
+    "aiGovernance": {
+      "file": "2026-01-01.aiGovernance.json",
+      "sha256": "replace-with-64-hex-hash"
+    }
+  },
+  "aiGovernanceReviewCompleted": false,
+  "governedAiRequests": 0
+}

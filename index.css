@@ -192,6 +192,14 @@ textarea {
   }
 }
 
+@media (max-width: 640px) {
+  button,
+  a[role="button"],
+  [role="button"] {
+    min-height: 32px;
+  }
+}
+
 .app-density-table .truncate-cell {
   display: block;
   min-width: 0;
@@ -199,6 +207,32 @@ textarea {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: min(32ch, 240px);
+}
+
+.click-spark-particle {
+  animation: spark-jelly 0.4s cubic-bezier(0.25, 1, 0.5, 1) forwards;
+}
+
+@keyframes spark-jelly {
+  0% {
+    transform: translate(-50%, -50%) scale(1);
+    opacity: 0.5;
+  }
+
+  100% {
+    transform: translate(calc(var(--vx) - 50%), calc(var(--vy) - 50%)) scale(0);
+    opacity: 0;
+  }
+}
+
+@keyframes ticker {
+  0% {
+    transform: translateX(0);
+  }
+
+  100% {
+    transform: translateX(-50%);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

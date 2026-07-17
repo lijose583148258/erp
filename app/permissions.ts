@@ -69,7 +69,8 @@ export type FrontendPermission =
   | 'commercial.workflow.manage'
   | 'commercial.notification.write'
   | 'commercial.alert.run'
-  | 'audit.read';
+  | 'audit.read'
+  | 'settings.read';
 
 export const MENU_PERMISSION_BY_MODULE: Record<string, FrontendPermission> = {
   dashboard: 'dashboard.read',
@@ -92,6 +93,7 @@ export const MENU_PERMISSION_BY_MODULE: Record<string, FrontendPermission> = {
   warehouse: 'warehouse.read',
   procurement: 'procurement.read',
   audit: 'audit.read',
+  settings: 'settings.read',
 };
 
 export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly FrontendPermission[]> = {
@@ -165,6 +167,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'commercial.notification.write',
     'commercial.alert.run',
     'audit.read',
+    'settings.read',
   ],
   manager: [
     'dashboard.read',

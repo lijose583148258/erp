@@ -4,7 +4,7 @@ import { useAppContext } from '../../app/AppContext';
 import { can } from '../../app/permissions';
 import { EnterpriseColumn, EnterpriseDataGrid, FormField, ReasonDialog, StatusBadge } from '../../components/ui';
 import { WorkspaceTaskNavigator } from '../../components/ui/WorkspaceTaskNavigator';
-import { orderService } from '../../services/order.service';
+import { orderService } from '../../src/services/order.service';
 import {
   receivableAdjustmentService,
   ReceivableAdjustmentRecord,

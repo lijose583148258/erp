@@ -1,10 +1,12 @@
 import React, { useMemo, useRef, useState } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, SlidersHorizontal, Upload } from 'lucide-react';
-import * as XLSX from 'xlsx';
 import { ActionToolbar } from './ActionToolbar';
 import { EmptyState } from './EmptyState';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { StatusBadge } from './StatusBadge';
+import { assertSafeSpreadsheetFile } from '../../utils/spreadsheetSecurity';
+import { exportRowsToXlsx, parseSpreadsheetFileAsObjects } from '../../utils/spreadsheetIO';
 import { readNumberPreference, readStringArrayPreference, writeNumberPreference, writeStringArrayPreference } from './tablePreferences';
 
 export type EnterpriseColumn<T> = {
@@ -60,6 +62,10 @@ type Props<T> = {
   onPageSizeChange?: (pageSize: number) => void;
   paginationTestIdPrefix?: string;
   preferenceKey?: string;
+  virtualized?: boolean;
+  virtualizeThreshold?: number;
+  virtualRowHeight?: number;
+  virtualViewportHeight?: number;
   className?: string;
 };
 
@@ -98,7 +104,7 @@ const getAccessorValue = <T,>(row: T, column: EnterpriseColumn<T>): unknown => {
   return (row as Record<string, unknown>)[column.key];
 };
 
-export function EnterpriseDataGrid<T>({
+function EnterpriseDataGridInner<T>({
   data,
   columns,
   rowKey,
@@ -132,6 +138,10 @@ export function EnterpriseDataGrid<T>({
   onPageSizeChange,
   paginationTestIdPrefix,
   preferenceKey,
+  virtualized = true,
+  virtualizeThreshold = 80,
+  virtualRowHeight = 48,
+  virtualViewportHeight = 560,
   className = '',
 }: Props<T>) {
   const tablePreferenceKey = preferenceKey || paginationTestIdPrefix || searchInputTestId || exportFileName || stringifyCell(title) || 'enterprise-grid';
@@ -145,6 +155,7 @@ export function EnterpriseDataGrid<T>({
   const [visibleColumnKeys, setVisibleColumnKeys] = useState(() => readStringArrayPreference(columnStorageKey, defaultColumnKeys));
   const [importError, setImportError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const scrollElementRef = useRef<HTMLDivElement>(null);
   const visibleColumnKeySet = useMemo(() => new Set(visibleColumnKeys), [visibleColumnKeys]);
   const visibleColumns = useMemo(() => {
     const selected = columns.filter((column) => visibleColumnKeySet.has(column.key));
@@ -205,6 +216,26 @@ export function EnterpriseDataGrid<T>({
     : Math.max(1, Math.ceil(sortedData.length / pageSize));
   const safePage = isServerPaged && pagination ? Math.min(pagination.page, totalPages) : Math.min(page, totalPages);
   const pageData = isServerPaged ? sortedData : sortedData.slice((safePage - 1) * pageSize, safePage * pageSize);
+  const shouldVirtualizeRows = virtualized && pageData.length > virtualizeThreshold;
+  const rowVirtualizer = useVirtualizer({
+    count: pageData.length,
+    getScrollElement: () => scrollElementRef.current,
+    estimateSize: () => virtualRowHeight,
+    overscan: 8,
+    enabled: shouldVirtualizeRows,
+  });
+  const virtualRows = shouldVirtualizeRows ? rowVirtualizer.getVirtualItems() : [];
+  const renderedRows = shouldVirtualizeRows
+    ? virtualRows.flatMap((virtualRow) => {
+        const row = pageData[virtualRow.index];
+        return row === undefined ? [] : [{ row, virtualRow }];
+      })
+    : pageData.map((row) => ({ row, virtualRow: null }));
+  const virtualTopPadding = virtualRows.at(0)?.start ?? 0;
+  const lastVirtualRowEnd = virtualRows.at(-1)?.end;
+  const virtualBottomPadding = lastVirtualRowEnd === undefined
+    ? 0
+    : Math.max(0, rowVirtualizer.getTotalSize() - lastVirtualRowEnd);
   const getKey = (row: T) => (typeof rowKey === 'function' ? rowKey(row) : String((row as Record<string, unknown>)[String(rowKey)]));
   const firstRowIndex = totalRows === 0 ? 0 : (safePage - 1) * effectivePageSize + 1;
   const lastRowIndex = isServerPaged
@@ -212,30 +243,33 @@ export function EnterpriseDataGrid<T>({
     : Math.min(safePage * effectivePageSize, totalRows);
   const exportData = isServerPaged ? pageData : sortedData;
   const effectiveExportLabel = isServerPaged ? '导出当前页' : exportLabel;
+  const gridColumnCount = visibleColumns.length + (rowActions ? 1 : 0);
 
   const handleExport = () => {
     const sheetRows = exportData.map((row) => (
       visibleColumns.map((column) => column.searchText?.(row) ?? stringifyCell(getAccessorValue(row, column)))
     ));
     const headers = visibleColumns.map((column) => stringifyCell(column.header) || column.key);
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...sheetRows]);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, exportSheetName || 'Sheet1');
     const safeName = (exportFileName || stringifyCell(title) || 'export').replace(/[\\/:*?"<>|]/g, '_');
     const pageSuffix = isServerPaged ? `_page-${safePage}` : '';
-    XLSX.writeFile(workbook, `${safeName}${pageSuffix}_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    void exportRowsToXlsx([headers, ...sheetRows], `${safeName}${pageSuffix}_${new Date().toISOString().slice(0, 10)}.xlsx`, exportSheetName || 'Sheet1');
   };
 
   const handleImport = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file || !onImport) return;
     setImportError(null);
-    const reader = new FileReader();
-    reader.onload = async (readerEvent) => {
+    try {
+      assertSafeSpreadsheetFile(file);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unsupported spreadsheet file.';
+      setImportError(`Import failed: ${message}`);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+      return;
+    }
+    void (async () => {
       try {
-        const workbook = XLSX.read(readerEvent.target?.result, { type: 'binary' });
-        const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-        const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(worksheet);
+        const rows = await parseSpreadsheetFileAsObjects(file);
         await onImport(rows);
       } catch (error) {
         const message = error instanceof Error ? error.message : '文件解析失败，请检查表头、格式或文件是否损坏';
@@ -243,12 +277,7 @@ export function EnterpriseDataGrid<T>({
       } finally {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
-    };
-    reader.onerror = () => {
-      setImportError(`导入失败：无法读取文件 ${file.name}`);
-      if (fileInputRef.current) fileInputRef.current.value = '';
-    };
-    reader.readAsBinaryString(file);
+    })();
   };
 
   const toggleSort = (column: EnterpriseColumn<T>) => {
@@ -275,7 +304,16 @@ export function EnterpriseDataGrid<T>({
       >
         {onImport ? (
           <>
-            <input ref={fileInputRef} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={handleImport} />
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,.csv"
+              className="hidden"
+              onChange={handleImport}
+              aria-label="导入表格文件"
+              aria-hidden="true"
+              tabIndex={-1}
+            />
             <button
               type="button"
               onClick={() => fileInputRef.current?.click()}
@@ -298,14 +336,14 @@ export function EnterpriseDataGrid<T>({
           </button>
         ) : null}
         <details className="relative">
-          <summary className="inline-flex cursor-pointer list-none items-center justify-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black tracking-[0.14em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
+          <summary aria-label="显示或隐藏表格列" className="inline-flex min-h-9 cursor-pointer list-none items-center justify-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black tracking-[0.14em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
             <SlidersHorizontal size={14} className="mr-2" />
             列
           </summary>
           <div className="absolute right-0 top-11 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
             <div className="mb-2 flex items-center justify-between gap-2">
               <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
-              <button type="button" onClick={resetColumnVisibility} className="text-xs font-bold text-blue-600 dark:text-blue-300">重置</button>
+              <button type="button" onClick={resetColumnVisibility} className="min-h-8 rounded-lg px-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40">重置</button>
             </div>
             <div className="max-h-64 space-y-1 overflow-y-auto">
               {columns.map((column) => (
@@ -337,7 +375,15 @@ export function EnterpriseDataGrid<T>({
         ) : pageData.length === 0 ? (
           <EmptyState title={emptyTitle} description={emptyDescription} className="m-4" />
         ) : (
-          <div className="overflow-x-auto">
+          <div
+            ref={scrollElementRef}
+            className={shouldVirtualizeRows ? 'overflow-auto' : 'overflow-x-auto'}
+            data-virtualized={shouldVirtualizeRows ? 'true' : 'false'}
+            data-virtualizer="tanstack"
+            data-virtual-row-count={shouldVirtualizeRows ? pageData.length : undefined}
+            data-virtual-visible-count={shouldVirtualizeRows ? virtualRows.length : undefined}
+            style={shouldVirtualizeRows ? { maxHeight: virtualViewportHeight } : undefined}
+          >
             <table className="app-density-table w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="bg-slate-50/95 dark:bg-slate-800/95 shadow-sm">
@@ -354,7 +400,7 @@ export function EnterpriseDataGrid<T>({
                         disabled={!canSort}
                         onClick={() => toggleSort(column)}
                         aria-label={canSort ? `按 ${stringifyCell(column.header) || column.key} 排序` : undefined}
-                        className={`inline-flex items-center gap-1 ${canSort ? 'hover:text-blue-600' : 'cursor-default'}`}
+                        className={`inline-flex min-h-8 items-center gap-1 rounded px-1.5 ${canSort ? 'hover:text-blue-600' : 'cursor-default'}`}
                       >
                         {column.header}
                         {canSort ? (
@@ -376,9 +422,16 @@ export function EnterpriseDataGrid<T>({
                 </tr>
               </thead>
               <tbody>
-                {pageData.map((row) => (
+                {shouldVirtualizeRows && virtualTopPadding > 0 ? (
+                  <tr aria-hidden="true">
+                    <td colSpan={gridColumnCount} className="border-0 p-0" style={{ height: virtualTopPadding }} />
+                  </tr>
+                ) : null}
+                {renderedRows.map(({ row, virtualRow }) => (
                   <tr
                     key={getKey(row)}
+                    ref={virtualRow ? rowVirtualizer.measureElement : undefined}
+                    data-index={virtualRow?.index}
                     data-testid={getRowTestId?.(row)}
                     onClick={() => onRowClick?.(row)}
                     onKeyDown={(event) => {
@@ -417,6 +470,11 @@ export function EnterpriseDataGrid<T>({
                     ) : null}
                   </tr>
                 ))}
+                {shouldVirtualizeRows && virtualBottomPadding > 0 ? (
+                  <tr aria-hidden="true">
+                    <td colSpan={gridColumnCount} className="border-0 p-0" style={{ height: virtualBottomPadding }} />
+                  </tr>
+                ) : null}
               </tbody>
             </table>
           </div>
@@ -430,6 +488,8 @@ export function EnterpriseDataGrid<T>({
         <div className="flex items-center gap-2">
           <select
             data-testid={paginationTestIdPrefix ? `${paginationTestIdPrefix}-page-size` : undefined}
+            aria-label="每页行数"
+            title="每页行数"
             value={effectivePageSize}
             onChange={(event) => {
               const nextPageSize = Number(event.target.value);
@@ -441,7 +501,7 @@ export function EnterpriseDataGrid<T>({
               setPage(1);
               writeNumberPreference(pageSizeStorageKey, nextPageSize);
             }}
-            className="rounded-xl border border-slate-200 bg-white px-2 py-1 outline-none dark:border-slate-700 dark:bg-slate-800"
+            className="min-h-8 rounded-xl border border-slate-200 bg-white px-2 py-1 outline-none dark:border-slate-700 dark:bg-slate-800"
           >
             {pageSizeOptions.map((option) => (
               <option key={option} value={option}>
@@ -452,6 +512,8 @@ export function EnterpriseDataGrid<T>({
           <button
             type="button"
             data-testid={paginationTestIdPrefix ? `${paginationTestIdPrefix}-prev` : undefined}
+            aria-label="上一页"
+            title="上一页"
             onClick={() => {
               const nextPage = Math.max(1, safePage - 1);
               if (isServerPaged && onPageChange) {
@@ -461,7 +523,7 @@ export function EnterpriseDataGrid<T>({
               setPage(nextPage);
             }}
             disabled={safePage <= 1}
-            className="rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
+            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
           >
             <ChevronLeft size={14} />
           </button>
@@ -469,6 +531,8 @@ export function EnterpriseDataGrid<T>({
           <button
             type="button"
             data-testid={paginationTestIdPrefix ? `${paginationTestIdPrefix}-next` : undefined}
+            aria-label="下一页"
+            title="下一页"
             onClick={() => {
               const nextPage = Math.min(totalPages, safePage + 1);
               if (isServerPaged && onPageChange) {
@@ -478,7 +542,7 @@ export function EnterpriseDataGrid<T>({
               setPage(nextPage);
             }}
             disabled={safePage >= totalPages}
-            className="rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
+            className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl border border-slate-200 bg-white p-2 transition hover:bg-slate-50 disabled:opacity-40 dark:border-slate-700 dark:bg-slate-800"
           >
             <ChevronRight size={14} />
           </button>
@@ -487,3 +551,5 @@ export function EnterpriseDataGrid<T>({
     </div>
   );
 }
+
+export const EnterpriseDataGrid = React.memo(EnterpriseDataGridInner) as typeof EnterpriseDataGridInner;

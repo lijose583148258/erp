@@ -5,7 +5,6 @@ import {
   serializeJsonList,
   serializeSupplierAliases,
 } from './procurement-domain.service';
-import type { TransactionClient } from './stock-movement.service';
 
 export interface CreateSupplierInput {
   name?: unknown;
@@ -95,13 +94,12 @@ function normalizeEntityList(value: unknown, code: string) {
   throw new AppError(code, 400, ErrorCode.VALIDATION_ERROR, { value });
 }
 
-export async function getSupplierColumnSet(tx: TransactionClient) {
+export async function getSupplierColumnSet() {
   // SAFE: 参数为硬编码表名 'suppliers'，无用户输入拼接
-  const rows = await tx.$queryRawUnsafe<Array<{ name: string }>>(`PRAGMA table_info('suppliers')`);
-  return new Set((rows || []).map(row => String(row.name)));
+  return new Set<string>();
 }
 
-export async function createSupplierRecord(tx: TransactionClient, input: CreateSupplierInput) {
+export async function createSupplierRecord(tx: Prisma.TransactionClient, input: CreateSupplierInput) {
   const nameZh = toOptionalText(input.nameZh);
   const nameEn = toOptionalText(input.nameEn);
   const nameVi = toOptionalText(input.nameVi);
@@ -112,9 +110,14 @@ export async function createSupplierRecord(tx: TransactionClient, input: CreateS
 
   const contacts = normalizeEntityList(input.contacts, 'SUPPLIER_INVALID_CONTACTS');
   const addresses = normalizeEntityList(input.addresses, 'SUPPLIER_INVALID_ADDRESSES');
-  const supplierColumns = await getSupplierColumnSet(tx);
   const supplierData: Prisma.SupplierCreateInput = {
     name: primaryName,
+    nameZh,
+    nameEn,
+    nameVi,
+    nameAliases: serializeSupplierAliases(input.nameAliases),
+    contactsJson: serializeJsonList(normalizeJsonList(contacts)),
+    addressesJson: serializeJsonList(normalizeJsonList(addresses)),
     category: toRequiredText(input.category, 'SUPPLIER_INVALID_CATEGORY'),
     rating: toOptionalRating(input.rating),
     leadTimeDays: toOptionalLeadTimeDays(input.leadTimeDays),
@@ -122,13 +125,6 @@ export async function createSupplierRecord(tx: TransactionClient, input: CreateS
     contact: toOptionalText(input.contact) || String(contacts[0]?.name || contacts[0]?.phone || ''),
     status: normalizeSupplierStatus(input.status),
   };
-
-  if (supplierColumns.has('name_zh')) supplierData.nameZh = nameZh;
-  if (supplierColumns.has('name_en')) supplierData.nameEn = nameEn;
-  if (supplierColumns.has('name_vi')) supplierData.nameVi = nameVi;
-  if (supplierColumns.has('name_aliases')) supplierData.nameAliases = serializeSupplierAliases(input.nameAliases);
-  if (supplierColumns.has('contacts_json')) supplierData.contactsJson = serializeJsonList(normalizeJsonList(contacts));
-  if (supplierColumns.has('addresses_json')) supplierData.addressesJson = serializeJsonList(normalizeJsonList(addresses));
 
   return tx.supplier.create({ data: supplierData });
 }

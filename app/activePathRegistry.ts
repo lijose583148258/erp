@@ -8,6 +8,7 @@ export const activePageImports = {
   orders: () => import('../pages/SalesOrders'),
   team: () => import('../pages/TeamManagement'),
   audit: () => import('../pages/AuditLogs'),
+  settings: () => import('../pages/Settings'),
   assets: () => import('../pages/Assets'),
   production: () => import('../pages/ProductionWorkspace'),
   dealerAnalytics: () => import('../pages/DealerAnalytics'),

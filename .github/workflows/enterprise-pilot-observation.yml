@@ -1,0 +1,167 @@
+name: Enterprise Pilot Observation
+
+on:
+  workflow_dispatch:
+    inputs:
+      duration_minutes:
+        description: Observation duration for this segment
+        required: true
+        default: "30"
+        type: choice
+        options:
+          - "30"
+          - "60"
+          - "120"
+          - "240"
+          - "300"
+      segment_label:
+        description: Stable label such as pilot-day-1-segment-1
+        required: true
+        default: pilot-manual-segment
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-pilot-observation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  observe:
+    name: HA observation segment
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        working-directory: ops/cloud-sandbox
+    env:
+      COMPOSE_PROJECT_NAME: ailaoda-observation-${{ github.run_id }}
+      POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
+      REDIS_PASSWORD: sandbox-${{ github.run_id }}-redis
+      JWT_SECRET: sandbox-${{ github.run_id }}-jwt-secret-at-least-32-characters
+      METRICS_BEARER_TOKEN: sandbox-${{ github.run_id }}-metrics-token
+      AILAODA_IMAGE_TAG: observation-${{ github.run_id }}
+      DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
+      APP_URL: http://127.0.0.1:5006/
+      SECONDARY_APP_URL: http://127.0.0.1:5008/
+      AUDIT_PRISMA_PROVIDER: postgresql
+      AUDIT_DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
+      AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        working-directory: .
+        run: |
+          npm ci
+          npm --prefix backend ci
+
+      - name: Start dependency topology
+        run: |
+          mkdir -p cloud-evidence
+          docker compose pull --ignore-buildable
+          docker compose up -d --wait --wait-timeout 180
+
+      - name: Build and start dual application instances
+        working-directory: .
+        run: |
+          npm run build:backend:postgres-artifact
+          node node_modules/prisma/build/index.js db push --schema=output/postgres-prisma-artifact/prisma --skip-generate
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application build app-primary
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+
+      - name: Verify both application instances
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5006 5008; do
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/health" > "cloud-evidence/health-${port}.json"
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" > "cloud-evidence/ready-${port}.json"
+          done
+
+      - name: Create isolated observation account
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          password_file="${RUNNER_TEMP}/observation-ui-password"
+          username="cloud_ha_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          openssl rand -base64 36 | tr -d '\n' > "${password_file}"
+          chmod 600 "${password_file}"
+          echo "::add-mask::$(cat "${password_file}")"
+          export AUDIT_UI_USERNAME="${username}"
+          export AUDIT_UI_PASSWORD_FILE="${password_file}"
+          export AUDIT_UI_ROLE=admin
+          {
+            echo "AUDIT_UI_USERNAME=${username}"
+            echo "AUDIT_UI_PASSWORD_FILE=${password_file}"
+            echo "AUDIT_UI_ROLE=admin"
+          } >> "${GITHUB_ENV}"
+          node - <<'NODE'
+          const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
+          ensureUiAuditUser().catch(error => {
+            console.error(error);
+            process.exit(1);
+          });
+          NODE
+
+      - name: Run bounded HA observation segment
+        working-directory: .
+        shell: bash
+        env:
+          OBSERVATION_MINUTES: ${{ inputs.duration_minutes }}
+          HA_SOAK_CONCURRENCY: "8"
+        run: |
+          set -euo pipefail
+          case "${OBSERVATION_MINUTES}" in
+            30|60|120|240|300) ;;
+            *) echo "Unsupported observation duration"; exit 2 ;;
+          esac
+          export HA_SOAK_DURATION_MS="$((OBSERVATION_MINUTES * 60000))"
+          npm run audit:soak:ha
+
+      - name: Capture observation evidence
+        if: always()
+        working-directory: .
+        env:
+          JOB_STATUS: ${{ job.status }}
+          SEGMENT_LABEL: ${{ inputs.segment_label }}
+          OBSERVATION_MINUTES: ${{ inputs.duration_minutes }}
+        run: |
+          mkdir -p cloud-evidence
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application ps -a > cloud-evidence/compose-ps.txt || true
+          docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application logs --no-color > cloud-evidence/compose.log 2>&1 || true
+          cp -r output/audit cloud-evidence/audit 2>/dev/null || true
+          node - <<'NODE'
+          const fs = require('fs');
+          fs.writeFileSync('cloud-evidence/observation-segment.json', JSON.stringify({
+            status: process.env.JOB_STATUS,
+            segmentLabel: process.env.SEGMENT_LABEL,
+            requestedMinutes: Number(process.env.OBSERVATION_MINUTES),
+            commit: process.env.GITHUB_SHA,
+            runId: process.env.GITHUB_RUN_ID,
+            checkedAt: new Date().toISOString(),
+            limitation: 'A segmented GitHub-hosted run is not evidence of one continuous 8-hour or 24-hour process lifetime.',
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Upload observation evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: enterprise-pilot-observation-${{ inputs.segment_label }}-${{ github.run_id }}
+          path: cloud-evidence/
+          retention-days: 30
+
+      - name: Stop sandbox
+        if: always()
+        run: docker compose --profile application down -v --remove-orphans
