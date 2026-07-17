@@ -1,0 +1,178 @@
+name: Cloud adversarial sandbox
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cloud-adversarial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  localhost-adversarial:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      NODE_ENV: production
+      AILAODA_DEPLOYMENT_MODE: local
+      PORT: 5001
+      SERVE_FRONTEND: "true"
+      TRUST_PROXY: "false"
+      CORS_ORIGIN: http://127.0.0.1:5001
+      AILAODA_BLOCK_DEMO_CREDENTIALS: "1"
+      AI_GATEWAY_EXTERNAL_ENABLED: "false"
+      REDIS_URL: redis://127.0.0.1:6379
+      AILAODA_REDIS_URL: redis://127.0.0.1:6379
+      REDIS_REQUIRED: "true"
+      LOGIN_RATE_LIMIT_MAX: "5"
+      LOGIN_IP_RATE_LIMIT_MAX: "100"
+      LOGIN_RATE_LIMIT_WINDOW_MS: "600000"
+      API_RATE_LIMIT_MAX: "5000"
+      API_RATE_LIMIT_WINDOW_MS: "600000"
+      SANDBOX_BASE_URL: http://127.0.0.1:5001
+      SANDBOX_LOAD_REQUESTS: "300"
+      SANDBOX_LOAD_CONCURRENCY: "25"
+
+    steps:
+      - name: Checkout isolated source
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Create ephemeral secrets and paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/cloud-sandbox
+          echo "JWT_SECRET=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
+          echo "METRICS_BEARER_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "AILAODA_ADMIN_USERNAME=sandbox-admin" >> "$GITHUB_ENV"
+          echo "AILAODA_ADMIN_PASSWORD=$(openssl rand -base64 36 | tr -d '\n/=+' | cut -c1-32)" >> "$GITHUB_ENV"
+          echo "DATABASE_URL=file:$RUNNER_TEMP/ailaoda-security-sandbox/stable.db" >> "$GITHUB_ENV"
+          echo "AILAODA_RUNTIME_DB_PATH=$RUNNER_TEMP/ailaoda-security-sandbox/stable.db" >> "$GITHUB_ENV"
+          echo "BACKUP_DIR=$RUNNER_TEMP/ailaoda-security-sandbox/backups" >> "$GITHUB_ENV"
+          echo "UPLOAD_DIR=$RUNNER_TEMP/ailaoda-security-sandbox/uploads" >> "$GITHUB_ENV"
+          echo "LOG_DIR=$RUNNER_TEMP/ailaoda-security-sandbox/logs" >> "$GITHUB_ENV"
+
+      - name: Install locked dependencies
+        run: |
+          npm ci
+          npm --prefix backend ci
+
+      - name: Build source
+        run: |
+          npm run prisma:validate
+          npm run typecheck
+          npm run build:backend
+          npm run build
+
+      - name: Prepare isolated database
+        run: |
+          npm --prefix backend run db:manage -- prepare
+          npm --prefix backend run db:manage -- bootstrap-admin
+
+      - name: Start localhost sandbox
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run start:backend > output/cloud-sandbox/server.log 2>&1 &
+          echo $! > output/cloud-sandbox/server.pid
+          for attempt in $(seq 1 60); do
+            if curl --silent --fail http://127.0.0.1:5001/livez > output/cloud-sandbox/livez.json; then
+              break
+            fi
+            if ! kill -0 "$(cat output/cloud-sandbox/server.pid)" 2>/dev/null; then
+              cat output/cloud-sandbox/server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --silent --show-error http://127.0.0.1:5001/health             | tee output/cloud-sandbox/pre-attack-health.json
+
+      - name: Run static security gates
+        shell: bash
+        run: |
+          set -uo pipefail
+          mkdir -p output/cloud-sandbox/static
+          : > output/cloud-sandbox/STATIC_AUDITS.md
+          failed=0
+          audits=(
+            audit:auth:default-credentials
+            audit:p0:backend-guard
+            audit:security:csp
+            audit:security:csrf-boundary
+            audit:security:secrets
+            audit:security:mfa
+            audit:security:distributed-auth
+            audit:security:dependencies
+          )
+          for audit in "${audits[@]}"; do
+            safe_name="${audit//:/-}"
+            if npm run "$audit" > "output/cloud-sandbox/static/$safe_name.log" 2>&1; then
+              echo "- PASS $audit" >> output/cloud-sandbox/STATIC_AUDITS.md
+            else
+              echo "- FAIL $audit" >> output/cloud-sandbox/STATIC_AUDITS.md
+              failed=$((failed + 1))
+            fi
+          done
+          echo "$failed" > output/cloud-sandbox/static-failed-count.txt
+          cat output/cloud-sandbox/STATIC_AUDITS.md
+
+      - name: Run dynamic adversarial and load probes
+        id: adversarial
+        continue-on-error: true
+        run: node scripts/cloud-adversarial-sandbox-v1.mjs
+
+      - name: Reconcile database after attacks
+        if: always()
+        continue-on-error: true
+        shell: bash
+        run: |
+          npm --prefix backend run db:manage -- audit             > output/cloud-sandbox/post-attack-db-audit.log 2>&1
+          curl --silent --show-error http://127.0.0.1:5001/health             > output/cloud-sandbox/post-attack-health.json || true
+
+      - name: Stop sandbox
+        if: always()
+        shell: bash
+        run: |
+          if [ -f output/cloud-sandbox/server.pid ]; then
+            kill -TERM "$(cat output/cloud-sandbox/server.pid)" 2>/dev/null || true
+            sleep 2
+          fi
+
+      - name: Upload adversarial evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cloud-adversarial-sandbox-evidence
+          path: output/cloud-sandbox/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Enforce sandbox verdict
+        if: always()
+        shell: bash
+        run: |
+          static_failed="$(cat output/cloud-sandbox/static-failed-count.txt 2>/dev/null || echo 1)"
+          echo "static_failed=$static_failed"
+          echo "dynamic_outcome=${{ steps.adversarial.outcome }}"
+          test "$static_failed" -eq 0
+          test "${{ steps.adversarial.outcome }}" = "success"
