@@ -4,6 +4,7 @@ export type GovernedAIRequest = {
   prompt: string;
   language?: 'zh-CN' | 'en-US' | 'vi-VN';
   currentPage?: string;
+  /** @deprecated Accepted by older servers but never trusted as provider context. */
   visibleCounts?: Record<string, number>;
 };
 

@@ -90,8 +90,11 @@ jobs:
           npm run build:backend
           npm run build
 
-      - name: Verify request-body error mapping
-        run: npm --prefix backend test -- --runInBand src/middleware/errorHandler.test.ts
+      - name: Verify security regression units
+        run: >-
+          npm --prefix backend test -- --runInBand
+          src/middleware/errorHandler.test.ts
+          src/services/ai-governance.service.test.ts
 
       - name: Prepare isolated database
         run: |

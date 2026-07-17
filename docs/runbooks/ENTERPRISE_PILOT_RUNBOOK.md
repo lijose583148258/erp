@@ -81,7 +81,7 @@ writer-election drill. No paid model API is required for this observation.
 - Redis: applications use Sentinel and were verified through automatic failover and controlled failback.
 - MinIO: application reads fail over and writes can require two replicas. For production, use distributed MinIO across failure domains or managed S3; two processes on one Windows host do not survive host loss.
 - Meilisearch: 7710 is restored from an official dump. It protects recovery and read availability but can lag the primary between dump cycles.
-- AI: browser-to-external-model access is disabled. `/api/v1/ai/assist` is the only governed remote-model boundary; it enforces `ai.assistant.use`, strict aggregate-only DTOs, server-owned endpoint/model/credentials, host allowlisting, timeout, audit-without-prompt, and local fallback. External mode remains disabled until `AI_GATEWAY_EXTERNAL_ENABLED=true`, an allowlisted host, model, and server-side secret are supplied.
+- AI: browser-to-external-model access is disabled. `/api/v1/ai/assist` is the only governed remote-model boundary; it enforces `ai.assistant.use`, a strict DTO, server-owned role/segment and endpoint/model/credentials, host allowlisting, timeout, audit-without-prompt, and local fallback. Legacy client `visibleCounts` hints are accepted only for compatibility and are never forwarded to an external provider. External mode remains disabled until `AI_GATEWAY_EXTERNAL_ENABLED=true`, an allowlisted host, model, and server-side secret are supplied.
 
 ## Windows Path Boundary
 
