@@ -60,4 +60,3 @@ describe('empty database base-schema bootstrap', () => {
     })).rejects.toThrow('supports the SQLite runtime only');
   });
 });
-

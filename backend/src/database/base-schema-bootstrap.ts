@@ -2,7 +2,6 @@ export type BaseSchemaBootstrapResult = {
   action: 'existing' | 'created';
   tableCount: number;
 };
-
 type BaseSchemaBootstrapDependencies = {
   databaseEngine: string;
   listTableNames: () => Promise<string[]>;
@@ -56,4 +55,3 @@ export const ensureBaseSchema = async (
 
   return { action: 'created', tableCount: after.length };
 };
-
