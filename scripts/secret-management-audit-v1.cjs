@@ -86,9 +86,21 @@ if (!promotionAudit.includes('sensitiveValues.some(value => serialized.includes(
 }
 
 const observationWorkflow = read('.github/workflows/enterprise-pilot-observation.yml');
-for (const secretName of ['POSTGRES_PASSWORD', 'REDIS_PASSWORD', 'JWT_SECRET', 'METRICS_BEARER_TOKEN']) {
+for (const secretName of [
+  'POSTGRES_PASSWORD',
+  'POSTGRES_REPLICATION_PASSWORD',
+  'REDIS_PASSWORD',
+  'MINIO_ROOT_PASSWORD',
+  'MEILI_MASTER_KEY',
+  'GRAFANA_ADMIN_PASSWORD',
+  'JWT_SECRET',
+  'METRICS_BEARER_TOKEN',
+]) {
   if (new RegExp(`${secretName}:\\s*sandbox-`, 'i').test(observationWorkflow)) {
     add('P0', '.github/workflows/enterprise-pilot-observation.yml', `${secretName} must not be derived from a public workflow run identifier.`);
+  }
+  if (!observationWorkflow.includes(`emit_secret ${secretName}`)) {
+    add('P1', '.github/workflows/enterprise-pilot-observation.yml', `${secretName} must be generated and masked for every observation run.`);
   }
 }
 for (const requiredToken of [

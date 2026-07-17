@@ -44,6 +44,8 @@ jobs:
         working-directory: ops/cloud-sandbox
     env:
       COMPOSE_PROJECT_NAME: ailaoda-observation-${{ github.run_id }}
+      MINIO_ROOT_USER: ailaoda-observation
+      GRAFANA_ADMIN_USER: observation-admin
       AILAODA_IMAGE_TAG: observation-${{ github.run_id }}
       APP_URL: http://127.0.0.1:5006/
       SECONDARY_APP_URL: http://127.0.0.1:5008/
@@ -79,7 +81,11 @@ jobs:
           }
           emit_secret POSTGRES_PASSWORD
           postgres_password="${generated_secret}"
+          emit_secret POSTGRES_REPLICATION_PASSWORD
           emit_secret REDIS_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
           emit_secret JWT_SECRET
           emit_secret METRICS_BEARER_TOKEN
           postgres_url="postgresql://ailaoda:${postgres_password}@127.0.0.1:55432/ailaoda?schema=public"
