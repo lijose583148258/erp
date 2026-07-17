@@ -119,7 +119,7 @@ Use `output/audit/postgres-migration-dry-run-v1.json` as the import checklist:
 When the PostgreSQL schema is provisioned and the target database is empty, run the importer:
 
 ```powershell
-npx prisma db push --schema output/postgres-prisma-artifact/prisma/schema.prisma
+node node_modules/prisma/build/index.js db push --schema output/postgres-prisma-artifact/prisma/schema.prisma --skip-generate
 npm run db:pg -- import
 ```
 
@@ -219,6 +219,30 @@ npm run audit:stock:ledger
 ```
 
 Keep `DATABASE_URL` on SQLite until a new rehearsal passes.
+
+## Cloud same-window gate
+
+`.github/workflows/enterprise-cloud-sandbox.yml` performs the complete disposable rehearsal without starting the
+application on the operator workstation. The job creates a representative SQLite fixture, takes a manifest-backed
+backup, exports and imports the snapshot, reads the marker records back through the PostgreSQL client, deliberately
+mutates the SQLite source, restores the backup, and verifies the pre-cutover fingerprint. It then runs the existing
+PostgreSQL browser flows, logical backup/restore, and controlled promotion in the same job.
+
+The final gate is:
+
+```powershell
+npm run audit:db:postgres-cutover-window
+```
+
+Required report:
+
+```text
+output/audit/cloud-postgres-cutover-window-verdict-v1.json
+```
+
+The verdict must contain `status: passed`, matching SQLite/PostgreSQL/rollback fingerprints, and passing route,
+backup/restore, and promotion checks. The report deliberately retains non-claims for cross-region failover,
+production traffic, long soak, and customer-dataset zero-downtime migration.
 
 ## Non-Claims
 

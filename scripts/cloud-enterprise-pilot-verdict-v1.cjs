@@ -18,6 +18,7 @@ const requiredReports = {
   concurrentWriteReconciliation: 'output/playwright/concurrency-consistency-audit-report-v1.json',
   postgresBackupRestore: 'output/audit/cloud-postgres-backup-restore-audit-v1.json',
   postgresPromotion: 'output/audit/cloud-postgres-promotion-audit-v1.json',
+  postgresCutoverWindow: 'output/audit/cloud-postgres-cutover-window-verdict-v1.json',
 };
 
 const checks = Object.entries(requiredReports).map(([name, relativePath]) => {

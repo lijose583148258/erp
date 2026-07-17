@@ -3,6 +3,18 @@ name: Enterprise Cloud Sandbox
 on:
   workflow_call:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/enterprise-cloud-sandbox.yml'
+      - 'backend/prisma/**'
+      - 'backend/src/database/**'
+      - 'backend/src/services/backup.service.ts'
+      - 'scripts/cloud-postgres-*.cjs'
+      - 'scripts/postgres-*.cjs'
+      - 'scripts/run-postgres-import-rehearsal-v1.cjs'
+      - 'ops/cloud-sandbox/**'
+      - 'package.json'
+      - 'package-lock.json'
   push:
     branches:
       - codex/enterprise-cloud-sandbox
@@ -242,6 +254,12 @@ jobs:
           npm ci
           npm --prefix backend ci
 
+      - name: Remove stale generated runtime evidence
+        shell: bash
+        run: |
+          rm -rf output/audit output/playwright cloud-evidence
+          mkdir -p output/audit output/playwright cloud-evidence
+
       - name: Verify cloud runner Chrome
         run: google-chrome --version
 
@@ -251,10 +269,34 @@ jobs:
           docker compose pull --ignore-buildable
           docker compose up -d --wait --wait-timeout 180
 
-      - name: Build PostgreSQL schema and application image
+      - name: Rehearse SQLite to PostgreSQL cutover and SQLite rollback
+        shell: bash
         run: |
+          set -euo pipefail
+          postgres_url="${DATABASE_URL}"
+          source_dir="${RUNNER_TEMP}/ailaoda-postgres-cutover-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          source_db="${source_dir}/source.db"
+          source_backup_dir="${source_dir}/backups"
+          mkdir -p "${source_backup_dir}"
+          sqlite_url="file:${source_db}"
+
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:prepare
+          DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs seed
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:backup
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- snapshot
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- manifest
+
           npm run build:backend:postgres-artifact
-          node node_modules/prisma/build/index.js db push --schema=output/postgres-prisma-artifact/prisma --skip-generate
+          DATABASE_URL="${sqlite_url}" POSTGRES_URL="${postgres_url}" POSTGRES_IMPORT_MODE=empty-only \
+            npm run run:db:postgres-import-rehearsal
+          node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
+
+          DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs mutate
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
+          DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
+
+      - name: Build PostgreSQL application image
+        run: |
           docker compose --profile application build app-primary
 
       - name: Start dual application instances
@@ -357,6 +399,9 @@ jobs:
 
       - name: Exercise PostgreSQL streaming promotion
         run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
+
+      - name: Issue PostgreSQL cutover same-window verdict
+        run: node ./scripts/cloud-postgres-cutover-window-verdict-v1.cjs
 
       - name: Issue enterprise pilot technical verdict
         run: node ./scripts/cloud-enterprise-pilot-verdict-v1.cjs

@@ -100,6 +100,8 @@
         "audit:db:postgres-import-rehearsal": "node ./scripts/postgres-import-rehearsal-audit-v1.cjs",
         "audit:db:postgres-portable-rehearsal": "node ./scripts/postgres-portable-rehearsal-audit-v1.cjs",
         "run:db:postgres-import-rehearsal": "node ./scripts/run-postgres-import-rehearsal-v1.cjs",
+        "audit:db:postgres-cutover-window": "node ./scripts/cloud-postgres-cutover-window-verdict-v1.cjs",
+        "fixture:db:postgres-cutover": "node ./scripts/cloud-postgres-migration-fixture-v1.cjs",
         "db:pg:start-rehearsal": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-postgres-rehearsal-v1.ps1",
         "db:pg:stop-rehearsal": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/stop-postgres-rehearsal-v1.ps1",
         "audit:deployment:readiness": "node ./scripts/deployment-migration-readiness-audit-v1.cjs",

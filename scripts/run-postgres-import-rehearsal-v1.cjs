@@ -83,10 +83,9 @@ function main() {
       importMode: process.env.POSTGRES_IMPORT_MODE || 'empty-only',
     });
 
-    run(process.platform === 'win32' ? 'cmd.exe' : 'npx',
-      process.platform === 'win32'
-        ? ['/d', '/s', '/c', 'npx prisma db push --schema output/postgres-prisma-artifact/prisma']
-        : ['prisma', 'db', 'push', '--schema', 'output/postgres-prisma-artifact/prisma'],
+    run(process.execPath,
+      [path.join(ROOT, 'node_modules', 'prisma', 'build', 'index.js'),
+        'db', 'push', '--schema', 'output/postgres-prisma-artifact/prisma', '--skip-generate'],
       'push-postgres-schema',
       { DATABASE_URL: postgresUrl });
 
