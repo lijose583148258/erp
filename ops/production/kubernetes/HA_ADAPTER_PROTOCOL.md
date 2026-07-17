@@ -31,7 +31,7 @@ Each PostgreSQL and Redis adapter implements:
 | `discover` | `{"id":"writer-a","failureDomain":"zone-a"}` | Return the currently observed writer/master. |
 | `fail-primary` | none | Isolate the discovered primary and return after injection is accepted. |
 | `recover` | none | Reintroduce the isolated member without forcing failback. |
-| `old-primary-status` | `{"rejoinedAsReplica":true}` | Prove the old primary is healthy as a replica. |
+| `old-primary-status` | `{"rejoinedAsReplica":true}` | Prove the old primary was recreated (new Kubernetes UID) and is healthy as a replica. |
 
 The Redis adapter may add `sentinelCount` to the `topology` response.
 
