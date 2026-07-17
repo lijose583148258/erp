@@ -93,7 +93,7 @@ jobs:
       - name: Prepare isolated database
         run: |
           # Clean-install workaround: the current prepare command assumes base tables already exist.
-          npm --prefix backend exec -- prisma db push --schema prisma --skip-generate
+          npx prisma db push --schema backend/prisma --skip-generate
           npm --prefix backend run db:manage -- prepare
           npm --prefix backend run db:manage -- bootstrap-admin
 
