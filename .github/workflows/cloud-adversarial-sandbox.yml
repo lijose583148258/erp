@@ -62,10 +62,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p output/cloud-sandbox
-          echo "JWT_SECRET=$(openssl rand -hex 48)" >> "$GITHUB_ENV"
-          echo "METRICS_BEARER_TOKEN=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          jwt_secret="$(openssl rand -hex 48)"
+          metrics_token="$(openssl rand -hex 32)"
+          admin_password="$(openssl rand -base64 36 | tr -d '\n/=+' | cut -c1-32)"
+          echo "::add-mask::$jwt_secret"
+          echo "::add-mask::$metrics_token"
+          echo "::add-mask::$admin_password"
+          echo "JWT_SECRET=$jwt_secret" >> "$GITHUB_ENV"
+          echo "METRICS_BEARER_TOKEN=$metrics_token" >> "$GITHUB_ENV"
           echo "AILAODA_ADMIN_USERNAME=sandbox-admin" >> "$GITHUB_ENV"
-          echo "AILAODA_ADMIN_PASSWORD=$(openssl rand -base64 36 | tr -d '\n/=+' | cut -c1-32)" >> "$GITHUB_ENV"
+          echo "AILAODA_ADMIN_PASSWORD=$admin_password" >> "$GITHUB_ENV"
           echo "DATABASE_URL=file:$RUNNER_TEMP/ailaoda-security-sandbox/stable.db" >> "$GITHUB_ENV"
           echo "AILAODA_RUNTIME_DB_PATH=$RUNNER_TEMP/ailaoda-security-sandbox/stable.db" >> "$GITHUB_ENV"
           echo "BACKUP_DIR=$RUNNER_TEMP/ailaoda-security-sandbox/backups" >> "$GITHUB_ENV"
@@ -74,8 +80,8 @@ jobs:
 
       - name: Install locked dependencies
         run: |
-          npm ci
-          npm --prefix backend ci
+          npm ci --include=dev
+          npm --prefix backend ci --include=dev
 
       - name: Build source
         run: |
