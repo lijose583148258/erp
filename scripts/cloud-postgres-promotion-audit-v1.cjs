@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditUser, resolveDefaultAccount } = require('./lib/ui-audit-user.cjs');
 
 const reportPath = path.join(process.cwd(), 'output/audit/cloud-postgres-promotion-audit-v1.json');
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
@@ -42,19 +42,8 @@ const tokenAccepted = async token => {
   return results.every(Boolean);
 };
 
-const resolveAuditAccount = () => {
-  const username = String(process.env.CLOUD_AUDIT_USERNAME || '').trim();
-  const passwordFile = String(process.env.CLOUD_AUDIT_PASSWORD_FILE || '').trim();
-  if (!username || !passwordFile) {
-    throw new Error('CLOUD_AUDIT_USERNAME and CLOUD_AUDIT_PASSWORD_FILE are required.');
-  }
-  const password = fs.readFileSync(path.resolve(passwordFile), 'utf8').trim();
-  if (!password) throw new Error('Cloud audit password file is empty.');
-  return { username, password, role: 'admin' };
-};
-
 async function main() {
-  const account = resolveAuditAccount();
+  const account = resolveDefaultAccount();
   await ensureUiAuditUser(account);
   const login = await fetch(`${instances[0]}/api/v1/auth/login`, {
     method: 'POST',

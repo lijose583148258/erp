@@ -62,6 +62,29 @@ if (!productionEnv.includes('SECRET_MANAGER_REFERENCE')) {
   add('P2', '.env.production.example', 'Production env example should document future external secret-manager reference.');
 }
 
+const cloudAuditFiles = fs.readdirSync(path.join(root, 'scripts'))
+  .filter((file) => /^cloud-.*\.cjs$/i.test(file));
+for (const fileName of cloudAuditFiles) {
+  const relativePath = `scripts/${fileName}`;
+  const content = read(relativePath);
+  if (/password\s*:\s*['"][^'"]{8,}['"]/i.test(content)) {
+    add('P0', relativePath, 'Cloud audits must obtain credentials from ephemeral environment/password-file inputs, not source literals.');
+  }
+  if (/\{\s*standbyConfig\s*\}/.test(content)) {
+    add('P0', relativePath, 'Raw PostgreSQL standby configuration must not be embedded in evidence reports.');
+  }
+}
+
+const promotionAudit = requireIncludes(
+  'scripts/cloud-postgres-promotion-audit-v1.cjs',
+  'credentialsIncluded: false',
+  'P0',
+  'PostgreSQL promotion evidence must record only redacted configuration facts.'
+);
+if (!promotionAudit.includes('sensitiveValues.some(value => serialized.includes(value))')) {
+  add('P1', 'scripts/cloud-postgres-promotion-audit-v1.cjs', 'Promotion evidence must fail closed if a runtime credential enters serialized evidence.');
+}
+
 if (findings.length) {
   console.error('Secret Management Audit: FAIL');
   for (const finding of findings) {

@@ -137,4 +137,5 @@ module.exports = {
   createAuditPrismaClient,
   ensureUiAuditUser,
   loginUiAuditUser,
+  resolveDefaultAccount,
 };
