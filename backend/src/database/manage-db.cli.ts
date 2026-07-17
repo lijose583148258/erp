@@ -1,13 +1,16 @@
 import bcrypt from 'bcryptjs';
+import path from 'path';
+import { spawnSync } from 'child_process';
 import prisma from '../config/database';
 import { BackupService } from '../services/backup.service';
-import { loadRuntimeEnv } from '../config/runtime';
+import { loadRuntimeEnv, runtime } from '../config/runtime';
 import { ensureSqliteParentDir, formatBytes, getDatabaseInfo } from './db-utils';
 import { demoCustomers, demoUsers } from './seed-fixtures';
 import { logger } from '../utils/logger';
 import { repairRuntimeSchema } from './runtime-schema-repair';
 import { repairRuntimeData } from './runtime-data-repair';
 import { auditRuntimeSchema } from './runtime-schema-audit';
+import { ensureBaseSchema } from './base-schema-bootstrap';
 
 const args = process.argv.slice(2);
 const command = (args[0] || 'status').toLowerCase();
@@ -15,6 +18,47 @@ const target = args[1];
 const isProduction = () => process.env.NODE_ENV === 'production';
 const isTruthy = (value?: string) =>
   ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
+
+const listRuntimeTableNames = async () => {
+  const rows = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+    `SELECT name
+     FROM sqlite_master
+     WHERE type = 'table'
+       AND name NOT LIKE 'sqlite_%'
+       AND name <> '_prisma_migrations'
+     ORDER BY name`,
+  );
+  return rows.map(row => row.name);
+};
+
+const applyPrismaBaseSchema = async () => {
+  const backendDir = path.resolve(__dirname, '../..');
+  const schemaDir = path.join(backendDir, 'prisma');
+  const prismaCli = require.resolve('prisma/build/index.js');
+
+  await prisma.$disconnect();
+  const result = spawnSync(
+    process.execPath,
+    [prismaCli, 'db', 'push', '--schema', schemaDir, '--skip-generate'],
+    {
+      cwd: backendDir,
+      env: process.env,
+      stdio: 'inherit',
+    },
+  );
+
+  await prisma.$connect();
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(`Prisma base schema creation failed with exit code ${result.status ?? 'unknown'}`);
+  }
+};
+
+const prepareBaseSchema = () => ensureBaseSchema({
+  databaseEngine: runtime.databaseEngine,
+  listTableNames: listRuntimeTableNames,
+  applyDeclarativeSchema: applyPrismaBaseSchema,
+});
 
 const printStatus = () => {
   const dbInfo = getDatabaseInfo();
@@ -166,12 +210,13 @@ const run = async () => {
     case 'prepare':
     case 'init':
     case 'repair': {
+      const baseSchema = await prepareBaseSchema();
       const report = await repairRuntimeSchema();
       const dataReport = await repairRuntimeData();
       const created = report.entries.filter(entry => entry.action === 'created').length;
       const added = report.entries.filter(entry => entry.action === 'added').length;
       const repaired = dataReport.entries.filter(entry => entry.action === 'updated').length;
-      console.log(`Database schema prepared | created=${created} added=${added} dataRepaired=${repaired}`);
+      console.log(`Database schema prepared | base=${baseSchema.action} tables=${baseSchema.tableCount} created=${created} added=${added} dataRepaired=${repaired}`);
       printStatus();
       return;
     }

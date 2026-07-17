@@ -439,6 +439,8 @@ export const buildOpenApiDocument = () => {
             currentPage: { type: 'string', maxLength: 120 },
             visibleCounts: {
               type: 'object',
+              deprecated: true,
+              description: 'Compatibility-only client hint. The server ignores this field and never forwards it to an external AI provider.',
               additionalProperties: { type: 'integer', minimum: 0, maximum: 1000000 },
             },
           },

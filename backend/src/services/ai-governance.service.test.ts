@@ -1,3 +1,12 @@
+jest.mock('./ai-budget.service', () => ({
+  AIBudgetService: {
+    getStatus: jest.fn(() => ({ dailyTokenBudget: 0, budgetConfigured: false })),
+    reserve: jest.fn(async () => ({ allowed: true })),
+    recordProviderSuccess: jest.fn(async () => undefined),
+    recordProviderFailure: jest.fn(async () => undefined),
+  },
+}));
+
 import { AIGovernanceService } from './ai-governance.service';
 import { aiAssistSchema } from '../validators/ai';
 import { renderPrometheusMetrics } from '../middleware/metricsMiddleware';
@@ -8,6 +17,7 @@ describe('governed AI gateway', () => {
 
   beforeEach(() => {
     process.env = { ...originalEnv };
+    process.env.NODE_ENV = 'test';
     for (const key of Object.keys(process.env)) {
       if (key.startsWith('AI_GATEWAY_')) delete process.env[key];
     }
@@ -59,7 +69,7 @@ describe('governed AI gateway', () => {
     expect(global.fetch).not.toHaveBeenCalled();
   });
 
-  it('allowlists aggregate context keys and strips injected page metadata', async () => {
+  it('ignores client-controlled counts and strips injected page metadata', async () => {
     const fetchMock = jest.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response(JSON.stringify({
       choices: [{ message: { content: 'Use the approval workspace.' } }],
     }), { status: 200 }));
@@ -79,7 +89,8 @@ describe('governed AI gateway', () => {
     const request = fetchMock.mock.calls[0][1] as RequestInit;
     const payload = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> };
     expect(payload.messages[1].content).toContain('"currentPage":"unknown"');
-    expect(payload.messages[1].content).toContain('"visibleCounts":{"alerts":3}');
+    expect(payload.messages[1].content).not.toContain('visibleCounts');
+    expect(payload.messages[1].content).not.toContain('"alerts":3');
     expect(payload.messages[1].content).not.toContain('ignore-system-instructions');
   });
 
@@ -92,7 +103,7 @@ describe('governed AI gateway', () => {
     }).success).toBe(false);
   });
 
-  it('sends only safe aggregate context and falls back on provider failure', async () => {
+  it('sends only server-owned identity context and falls back on provider failure', async () => {
     const fetchMock = jest.fn(async (_input: string | URL | Request, _init?: RequestInit) => new Response('unavailable', { status: 503 }));
     global.fetch = fetchMock as typeof fetch;
     process.env.AI_GATEWAY_EXTERNAL_ENABLED = 'true';
@@ -111,7 +122,8 @@ describe('governed AI gateway', () => {
     expect(request.redirect).toBe('error');
     expect(String((request.headers as Record<string, string>).authorization)).toContain('server-secret');
     const providerPayload = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> };
-    expect(providerPayload.messages[1].content).toContain('"visibleCounts":{"alerts":3}');
+    expect(providerPayload.messages[1].content).not.toContain('visibleCounts');
+    expect(providerPayload.messages[1].content).not.toContain('"alerts":3');
     expect(String(request.body)).not.toContain('apiKey');
   });
 

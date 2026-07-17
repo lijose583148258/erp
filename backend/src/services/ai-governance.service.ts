@@ -51,11 +51,6 @@ const PROMPT_INJECTION_PATTERNS = [
   /(?:忽略|绕过).{0,20}(?:系统|开发者|安全|权限|规则|指令)/,
   /(?:bo qua|vuot qua).{0,30}(?:he thong|an toan|quyen|chi dan)/i,
 ];
-const SAFE_VISIBLE_COUNT_KEYS = new Set([
-  'alerts', 'tasks', 'approvals', 'customers', 'orders', 'suppliers', 'shipments',
-  'collections', 'overdue', 'inventory', 'notifications', 'contracts', 'payments',
-]);
-
 const normalizeSafetyText = (value: string) => value
   .normalize('NFKD')
   .replace(/\p{M}/gu, '')
@@ -76,12 +71,6 @@ const safeCurrentPage = (value?: string) => {
   const page = String(value || '').trim();
   return /^\/?[a-z0-9/_-]{1,120}$/i.test(page) ? page : 'unknown';
 };
-
-const safeVisibleCounts = (value?: Record<string, number>) => Object.fromEntries(
-  Object.entries(value || {})
-    .filter(([key, count]) => SAFE_VISIBLE_COUNT_KEYS.has(key) && Number.isSafeInteger(count) && count >= 0)
-    .slice(0, SAFE_VISIBLE_COUNT_KEYS.size),
-);
 
 const UNSAFE_OUTPUT_PATTERNS = [
   /https?:\/\/|www\./i,
@@ -209,7 +198,6 @@ export class AIGovernanceService {
     const safeContext = {
       language: input.language || 'zh-CN',
       currentPage: safeCurrentPage(input.currentPage),
-      visibleCounts: safeVisibleCounts(input.visibleCounts),
       role: actor.role,
       segment: actor.segment || 'unknown',
     };

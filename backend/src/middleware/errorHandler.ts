@@ -11,6 +11,7 @@ export enum ErrorCode {
   CONFLICT = 'CONFLICT',
   DATABASE_ERROR = 'DATABASE_ERROR',
   RATE_LIMIT = 'RATE_LIMIT',
+  PAYLOAD_TOO_LARGE = 'PAYLOAD_TOO_LARGE',
 }
 
 export class AppError extends Error {
@@ -65,6 +66,34 @@ export const errorHandler = (
     statusCode = err.statusCode;
     message = err.message;
     errorCode = err.errorCode;
+  }
+
+  // Express/body-parser exposes stable status and type fields for request-body
+  // failures. Map them before the generic 500 response so malformed or
+  // oversized client input is not reported as an internal server failure.
+  const parserError = err as Error & {
+    status?: number;
+    statusCode?: number;
+    type?: string;
+    body?: unknown;
+  };
+  const parserStatus = parserError.status ?? parserError.statusCode;
+
+  if (
+    parserError.type === 'entity.too.large'
+    || parserStatus === 413
+    || err.name === 'PayloadTooLargeError'
+  ) {
+    statusCode = 413;
+    message = '请求内容超过大小限制';
+    errorCode = ErrorCode.PAYLOAD_TOO_LARGE;
+  } else if (
+    parserError.type === 'entity.parse.failed'
+    || (parserStatus === 400 && err instanceof SyntaxError && 'body' in parserError)
+  ) {
+    statusCode = 400;
+    message = '请求内容不是有效的 JSON';
+    errorCode = ErrorCode.VALIDATION_ERROR;
   }
 
   // Prisma错误处理

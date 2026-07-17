@@ -80,7 +80,6 @@ const AIAssistant = ({ context }: { context: any }) => {
           prompt: userMsg,
           language: safeContext.language === 'en' ? 'en-US' : safeContext.language === 'vi' ? 'vi-VN' : 'zh-CN',
           currentPage: safeContext.currentPage,
-          visibleCounts: safeContext.visibleCounts,
         });
         aiResponse = result.answer;
       } catch {
