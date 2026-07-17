@@ -2,8 +2,10 @@
 
 This protocol lets the provider or database operator own disruption commands
 while the ERP audit owns application-level verification. The runner invokes an
-adapter as an executable file with one operation argument. It does not use a
-shell.
+adapter with one operation argument. Repository `.js`, `.cjs`, and `.mjs`
+adapters are launched with the locked Node.js runtime, so they do not require
+an executable bit or shebang. Provider-native adapter binaries are launched
+directly. Neither path uses a shell.
 
 ## Safety boundary
 

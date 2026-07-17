@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { execAdapterFileSync } = require('./adapter-process.cjs');
 
 const args = process.argv.slice(2);
 const valueFor = name => {
@@ -92,19 +93,14 @@ const check = (report, name, passed, details = {}) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
   if (!passed) fail(`Check failed: ${name}`);
 };
-const adapterInvocation = (adapter, operation, operationArgs) => path.extname(adapter).toLowerCase() === '.cjs'
-  ? { command: process.execPath, args: [adapter, operation, ...operationArgs.map(String)] }
-  : { command: adapter, args: [operation, ...operationArgs.map(String)] };
 const adapterJson = (adapter, operation, ...operationArgs) => {
-  const invocation = adapterInvocation(adapter, operation, operationArgs);
-  const output = execFileSync(invocation.command, invocation.args, {
+  const output = execAdapterFileSync(adapter, operation, operationArgs, {
     encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'pipe', 'inherit'],
   }).trim();
   try { return JSON.parse(output); } catch { fail(`Adapter returned invalid JSON for ${operation}.`); }
 };
 const adapterRun = (adapter, operation, ...operationArgs) => {
-  const invocation = adapterInvocation(adapter, operation, operationArgs);
-  execFileSync(invocation.command, invocation.args, {
+  execAdapterFileSync(adapter, operation, operationArgs, {
     encoding: 'utf8', timeout: timeoutMs, stdio: ['ignore', 'ignore', 'inherit'],
   });
 };

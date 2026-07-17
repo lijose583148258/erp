@@ -5,13 +5,25 @@ on:
   pull_request:
     paths:
       - ".github/workflows/ha-adapter-contract.yml"
+      - "ops/production/kubernetes/adapter-process*.cjs"
       - "ops/production/kubernetes/adapters/**"
+      - "ops/production/kubernetes/run-automatic-ha-drill.cjs"
+      - "ops/production/kubernetes/run-backup-restore-drill.cjs"
+      - "ops/production/kubernetes/run-formal-pilot-preflight.cjs"
+      - "ops/production/kubernetes/run-observability-admission-drill.cjs"
+      - "ops/production/kubernetes/run-storage-search-admission-drill.cjs"
   push:
     branches:
       - codex/enterprise-cloud-sandbox
     paths:
       - ".github/workflows/ha-adapter-contract.yml"
+      - "ops/production/kubernetes/adapter-process*.cjs"
       - "ops/production/kubernetes/adapters/**"
+      - "ops/production/kubernetes/run-automatic-ha-drill.cjs"
+      - "ops/production/kubernetes/run-backup-restore-drill.cjs"
+      - "ops/production/kubernetes/run-formal-pilot-preflight.cjs"
+      - "ops/production/kubernetes/run-observability-admission-drill.cjs"
+      - "ops/production/kubernetes/run-storage-search-admission-drill.cjs"
 
 permissions:
   contents: read
@@ -32,4 +44,11 @@ jobs:
         run: node --version
 
       - name: Run isolated adapter contracts
-        run: node ops/production/kubernetes/adapters/adapter-contract.test.cjs
+        run: |
+          node --check ops/production/kubernetes/run-automatic-ha-drill.cjs
+          node --check ops/production/kubernetes/run-backup-restore-drill.cjs
+          node --check ops/production/kubernetes/run-formal-pilot-preflight.cjs
+          node --check ops/production/kubernetes/run-observability-admission-drill.cjs
+          node --check ops/production/kubernetes/run-storage-search-admission-drill.cjs
+          node ops/production/kubernetes/adapter-process.test.cjs
+          node ops/production/kubernetes/adapters/adapter-contract.test.cjs

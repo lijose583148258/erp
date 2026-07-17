@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
+const { execAdapterFileSync } = require('./adapter-process.cjs');
 
 const args = process.argv.slice(2);
 const valueFor = name => {
@@ -52,7 +53,7 @@ const password = fs.readFileSync(passwordFile, 'utf8').trim();
 if (!password) fail('HA audit password file is empty.');
 
 const adapterJson = (adapter, operation) => {
-  const output = execFileSync(adapter, [operation], {
+  const output = execAdapterFileSync(adapter, operation, [], {
     encoding: 'utf8',
     timeout: timeoutMs,
     stdio: ['ignore', 'pipe', 'inherit'],
@@ -64,7 +65,7 @@ const adapterJson = (adapter, operation) => {
   }
 };
 const adapterRun = (adapter, operation) => {
-  execFileSync(adapter, [operation], {
+  execAdapterFileSync(adapter, operation, [], {
     encoding: 'utf8',
     timeout: timeoutMs,
     stdio: ['ignore', 'ignore', 'inherit'],
