@@ -12,7 +12,10 @@ on:
       - "ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs"
       - "ops/production/kubernetes/pilot-daily-report.example.json"
       - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
+      - "ops/production/kubernetes/pilot-alert-review.example.json"
+      - "ops/production/kubernetes/pilot-incident-review.example.json"
       - "ops/production/kubernetes/pilot-observation-ledger.example.json"
+      - "ops/production/kubernetes/pilot-reconciliation.example.json"
       - "ops/production/kubernetes/run-continuous-observation.cjs"
       - "ops/production/kubernetes/Dockerfile.pilot-observer"
       - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
@@ -31,7 +34,10 @@ on:
       - "ops/production/kubernetes/pilot-ai-governance-review-contract.test.cjs"
       - "ops/production/kubernetes/pilot-daily-report.example.json"
       - "ops/production/kubernetes/pilot-ai-governance-review.example.json"
+      - "ops/production/kubernetes/pilot-alert-review.example.json"
+      - "ops/production/kubernetes/pilot-incident-review.example.json"
       - "ops/production/kubernetes/pilot-observation-ledger.example.json"
+      - "ops/production/kubernetes/pilot-reconciliation.example.json"
       - "ops/production/kubernetes/run-continuous-observation.cjs"
       - "ops/production/kubernetes/Dockerfile.pilot-observer"
       - "ops/production/kubernetes/formal-pilot-observation-job.yaml"
@@ -81,6 +87,8 @@ jobs:
           grep -q 'readOnlyRootFilesystem: true' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
           grep -q '/app/capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
           grep -q 'PILOT_AI_COLLECTOR_IMAGE_DIGEST' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'PILOT_AI_ENVIRONMENT' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
+          grep -q 'PILOT_AI_EVIDENCE_ID' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml
           grep -q 'pilot-observer-image-digest' ops/production/kubernetes/formal-pilot-observation-resources.example.yaml
           grep -q 'capture-pilot-ai-governance-review.cjs' ops/production/kubernetes/Dockerfile.pilot-observer
           ! grep -Ei 'AI_GATEWAY|OPENAI|ANTHROPIC|GEMINI' ops/production/kubernetes/formal-pilot-ai-daily-review-cronjob.example.yaml

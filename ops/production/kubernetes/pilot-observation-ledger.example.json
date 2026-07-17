@@ -1,11 +1,13 @@
 {
   "schemaVersion": 1,
   "environment": "replace-with-real-staging-environment",
+  "evidenceId": "replace-with-change-ticket",
   "entries": [
     {
       "date": "2026-01-01",
       "checkedAt": "2026-01-01T23:00:00Z",
       "status": "not-run",
+      "evidenceId": "replace-with-change-ticket",
       "commitSha": "replace-with-40-character-git-sha",
       "imageDigest": "sha256:replace-with-64-hex-digest",
       "alertReviewCompleted": false,

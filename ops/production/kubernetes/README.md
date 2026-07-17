@@ -205,7 +205,8 @@ two seconds, two serving application instances, and no failed checks.
 The pilot ledger must contain at least seven distinct UTC dates spanning six
 full days. Every entry is bound to a daily source report by SHA-256 and requires
 completed alert review, zero unreconciled business writes, resolved incidents,
-and an immutable release identity. The continuous report and complete ledger
+the same change-ticket evidence ID, and the exact immutable release identity
+and continuous-report hash on every day. The continuous report and complete ledger
 hashes are written into enterprise evidence by `--bind` and rechecked during
 formal admission.
 
@@ -358,6 +359,8 @@ fingerprints. The four incident counters must be supplied explicitly by the
 daily reviewer and must all be zero.
 
 ```bash
+PILOT_AI_ENVIRONMENT=<formal-pilot> \
+PILOT_AI_EVIDENCE_ID=<change-ticket> \
 PILOT_AI_APP_URLS=<https-app-a>,<https-app-b> \
 PILOT_AI_USERNAME=<least-privilege-ai-user> \
 PILOT_AI_PASSWORD_FILE=<private-secret-file> \
@@ -372,7 +375,11 @@ PILOT_AI_UNRESOLVED_INCIDENTS=0 \
 node ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
 ```
 
-The generated report binds both the observer image digest and the exact collector source hash; the final verifier recomputes the source hash and requires every daily report to match the continuous observer image.
+The generated report binds the pilot environment, change ticket, observer image
+digest, and exact collector source hash. The final verifier recomputes the
+source hash and requires every daily report to match the continuous observer
+image. Alert, reconciliation, and incident support reports carry the same pilot
+identity so support files from another change ticket cannot be replayed.
 
 For Kubernetes, build the digest-pinned pilot-observer image and apply
 `formal-pilot-ai-daily-review-cronjob.example.yaml`. Its schedule is UTC,
@@ -394,6 +401,7 @@ cannot be copied into the pilot evidence bundle.
 ```bash
 node ops/production/kubernetes/record-pilot-daily-review.cjs \
   --environment <formal-pilot> \
+  --evidence-id <change-ticket> \
   --commit-sha <git-sha> \
   --image-digest <sha256:digest> \
   --date <YYYY-MM-DD> \
