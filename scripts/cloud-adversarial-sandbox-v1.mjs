@@ -286,5 +286,11 @@ const lines = [
   '',
 ];
 fs.writeFileSync(path.join(outputDir, 'ADVERSARIAL_REPORT.md'), lines.join('\n'));
-console.log(JSON.stringify(report.summary));
+console.log(JSON.stringify({
+  summary: report.summary,
+  loadMetrics,
+  failures: failed.map(({ category, test, severity, evidence, recommendation }) => ({
+    category, test, severity, evidence, recommendation,
+  })),
+}, null, 2));
 process.exitCode = blocking.length > 0 ? 1 : 0;
