@@ -6,6 +6,8 @@ on:
       - 'ops/production/kubernetes/run-enterprise-production-admission.cjs'
       - 'ops/production/kubernetes/verify-formal-pilot-preflight-evidence.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - 'ops/production/kubernetes/verify-kubernetes-app-placement.cjs'
+      - 'ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs'
       - 'ops/production/kubernetes/failure-domain-evidence.example.json'
       - 'ops/production/kubernetes/admission-bundle.example.json'
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
@@ -31,6 +33,8 @@ jobs:
         shell: bash
         run: |
           node --check ops/production/kubernetes/run-enterprise-production-admission.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+          node ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');
           const fs = require('fs');

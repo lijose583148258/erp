@@ -34,8 +34,9 @@ tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
 kubectl get nodes -o json > "${tmp_dir}/nodes.json"
-kubectl get pods -n "${namespace}" -l app=ailaoda-app -o json > "${tmp_dir}/pods.json"
+kubectl get pods -n "${namespace}" -o json > "${tmp_dir}/pods.json"
 kubectl get deployment -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/deployment.json"
+kubectl get replicasets -n "${namespace}" -o json > "${tmp_dir}/replicasets.json"
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
@@ -70,49 +71,14 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-security-evidence.cjs" \
   --reports-dir "${security_reports_dir}" \
   --evidence "${evidence_file}"
 
-jq -e '
-  [.items[]
-    | select(.spec.unschedulable != true)
-    | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))
-  ] as $ready
-  | ($ready | length) >= 2
-  and ($ready | map(.metadata.name) | unique | length) >= 2
-  and ($ready | map(.metadata.labels["topology.kubernetes.io/zone"] // "") | all(length > 0))
-  and ($ready | map(.metadata.labels["topology.kubernetes.io/zone"]) | unique | length) >= 2
-' "${tmp_dir}/nodes.json" >/dev/null || {
-  echo "FAILED: fewer than two Ready nodes or two labeled zones" >&2
-  exit 1
-}
-
-jq -e --slurpfile nodes "${tmp_dir}/nodes.json" '
-  ($nodes[0].items
-    | map({key: .metadata.name, value: (.metadata.labels["topology.kubernetes.io/zone"] // "")})
-    | from_entries) as $zones
-  | [.items[]
-      | select(.status.phase == "Running")
-      | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))
-    ] as $ready
-  | ($ready | length) >= 2
-  and ($ready | map(.spec.nodeName) | unique | length) >= 2
-  and ($ready | map($zones[.spec.nodeName]) | all(length > 0))
-  and ($ready | map($zones[.spec.nodeName]) | unique | length) >= 2
-' "${tmp_dir}/pods.json" >/dev/null || {
-  echo "FAILED: application pods are not Ready across two nodes and two zones" >&2
-  exit 1
-}
-
-jq -e '(.status.availableReplicas // 0) >= 2' "${tmp_dir}/deployment.json" >/dev/null || {
-  echo "FAILED: deployment has fewer than two available replicas" >&2
-  exit 1
-}
-
-jq -e '
-  (.status.currentHealthy // 0) >= 2
-  and (.status.disruptionsAllowed // 0) >= 1
-' "${tmp_dir}/pdb.json" >/dev/null || {
-  echo "FAILED: disruption budget cannot currently tolerate one pod loss" >&2
-  exit 1
-}
+node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-app-placement.cjs" \
+  --nodes "${tmp_dir}/nodes.json" \
+  --pods "${tmp_dir}/pods.json" \
+  --deployment "${tmp_dir}/deployment.json" \
+  --replicasets "${tmp_dir}/replicasets.json" \
+  --pdb "${tmp_dir}/pdb.json" \
+  --image-digest "$(jq -r '.imageDigest // empty' "${evidence_file}")" \
+  > "${tmp_dir}/placement-verdict.json"
 
 jq -e '
   .schemaVersion == 1

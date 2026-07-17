@@ -67,7 +67,12 @@ topology, or any adapter hash drift. `--check-only` validates this structure
 without contacting Kubernetes.
 
 The runner then calls the low-level verifier, which reads Kubernetes state with
-`kubectl` and validates the evidence with `jq`. Evidence must come from the
+`kubectl` and validates the evidence with `jq` plus the placement contract. It
+accepts only Ready Pods owned through the target Deployment's exact
+ReplicaSet UID chain, requires a completed observed rollout, and matches both
+the Deployment image and each running container `imageID` to the admitted
+release digest. Unrelated labeled Pods and old images cannot satisfy the
+two-zone or disruption-budget gate. Evidence must come from the
 provider or operator drill and must not contain credentials, connection strings,
 customer records, prompts, or tokens. A passing local/single-node simulation is
 intentionally insufficient.
