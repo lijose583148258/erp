@@ -131,6 +131,7 @@ jobs:
             audit:security:mfa
             audit:security:distributed-auth
             audit:security:dependencies
+            audit:ai:isolation
           )
           for audit in "${audits[@]}"; do
             safe_name="${audit//:/-}"
