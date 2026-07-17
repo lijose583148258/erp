@@ -9,6 +9,8 @@ on:
 jobs:
   source-checks:
     runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: file:./ci.db
 
     steps:
       - name: Checkout

@@ -22,9 +22,9 @@ export type AuditLogProbeRow = {
 };
 
 export async function pickProbeUser(client: PrismaClientType) {
-  const users = await client.$queryRawUnsafe<ProbeUserRow[]>(
+  const users = (await client.$queryRawUnsafe(
     "SELECT id, username FROM users ORDER BY CASE WHEN username = 'admin' THEN 0 ELSE 1 END, id ASC LIMIT 1",
-  );
+  )) as ProbeUserRow[];
   const user = users[0];
   if (!user) {
     throw new Error('No user exists for runtime persistence probe');
@@ -38,7 +38,7 @@ export async function readAuditProbe(
   action = RUNTIME_PROBE_ACTION,
   resource = RUNTIME_PROBE_RESOURCE,
 ) {
-  const rows = await client.$queryRawUnsafe<AuditLogProbeRow[]>(
+  const rows = (await client.$queryRawUnsafe(
     `SELECT
       id,
       user_id,
@@ -58,7 +58,7 @@ export async function readAuditProbe(
     action,
     resource,
     `%${probeId}%`,
-  );
+  )) as AuditLogProbeRow[];
   return rows[0] || null;
 }
 
