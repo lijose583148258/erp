@@ -95,9 +95,9 @@ export const normalizeDatabasePath = (filePath: string) => path.resolve(filePath
 const fileUrl = (filePath: string) => `file:${normalizeDatabasePath(filePath)}`;
 
 async function listTables(client: PrismaClientType) {
-  const rows = await client.$queryRawUnsafe<Array<{ name: string }>>(
+  const rows = (await client.$queryRawUnsafe(
     "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
-  );
+  )) as Array<{ name: string }>;
   return new Set(rows.map(row => row.name));
 }
 
@@ -116,7 +116,7 @@ export async function collectBusinessDataFingerprint(
     const sumExpressions = (spec.sums || [])
       .map(column => `COALESCE(SUM(${quoteIdent(column)}), 0) AS ${quoteIdent(`sum__${column}`)}`);
     const query = `SELECT ${['COUNT(*) AS "count"', ...sumExpressions].join(', ')} FROM ${quoteIdent(spec.table)}`;
-    const [row] = await client.$queryRawUnsafe<Array<Record<string, unknown>>>(query);
+    const [row] = (await client.$queryRawUnsafe(query)) as Array<Record<string, unknown>>;
     const sums: Record<string, number> = {};
 
     for (const column of spec.sums || []) {
