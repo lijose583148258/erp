@@ -90,6 +90,9 @@ jobs:
           npm run build:backend
           npm run build
 
+      - name: Verify request-body error mapping
+        run: npm --prefix backend test -- --runInBand src/middleware/errorHandler.test.ts
+
       - name: Prepare isolated database
         run: |
           # Clean-install workaround: the current prepare command assumes base tables already exist.
