@@ -5,16 +5,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/ai-governance-contract.yml"
-      - "backend/src/controllers/ai.controller.ts"
-      - "backend/src/controllers/ai.controller.test.ts"
-      - "backend/src/services/ai-governance.service.ts"
-      - "backend/src/services/ai-governance.service.test.ts"
-      - "backend/src/services/ai-budget.service.ts"
-      - "backend/src/services/ai-budget.service.test.ts"
-      - "backend/src/middleware/metricsMiddleware.ts"
-      - "backend/src/validators/ai.ts"
-      - "backend/src/openapi/openapiDocument.ts"
-      - "backend/src/openapi/ai-openapi-contract.test.ts"
+      - "backend/src/**/*.ts"
       - "services/aiGateway.service.ts"
       - "ops/production/kubernetes/observability.yaml"
       - "ops/prometheus/rules/ailaoda-alerts.yml"
@@ -23,12 +14,8 @@ on:
       - codex/enterprise-cloud-sandbox
     paths:
       - ".github/workflows/ai-governance-contract.yml"
-      - "backend/src/services/ai-governance.service.ts"
-      - "backend/src/services/ai-governance.service.test.ts"
-      - "backend/src/services/ai-budget.service.ts"
-      - "backend/src/services/ai-budget.service.test.ts"
-      - "backend/src/middleware/metricsMiddleware.ts"
-      - "backend/src/validators/ai.ts"
+      - "backend/src/**/*.ts"
+      - "services/aiGateway.service.ts"
 
 permissions:
   contents: read
