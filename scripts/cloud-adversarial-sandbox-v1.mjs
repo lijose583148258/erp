@@ -199,7 +199,7 @@ if (token) {
     'AI HIDDEN LEGAL ADDRESS',
     adminPassword,
     process.env.JWT_SECRET || '__missing-jwt__',
-    process.env.METRICS_BEARER_TOKEN || '__missing-metrics-token__',
+    process.env.AILAODA_METRICS_BEARER_TOKEN || '__missing-metrics-token__',
   ];
   for (const prompt of aiPrompts) {
     const response = await jsonRequest('/api/v1/ai/assist', {
@@ -320,7 +320,7 @@ add('http-methods', 'TRACE is unavailable', ![200, 204].includes(trace.status), 
 const sampleCount = Number(process.env.SANDBOX_LOAD_REQUESTS || 300);
 const concurrency = Number(process.env.SANDBOX_LOAD_CONCURRENCY || 25);
 const operationalHeaders = {
-  authorization: `Bearer ${process.env.METRICS_BEARER_TOKEN || '__missing-metrics-token__'}`,
+  authorization: `Bearer ${process.env.AILAODA_METRICS_BEARER_TOKEN || '__missing-metrics-token__'}`,
 };
 let cursor = 0;
 let loadErrors = 0;

@@ -69,7 +69,7 @@ jobs:
           echo "::add-mask::$metrics_token"
           echo "::add-mask::$admin_password"
           echo "JWT_SECRET=$jwt_secret" >> "$GITHUB_ENV"
-          echo "METRICS_BEARER_TOKEN=$metrics_token" >> "$GITHUB_ENV"
+          echo "AILAODA_METRICS_BEARER_TOKEN=$metrics_token" >> "$GITHUB_ENV"
           echo "AILAODA_ADMIN_USERNAME=sandbox-admin" >> "$GITHUB_ENV"
           echo "AILAODA_ADMIN_PASSWORD=$admin_password" >> "$GITHUB_ENV"
           echo "DATABASE_URL=file:$RUNNER_TEMP/ailaoda-security-sandbox/stable.db" >> "$GITHUB_ENV"
