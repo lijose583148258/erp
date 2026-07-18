@@ -52,6 +52,22 @@ if (!exists('docs/adr/0006-secret-management-boundary.md')) {
   add('P1', 'docs/adr/0006-secret-management-boundary.md', 'Secret management ADR is missing.');
 }
 
+const validationMiddleware = requireIncludes(
+  'backend/src/middleware/validateRequest.ts',
+  'Request validation failed',
+  'P0',
+  'Request validation logging boundary is missing.'
+);
+if (/req\.body|body dump|JSON\.stringify\(req\.body/.test(validationMiddleware)) {
+  add('P0', 'backend/src/middleware/validateRequest.ts', 'Validation failures must never log request body values.');
+}
+if (!validationMiddleware.includes('errorCount') || !validationMiddleware.includes('fields:')) {
+  add('P2', 'backend/src/middleware/validateRequest.ts', 'Validation logs should retain value-free field and count diagnostics.');
+}
+if (!exists('backend/src/middleware/validateRequest.test.ts')) {
+  add('P1', 'backend/src/middleware/validateRequest.test.ts', 'Validation log redaction regression test is missing.');
+}
+
 const productionEnv = requireIncludes(
   '.env.production.example',
   'JWT_SECRET=replace_with_a_long_random_secret_before_server_deploy',
@@ -128,4 +144,5 @@ console.log('Secret Management Audit: PASS');
 console.log('- JWT signing secret resolves through a central boundary.');
 console.log('- Production weak or missing JWT_SECRET is rejected.');
 console.log('- Health exposes redacted secret readiness metadata.');
+console.log('- Validation failures retain value-free diagnostics without request payloads.');
 console.log('- ADR and tests document the current env-to-secret-manager path.');

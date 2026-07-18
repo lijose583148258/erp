@@ -19,11 +19,11 @@ export const validateRequest = (
         }));
 
         logger.warn('Request validation failed', {
+            method: req.method,
             path: req.path,
-            body: req.body,
-            errors: errorMessages,
+            fields: Array.from(new Set(errorMessages.map(error => error.field).filter(Boolean))),
+            errorCount: errorMessages.length,
         });
-        logger.warn(`Request validation body dump: ${JSON.stringify(req.body)}`);
 
         return res.status(400).json({
             success: false,
