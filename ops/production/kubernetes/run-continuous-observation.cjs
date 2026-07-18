@@ -158,9 +158,12 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
   let status = 0;
   try {
     let token = authToken;
+    const deepReadiness = route === '/internal/ready';
     let response = await fetch(`${baseUrl}${route}`, {
       redirect: 'error',
-      headers: requiresAuth ? { authorization: `Bearer ${token}` } : undefined,
+      headers: deepReadiness
+        ? { authorization: `Bearer ${metricsToken}` }
+        : requiresAuth ? { authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(10_000),
     });
     if (requiresAuth && response.status === 401) {
@@ -172,7 +175,7 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
         signal: AbortSignal.timeout(10_000),
       });
     }
-    if (route === '/ready') {
+    if (deepReadiness) {
       readinessSamples += 1;
       const body = await response.json().catch(() => null);
       const semanticReady = response.ok
@@ -234,7 +237,7 @@ async function main() {
   const before = await metricsSnapshot();
   await probeComponents();
   samples.push(...before);
-  const routes = ['/health', '/ready', '/api/v1/dashboard', '/api/v1/customers?page=1&pageSize=30', '/api/v1/orders?page=1&pageSize=30'];
+  const routes = ['/health', '/internal/ready', '/api/v1/dashboard', '/api/v1/customers?page=1&pageSize=30', '/api/v1/orders?page=1&pageSize=30'];
   const deadline = Date.now() + durationMs;
   const worker = async () => {
     while (Date.now() < deadline) {

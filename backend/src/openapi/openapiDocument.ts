@@ -119,7 +119,7 @@ export const buildOpenApiDocument = () => {
         tags: ['Runtime'],
         summary: 'Readiness probe',
         responses: {
-          '200': { description: 'The API, database, and Redis critical dependencies are ready; degradable dependency topology is included.' },
+          '200': { description: 'The API, database, and Redis critical dependencies are ready; only minimal public status is returned.' },
           '503': { description: 'The API is running but a critical database or Redis dependency is unavailable.' },
         },
       },
@@ -258,6 +258,20 @@ export const buildOpenApiDocument = () => {
       },
     };
   }
+
+  paths['/internal/ready'] = {
+    get: {
+      tags: ['Runtime'],
+      summary: 'Protected deep readiness probe',
+      description: 'Returns dependency policy and degradable component details to an administrator or metrics collector only.',
+      security: [{ bearerAuth: [] }, { metricsBearerAuth: [] }],
+      responses: {
+        '200': { description: 'Critical dependencies are ready and detailed operational status is returned.' },
+        '401': { description: 'A valid administrator JWT or metrics collector token is required.' },
+        '503': { description: 'A critical dependency is unavailable.' },
+      },
+    },
+  };
 
   paths['/metrics'] = {
     get: {

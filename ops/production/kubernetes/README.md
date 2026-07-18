@@ -118,6 +118,13 @@ and every address advertised by the live Ingress load balancer. At least one
 resolved address must match, preventing an unrelated healthy endpoint from
 satisfying admission through stale or diverted DNS. TLS hostname and CA-chain
 validation remain enforced by `curl` after the DNS-to-Ingress binding passes.
+Public `/ready`, `/api/ready`, and `/api/v1/ready` responses expose only overall
+status plus database and Redis readiness booleans. Dependency policy, Redis mode,
+degradable-provider state, errors, and uptime are available only from
+`/internal/ready`, protected by the same opaque collector token or administrator
+permission as `/metrics`. The continuous observer uses that protected route, so
+its Sentinel/dependency assertions remain semantic rather than becoming a
+minimal public-probe false green.
 
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The

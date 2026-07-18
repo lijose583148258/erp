@@ -131,6 +131,7 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-public-dns-ingress.cjs" \
 
 curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
   --connect-timeout 5 --max-time 15 \
+  --header 'Cache-Control: no-cache' \
   --header 'Accept: application/json' \
   "https://${public_host}/ready" \
   --output "${tmp_dir}/public-readiness.json"

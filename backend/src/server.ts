@@ -172,10 +172,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.get(['/livez', '/api/livez', '/api/v1/livez'], (_req: Request, res: Response) => {
-  res.json({ status: 'alive', timestamp: new Date().toISOString(), uptime: process.uptime() });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'alive', timestamp: new Date().toISOString() });
 });
 
-app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Response) => {
+const authorizeOperationalAccess = (req: Request, res: Response, next: NextFunction) => {
+  if (hasValidMetricsBearerToken(req.headers.authorization)) return next();
+  return authenticate(req as AuthRequest, res, () => authorizePermission('system.metrics.read')(req as AuthRequest, res, next));
+};
+
+const readReadiness = async () => {
   const dependencyPolicy = {
     critical: ['database', 'redis'],
     degradable: ['search', 'objectStorage', 'telemetry'],
@@ -189,13 +195,30 @@ app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Re
     await prisma.$queryRaw`SELECT 1`;
     const redis = await probeRedis();
     if (!redis.ready) {
-      return res.status(503).json({ status: 'not-ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString() });
+      return { statusCode: 503, body: { status: 'not-ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString() } };
     }
-    return res.json({ status: 'ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString(), uptime: process.uptime() });
+    return { statusCode: 200, body: { status: 'ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString(), uptime: process.uptime() } };
   } catch (error) {
     logger.error('Readiness database probe failed', error);
-    return res.status(503).json({ status: 'not-ready', database: 'unavailable', dependencyPolicy, degradable, timestamp: new Date().toISOString() });
+    return { statusCode: 503, body: { status: 'not-ready', database: 'unavailable', redis: { ready: false }, dependencyPolicy, degradable, timestamp: new Date().toISOString() } };
   }
+};
+
+app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Response) => {
+  const snapshot = await readReadiness();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json({
+    status: snapshot.body.status,
+    database: snapshot.body.database,
+    redis: { ready: snapshot.body.redis.ready },
+    timestamp: snapshot.body.timestamp,
+  });
+});
+
+app.get('/internal/ready', authorizeOperationalAccess, async (_req: Request, res: Response) => {
+  const snapshot = await readReadiness();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json(snapshot.body);
 });
 
 app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
@@ -235,6 +258,7 @@ app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res:
   const healthy = Object.values(checks).every((value) => value === 'ok') && redis.ready;
   const cache = cacheService.status();
   const jwtSecret = getJwtSecretStatus();
+  res.setHeader('Cache-Control', 'no-store');
   res.status(healthy ? 200 : 503).json({
     status: healthy ? 'ok' : 'degraded',
     mode: runtime.nodeEnv,
@@ -264,12 +288,7 @@ app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res:
   });
 });
 
-const authorizeMetricsAccess = (req: Request, res: Response, next: NextFunction) => {
-  if (hasValidMetricsBearerToken(req.headers.authorization)) return next();
-  return authenticate(req as AuthRequest, res, () => authorizePermission('system.metrics.read')(req as AuthRequest, res, next));
-};
-
-app.get('/metrics', authorizeMetricsAccess, (_req: Request, res: Response) => {
+app.get('/metrics', authorizeOperationalAccess, (_req: Request, res: Response) => {
   res.type('text/plain; version=0.0.4');
   res.send(renderPrometheusMetrics());
 });

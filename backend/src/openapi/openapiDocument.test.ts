@@ -22,6 +22,7 @@ describe('OpenAPI contract foundation', () => {
 
     expect(document.paths['/api/health']).toBeDefined();
     expect(document.paths['/api/v1/health']).toBeDefined();
+    expect(document.paths['/internal/ready']?.get?.security).toEqual([{ bearerAuth: [] }, { metricsBearerAuth: [] }]);
     expect(document.paths['/api/rum/vitals']?.post?.responses['202']).toBeDefined();
     expect(document.paths['/api/v1/rum/vitals']?.post?.responses['202']).toBeDefined();
     expect(document.paths['/metrics']).toBeDefined();
