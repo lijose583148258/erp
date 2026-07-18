@@ -173,7 +173,7 @@ export const canUseCustomerForBusinessWrite = (req: AuthRequest, customer: Custo
 
 export const canUseOrderForBusinessWrite = (req: AuthRequest, order: OrderScopedAccessRecord) => {
     if (!req.user) return false;
-    if (req.user.role === 'admin' || hasDataScope(req, 'all') || hasDataScope(req, 'finance_visible')) return true;
+    if (req.user.role === 'admin' || hasDataScope(req, 'all')) return true;
 
     if (req.user.role === 'manager' || hasDataScope(req, 'team_customers')) {
         return order.customer ? canUseCustomerForBusinessWrite(req, order.customer) : false;
@@ -184,6 +184,17 @@ export const canUseOrderForBusinessWrite = (req: AuthRequest, order: OrderScoped
     }
 
     return false;
+};
+
+/**
+ * Finance collection mutations intentionally have a wider data boundary than
+ * core order lifecycle writes. A segmented built-in manager must still remain
+ * inside their customer segment even though the role can view finance data.
+ */
+export const canUseOrderForCollectionWrite = (req: AuthRequest, order: OrderScopedAccessRecord) => {
+    if (!req.user) return false;
+    if (req.user.role !== 'manager' && hasDataScope(req, 'finance_visible')) return true;
+    return canUseOrderForBusinessWrite(req, order);
 };
 
 export const canUseBarterRecord = (req: AuthRequest, record: {

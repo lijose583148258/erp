@@ -8,7 +8,7 @@ import {
   CollectionStateService,
   getPaymentVerificationConflictMessage,
 } from '../../services/collection-state.service';
-import { canUseOrderForBusinessWrite } from '../../utils/recordAccess';
+import { canUseOrderForCollectionWrite } from '../../utils/recordAccess';
 import {
   collectionOrderScopeSelect,
   getConflictMessage,
@@ -39,7 +39,7 @@ export class CollectionVerificationHoldController {
         return res.status(404).json({ success: false, message: 'Payment record not found' } as ApiResponse);
       }
 
-      if (!canUseOrderForBusinessWrite(req, payment.order)) {
+      if (!canUseOrderForCollectionWrite(req, payment.order)) {
         return sendCollectionForbidden(res, 'You do not have permission to verify payments for this order.');
       }
 

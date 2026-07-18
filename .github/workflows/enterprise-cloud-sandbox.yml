@@ -383,6 +383,11 @@ jobs:
         env:
           ORDER_IMPORT_GOVERNANCE_REPORT_PATH: cloud-evidence/order-import-governance-api-audit-v1.json
 
+      - name: Verify core order and finance collection write boundaries
+        run: npm run audit:orders:write-scope-api
+        env:
+          ORDER_WRITE_SCOPE_REPORT_PATH: cloud-evidence/order-write-scope-governance-api-audit-v1.json
+
       - name: Run dual-instance load gate
         run: npm run audit:load:ha
         env:

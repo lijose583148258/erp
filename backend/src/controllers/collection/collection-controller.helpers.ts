@@ -5,7 +5,7 @@ import { ApiResponse } from '../../types/api.types';
 import { logger } from '../../utils/logger';
 import {
   canUseOperationalDataScope,
-  canUseOrderForBusinessWrite,
+  canUseOrderForCollectionWrite,
 } from '../../utils/recordAccess';
 
 export const getConflictMessage = (error: unknown) => error instanceof Error ? error.message : null;
@@ -73,7 +73,7 @@ export const requireCollectionOrderAccess = async (
     return null;
   }
 
-  if (!canUseOrderForBusinessWrite(req, order)) {
+  if (!canUseOrderForCollectionWrite(req, order)) {
     sendCollectionForbidden(res, 'You do not have permission to operate collections for this order.');
     return null;
   }

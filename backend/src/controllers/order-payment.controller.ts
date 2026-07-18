@@ -10,7 +10,7 @@ import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { ApiResponse } from '../types/api.types';
 import { withDbRetry } from '../utils/dbRetry';
 import { logger } from '../utils/logger';
-import { canUseOrderForBusinessWrite } from '../utils/recordAccess';
+import { canUseOrderForCollectionWrite } from '../utils/recordAccess';
 import { requireFinanceCollectionScope } from './collection/collection-controller.helpers';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { publishWebhookEvent } from '../services/webhook.service';
@@ -57,7 +57,7 @@ export async function recordOrderPayment(req: AuthRequest, res: Response) {
                 message: '已取消订单不能登记回款。',
             } as ApiResponse);
         }
-        if (!canUseOrderForBusinessWrite(req, orderMeta)) {
+        if (!canUseOrderForCollectionWrite(req, orderMeta)) {
             return res.status(403).json({
                 success: false,
                 message: '无权为该订单登记回款。',
@@ -266,7 +266,7 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
                 customer: { select: { salespersonId: true, poolState: true, segment: true } },
             },
         });
-        if (orderForSoD && !canUseOrderForBusinessWrite(req, orderForSoD)) {
+        if (orderForSoD && !canUseOrderForCollectionWrite(req, orderForSoD)) {
             return res.status(403).json({
                 success: false,
                 message: '无权核销该订单的回款。',
