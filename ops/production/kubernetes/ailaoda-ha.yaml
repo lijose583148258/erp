@@ -195,6 +195,28 @@ spec:
       port: 80
       targetPort: http
 ---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ailaoda-app
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [replace-with-real-pilot-host.company.tld]
+      secretName: ailaoda-app-tls
+  rules:
+    - host: replace-with-real-pilot-host.company.tld
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ailaoda-app
+                port: { name: http }
+---
 apiVersion: policy/v1
 kind: PodDisruptionBudget
 metadata:

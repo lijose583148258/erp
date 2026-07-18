@@ -47,6 +47,15 @@ const requireDns = (value, label) => {
   if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(text)) fail(`${label} must be a DNS label.`);
   return text;
 };
+const requireHostname = (value, label) => {
+  const text = requireString(value, label).toLowerCase();
+  if (text.length > 253 || text.endsWith('.') || !text.includes('.')
+    || text.split('.').some(part => !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(part))
+    || /\.(invalid|example|test|localhost)$/.test(text)) {
+    fail(`${label} must be a real lowercase DNS hostname.`);
+  }
+  return text;
+};
 const requireInteger = (value, minimum, label) => {
   if (!Number.isInteger(value) || value < minimum) fail(`${label} must be an integer >= ${minimum}.`);
 };
@@ -66,12 +75,12 @@ requireKeys(profile, [
   'schemaVersion', 'environment', 'platform', 'adapters', 'postgresql', 'redis',
   'objectStorage', 'search', 'observability', 'ai', 'observation', 'approvals',
 ], 'profile');
-if (profile.schemaVersion !== 1) fail('Unsupported provider profile schemaVersion.');
+if (profile.schemaVersion !== 2) fail('Unsupported provider profile schemaVersion; ingress-bound schemaVersion 2 is required.');
 const environment = requireString(profile.environment, 'environment');
 if (/prod/i.test(environment)) fail('Provider profile is restricted to staging or formal pilot.');
 
 requireKeys(profile.platform, [
-  'kind', 'failureDomains', 'applicationNamespace', 'recoveryNamespace',
+  'kind', 'failureDomains', 'applicationNamespace', 'recoveryNamespace', 'applicationIngress',
 ], 'platform');
 if (profile.platform.kind !== 'kubernetes-native') fail('platform.kind must be kubernetes-native.');
 const domains = [...new Set((profile.platform.failureDomains || []).map(value => requireString(value, 'failure domain')))];
@@ -79,6 +88,12 @@ if (domains.length < 3) fail('At least three provider-observed failure domains a
 const applicationNamespace = requireDns(profile.platform.applicationNamespace, 'platform.applicationNamespace');
 const recoveryNamespace = requireDns(profile.platform.recoveryNamespace, 'platform.recoveryNamespace');
 if (applicationNamespace === recoveryNamespace) fail('Recovery resources require a dedicated namespace.');
+requireKeys(profile.platform.applicationIngress, ['name', 'className', 'publicHost'], 'platform.applicationIngress');
+const applicationIngress = {
+  name: requireDns(profile.platform.applicationIngress.name, 'platform.applicationIngress.name'),
+  className: requireDns(profile.platform.applicationIngress.className, 'platform.applicationIngress.className'),
+  publicHost: requireHostname(profile.platform.applicationIngress.publicHost, 'platform.applicationIngress.publicHost'),
+};
 
 requireKeys(profile.adapters, [
   'postgres', 'redis', 'objectStorage', 'search', 'backup', 'observability',
@@ -248,6 +263,7 @@ process.stdout.write(`${JSON.stringify({
   failureDomainCount: domains.length,
   applicationNamespace,
   recoveryNamespace,
+  applicationIngress,
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
   observation: {

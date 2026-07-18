@@ -109,9 +109,9 @@ jobs:
           receipt_key_sha="$(sha256sum "$root/receipt-public.pem" | awk '{print $1}')"
           cat > "$root/provider-profile.json" <<JSON
           {
-            "schemaVersion":1,
+            "schemaVersion":2,
             "environment":"formal-pilot",
-            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery"},
+            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery","applicationIngress":{"name":"ailaoda-app","className":"nginx","publicHost":"erp.pilot.company.com"}},
             "adapters":{
               "postgres":{"fileName":"postgres","sha256":"${adapter_sha}"},
               "redis":{"fileName":"redis","sha256":"${adapter_sha}"},

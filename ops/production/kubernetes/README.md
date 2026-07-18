@@ -104,6 +104,16 @@ provider or operator drill and must not contain credentials, connection strings,
 customer records, prompts, or tokens. A passing local/single-node simulation is
 intentionally insufficient.
 
+Provider profile schema version 2 additionally binds the application Ingress
+name, ingress class, and real public hostname into the profile hash covered by
+the evidence approvals. Production admission rejects extra hosts, alternate
+backends, executable snippet annotations, missing TLS, or an unprovisioned load
+balancer. It then performs a system-trust-store HTTPS request to `/ready` and
+requires ready database and Redis semantics. This validates the public TLS path
+without granting the admission identity permission to read Kubernetes TLS
+private-key Secrets. Replace the host and class placeholders in `ailaoda-ha.yaml`
+before applying it.
+
 
 ## Isolated PostgreSQL backup recovery drill
 

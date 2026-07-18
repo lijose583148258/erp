@@ -7,13 +7,14 @@ const { spawnSync } = require('child_process');
 const verifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ailaoda-provider-profile-'));
 const valid = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   environment: 'formal-pilot',
   platform: {
     kind: 'kubernetes-native',
     failureDomains: ['zone-a', 'zone-b', 'zone-c'],
     applicationNamespace: 'ailaoda-pilot',
     recoveryNamespace: 'ailaoda-pilot-recovery',
+    applicationIngress: { name: 'ailaoda-app', className: 'nginx', publicHost: 'erp.pilot.company.com' },
   },
   adapters: {
     postgres: { fileName: 'cnpg-ha-adapter.cjs', sha256: 'a'.repeat(64) },
@@ -97,6 +98,7 @@ try {
   assert.equal(summary.failureDomainCount, 3);
   assert.equal(summary.paidCallBudget, 0);
   assert.equal(summary.observation.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
+  assert.equal(summary.applicationIngress.publicHost, 'erp.pilot.company.com');
   assert.equal(Object.keys(summary.approvals).length, 4);
 
   const boundProfilePath = path.join(root, 'bound-profile.json');
@@ -134,6 +136,14 @@ try {
   sameNamespace.platform.recoveryNamespace = sameNamespace.platform.applicationNamespace;
   sameNamespace.search.restoreNamespace = sameNamespace.platform.applicationNamespace;
   assert.notEqual(run('same-namespace', sameNamespace).status, 0);
+
+  const placeholderHost = clone(valid);
+  placeholderHost.platform.applicationIngress.publicHost = 'erp.example.invalid';
+  assert.notEqual(run('placeholder-host', placeholderHost).status, 0);
+
+  const unboundIngressField = clone(valid);
+  unboundIngressField.platform.applicationIngress.tlsBypass = true;
+  assert.notEqual(run('unbound-ingress-field', unboundIngressField).status, 0);
 
   const unverifiedBackup = clone(valid);
   unverifiedBackup.postgresql.backup.checksumEvidence = 'manual';

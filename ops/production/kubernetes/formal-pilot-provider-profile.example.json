@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "environment": "replace-with-formal-pilot-environment",
   "platform": {
     "kind": "kubernetes-native",
@@ -9,7 +9,12 @@
       "replace-zone-c"
     ],
     "applicationNamespace": "ailaoda-pilot",
-    "recoveryNamespace": "ailaoda-pilot-recovery"
+    "recoveryNamespace": "ailaoda-pilot-recovery",
+    "applicationIngress": {
+      "name": "ailaoda-app",
+      "className": "nginx",
+      "publicHost": "replace-with-real-pilot-host.company.tld"
+    }
   },
   "adapters": {
     "postgres": {

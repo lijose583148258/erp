@@ -21,7 +21,7 @@ if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" ||
   exit 2
 fi
 
-for command_name in kubectl jq node; do
+for command_name in kubectl jq node curl; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Missing required command: ${command_name}" >&2
     exit 2
@@ -58,6 +58,10 @@ kubectl get replicasets -n "${namespace}" -o json > "${tmp_dir}/replicasets.json
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
 kubectl get service -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service.json"
 kubectl get endpointslices.discovery.k8s.io -n "${namespace}" -l kubernetes.io/service-name=ailaoda-app -o json > "${tmp_dir}/endpoint-slices.json"
+ingress_name="$(jq -r '.applicationIngress.name' "${tmp_dir}/provider-verdict.json")"
+ingress_class="$(jq -r '.applicationIngress.className' "${tmp_dir}/provider-verdict.json")"
+public_host="$(jq -r '.applicationIngress.publicHost' "${tmp_dir}/provider-verdict.json")"
+kubectl get ingress.networking.k8s.io -n "${namespace}" "${ingress_name}" -o json > "${tmp_dir}/ingress.json"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --continuous-report "${continuous_report}" \
@@ -108,6 +112,29 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-app-placement.cjs" \
   --namespace "${namespace}" \
   --image-digest "$(jq -r '.imageDigest // empty' "${evidence_file}")" \
   > "${tmp_dir}/placement-verdict.json"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-ingress.cjs" \
+  --ingress "${tmp_dir}/ingress.json" \
+  --namespace "${namespace}" \
+  --ingress-name "${ingress_name}" \
+  --ingress-class "${ingress_class}" \
+  --public-host "${public_host}" \
+  --service-name "ailaoda-app" \
+  > "${tmp_dir}/ingress-verdict.json"
+
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+  --connect-timeout 5 --max-time 15 \
+  --header 'Accept: application/json' \
+  "https://${public_host}/ready" \
+  --output "${tmp_dir}/public-readiness.json"
+jq -e '
+  .status == "ready"
+  and .database == "ok"
+  and .redis.ready == true
+' "${tmp_dir}/public-readiness.json" >/dev/null || {
+  echo "FAILED: public HTTPS readiness did not reach a fully ready application" >&2
+  exit 1
+}
 
 jq -e '
   .schemaVersion == 1
@@ -317,7 +344,15 @@ jq -e '
   exit 1
 }
 
-jq -n   --arg namespace "${namespace}"   --arg evidence "${evidence_file}"   --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   '{status:"passed", namespace:$namespace, evidence:$evidence, checkedAt:$checkedAt,
-    boundary:"Real cluster placement plus provider/operator failover evidence"}'
+jq -n \
+  --arg namespace "${namespace}" \
+  --arg evidence "${evidence_file}" \
+  --arg publicHost "${public_host}" \
+  --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --slurpfile placement "${tmp_dir}/placement-verdict.json" \
+  --slurpfile ingress "${tmp_dir}/ingress-verdict.json" \
+  '{status:"passed", namespace:$namespace, evidence:$evidence, publicHost:$publicHost,
+    checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], publicHttpsReadiness:true,
+    boundary:"Real cluster placement, HTTPS traffic entry, and provider/operator failover evidence"}'
 
 echo "Enterprise production admission: PASSED" >&2

@@ -8,6 +8,8 @@ on:
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - 'ops/production/kubernetes/verify-kubernetes-app-placement.cjs'
       - 'ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-kubernetes-ingress.cjs'
+      - 'ops/production/kubernetes/kubernetes-ingress-contract.test.cjs'
       - 'ops/production/kubernetes/verify-production-approvals.cjs'
       - 'ops/production/kubernetes/production-approval-contract.test.cjs'
       - 'ops/production/kubernetes/PRODUCTION_APPROVAL_PROTOCOL.md'
@@ -38,6 +40,7 @@ jobs:
           node --check ops/production/kubernetes/run-enterprise-production-admission.cjs
           bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
           node ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs
+          node ops/production/kubernetes/kubernetes-ingress-contract.test.cjs
           node ops/production/kubernetes/production-approval-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');
@@ -55,13 +58,14 @@ jobs:
           };
           const release = { ...identity };
           const providerProfile = {
-            schemaVersion: 1,
+            schemaVersion: 2,
             environment: 'formal-pilot',
             platform: {
               kind: 'kubernetes-native',
               failureDomains: ['zone-a', 'zone-b', 'zone-c'],
               applicationNamespace: 'ailaoda-pilot',
               recoveryNamespace: 'ailaoda-pilot-recovery',
+              applicationIngress: { name: 'ailaoda-app', className: 'nginx', publicHost: 'erp.pilot.company.com' },
             },
             adapters: {
               postgres: { fileName: 'cnpg-ha-adapter.cjs', sha256: 'a'.repeat(64) },
