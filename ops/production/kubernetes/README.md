@@ -137,6 +137,16 @@ request logger and expensive database, Redis, and disk checks. API-prefixed
 probe aliases remain covered by the distributed API limiter. Kubernetes probes
 stay well below the default 120 requests per minute per application Pod.
 
+Provider profile v2 also hash-binds the application ingress NetworkPolicy name
+and the exact namespace/Pod labels of the ingress controller and Prometheus.
+The live admission gate rejects empty selectors, extra callers, IP blocks,
+additional ports, and policies that select anything beyond `app=ailaoda-app` or
+expose anything beyond TCP container port 5001. `ailaoda-ha.yaml` contains the
+matching example policy; customize all namespace and Pod labels together with
+the provider profile. This proves the declared policy structure. Final rollout
+still requires a CNI enforcement and negative-connectivity drill because the
+Kubernetes API does not expose a universal "policy enforced" status.
+
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The
 placement gate rechecks the live ServiceAccount and every admitted Pod, rejecting

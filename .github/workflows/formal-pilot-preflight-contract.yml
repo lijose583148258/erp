@@ -113,7 +113,7 @@ jobs:
           {
             "schemaVersion":2,
             "environment":"formal-pilot",
-            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery","applicationIngress":{"name":"ailaoda-app","className":"nginx","publicHost":"erp.pilot.company.com"}},
+            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery","applicationIngress":{"name":"ailaoda-app","className":"nginx","publicHost":"erp.pilot.company.com"},"applicationNetworkPolicy":{"name":"ailaoda-app-ingress","ingressControllerNamespace":"ingress-nginx","ingressControllerPodLabels":{"app.kubernetes.io/name":"ingress-nginx"},"observabilityNamespace":"monitoring","observabilityPodLabels":{"app.kubernetes.io/name":"prometheus"}}},
             "adapters":{
               "postgres":{"fileName":"postgres","sha256":"${adapter_sha}"},
               "redis":{"fileName":"redis","sha256":"${adapter_sha}"},

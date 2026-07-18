@@ -14,6 +14,17 @@
       "name": "ailaoda-app",
       "className": "nginx",
       "publicHost": "replace-with-real-pilot-host.company.tld"
+    },
+    "applicationNetworkPolicy": {
+      "name": "ailaoda-app-ingress",
+      "ingressControllerNamespace": "ingress-nginx",
+      "ingressControllerPodLabels": {
+        "app.kubernetes.io/name": "ingress-nginx"
+      },
+      "observabilityNamespace": "monitoring",
+      "observabilityPodLabels": {
+        "app.kubernetes.io/name": "prometheus"
+      }
     }
   },
   "adapters": {

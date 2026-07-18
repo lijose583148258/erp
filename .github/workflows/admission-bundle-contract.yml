@@ -12,6 +12,8 @@ on:
       - 'ops/production/kubernetes/kubernetes-ingress-contract.test.cjs'
       - 'ops/production/kubernetes/verify-public-dns-ingress.cjs'
       - 'ops/production/kubernetes/public-dns-ingress-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-kubernetes-network-policy.cjs'
+      - 'ops/production/kubernetes/kubernetes-network-policy-contract.test.cjs'
       - 'ops/production/kubernetes/verify-production-approvals.cjs'
       - 'ops/production/kubernetes/production-approval-contract.test.cjs'
       - 'ops/production/kubernetes/PRODUCTION_APPROVAL_PROTOCOL.md'
@@ -44,6 +46,7 @@ jobs:
           node ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs
           node ops/production/kubernetes/kubernetes-ingress-contract.test.cjs
           node ops/production/kubernetes/public-dns-ingress-contract.test.cjs
+          node ops/production/kubernetes/kubernetes-network-policy-contract.test.cjs
           node ops/production/kubernetes/production-approval-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');
@@ -69,6 +72,13 @@ jobs:
               applicationNamespace: 'ailaoda-pilot',
               recoveryNamespace: 'ailaoda-pilot-recovery',
               applicationIngress: { name: 'ailaoda-app', className: 'nginx', publicHost: 'erp.pilot.company.com' },
+              applicationNetworkPolicy: {
+                name: 'ailaoda-app-ingress',
+                ingressControllerNamespace: 'ingress-nginx',
+                ingressControllerPodLabels: { 'app.kubernetes.io/name': 'ingress-nginx' },
+                observabilityNamespace: 'monitoring',
+                observabilityPodLabels: { 'app.kubernetes.io/name': 'prometheus' },
+              },
             },
             adapters: {
               postgres: { fileName: 'cnpg-ha-adapter.cjs', sha256: 'a'.repeat(64) },

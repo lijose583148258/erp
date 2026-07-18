@@ -56,6 +56,21 @@ const requireHostname = (value, label) => {
   }
   return text;
 };
+const requireLabelSelector = (value, label) => {
+  requireObject(value, label);
+  const entries = Object.entries(value);
+  if (entries.length < 1 || entries.length > 8) fail(`${label} must contain 1-8 exact match labels.`);
+  const output = {};
+  for (const [key, rawValue] of entries.sort(([a], [b]) => a.localeCompare(b))) {
+    const text = requireString(rawValue, `${label}.${key}`);
+    if (key.length > 253 || !/^(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$/.test(key)
+      || text.length > 63 || !/^[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$/.test(text)) {
+      fail(`${label} contains an invalid Kubernetes label.`);
+    }
+    output[key] = text;
+  }
+  return output;
+};
 const requireInteger = (value, minimum, label) => {
   if (!Number.isInteger(value) || value < minimum) fail(`${label} must be an integer >= ${minimum}.`);
 };
@@ -81,6 +96,7 @@ if (/prod/i.test(environment)) fail('Provider profile is restricted to staging o
 
 requireKeys(profile.platform, [
   'kind', 'failureDomains', 'applicationNamespace', 'recoveryNamespace', 'applicationIngress',
+  'applicationNetworkPolicy',
 ], 'platform');
 if (profile.platform.kind !== 'kubernetes-native') fail('platform.kind must be kubernetes-native.');
 const domains = [...new Set((profile.platform.failureDomains || []).map(value => requireString(value, 'failure domain')))];
@@ -94,6 +110,33 @@ const applicationIngress = {
   className: requireDns(profile.platform.applicationIngress.className, 'platform.applicationIngress.className'),
   publicHost: requireHostname(profile.platform.applicationIngress.publicHost, 'platform.applicationIngress.publicHost'),
 };
+requireKeys(profile.platform.applicationNetworkPolicy, [
+  'name', 'ingressControllerNamespace', 'ingressControllerPodLabels',
+  'observabilityNamespace', 'observabilityPodLabels',
+], 'platform.applicationNetworkPolicy');
+const applicationNetworkPolicy = {
+  name: requireDns(profile.platform.applicationNetworkPolicy.name, 'platform.applicationNetworkPolicy.name'),
+  ingressControllerNamespace: requireDns(
+    profile.platform.applicationNetworkPolicy.ingressControllerNamespace,
+    'platform.applicationNetworkPolicy.ingressControllerNamespace',
+  ),
+  ingressControllerPodLabels: requireLabelSelector(
+    profile.platform.applicationNetworkPolicy.ingressControllerPodLabels,
+    'platform.applicationNetworkPolicy.ingressControllerPodLabels',
+  ),
+  observabilityNamespace: requireDns(
+    profile.platform.applicationNetworkPolicy.observabilityNamespace,
+    'platform.applicationNetworkPolicy.observabilityNamespace',
+  ),
+  observabilityPodLabels: requireLabelSelector(
+    profile.platform.applicationNetworkPolicy.observabilityPodLabels,
+    'platform.applicationNetworkPolicy.observabilityPodLabels',
+  ),
+};
+if (new Set([
+  applicationNamespace, recoveryNamespace, applicationNetworkPolicy.ingressControllerNamespace,
+  applicationNetworkPolicy.observabilityNamespace,
+]).size !== 4) fail('Application, recovery, ingress, and observability namespaces must be distinct.');
 
 requireKeys(profile.adapters, [
   'postgres', 'redis', 'objectStorage', 'search', 'backup', 'observability',
@@ -264,6 +307,7 @@ process.stdout.write(`${JSON.stringify({
   applicationNamespace,
   recoveryNamespace,
   applicationIngress,
+  applicationNetworkPolicy,
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
   observation: {

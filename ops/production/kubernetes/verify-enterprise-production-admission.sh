@@ -63,6 +63,8 @@ ingress_name="$(jq -r '.applicationIngress.name' "${tmp_dir}/provider-verdict.js
 ingress_class="$(jq -r '.applicationIngress.className' "${tmp_dir}/provider-verdict.json")"
 public_host="$(jq -r '.applicationIngress.publicHost' "${tmp_dir}/provider-verdict.json")"
 kubectl get ingress.networking.k8s.io -n "${namespace}" "${ingress_name}" -o json > "${tmp_dir}/ingress.json"
+network_policy_name="$(jq -r '.applicationNetworkPolicy.name' "${tmp_dir}/provider-verdict.json")"
+kubectl get networkpolicy.networking.k8s.io -n "${namespace}" "${network_policy_name}" -o json > "${tmp_dir}/network-policy.json"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --continuous-report "${continuous_report}" \
@@ -128,6 +130,12 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-public-dns-ingress.cjs" \
   --ingress "${tmp_dir}/ingress.json" \
   --public-host "${public_host}" \
   > "${tmp_dir}/dns-ingress-verdict.json"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-network-policy.cjs" \
+  --network-policy "${tmp_dir}/network-policy.json" \
+  --provider-summary "${tmp_dir}/provider-verdict.json" \
+  --namespace "${namespace}" \
+  > "${tmp_dir}/network-policy-verdict.json"
 
 curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
   --connect-timeout 5 --max-time 15 \
@@ -360,8 +368,10 @@ jq -n \
   --slurpfile placement "${tmp_dir}/placement-verdict.json" \
   --slurpfile ingress "${tmp_dir}/ingress-verdict.json" \
   --slurpfile dnsIngress "${tmp_dir}/dns-ingress-verdict.json" \
+  --slurpfile networkPolicy "${tmp_dir}/network-policy-verdict.json" \
   '{status:"passed", namespace:$namespace, evidence:$evidence, publicHost:$publicHost,
-    checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], dnsIngress:$dnsIngress[0], publicHttpsReadiness:true,
+    checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], dnsIngress:$dnsIngress[0],
+    networkPolicy:$networkPolicy[0], publicHttpsReadiness:true,
     boundary:"Real cluster placement, HTTPS traffic entry, and provider/operator failover evidence"}'
 
 echo "Enterprise production admission: PASSED" >&2
