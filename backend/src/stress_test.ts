@@ -1,10 +1,24 @@
 
 import { PrismaClient } from '@prisma/client';
-import axios from 'axios';
 import { performance } from 'perf_hooks';
 
 const prisma = new PrismaClient();
-const API_URL = 'http://localhost:5001/api';
+const API_URL = process.env.STRESS_TEST_API_URL || 'http://localhost:5001/api';
+
+const requireCredential = (name: 'STRESS_TEST_USERNAME' | 'STRESS_TEST_PASSWORD') => {
+    const value = process.env[name]?.trim();
+    if (!value) throw new Error(`${name} must be provided explicitly.`);
+    return value;
+};
+
+const requestJson = async (path: string, init: RequestInit = {}) => {
+    const response = await fetch(`${API_URL}${path}`, {
+        ...init,
+        signal: AbortSignal.timeout(10_000),
+    });
+    const data = await response.json().catch(() => undefined);
+    return { status: response.status, data };
+};
 
 // Configuration
 const CONCURRENCY = 600;
@@ -61,16 +75,28 @@ async function main() {
         // 2. Concurrency Query Test
         console.log('\n--- Phase 2: High Concurrency Test (600 users) ---');
         // Login to get token
-        const loginRes = await axios.post(`${API_URL}/auth/login`, { username: 'admin', password: 'admin123' });
-        const token = loginRes.data.token;
+        const loginRes = await requestJson('/auth/login', {
+            method: 'POST',
+            headers: { 'content-type': 'application/json' },
+            body: JSON.stringify({
+                username: requireCredential('STRESS_TEST_USERNAME'),
+                password: requireCredential('STRESS_TEST_PASSWORD'),
+            }),
+        });
+        if (loginRes.status !== 200 || !loginRes.data || typeof loginRes.data !== 'object') {
+            throw new Error(`Stress-test login failed with status ${loginRes.status}.`);
+        }
+        const token = 'token' in loginRes.data && typeof loginRes.data.token === 'string'
+            ? loginRes.data.token
+            : undefined;
+        if (!token) throw new Error('Stress-test login response did not contain a token.');
 
         const requests = [];
         for (let i = 0; i < CONCURRENCY; i++) {
             requests.push(
-                axios.get(`${API_URL}/dashboard/stats`, {
+                requestJson('/dashboard/stats', {
                     headers: { Authorization: `Bearer ${token}` },
-                    timeout: 10000
-                }).catch(e => ({ status: e.response?.status || 500 }))
+                }).catch(() => ({ status: 500, data: undefined }))
             );
         }
 
