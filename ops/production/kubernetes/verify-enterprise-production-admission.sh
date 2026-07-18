@@ -15,9 +15,10 @@ security_reports_dir="${11:-}"
 approval_trust_dir="${12:-}"
 approval_receipts_dir="${13:-}"
 provider_profile="${14:-}"
+network_policy_report="${15:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" || -z "${approval_trust_dir}" || -z "${approval_receipts_dir}" || -z "${provider_profile}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir> <approval-trust-dir> <approval-receipts-dir> <provider-profile>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" || -z "${approval_trust_dir}" || -z "${approval_receipts_dir}" || -z "${provider_profile}" || -z "${network_policy_report}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir> <approval-trust-dir> <approval-receipts-dir> <provider-profile> <network-policy-report>" >&2
   exit 2
 fi
 
@@ -73,6 +74,12 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --evidence "${evidence_file}" \
   --output "${tmp_dir}/observation-verdict.json"
 jq -e '.status == "passed"' "${tmp_dir}/observation-verdict.json" >/dev/null
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-network-policy-enforcement-evidence.cjs" \
+  --report "${network_policy_report}" \
+  --evidence "${evidence_file}" \
+  --provider-profile "${provider_profile}" \
+  > "${tmp_dir}/network-policy-enforcement-verdict.json"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-backup-restore-evidence.cjs" \
   --report "${backup_report}" \
@@ -165,6 +172,14 @@ jq -e '
   and .providerProfile.environment == .environment
   and (.providerProfile.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.providerProfile.verifiedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+  and .networkPolicyEnforcement.status == "passed"
+  and .networkPolicyEnforcement.environment == .environment
+  and .networkPolicyEnforcement.evidenceId == .evidenceId
+  and .networkPolicyEnforcement.commitSha == .commitSha
+  and .networkPolicyEnforcement.imageDigest == .imageDigest
+  and .networkPolicyEnforcement.providerProfileSha256 == .providerProfile.sha256
+  and (.networkPolicyEnforcement.reportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.networkPolicyEnforcement.finishedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
   and .haDrill.status == "passed"
   and .haDrill.providerProfileSha256 == .providerProfile.sha256
   and (.haDrill.adapterSha256.postgres | type == "string" and test("^[0-9a-f]{64}$"))
@@ -369,9 +384,10 @@ jq -n \
   --slurpfile ingress "${tmp_dir}/ingress-verdict.json" \
   --slurpfile dnsIngress "${tmp_dir}/dns-ingress-verdict.json" \
   --slurpfile networkPolicy "${tmp_dir}/network-policy-verdict.json" \
+  --slurpfile networkPolicyEnforcement "${tmp_dir}/network-policy-enforcement-verdict.json" \
   '{status:"passed", namespace:$namespace, evidence:$evidence, publicHost:$publicHost,
     checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], dnsIngress:$dnsIngress[0],
-    networkPolicy:$networkPolicy[0], publicHttpsReadiness:true,
+    networkPolicy:$networkPolicy[0], networkPolicyEnforcement:$networkPolicyEnforcement[0], publicHttpsReadiness:true,
     boundary:"Real cluster placement, HTTPS traffic entry, and provider/operator failover evidence"}'
 
 echo "Enterprise production admission: PASSED" >&2

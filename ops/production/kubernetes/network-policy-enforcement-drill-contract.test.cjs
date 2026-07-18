@@ -1,4 +1,5 @@
 const assert = require('assert');
+const crypto = require('crypto');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -7,6 +8,7 @@ const { spawnSync } = require('child_process');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ailaoda-network-policy-drill-'));
 const runner = path.join(__dirname, 'run-network-policy-enforcement-drill.cjs');
 const verifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
+const enforcementVerifier = path.join(__dirname, 'verify-network-policy-enforcement-evidence.cjs');
 const fakeKubectl = path.join(root, 'fake-kubectl.cjs');
 const profilePath = path.join(root, 'provider.json');
 const evidencePath = path.join(root, 'evidence.json');
@@ -95,7 +97,7 @@ const execute = (name, extraEnv = {}) => {
   const reportFile = path.join(root, `${name}-report.json`);
   const result = spawnSync(process.execPath, [
     runner, '--provider-profile', profilePath, '--evidence', evidencePath,
-    '--report', reportFile, '--kubectl', fakeKubectl, '--poll-timeout-seconds', '15',
+    '--report', reportFile, '--kubectl', fakeKubectl, '--poll-timeout-seconds', '15', '--bind',
   ], {
     encoding: 'utf8',
     env: { ...process.env, FAKE_KUBECTL_STATE: stateFile, ...extraEnv },
@@ -120,6 +122,43 @@ try {
   assert.equal(blocked.report.probeImage, probeImage);
   assert.match(blocked.report.serviceClusterIpSha256, /^[0-9a-f]{64}$/);
   assert.equal(JSON.stringify(blocked.report).includes('10.96.0.20'), false);
+  const boundEvidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  assert.equal(boundEvidence.networkPolicyEnforcement.status, 'passed');
+  assert.equal(boundEvidence.networkPolicyEnforcement.reportSha256,
+    crypto.createHash('sha256').update(fs.readFileSync(path.join(root, 'blocked-report.json'))).digest('hex'));
+  const blockedReportPath = path.join(root, 'blocked-report.json');
+  const verified = spawnSync(process.execPath, [
+    enforcementVerifier, '--report', blockedReportPath, '--evidence', evidencePath,
+    '--provider-profile', profilePath,
+  ], { encoding: 'utf8' });
+  assert.equal(verified.status, 0, verified.stderr);
+  assert.equal(JSON.parse(verified.stdout).status, 'passed');
+
+  const originalReport = fs.readFileSync(blockedReportPath);
+  const originalEvidence = fs.readFileSync(evidencePath);
+  const tamperedReport = JSON.parse(originalReport);
+  tamperedReport.outcome = 'reachable';
+  fs.writeFileSync(blockedReportPath, JSON.stringify(tamperedReport));
+  assert.notEqual(spawnSync(process.execPath, [
+    enforcementVerifier, '--report', blockedReportPath, '--evidence', evidencePath,
+    '--provider-profile', profilePath,
+  ]).status, 0);
+
+  const staleReport = JSON.parse(originalReport);
+  staleReport.startedAt = '2020-01-01T00:00:00.000Z';
+  staleReport.finishedAt = '2020-01-01T00:00:08.000Z';
+  fs.writeFileSync(blockedReportPath, JSON.stringify(staleReport));
+  const staleEvidence = JSON.parse(originalEvidence);
+  staleEvidence.networkPolicyEnforcement.finishedAt = staleReport.finishedAt;
+  staleEvidence.networkPolicyEnforcement.reportSha256 = crypto.createHash('sha256')
+    .update(fs.readFileSync(blockedReportPath)).digest('hex');
+  fs.writeFileSync(evidencePath, JSON.stringify(staleEvidence));
+  assert.notEqual(spawnSync(process.execPath, [
+    enforcementVerifier, '--report', blockedReportPath, '--evidence', evidencePath,
+    '--provider-profile', profilePath,
+  ]).status, 0);
+  fs.writeFileSync(blockedReportPath, originalReport);
+  fs.writeFileSync(evidencePath, originalEvidence);
   const pod = JSON.parse(fs.readFileSync(blocked.stateFile, 'utf8')).pod;
   assert.equal(pod.metadata.namespace, 'ailaoda-pilot-recovery');
   assert.equal(pod.spec.automountServiceAccountToken, false);
@@ -142,6 +181,13 @@ try {
   assert.notEqual(leakedPod.result.status, 0);
   assert.equal(leakedPod.report.cleanupVerified, false);
   assert.equal(leakedPod.report.status, 'failed');
+
+  const approvedEvidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8'));
+  approvedEvidence.approvals = { status: 'passed' };
+  fs.writeFileSync(evidencePath, JSON.stringify(approvedEvidence));
+  const afterApproval = execute('after-approval');
+  assert.notEqual(afterApproval.result.status, 0);
+  assert.match(afterApproval.report.failure, /before collecting production approvals/i);
 
   console.log('NetworkPolicy enforcement drill contract: PASSED');
 } finally {

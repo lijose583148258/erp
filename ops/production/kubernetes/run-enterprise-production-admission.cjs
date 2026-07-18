@@ -24,6 +24,7 @@ const artifactTypes = {
   evidence: 'file',
   providerProfile: 'file',
   preflightReport: 'file',
+  networkPolicyReport: 'file',
   continuousReport: 'file',
   pilotLedger: 'file',
   dailyReportsDir: 'directory',
@@ -83,6 +84,17 @@ const providerOutput = execFileSync(process.execPath, [providerVerifier, resolve
   stdio: ['ignore', 'pipe', 'inherit'],
 }).trim();
 const providerSummary = JSON.parse(providerOutput);
+const networkPolicyOutput = execFileSync(process.execPath, [
+  path.join(__dirname, 'verify-network-policy-enforcement-evidence.cjs'),
+  '--report', resolved.networkPolicyReport,
+  '--evidence', resolved.evidence,
+  '--provider-profile', resolved.providerProfile,
+], {
+  cwd: bundleRoot,
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+const networkPolicySummary = JSON.parse(networkPolicyOutput);
 const continuousReportIdentity = JSON.parse(fs.readFileSync(resolved.continuousReport, 'utf8').replace(/^\uFEFF/, ''));
 if (continuousReportIdentity.collectorImageDigest !== providerSummary.observation?.collectorImageDigest) {
   throw new Error('Continuous observer image digest does not match the approved provider profile.');
@@ -173,6 +185,7 @@ if (checkOnly) {
     release,
     provider: providerSummary,
     preflight: preflightSummary,
+    networkPolicyEnforcement: networkPolicySummary,
     artifacts: artifactSummary,
   }, null, 2));
   process.exit(0);
@@ -187,6 +200,11 @@ const runEvidenceVerifier = (script, verifierArgs) => execFileSync(process.execP
   stdio: ['ignore', 'ignore', 'inherit'],
 });
 const verifyEvidenceContent = () => {
+  runEvidenceVerifier('verify-network-policy-enforcement-evidence.cjs', [
+    '--report', resolved.networkPolicyReport,
+    '--evidence', resolved.evidence,
+    '--provider-profile', resolved.providerProfile,
+  ]);
   runEvidenceVerifier('verify-pilot-observation-evidence.cjs', [
     '--continuous-report', resolved.continuousReport,
     '--ledger', resolved.pilotLedger,
@@ -256,6 +274,7 @@ execFileSync('bash', [
   resolved.approvalTrustDir,
   resolved.approvalReceiptsDir,
   resolved.providerProfile,
+  resolved.networkPolicyReport,
 ], {
   cwd: bundleRoot,
   encoding: 'utf8',

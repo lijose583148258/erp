@@ -5,6 +5,7 @@ on:
     paths:
       - 'ops/production/kubernetes/run-network-policy-enforcement-drill.cjs'
       - 'ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-network-policy-enforcement-evidence.cjs'
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
       - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
       - 'ops/production/kubernetes/ailaoda-ha.yaml'
@@ -173,18 +174,26 @@ jobs:
           if ! node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
               --provider-profile "$root/provider.json" \
               --evidence "$root/evidence.json" \
-              --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json"; then
+              --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json" \
+              --bind; then
             failure="$(jq -r '.failure // "drill failed before a reason was recorded"' network-policy-enforcement-report.json)"
             echo "::error title=NetworkPolicy enforcement drill failed::${failure}"
             kubectl -n ailaoda-pilot-recovery get pods -o wide || true
             exit 1
           fi
           node -e 'const r=require("./network-policy-enforcement-report.json"); if(r.status!=="passed"||r.cleanupVerified!==true||r.outcome!=="unauthorized-service-connect-timed-out") process.exit(1)'
+          node ops/production/kubernetes/verify-network-policy-enforcement-evidence.cjs \
+            --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json" \
+            --evidence "$root/evidence.json" \
+            --provider-profile "$root/provider.json"
+          cp "$root/evidence.json" "$GITHUB_WORKSPACE/network-policy-enforcement-evidence.json"
       - name: Upload enforcement evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: network-policy-enforcement-${{ github.run_id }}
-          path: network-policy-enforcement-report.json
+          path: |
+            network-policy-enforcement-report.json
+            network-policy-enforcement-evidence.json
           if-no-files-found: warn
           retention-days: 14

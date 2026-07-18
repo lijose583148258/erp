@@ -5,6 +5,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 
 const args = process.argv.slice(2);
+const bindEvidence = args.includes('--bind');
 const valueFor = name => {
   const index = args.indexOf(name);
   return index >= 0 ? String(args[index + 1] || '').trim() : '';
@@ -28,6 +29,7 @@ const writeReport = (file, value) => {
 };
 
 let reportPath = '';
+let evidencePath = '';
 let report = { schemaVersion: 1, status: 'failed', drill: 'kubernetes-network-policy-enforcement' };
 let kubectl = '';
 let probeNamespace = '';
@@ -54,8 +56,11 @@ const checkedKubectl = (commandArgs, label, options = {}) => {
 
 try {
   const providerProfilePath = requiredPath('--provider-profile', 'Provider profile');
-  const evidencePath = requiredPath('--evidence', 'Enterprise evidence');
+  evidencePath = requiredPath('--evidence', 'Enterprise evidence');
   reportPath = path.resolve(valueFor('--report') || 'network-policy-enforcement-report.json');
+  if (new Set([providerProfilePath, evidencePath, reportPath]).size !== 3) {
+    throw new Error('Provider profile, evidence, and report paths must be distinct.');
+  }
   kubectl = valueFor('--kubectl') || 'kubectl';
   const serviceName = valueFor('--service') || 'ailaoda-app';
   if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(serviceName)) throw new Error('Service name is invalid.');
@@ -75,6 +80,9 @@ try {
   if (verification.error || verification.status !== 0) throw new Error('Provider profile evidence binding failed.');
   const provider = JSON.parse(verification.stdout);
   const evidence = readJson(evidencePath);
+  if (bindEvidence && evidence.approvals !== undefined) {
+    throw new Error('Run and bind the NetworkPolicy drill before collecting production approvals.');
+  }
   const requiredIdentity = ['environment', 'evidenceId', 'commitSha', 'imageDigest'];
   if (requiredIdentity.some(key => !String(evidence[key] || '').trim())) {
     throw new Error('Enterprise evidence release identity is incomplete.');
@@ -215,5 +223,24 @@ try {
 if (failure) {
   process.stderr.write(`${String(failure.message || failure)}\n`);
   process.exit(1);
+}
+if (bindEvidence) {
+  try {
+    const evidence = readJson(evidencePath);
+    evidence.networkPolicyEnforcement = {
+      status: 'passed',
+      environment: report.environment,
+      evidenceId: report.evidenceId,
+      commitSha: report.commitSha,
+      imageDigest: report.imageDigest,
+      providerProfileSha256: report.providerProfileSha256,
+      reportSha256: hash(fs.readFileSync(reportPath)),
+      finishedAt: report.finishedAt,
+    };
+    writeReport(evidencePath, evidence);
+  } catch (error) {
+    process.stderr.write(`NetworkPolicy evidence binding failed: ${String(error.message || error)}\n`);
+    process.exit(1);
+  }
 }
 process.stdout.write(`${JSON.stringify(report)}\n`);

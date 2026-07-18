@@ -14,6 +14,8 @@ on:
       - 'ops/production/kubernetes/public-dns-ingress-contract.test.cjs'
       - 'ops/production/kubernetes/verify-kubernetes-network-policy.cjs'
       - 'ops/production/kubernetes/kubernetes-network-policy-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-network-policy-enforcement-evidence.cjs'
+      - 'ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs'
       - 'ops/production/kubernetes/verify-production-approvals.cjs'
       - 'ops/production/kubernetes/production-approval-contract.test.cjs'
       - 'ops/production/kubernetes/PRODUCTION_APPROVAL_PROTOCOL.md'
@@ -47,6 +49,7 @@ jobs:
           node ops/production/kubernetes/kubernetes-ingress-contract.test.cjs
           node ops/production/kubernetes/public-dns-ingress-contract.test.cjs
           node ops/production/kubernetes/kubernetes-network-policy-contract.test.cjs
+          node ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs
           node ops/production/kubernetes/production-approval-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');
@@ -210,6 +213,32 @@ jobs:
             'provider-search-marker-readback',
           ].map(name => ({ name, status: 'passed' }));
           const now = new Date().toISOString();
+          const networkPolicyReport = {
+            schemaVersion: 1,
+            status: 'passed',
+            drill: 'kubernetes-network-policy-enforcement',
+            outcome: 'unauthorized-service-connect-timed-out',
+            ...release,
+            providerProfileSha256: identity.providerProfile.sha256,
+            applicationNamespace: providerProfile.platform.applicationNamespace,
+            probeNamespace: providerProfile.platform.recoveryNamespace,
+            networkPolicy: providerProfile.platform.applicationNetworkPolicy.name,
+            probeImage: providerProfile.platform.applicationNetworkPolicy.probeImage,
+            serviceName: 'ailaoda-app',
+            serviceClusterIpSha256: '9'.repeat(64),
+            servicePort: 80,
+            readyEndpointCount: 2,
+            startedAt: now,
+            finishedAt: now,
+            cleanupVerified: true,
+          };
+          identity.networkPolicyEnforcement = {
+            status: 'passed',
+            ...release,
+            providerProfileSha256: identity.providerProfile.sha256,
+            reportSha256: crypto.createHash('sha256').update(JSON.stringify(networkPolicyReport)).digest('hex'),
+            finishedAt: now,
+          };
           const preflightReport = {
             name: 'Formal Pilot Read-Only Environment Preflight',
             version: '1.0',
@@ -238,6 +267,7 @@ jobs:
             evidence: 'evidence/enterprise-evidence.json',
             providerProfile: 'provider/profile.json',
             preflightReport: 'preflight/report.json',
+            networkPolicyReport: 'network/report.json',
             continuousReport: 'observation/continuous.json',
             pilotLedger: 'observation/ledger.json',
             dailyReportsDir: 'observation/daily',
@@ -259,6 +289,7 @@ jobs:
               const value = key === 'evidence' ? identity
                 : key === 'providerProfile' ? providerProfile
                   : key === 'preflightReport' ? preflightReport
+                    : key === 'networkPolicyReport' ? networkPolicyReport
                     : key === 'backupReport' ? backupReport
                       : key === 'observabilityReport' ? observabilityReport
                         : key === 'continuousReport' ? { collectorImageDigest: providerProfile.observation.collectorImageDigest } : {};
@@ -289,6 +320,13 @@ jobs:
             || structural.kubernetesVerified !== false) {
             throw new Error('Structural bundle check claimed production or evidence verification.');
           }
+          const networkReportPath = path.join(root, artifacts.networkPolicyReport);
+          networkPolicyReport.outcome = 'reachable';
+          fs.writeFileSync(networkReportPath, JSON.stringify(networkPolicyReport));
+          const tamperedNetworkPolicyReport = run();
+          if (tamperedNetworkPolicyReport.status === 0) throw new Error('Tampered NetworkPolicy enforcement report was accepted.');
+          networkPolicyReport.outcome = 'unauthorized-service-connect-timed-out';
+          fs.writeFileSync(networkReportPath, JSON.stringify(networkPolicyReport));
           const conflictingModes = spawnSync(process.execPath, [
             runner, '--bundle', manifestPath, '--check-only', '--verify-evidence',
           ], { encoding: 'utf8' });

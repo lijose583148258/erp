@@ -154,7 +154,8 @@ ready Service endpoints and before production admission:
 node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
   --provider-profile /secure/provider-profile.json \
   --evidence /secure/enterprise-evidence.json \
-  --report /secure/network-policy-enforcement-report.json
+  --report /secure/network-policy-enforcement-report.json \
+  --bind
 ```
 
 The profile hash-binds `platform.applicationNetworkPolicy.probeImage`; it must
@@ -168,6 +169,11 @@ drill. The report stores only a SHA-256 of the ClusterIP. The cloud contract in
 KinD with Calico, proves the approved monitoring caller succeeds, and then runs
 the denied-caller drill. This CI evidence validates the code path and Calico
 fixture; the target provider cluster must still produce its own fresh report.
+`--bind` writes the report SHA-256 and release identity into
+`evidence.networkPolicyEnforcement`; run the signed production approvals only
+after this binding. The admission bundle must include that report as
+`artifacts.networkPolicyReport`, and admission rejects missing, stale, modified,
+or release/profile-mismatched reports.
 
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The
