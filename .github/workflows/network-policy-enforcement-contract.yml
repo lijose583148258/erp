@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
       - name: Run isolated drill contract
         run: |
           set -euo pipefail
@@ -170,14 +170,19 @@ jobs:
           NODE
           node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \
             "$root/provider.json" --evidence "$root/evidence.json" --bind
-          node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
-            --provider-profile "$root/provider.json" \
-            --evidence "$root/evidence.json" \
-            --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json"
+          if ! node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
+              --provider-profile "$root/provider.json" \
+              --evidence "$root/evidence.json" \
+              --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json"; then
+            failure="$(jq -r '.failure // "drill failed before a reason was recorded"' network-policy-enforcement-report.json)"
+            echo "::error title=NetworkPolicy enforcement drill failed::${failure}"
+            kubectl -n ailaoda-pilot-recovery get pods -o wide || true
+            exit 1
+          fi
           node -e 'const r=require("./network-policy-enforcement-report.json"); if(r.status!=="passed"||r.cleanupVerified!==true||r.outcome!=="unauthorized-service-connect-timed-out") process.exit(1)'
       - name: Upload enforcement evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: network-policy-enforcement-${{ github.run_id }}
           path: network-policy-enforcement-report.json
