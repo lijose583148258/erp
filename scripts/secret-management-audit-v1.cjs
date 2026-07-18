@@ -68,6 +68,51 @@ if (!exists('backend/src/middleware/validateRequest.test.ts')) {
   add('P1', 'backend/src/middleware/validateRequest.test.ts', 'Validation log redaction regression test is missing.');
 }
 
+const zodValidationMiddleware = requireIncludes(
+  'backend/src/middleware/validateZod.ts',
+  'Zod 验证失败',
+  'P0',
+  'Zod validation logging boundary is missing.'
+);
+if (!zodValidationMiddleware.includes('errorCount') || !zodValidationMiddleware.includes('fields:')) {
+  add('P2', 'backend/src/middleware/validateZod.ts', 'Zod validation logs should retain value-free field and count diagnostics.');
+}
+const zodLogStart = zodValidationMiddleware.indexOf("logger.warn('Zod 验证失败'");
+const zodLogEnd = zodValidationMiddleware.indexOf('});', zodLogStart);
+const zodLogBlock = zodLogStart >= 0 && zodLogEnd >= 0
+  ? zodValidationMiddleware.slice(zodLogStart, zodLogEnd)
+  : '';
+if (/errors:\s*errorMessages/.test(zodLogBlock)) {
+  add('P0', 'backend/src/middleware/validateZod.ts', 'Zod validation logs must not emit dynamic issue messages.');
+}
+if (!exists('backend/src/middleware/validateZod.test.ts')) {
+  add('P1', 'backend/src/middleware/validateZod.test.ts', 'Zod validation log redaction regression test is missing.');
+}
+
+const loggerBoundary = requireIncludes(
+  'backend/src/utils/logSanitizer.ts',
+  'sanitizeLogValue',
+  'P0',
+  'Central structured logging redaction boundary is missing.'
+);
+for (const token of ['formatLogEntry', 'redactLogText', 'MAX_LOG_DEPTH', 'MAX_LOG_STRING_LENGTH', 'MAX_LOG_METADATA_LENGTH']) {
+  if (!loggerBoundary.includes(token)) {
+    add('P1', 'backend/src/utils/logSanitizer.ts', `Central logging boundary is missing token: ${token}`);
+  }
+}
+const loggerConfig = requireIncludes(
+  'backend/src/utils/logger.ts',
+  "from './logSanitizer'",
+  'P0',
+  'Winston must use the central log sanitizer.'
+);
+if (!loggerConfig.includes('splat()')) {
+  add('P1', 'backend/src/utils/logger.ts', 'Winston metadata interpolation is missing.');
+}
+if (!exists('backend/src/utils/logSanitizer.test.ts')) {
+  add('P1', 'backend/src/utils/logSanitizer.test.ts', 'Central logging redaction and metadata regression tests are missing.');
+}
+
 const productionEnv = requireIncludes(
   '.env.production.example',
   'JWT_SECRET=replace_with_a_long_random_secret_before_server_deploy',
@@ -145,4 +190,5 @@ console.log('- JWT signing secret resolves through a central boundary.');
 console.log('- Production weak or missing JWT_SECRET is rejected.');
 console.log('- Health exposes redacted secret readiness metadata.');
 console.log('- Validation failures retain value-free diagnostics without request payloads.');
+console.log('- Central logging preserves bounded metadata and recursively redacts secret-bearing fields.');
 console.log('- ADR and tests document the current env-to-secret-manager path.');

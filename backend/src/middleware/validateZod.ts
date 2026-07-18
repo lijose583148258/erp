@@ -16,15 +16,17 @@ export const validateZod = (schema: ZodSchema<any>, source: 'body' | 'query' | '
         } catch (error: any) {
             if (error instanceof ZodError || (error.name === 'ZodError')) {
                 const zodIssues = Array.isArray(error.issues) ? error.issues : [];
-                const errorMessages = zodIssues.map((err: any) => ({
+                const errorMessages: Array<{ field: string; message: string }> = zodIssues.map((err: any) => ({
                     field: err.path ? err.path.join('.') : 'unknown',
                     message: err.message
                 }));
 
                 logger.warn('Zod 验证失败', {
+                    method: req.method,
                     path: req.path,
                     source,
-                    errors: errorMessages
+                    fields: Array.from(new Set(errorMessages.map(errorMessage => errorMessage.field))),
+                    errorCount: errorMessages.length
                 });
 
                 return res.status(400).json({
