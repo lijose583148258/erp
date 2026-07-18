@@ -123,6 +123,8 @@ try {
   const pod = JSON.parse(fs.readFileSync(blocked.stateFile, 'utf8')).pod;
   assert.equal(pod.metadata.namespace, 'ailaoda-pilot-recovery');
   assert.equal(pod.spec.automountServiceAccountToken, false);
+  assert.equal(pod.spec.securityContext.runAsUser, 10001);
+  assert.equal(pod.spec.securityContext.runAsGroup, 10001);
   assert.equal(pod.spec.containers[0].securityContext.allowPrivilegeEscalation, false);
   assert.deepEqual(pod.spec.containers[0].securityContext.capabilities.drop, ['ALL']);
   assert.equal(pod.spec.containers[0].image, probeImage);

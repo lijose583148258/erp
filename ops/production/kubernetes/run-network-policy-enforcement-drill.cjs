@@ -122,7 +122,12 @@ try {
       automountServiceAccountToken: false,
       restartPolicy: 'Never',
       activeDeadlineSeconds: pollTimeoutSeconds,
-      securityContext: { runAsNonRoot: true, seccompProfile: { type: 'RuntimeDefault' } },
+      securityContext: {
+        runAsNonRoot: true,
+        runAsUser: 10001,
+        runAsGroup: 10001,
+        seccompProfile: { type: 'RuntimeDefault' },
+      },
       containers: [{
         name: 'denied-connectivity',
         image: probeImage,
@@ -145,17 +150,21 @@ try {
 
   const deadline = Date.now() + (pollTimeoutSeconds * 1000);
   let terminated = null;
+  let lastPodState = 'unknown';
   while (Date.now() < deadline) {
     const observed = JSON.parse(checkedKubectl(
       ['-n', probeNamespace, 'get', 'pod', probeName, '-o', 'json'],
       'Denied probe Pod observation',
     ));
-    terminated = observed?.status?.containerStatuses?.[0]?.state?.terminated || null;
+    const containerState = observed?.status?.containerStatuses?.[0]?.state || {};
+    terminated = containerState.terminated || null;
+    lastPodState = String(containerState.waiting?.reason || observed?.status?.phase || 'unknown')
+      .replace(/[^A-Za-z0-9_.-]/g, '') || 'unknown';
     if (terminated) break;
     if (observed?.status?.phase === 'Failed') throw new Error('Denied probe Pod failed without a termination result.');
     sleep(1000);
   }
-  if (!terminated) throw new Error('Denied probe Pod did not terminate before the poll deadline.');
+  if (!terminated) throw new Error(`Denied probe Pod did not terminate before the poll deadline (state: ${lastPodState}).`);
   if (Number(terminated.exitCode) !== 0) {
     throw new Error('Unauthorized connectivity was not rejected by a TCP timeout.');
   }
