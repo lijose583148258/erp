@@ -97,6 +97,7 @@ add('cors', 'Untrusted preflight is not authorized',
 for (const [name, pathname] of [
   ['Current user', '/api/v1/auth/me'],
   ['System health details', '/api/v1/system/health-details'],
+  ['Operational health', '/internal/health'],
   ['Metrics', '/metrics'],
   ['Contract file', '/uploads/contracts/package.json'],
   ['Proof-of-delivery file', '/uploads/pod/package.json'],
@@ -318,13 +319,19 @@ add('http-methods', 'TRACE is unavailable', ![200, 204].includes(trace.status), 
 
 const sampleCount = Number(process.env.SANDBOX_LOAD_REQUESTS || 300);
 const concurrency = Number(process.env.SANDBOX_LOAD_CONCURRENCY || 25);
+const operationalHeaders = {
+  authorization: `Bearer ${process.env.METRICS_BEARER_TOKEN || '__missing-metrics-token__'}`,
+};
 let cursor = 0;
 let loadErrors = 0;
 const worker = async () => {
   while (true) {
     const index = cursor++;
     if (index >= sampleCount) return;
-    const response = await request('/health', { timeoutMs: 10000 });
+    const response = await request('/internal/health', {
+      headers: operationalHeaders,
+      timeoutMs: 10000,
+    });
     timings.push(response.elapsedMs);
     if (response.status !== 200) loadErrors += 1;
   }
@@ -346,7 +353,7 @@ add('performance', 'Concurrent health load remains reliable',
   loadMetrics.errorRate <= 0.01 && loadMetrics.p95Ms <= 750, 'high', loadMetrics,
   'Investigate database/Redis latency, event-loop blocking, and connection-pool saturation.');
 
-const postAttack = await request('/health');
+const postAttack = await request('/internal/health', { headers: operationalHeaders });
 add('resilience', 'Service remains healthy after adversarial traffic',
   postAttack.status === 200, 'critical', { status: postAttack.status, body: postAttack.text.slice(0, 500) });
 
