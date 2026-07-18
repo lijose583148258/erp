@@ -25,7 +25,7 @@ type RumVitalInput = {
 type CacheMetricAction = 'hit' | 'miss' | 'set' | 'delete' | 'error' | 'deserialize_error';
 type SearchMetricAction = 'fallback' | 'external' | 'empty' | 'invalid' | 'index' | 'index_error' | 'reindex';
 export type StorageMetricAction = 'write_success' | 'write_partial' | 'write_error' | 'read_primary' | 'read_fallback' | 'read_not_found' | 'read_error' | 'local_write' | 'local_read';
-export type AIMetricAction = 'external_success' | 'fallback_disabled' | 'fallback_unconfigured' | 'fallback_provider_error' | 'fallback_budget_unconfigured' | 'fallback_budget_store_unavailable' | 'fallback_budget_exhausted' | 'fallback_circuit_open' | 'fallback_unsafe_output' | 'fallback_response_too_large' | 'refused_sensitive' | 'rate_limited';
+export type AIMetricAction = 'external_success' | 'fallback_disabled' | 'fallback_unconfigured' | 'fallback_provider_error' | 'fallback_audit_unavailable' | 'fallback_budget_unconfigured' | 'fallback_budget_store_unavailable' | 'fallback_budget_exhausted' | 'fallback_circuit_open' | 'fallback_unsafe_output' | 'fallback_response_too_large' | 'refused_sensitive' | 'rate_limited';
 
 const startedAt = new Date();
 const routeMetrics = new Map<string, RouteMetric>();

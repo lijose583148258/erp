@@ -2,6 +2,22 @@ name: AI Governance Contract
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/ai-governance-contract.yml"
+      - "backend/src/controllers/ai.controller.ts"
+      - "backend/src/controllers/ai.controller.test.ts"
+      - "backend/src/services/ai-governance.service.ts"
+      - "backend/src/services/ai-governance.service.test.ts"
+      - "backend/src/services/ai-budget.service.ts"
+      - "backend/src/services/ai-budget.service.test.ts"
+      - "backend/src/middleware/metricsMiddleware.ts"
+      - "backend/src/validators/ai.ts"
+      - "backend/src/openapi/openapiDocument.ts"
+      - "backend/src/openapi/ai-openapi-contract.test.ts"
+      - "services/aiGateway.service.ts"
+      - "ops/production/kubernetes/observability.yaml"
+      - "ops/prometheus/rules/ailaoda-alerts.yml"
   push:
     branches:
       - codex/enterprise-cloud-sandbox
@@ -30,10 +46,10 @@ jobs:
       run:
         working-directory: backend
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -43,7 +59,13 @@ jobs:
         run: npm ci
 
       - name: Run governed AI contract
-        run: npm test -- --runInBand src/services/ai-governance.service.test.ts src/services/ai-budget.service.test.ts
+        run: |
+          npm test -- --runInBand \
+            src/services/ai-governance.service.test.ts \
+            src/services/ai-budget.service.test.ts \
+            src/controllers/ai.controller.test.ts \
+            src/openapi/ai-openapi-contract.test.ts
+          npx tsc --noEmit
         env:
           NODE_ENV: test
 
@@ -72,6 +94,7 @@ jobs:
               'prompt-injection-refusal', 'aggregate-context-allowlist', 'client-provider-field-rejection',
               'provider-failure-fallback', 'redirect-deny', 'bounded-safe-output',
               'unsafe-output-rejection', 'oversized-output-rejection', 'prompt-free-metrics',
+              'durable-audit-fail-closed', 'sanitized-pre-dispatch-audit',
               'budget-fail-closed', 'budget-exhaustion', 'shared-circuit-open',
               'circuit-threshold-open',
             ],
@@ -80,7 +103,7 @@ jobs:
           NODE
 
       - name: Upload governed AI attestation
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ai-governance-contract-attestation
           path: ai-contract-evidence/ai-governance-contract-attestation.json

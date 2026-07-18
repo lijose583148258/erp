@@ -46,6 +46,15 @@ groups:
           summary: AilaoDa governed AI provider failures increased
           description: Remote AI calls are failing and the assistant is using its local fallback.
 
+      - alert: AilaoDaAIAuditUnavailable
+        expr: increase(ailaoda_ai_operations_total{outcome="fallback_audit_unavailable"}[5m]) > 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: AilaoDa blocked external AI because durable audit was unavailable
+          description: The assistant failed closed before provider dispatch because its mandatory audit event could not be persisted.
+
       - alert: AilaoDaAIRateLimitSpike
         expr: increase(ailaoda_ai_operations_total{outcome="rate_limited"}[10m]) > 10
         for: 5m

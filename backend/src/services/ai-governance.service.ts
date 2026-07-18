@@ -11,7 +11,19 @@ type AIActor = {
 export type AIAssistResult = {
   answer: string;
   mode: 'local' | 'external';
-  reason?: 'disabled' | 'sensitive' | 'unconfigured' | 'provider_error' | 'unsafe_output' | 'response_too_large' | 'budget_unconfigured' | 'budget_store_unavailable' | 'budget_exhausted' | 'circuit_open';
+  reason?: 'disabled' | 'sensitive' | 'unconfigured' | 'provider_error' | 'audit_unavailable' | 'unsafe_output' | 'response_too_large' | 'budget_unconfigured' | 'budget_store_unavailable' | 'budget_exhausted' | 'circuit_open';
+};
+
+export type AIExternalDispatchAudit = {
+  role: string;
+  segment: string;
+  currentPage: string;
+  model: string;
+  endpointHost: string;
+};
+
+type AIAssistHooks = {
+  beforeExternalDispatch: (metadata: AIExternalDispatchAudit) => Promise<void>;
 };
 
 const truthy = (value?: string) => ['1', 'true', 'yes', 'on'].includes(String(value || '').trim().toLowerCase());
@@ -169,7 +181,7 @@ export class AIGovernanceService {
     };
   }
 
-  static async assist(input: AIAssistInput, actor: AIActor): Promise<AIAssistResult> {
+  static async assist(input: AIAssistInput, actor: AIActor, hooks?: AIAssistHooks): Promise<AIAssistResult> {
     const startedAt = Date.now();
     const prompt = input.prompt.trim();
     if (containsSensitiveInput(prompt)) {
@@ -201,6 +213,20 @@ export class AIGovernanceService {
       role: actor.role,
       segment: actor.segment || 'unknown',
     };
+
+    try {
+      if (!hooks?.beforeExternalDispatch) throw new Error('AI_EXTERNAL_AUDIT_HOOK_MISSING');
+      await hooks.beforeExternalDispatch({
+        role: safeContext.role,
+        segment: safeContext.segment,
+        currentPage: safeContext.currentPage,
+        model: status.model,
+        endpointHost: new URL(status.endpoint).hostname.toLowerCase(),
+      });
+    } catch {
+      recordAIMetric('fallback_audit_unavailable', Date.now() - startedAt);
+      return localAnswer(input, 'audit_unavailable');
+    }
 
     try {
       const response = await fetch(status.endpoint, {

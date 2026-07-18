@@ -11,7 +11,7 @@ export type GovernedAIRequest = {
 export type GovernedAIResult = {
   answer: string;
   mode: 'local' | 'external';
-  reason?: 'disabled' | 'sensitive' | 'unconfigured' | 'provider_error' | 'budget_unconfigured' | 'budget_store_unavailable' | 'budget_exhausted' | 'circuit_open';
+  reason?: 'disabled' | 'sensitive' | 'unconfigured' | 'provider_error' | 'audit_unavailable' | 'unsafe_output' | 'response_too_large' | 'budget_unconfigured' | 'budget_store_unavailable' | 'budget_exhausted' | 'circuit_open';
 };
 
 export const aiGatewayService = {

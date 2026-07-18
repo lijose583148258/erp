@@ -242,7 +242,7 @@ export const buildOpenApiDocument = () => {
       post: {
         tags: ['AI'],
         summary: 'Request governed AI assistance',
-        description: 'Accepts a bounded prompt and aggregate-only context. Provider endpoint, model selection, and credentials are server controlled. Requires ai.assistant.use.',
+        description: 'Accepts a bounded prompt and aggregate-only context. Provider endpoint, model selection, and credentials are server controlled. External dispatch fails closed unless a sanitized audit event is durably persisted first. Requires ai.assistant.use.',
         security: secured(true),
         requestBody: {
           required: true,
@@ -484,7 +484,7 @@ export const buildOpenApiDocument = () => {
                   properties: {
                     answer: { type: 'string', maxLength: 4000 },
                     mode: { type: 'string', enum: ['local', 'external'] },
-                    reason: { type: 'string', enum: ['disabled', 'sensitive', 'unconfigured', 'provider_error', 'budget_unconfigured', 'budget_store_unavailable', 'budget_exhausted', 'circuit_open'] },
+                    reason: { type: 'string', enum: ['disabled', 'sensitive', 'unconfigured', 'provider_error', 'audit_unavailable', 'unsafe_output', 'response_too_large', 'budget_unconfigured', 'budget_store_unavailable', 'budget_exhausted', 'circuit_open'] },
                   },
                 },
               },

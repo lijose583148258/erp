@@ -96,6 +96,8 @@ jobs:
           src/database/base-schema-bootstrap.test.ts
           src/middleware/errorHandler.test.ts
           src/services/ai-governance.service.test.ts
+          src/controllers/ai.controller.test.ts
+          src/openapi/ai-openapi-contract.test.ts
 
       - name: Prepare isolated database
         run: |
