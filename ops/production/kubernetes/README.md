@@ -131,6 +131,11 @@ storage, search, realtime, and telemetry details moved to protected
 `/internal/health`. Formal preflight and observability evidence must supply the
 collector token; both credential files retain the same projected-Secret
 permission checks.
+Root public probes are also protected by a per-instance in-memory limiter
+(`PUBLIC_PROBE_RATE_LIMIT_WINDOW_MS`, `PUBLIC_PROBE_RATE_LIMIT_MAX`) before the
+request logger and expensive database, Redis, and disk checks. API-prefixed
+probe aliases remain covered by the distributed API limiter. Kubernetes probes
+stay well below the default 120 requests per minute per application Pod.
 
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The

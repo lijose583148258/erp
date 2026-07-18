@@ -125,6 +125,25 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+const boundedPositiveInteger = (value: string | undefined, fallback: number, minimum: number) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= minimum ? parsed : fallback;
+};
+const publicProbeWindowMs = boundedPositiveInteger(process.env.PUBLIC_PROBE_RATE_LIMIT_WINDOW_MS, 60_000, 1_000);
+const publicProbeMax = boundedPositiveInteger(
+  process.env.PUBLIC_PROBE_RATE_LIMIT_MAX,
+  runtime.nodeEnv === 'production' ? 120 : 1_000,
+  10,
+);
+const publicProbeLimiter = rateLimit({
+  windowMs: publicProbeWindowMs,
+  max: publicProbeMax,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { status: 'rate-limited' },
+});
+app.use(['/livez', '/ready', '/health'], publicProbeLimiter);
+
 app.get(['/api/system/health-details', '/api/v1/system/health-details'], authenticate, authorize('admin'), async (_req: Request, res: Response) => {
   const minimumFreeDiskBytes = Number(process.env.MIN_FREE_DISK_BYTES || 512 * 1024 * 1024);
   const backupDir = getBackupDir();
