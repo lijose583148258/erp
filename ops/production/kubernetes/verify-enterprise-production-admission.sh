@@ -124,6 +124,11 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-ingress.cjs" \
   --service-name "ailaoda-app" \
   > "${tmp_dir}/ingress-verdict.json"
 
+node "$(dirname "${BASH_SOURCE[0]}")/verify-public-dns-ingress.cjs" \
+  --ingress "${tmp_dir}/ingress.json" \
+  --public-host "${public_host}" \
+  > "${tmp_dir}/dns-ingress-verdict.json"
+
 curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
   --connect-timeout 5 --max-time 15 \
   --header 'Accept: application/json' \
@@ -353,8 +358,9 @@ jq -n \
   --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --slurpfile placement "${tmp_dir}/placement-verdict.json" \
   --slurpfile ingress "${tmp_dir}/ingress-verdict.json" \
+  --slurpfile dnsIngress "${tmp_dir}/dns-ingress-verdict.json" \
   '{status:"passed", namespace:$namespace, evidence:$evidence, publicHost:$publicHost,
-    checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], publicHttpsReadiness:true,
+    checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], dnsIngress:$dnsIngress[0], publicHttpsReadiness:true,
     boundary:"Real cluster placement, HTTPS traffic entry, and provider/operator failover evidence"}'
 
 echo "Enterprise production admission: PASSED" >&2

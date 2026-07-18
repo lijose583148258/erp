@@ -10,6 +10,8 @@ on:
       - 'ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs'
       - 'ops/production/kubernetes/verify-kubernetes-ingress.cjs'
       - 'ops/production/kubernetes/kubernetes-ingress-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-public-dns-ingress.cjs'
+      - 'ops/production/kubernetes/public-dns-ingress-contract.test.cjs'
       - 'ops/production/kubernetes/verify-production-approvals.cjs'
       - 'ops/production/kubernetes/production-approval-contract.test.cjs'
       - 'ops/production/kubernetes/PRODUCTION_APPROVAL_PROTOCOL.md'
@@ -41,6 +43,7 @@ jobs:
           bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
           node ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs
           node ops/production/kubernetes/kubernetes-ingress-contract.test.cjs
+          node ops/production/kubernetes/public-dns-ingress-contract.test.cjs
           node ops/production/kubernetes/production-approval-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');

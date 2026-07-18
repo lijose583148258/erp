@@ -113,6 +113,11 @@ requires ready database and Redis semantics. This validates the public TLS path
 without granting the admission identity permission to read Kubernetes TLS
 private-key Secrets. Replace the host and class placeholders in `ailaoda-ha.yaml`
 before applying it.
+Before that HTTPS probe, the gate resolves both the profile-bound public hostname
+and every address advertised by the live Ingress load balancer. At least one
+resolved address must match, preventing an unrelated healthy endpoint from
+satisfying admission through stale or diverted DNS. TLS hostname and CA-chain
+validation remain enforced by `curl` after the DNS-to-Ingress binding passes.
 
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The
