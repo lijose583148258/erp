@@ -16,7 +16,7 @@ const write = (name, value) => {
 };
 const node = (name, zone) => ({ metadata: { name, labels: { 'topology.kubernetes.io/zone': zone } }, spec: {}, status: { conditions: ready } });
 const pod = (name, nodeName, ownerName, podImage = image, imageID = `containerd://${image}`, ownerUid = 'replicaset-uid') => ({
-  metadata: { name, ownerReferences: [{ kind: 'ReplicaSet', name: ownerName, uid: ownerUid, controller: true }] },
+  metadata: { name, uid: `${name}-uid`, namespace: 'ailaoda-pilot', ownerReferences: [{ kind: 'ReplicaSet', name: ownerName, uid: ownerUid, controller: true }] },
   spec: { nodeName, containers: [{ name: 'app', image: podImage }] },
   status: { phase: 'Running', conditions: ready, containerStatuses: [{ name: 'app', ready: true, imageID }] },
 });
@@ -25,13 +25,18 @@ try {
   const fixture = {
     nodes: { items: [node('node-a', 'zone-a'), node('node-b', 'zone-b')] },
     deployment: {
-      metadata: { name: 'ailaoda-app', uid: 'deployment-uid', generation: 3 },
+      metadata: { name: 'ailaoda-app', uid: 'deployment-uid', namespace: 'ailaoda-pilot', generation: 3 },
       spec: { selector: { matchLabels: { app: 'ailaoda-app' } }, template: { metadata: { labels: { app: 'ailaoda-app' } }, spec: { containers: [{ name: 'app', image }] } } },
       status: { observedGeneration: 3, updatedReplicas: 2, readyReplicas: 2, availableReplicas: 2, unavailableReplicas: 0 },
     },
-    replicasets: { items: [{ metadata: { name: 'ailaoda-app-current', uid: 'replicaset-uid', ownerReferences: [{ kind: 'Deployment', name: 'ailaoda-app', uid: 'deployment-uid', controller: true }] } }] },
+    replicasets: { items: [{ metadata: { name: 'ailaoda-app-current', uid: 'replicaset-uid', namespace: 'ailaoda-pilot', ownerReferences: [{ kind: 'Deployment', name: 'ailaoda-app', uid: 'deployment-uid', controller: true }] } }] },
     pods: { items: [pod('app-a', 'node-a', 'ailaoda-app-current'), pod('app-b', 'node-b', 'ailaoda-app-current')] },
-    pdb: { spec: { selector: { matchLabels: { app: 'ailaoda-app' } } }, status: { expectedPods: 2, currentHealthy: 2, disruptionsAllowed: 1 } },
+    pdb: { metadata: { name: 'ailaoda-app', namespace: 'ailaoda-pilot' }, spec: { selector: { matchLabels: { app: 'ailaoda-app' } } }, status: { expectedPods: 2, currentHealthy: 2, disruptionsAllowed: 1 } },
+    service: { metadata: { name: 'ailaoda-app', namespace: 'ailaoda-pilot' }, spec: { type: 'ClusterIP', selector: { app: 'ailaoda-app' }, ports: [{ name: 'http', port: 80, targetPort: 'http', protocol: 'TCP' }] } },
+    endpointSlices: { items: [{
+      metadata: { name: 'ailaoda-app-abc', namespace: 'ailaoda-pilot', labels: { 'kubernetes.io/service-name': 'ailaoda-app' } },
+      endpoints: ['app-a', 'app-b'].map(name => ({ conditions: { ready: true, serving: true, terminating: false }, targetRef: { kind: 'Pod', namespace: 'ailaoda-pilot', name, uid: `${name}-uid` } })),
+    }] },
   };
   const run = value => {
     const files = Object.fromEntries(Object.entries(value).map(([name, content]) => [name, write(name, content)]));
@@ -42,6 +47,9 @@ try {
       '--deployment', files.deployment,
       '--replicasets', files.replicasets,
       '--pdb', files.pdb,
+      '--service', files.service,
+      '--endpoint-slices', files.endpointSlices,
+      '--namespace', 'ailaoda-pilot',
       '--image-digest', digest,
     ], { encoding: 'utf8' });
   };
@@ -49,6 +57,7 @@ try {
   const valid = run(fixture);
   assert.equal(valid.status, 0, valid.stderr);
   assert.equal(JSON.parse(valid.stdout).failureDomainCount, 2);
+  assert.equal(JSON.parse(valid.stdout).readyServiceEndpointCount, 2);
 
   const roguePod = structuredClone(fixture);
   roguePod.pods.items[1] = pod('rogue-b', 'node-b', 'unrelated-replicaset');
@@ -78,6 +87,22 @@ try {
   inflatedPdb.pdb.status.expectedPods = 3;
   inflatedPdb.pdb.status.currentHealthy = 3;
   assert.notEqual(run(inflatedPdb).status, 0, 'an unrelated Pod must not inflate disruption evidence');
+
+  const wrongNamespace = structuredClone(fixture);
+  wrongNamespace.deployment.metadata.namespace = 'other-pilot';
+  assert.notEqual(run(wrongNamespace).status, 0, 'a deployment outside the approved namespace must be rejected');
+
+  const broadService = structuredClone(fixture);
+  broadService.service.spec.selector = { app: 'ailaoda-app', track: 'unbound' };
+  assert.notEqual(run(broadService).status, 0, 'a service selector not identical to the deployment selector must be rejected');
+
+  const rogueEndpoint = structuredClone(fixture);
+  rogueEndpoint.endpointSlices.items[0].endpoints[1].targetRef = { kind: 'Pod', namespace: 'ailaoda-pilot', name: 'rogue', uid: 'rogue-uid' };
+  assert.notEqual(run(rogueEndpoint).status, 0, 'a ready endpoint outside the admitted Pod set must be rejected');
+
+  const missingEndpoint = structuredClone(fixture);
+  missingEndpoint.endpointSlices.items[0].endpoints.pop();
+  assert.notEqual(run(missingEndpoint).status, 0, 'every admitted Pod must be covered by the service endpoints');
 
   console.log('Kubernetes application placement contract: PASSED');
 } finally {

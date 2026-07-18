@@ -336,6 +336,12 @@ jobs:
           observabilityReport.adapterSha256.observability = providerProfile.adapters.observability.sha256;
           fs.writeFileSync(path.join(root, artifacts.observabilityReport), JSON.stringify(observabilityReport));
 
+          manifest.namespace = 'other-pilot';
+          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+          const mismatchedNamespace = run();
+          if (mismatchedNamespace.status === 0) throw new Error('Namespace outside the provider-approved application namespace was accepted.');
+          manifest.namespace = providerProfile.platform.applicationNamespace;
+
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);

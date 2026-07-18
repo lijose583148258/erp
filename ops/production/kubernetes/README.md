@@ -87,6 +87,11 @@ the complete evidence set and the live Kubernetes deployment.
 
 The runner then calls the low-level verifier, which reads Kubernetes state with
 `kubectl` and validates the evidence with `jq` plus the placement contract. It
+requires the bundle namespace to equal the provider-approved application
+namespace. The admitted Service must use the Deployment's exact selector and
+its Ready EndpointSlices must resolve exclusively and completely to the admitted
+Pods by immutable Pod UID; a parallel Deployment or stale/rogue backend cannot
+receive production traffic under a passing verdict. The placement contract
 accepts only Ready Pods owned through the target Deployment's exact
 ReplicaSet UID chain, requires a completed observed rollout, and matches both
 the Deployment image and each running container `imageID` to the admitted

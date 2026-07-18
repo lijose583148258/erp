@@ -16,12 +16,16 @@ const readJson = (flag, label) => {
 };
 const imageDigest = String(valueFor('--image-digest') || '').trim();
 if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('A release image digest is required.');
+const namespace = String(valueFor('--namespace') || '').trim();
+if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(namespace)) fail('A valid application namespace is required.');
 
 const nodes = readJson('--nodes', 'Nodes');
 const pods = readJson('--pods', 'Pods');
 const deployment = readJson('--deployment', 'Deployment');
 const replicaSets = readJson('--replicasets', 'ReplicaSets');
 const pdb = readJson('--pdb', 'PodDisruptionBudget');
+const service = readJson('--service', 'Service');
+const endpointSlices = readJson('--endpoint-slices', 'EndpointSlices');
 const items = value => Array.isArray(value?.items) ? value.items : [];
 const ready = value => Array.isArray(value?.status?.conditions)
   && value.status.conditions.some(condition => condition.type === 'Ready' && condition.status === 'True');
@@ -43,6 +47,12 @@ const deploymentLabels = deployment?.spec?.selector?.matchLabels;
 if (!deploymentName || !deploymentUid || !Number.isInteger(generation) || generation < 1) {
   fail('Deployment identity is incomplete.');
 }
+const requireNamespace = (value, label) => {
+  if (value?.metadata?.namespace !== namespace) fail(`${label} is outside the admitted namespace.`);
+};
+requireNamespace(deployment, 'Deployment');
+requireNamespace(pdb, 'PodDisruptionBudget');
+requireNamespace(service, 'Service');
 if (!deploymentLabels || typeof deploymentLabels !== 'object' || Array.isArray(deploymentLabels)
   || Object.keys(deploymentLabels).length < 1
   || Object.entries(deploymentLabels).some(([key, value]) => deployment?.spec?.template?.metadata?.labels?.[key] !== value)) {
@@ -62,6 +72,7 @@ if (!appContainer || digestFromDeclaredImage(appContainer.image) !== imageDigest
 
 const ownedReplicaSets = new Map(items(replicaSets)
   .filter(replicaSet => {
+    if (replicaSet?.metadata?.namespace !== namespace) return false;
     const owner = controllerOwner(replicaSet, 'Deployment');
     return owner?.uid === deploymentUid && owner?.name === deploymentName;
   })
@@ -78,6 +89,7 @@ if (readyNodes.size < 2 || new Set(readyNodes.values()).size < 2) {
 }
 
 const admittedPods = items(pods).filter(pod => {
+  if (pod?.metadata?.namespace !== namespace) return false;
   const owner = controllerOwner(pod, 'ReplicaSet');
   if (!owner || ownedReplicaSets.get(owner.name) !== owner.uid || pod?.status?.phase !== 'Running' || !ready(pod)) return false;
   const specContainer = (pod?.spec?.containers || []).find(container => container.name === 'app');
@@ -101,12 +113,56 @@ if (Number(pdb?.status?.expectedPods) !== admittedPods.length
   fail('PodDisruptionBudget cannot currently tolerate one admitted Pod loss.');
 }
 
+const serviceName = String(service?.metadata?.name || '').trim();
+const serviceSelector = service?.spec?.selector;
+if (serviceName !== deploymentName || service?.spec?.type === 'ExternalName'
+  || !serviceSelector || typeof serviceSelector !== 'object' || Array.isArray(serviceSelector)
+  || Object.keys(serviceSelector).length !== Object.keys(deploymentLabels).length
+  || Object.entries(deploymentLabels).some(([key, value]) => serviceSelector[key] !== value)) {
+  fail('Service does not exclusively select the admitted Deployment.');
+}
+const httpPort = (service?.spec?.ports || []).find(port => port.name === 'http');
+if (!httpPort || String(httpPort.protocol || 'TCP') !== 'TCP' || String(httpPort.targetPort || '') !== 'http'
+  || !Number.isInteger(Number(httpPort.port)) || Number(httpPort.port) < 1) {
+  fail('Service does not expose the admitted HTTP container port.');
+}
+
+const admittedPodIds = new Map(admittedPods.map(pod => [
+  String(pod?.metadata?.uid || ''),
+  String(pod?.metadata?.name || ''),
+]).filter(([uid, name]) => uid && name));
+if (admittedPodIds.size !== admittedPods.length) fail('Admitted Pods have incomplete immutable identities.');
+const endpointPodIds = new Map();
+for (const slice of items(endpointSlices)) {
+  requireNamespace(slice, 'EndpointSlice');
+  if (slice?.metadata?.labels?.['kubernetes.io/service-name'] !== serviceName) {
+    fail('EndpointSlice is not owned by the admitted Service.');
+  }
+  for (const endpoint of slice?.endpoints || []) {
+    if (endpoint?.conditions?.ready !== true || endpoint?.conditions?.serving === false
+      || endpoint?.conditions?.terminating === true) continue;
+    const target = endpoint?.targetRef;
+    if (target?.kind !== 'Pod' || target?.namespace !== namespace
+      || admittedPodIds.get(String(target?.uid || '')) !== String(target?.name || '')) {
+      fail('Service has a Ready endpoint outside the admitted Pod set.');
+    }
+    endpointPodIds.set(String(target.uid), String(target.name));
+  }
+}
+if (endpointPodIds.size !== admittedPodIds.size
+  || [...admittedPodIds.keys()].some(uid => !endpointPodIds.has(uid))) {
+  fail('Service EndpointSlices do not cover every admitted Pod exactly.');
+}
+
 process.stdout.write(`${JSON.stringify({
   status: 'passed',
+  namespace,
   deployment: deploymentName,
+  service: serviceName,
   imageDigest,
   replicaSetCount: ownedReplicaSets.size,
   readyPodCount: admittedPods.length,
   nodeCount: new Set(admittedNodes).size,
   failureDomainCount: new Set(admittedZones).size,
+  readyServiceEndpointCount: endpointPodIds.size,
 })}\n`);

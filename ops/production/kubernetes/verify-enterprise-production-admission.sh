@@ -41,6 +41,15 @@ kubectl get pods -n "${namespace}" -o json > "${tmp_dir}/pods.json"
 kubectl get deployment -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/deployment.json"
 kubectl get replicasets -n "${namespace}" -o json > "${tmp_dir}/replicasets.json"
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
+kubectl get service -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service.json"
+kubectl get endpointslices.discovery.k8s.io -n "${namespace}" -l kubernetes.io/service-name=ailaoda-app -o json > "${tmp_dir}/endpoint-slices.json"
+
+jq -e --arg namespace "${namespace}" '
+  .platform.applicationNamespace == $namespace
+' "${provider_profile}" >/dev/null || {
+  echo "FAILED: provider profile application namespace does not match admission namespace" >&2
+  exit 1
+}
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --continuous-report "${continuous_report}" \
@@ -86,6 +95,9 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-app-placement.cjs" \
   --deployment "${tmp_dir}/deployment.json" \
   --replicasets "${tmp_dir}/replicasets.json" \
   --pdb "${tmp_dir}/pdb.json" \
+  --service "${tmp_dir}/service.json" \
+  --endpoint-slices "${tmp_dir}/endpoint-slices.json" \
+  --namespace "${namespace}" \
   --image-digest "$(jq -r '.imageDigest // empty' "${evidence_file}")" \
   > "${tmp_dir}/placement-verdict.json"
 

@@ -90,6 +90,9 @@ if (continuousReportIdentity.collectorImageDigest !== providerSummary.observatio
 if (providerSummary.status !== 'passed' || providerSummary.environment !== release.environment) {
   throw new Error('Provider profile verification did not pass for this release environment.');
 }
+if (providerSummary.applicationNamespace !== manifest.namespace) {
+  throw new Error('Admission namespace does not match the provider-approved application namespace.');
+}
 const preflightVerifier = path.join(__dirname, 'verify-formal-pilot-preflight-evidence.cjs');
 const preflightOutput = execFileSync(process.execPath, [
   preflightVerifier,
