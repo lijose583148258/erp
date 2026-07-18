@@ -53,10 +53,10 @@ jobs:
       AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -194,11 +194,26 @@ jobs:
             checkedAt: new Date().toISOString(),
             limitation: 'A segmented GitHub-hosted run is not evidence of one continuous 8-hour or 24-hour process lifetime.',
           }, null, 2) + '\n');
+          const reportPath = 'output/audit/enterprise-ha-soak-audit-v1.json';
+          if (fs.existsSync(reportPath)) {
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const escapeCommand = value => String(value)
+              .replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+            for (const check of report.checks || []) {
+              if (check.status !== 'failed') continue;
+              console.log(`::error title=HA observation ${escapeCommand(check.name)}::${escapeCommand(JSON.stringify(check).slice(0, 1000))}`);
+            }
+            if (report.error) {
+              console.log(`::error title=HA observation runtime::${escapeCommand(report.error)}`);
+            }
+          } else {
+            console.log('::error title=HA observation evidence missing::enterprise-ha-soak-audit-v1.json was not produced');
+          }
           NODE
 
       - name: Upload observation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: enterprise-pilot-observation-${{ inputs.segment_label || 'pull-request-smoke' }}-${{ github.run_id }}
           path: cloud-evidence/
