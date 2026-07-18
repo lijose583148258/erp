@@ -49,10 +49,10 @@ jobs:
 
     steps:
       - name: Checkout isolated source
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -179,7 +179,7 @@ jobs:
 
       - name: Upload adversarial evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cloud-adversarial-sandbox-evidence
           path: output/cloud-sandbox/
@@ -191,6 +191,26 @@ jobs:
         shell: bash
         run: |
           static_failed="$(cat output/cloud-sandbox/static-failed-count.txt 2>/dev/null || echo 1)"
+          cat output/cloud-sandbox/STATIC_AUDITS.md 2>/dev/null || true
+          node <<'NODE'
+          const fs = require('fs');
+          const reportPath = 'output/cloud-sandbox/adversarial-report.json';
+          if (!fs.existsSync(reportPath)) {
+            console.log('::error title=Adversarial evidence missing::adversarial-report.json was not produced');
+            process.exit(0);
+          }
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          const escapeCommand = value => String(value)
+            .replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+          console.log(`adversarial_summary=${JSON.stringify(report.summary || {})}`);
+          for (const finding of report.results || []) {
+            if (finding.passed) continue;
+            const evidence = JSON.stringify(finding.evidence || {}).slice(0, 1000);
+            const title = escapeCommand(`Adversarial ${finding.severity} ${finding.category}`);
+            const message = escapeCommand(`${finding.test}; evidence=${evidence}`);
+            console.log(`::error title=${title}::${message}`);
+          }
+          NODE
           echo "static_failed=$static_failed"
           echo "dynamic_outcome=${{ steps.adversarial.outcome }}"
           test "$static_failed" -eq 0
