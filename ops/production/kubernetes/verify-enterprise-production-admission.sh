@@ -36,6 +36,21 @@ done
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
+node "$(dirname "${BASH_SOURCE[0]}")/verify-formal-pilot-provider-profile.cjs" \
+  "${provider_profile}" \
+  --evidence "${evidence_file}" \
+  > "${tmp_dir}/provider-verdict.json"
+
+jq -e --arg namespace "${namespace}" '
+  .status == "passed"
+  and .evidenceBound == true
+  and .applicationNamespace == $namespace
+  and (.providerProfileSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+' "${tmp_dir}/provider-verdict.json" >/dev/null || {
+  echo "FAILED: provider profile is invalid, unbound, or targets another application namespace" >&2
+  exit 1
+}
+
 kubectl get nodes -o json > "${tmp_dir}/nodes.json"
 kubectl get pods -n "${namespace}" -o json > "${tmp_dir}/pods.json"
 kubectl get deployment -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/deployment.json"
@@ -43,13 +58,6 @@ kubectl get replicasets -n "${namespace}" -o json > "${tmp_dir}/replicasets.json
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
 kubectl get service -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service.json"
 kubectl get endpointslices.discovery.k8s.io -n "${namespace}" -l kubernetes.io/service-name=ailaoda-app -o json > "${tmp_dir}/endpoint-slices.json"
-
-jq -e --arg namespace "${namespace}" '
-  .platform.applicationNamespace == $namespace
-' "${provider_profile}" >/dev/null || {
-  echo "FAILED: provider profile application namespace does not match admission namespace" >&2
-  exit 1
-}
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --continuous-report "${continuous_report}" \

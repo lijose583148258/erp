@@ -92,6 +92,9 @@ namespace. The admitted Service must use the Deployment's exact selector and
 its Ready EndpointSlices must resolve exclusively and completely to the admitted
 Pods by immutable Pod UID; a parallel Deployment or stale/rogue backend cannot
 receive production traffic under a passing verdict. The placement contract
+also re-runs the complete provider-profile verifier in the low-level shell entry
+point, including its evidence SHA-256 binding, so invoking that entry point
+directly cannot downgrade profile validation to a few selected fields. It
 accepts only Ready Pods owned through the target Deployment's exact
 ReplicaSet UID chain, requires a completed observed rollout, and matches both
 the Deployment image and each running container `imageID` to the admitted
