@@ -3,6 +3,9 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const args = process.argv.slice(2);
+const checkOnly = args.includes('--check-only');
+const verifyEvidenceOnly = args.includes('--verify-evidence');
+if (checkOnly && verifyEvidenceOnly) throw new Error('--check-only and --verify-evidence are mutually exclusive.');
 const valueFor = name => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : '';
@@ -154,13 +157,72 @@ if (!expectedObservabilityAdapterSha256
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
-if (args.includes('--check-only')) {
+if (checkOnly) {
   console.log(JSON.stringify({
-    status: 'valid',
+    status: 'bundle-structure-valid',
+    productionAdmission: false,
+    evidenceContentVerified: false,
+    kubernetesVerified: false,
+    scope: 'paths-release-provider-preflight-and-adapter-bindings',
     namespace: manifest.namespace,
     release,
     provider: providerSummary,
     preflight: preflightSummary,
+    artifacts: artifactSummary,
+  }, null, 2));
+  process.exit(0);
+}
+
+const runEvidenceVerifier = (script, verifierArgs) => execFileSync(process.execPath, [
+  path.join(__dirname, script),
+  ...verifierArgs,
+], {
+  cwd: bundleRoot,
+  encoding: 'utf8',
+  stdio: ['ignore', 'ignore', 'inherit'],
+});
+const verifyEvidenceContent = () => {
+  runEvidenceVerifier('verify-pilot-observation-evidence.cjs', [
+    '--continuous-report', resolved.continuousReport,
+    '--ledger', resolved.pilotLedger,
+    '--daily-reports-dir', resolved.dailyReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-backup-restore-evidence.cjs', [
+    '--report', resolved.backupReport,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-storage-search-evidence.cjs', [
+    '--reports-dir', resolved.resilienceReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-observability-evidence.cjs', [
+    '--report', resolved.observabilityReport,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-load-reconciliation-evidence.cjs', [
+    '--reports-dir', resolved.loadReconciliationReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-ai-evidence.cjs', [
+    '--reports-dir', resolved.aiReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-security-evidence.cjs', [
+    '--reports-dir', resolved.securityReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+};
+
+verifyEvidenceContent();
+if (verifyEvidenceOnly) {
+  console.log(JSON.stringify({
+    status: 'evidence-valid',
+    productionAdmission: false,
+    evidenceContentVerified: true,
+    kubernetesVerified: false,
+    namespace: manifest.namespace,
+    release,
     artifacts: artifactSummary,
   }, null, 2));
   process.exit(0);

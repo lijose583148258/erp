@@ -55,6 +55,10 @@ node ops/production/kubernetes/run-enterprise-production-admission.cjs \
   --check-only
 
 node ops/production/kubernetes/run-enterprise-production-admission.cjs \
+  --bundle <admission-bundle.json> \
+  --verify-evidence
+
+node ops/production/kubernetes/run-enterprise-production-admission.cjs \
   --bundle <admission-bundle.json>
 ```
 
@@ -63,8 +67,12 @@ must be relative, remain inside one evidence directory after symlink resolution,
 and match the release identity in the main evidence file. The bundle must include
 the exact formal preflight report produced against the bound provider profile.
 Admission rejects reports older than 24 hours, incomplete check sets, insufficient
-topology, or any adapter hash drift. `--check-only` validates this structure
-without contacting Kubernetes.
+topology, or any adapter hash drift. `--check-only` validates only paths, release
+identity, provider profile, preflight, and adapter bindings; it deliberately
+returns `productionAdmission:false` and does not validate report contents.
+`--verify-evidence` runs every non-Kubernetes evidence verifier and still returns
+`productionAdmission:false`. Only the command without either flag verifies both
+the complete evidence set and the live Kubernetes deployment.
 
 The runner then calls the low-level verifier, which reads Kubernetes state with
 `kubectl` and validates the evidence with `jq` plus the placement contract. It

@@ -252,6 +252,19 @@ jobs:
 
           const valid = run();
           if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid bundle was rejected.');
+          const structural = JSON.parse(valid.stdout);
+          if (structural.status !== 'bundle-structure-valid'
+            || structural.productionAdmission !== false
+            || structural.evidenceContentVerified !== false
+            || structural.kubernetesVerified !== false) {
+            throw new Error('Structural bundle check claimed production or evidence verification.');
+          }
+          const conflictingModes = spawnSync(process.execPath, [
+            runner, '--bundle', manifestPath, '--check-only', '--verify-evidence',
+          ], { encoding: 'utf8' });
+          if (conflictingModes.status === 0) throw new Error('Conflicting admission validation modes were accepted.');
+          const evidenceOnly = spawnSync(process.execPath, [runner, '--bundle', manifestPath, '--verify-evidence'], { encoding: 'utf8' });
+          if (evidenceOnly.status === 0) throw new Error('Incomplete evidence directories passed full evidence verification.');
           manifest.artifacts.backupReport = '../outside.json';
           fs.writeFileSync(path.join(path.dirname(root), 'outside.json'), '{}');
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
