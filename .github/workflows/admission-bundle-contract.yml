@@ -78,6 +78,7 @@ jobs:
                 ingressControllerPodLabels: { 'app.kubernetes.io/name': 'ingress-nginx' },
                 observabilityNamespace: 'monitoring',
                 observabilityPodLabels: { 'app.kubernetes.io/name': 'prometheus' },
+                probeImage: `docker.io/curlimages/curl@sha256:${'7'.repeat(64)}`,
               },
             },
             adapters: {

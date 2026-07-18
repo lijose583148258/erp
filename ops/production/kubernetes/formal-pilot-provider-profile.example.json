@@ -24,7 +24,8 @@
       "observabilityNamespace": "monitoring",
       "observabilityPodLabels": {
         "app.kubernetes.io/name": "prometheus"
-      }
+      },
+      "probeImage": "docker.io/curlimages/curl@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6"
     }
   },
   "adapters": {

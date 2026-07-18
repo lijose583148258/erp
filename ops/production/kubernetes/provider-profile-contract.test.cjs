@@ -21,6 +21,7 @@ const valid = {
       ingressControllerPodLabels: { 'app.kubernetes.io/name': 'ingress-nginx' },
       observabilityNamespace: 'monitoring',
       observabilityPodLabels: { 'app.kubernetes.io/name': 'prometheus' },
+      probeImage: `docker.io/curlimages/curl@sha256:${'7'.repeat(64)}`,
     },
   },
   adapters: {
@@ -107,6 +108,7 @@ try {
   assert.equal(summary.observation.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
   assert.equal(summary.applicationIngress.publicHost, 'erp.pilot.company.com');
   assert.equal(summary.applicationNetworkPolicy.observabilityNamespace, 'monitoring');
+  assert.match(summary.applicationNetworkPolicy.probeImage, /@sha256:[0-9a-f]{64}$/);
   assert.equal(Object.keys(summary.approvals).length, 4);
 
   const boundProfilePath = path.join(root, 'bound-profile.json');
@@ -160,6 +162,14 @@ try {
   const broadControllerSelector = clone(valid);
   broadControllerSelector.platform.applicationNetworkPolicy.ingressControllerPodLabels = {};
   assert.notEqual(run('broad-controller-selector', broadControllerSelector).status, 0);
+
+  const mutableProbeImage = clone(valid);
+  mutableProbeImage.platform.applicationNetworkPolicy.probeImage = 'curlimages/curl:latest';
+  assert.notEqual(run('mutable-probe-image', mutableProbeImage).status, 0);
+
+  const implicitProbeRegistry = clone(valid);
+  implicitProbeRegistry.platform.applicationNetworkPolicy.probeImage = `curlimages/curl@sha256:${'7'.repeat(64)}`;
+  assert.notEqual(run('implicit-probe-registry', implicitProbeRegistry).status, 0);
 
   const unverifiedBackup = clone(valid);
   unverifiedBackup.postgresql.backup.checksumEvidence = 'manual';

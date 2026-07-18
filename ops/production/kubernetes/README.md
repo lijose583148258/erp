@@ -143,9 +143,31 @@ The live admission gate rejects empty selectors, extra callers, IP blocks,
 additional ports, and policies that select anything beyond `app=ailaoda-app` or
 expose anything beyond TCP container port 5001. `ailaoda-ha.yaml` contains the
 matching example policy; customize all namespace and Pod labels together with
-the provider profile. This proves the declared policy structure. Final rollout
-still requires a CNI enforcement and negative-connectivity drill because the
-Kubernetes API does not expose a universal "policy enforced" status.
+the provider profile. This proves the declared policy structure, not CNI packet
+enforcement, because the Kubernetes API does not expose a universal "policy
+enforced" status.
+
+Run the provider-bound negative-connectivity drill after the application has
+ready Service endpoints and before production admission:
+
+```bash
+node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
+  --provider-profile /secure/provider-profile.json \
+  --evidence /secure/enterprise-evidence.json \
+  --report /secure/network-policy-enforcement-report.json
+```
+
+The profile hash-binds `platform.applicationNetworkPolicy.probeImage`; it must
+be a complete `registry/repository@sha256:...` reference. The drill creates one
+short-lived, token-free, non-root Pod in the dedicated recovery namespace and
+connects directly to the application Service ClusterIP. Only curl exit code 28
+(TCP timeout) is accepted as denied traffic. HTTP success, DNS failure,
+connection refusal, scheduling failure, and unverified Pod cleanup all fail the
+drill. The report stores only a SHA-256 of the ClusterIP. The cloud contract in
+`.github/workflows/network-policy-enforcement-contract.yml` additionally boots
+KinD with Calico, proves the approved monitoring caller succeeds, and then runs
+the denied-caller drill. This CI evidence validates the code path and Calico
+fixture; the target provider cluster must still produce its own fresh report.
 
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The

@@ -112,8 +112,16 @@ const applicationIngress = {
 };
 requireKeys(profile.platform.applicationNetworkPolicy, [
   'name', 'ingressControllerNamespace', 'ingressControllerPodLabels',
-  'observabilityNamespace', 'observabilityPodLabels',
+  'observabilityNamespace', 'observabilityPodLabels', 'probeImage',
 ], 'platform.applicationNetworkPolicy');
+const probeImage = requireString(
+  profile.platform.applicationNetworkPolicy.probeImage,
+  'platform.applicationNetworkPolicy.probeImage',
+);
+if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/.test(probeImage)
+  || !/[.:]/.test(probeImage.split('/')[0])) {
+  fail('platform.applicationNetworkPolicy.probeImage must be a fully qualified immutable image digest.');
+}
 const applicationNetworkPolicy = {
   name: requireDns(profile.platform.applicationNetworkPolicy.name, 'platform.applicationNetworkPolicy.name'),
   ingressControllerNamespace: requireDns(
@@ -132,6 +140,7 @@ const applicationNetworkPolicy = {
     profile.platform.applicationNetworkPolicy.observabilityPodLabels,
     'platform.applicationNetworkPolicy.observabilityPodLabels',
   ),
+  probeImage,
 };
 if (new Set([
   applicationNamespace, recoveryNamespace, applicationNetworkPolicy.ingressControllerNamespace,
