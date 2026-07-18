@@ -7,6 +7,7 @@ import {
   unauthorizedDataRefusal,
 } from '../services/aiSecurity.ts';
 import { processAICmd } from '../services/geminiService.ts';
+import { callAIModel, getAIConfig } from '../services/aiConfig.ts';
 
 const rawBusinessContext = {
   currency: 'CNY',
@@ -105,6 +106,48 @@ try {
   assert.equal(sensitiveExternal.sensitive, true);
 } finally {
   (globalThis as any).window = originalWindow;
+}
+
+const originalLocalStorage = (globalThis as any).localStorage;
+const originalFetch = globalThis.fetch;
+const storage = new Map<string, string>([[
+  'ai_model_config',
+  JSON.stringify({
+    selectedModel: 'ollama',
+    configs: {
+      ollama: {
+        apiEndpoint: 'https://provider.example/v1/chat/completions',
+        apiKey: 'must-not-survive',
+        model: 'remote-model',
+      },
+      deepseek: { apiKey: 'legacy-secret' },
+    },
+  }),
+]]);
+const requestedUrls: string[] = [];
+(globalThis as any).localStorage = {
+  getItem: (key: string) => storage.get(key) ?? null,
+  setItem: (key: string, value: string) => storage.set(key, value),
+  removeItem: (key: string) => storage.delete(key),
+};
+globalThis.fetch = (async (input: string | URL | Request) => {
+  requestedUrls.push(String(input));
+  return new Response(JSON.stringify({ response: 'local result' }), {
+    status: 200,
+    headers: { 'content-type': 'application/json' },
+  });
+}) as typeof fetch;
+try {
+  const sanitized = getAIConfig();
+  assert.equal(sanitized.selectedModel, 'ollama');
+  assert.equal(sanitized.configs.ollama.apiEndpoint, 'http://localhost:11434/api/generate');
+  assert.equal(storage.get('ai_model_config')?.includes('must-not-survive'), false);
+  assert.equal(storage.get('ai_model_config')?.includes('legacy-secret'), false);
+  assert.equal(await callAIModel('local-only contract'), 'local result');
+  assert.deepEqual(requestedUrls, ['http://localhost:11434/api/generate']);
+} finally {
+  (globalThis as any).localStorage = originalLocalStorage;
+  globalThis.fetch = originalFetch;
 }
 
 console.log('ai-isolation-redteam-regression: ok');

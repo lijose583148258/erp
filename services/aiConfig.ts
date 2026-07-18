@@ -1,14 +1,12 @@
-import { canSendToExternalAI, isBrowserExternalAIPolicyEnabled } from './aiSecurity';
 import { reportClientIssue } from '../utils/clientIssue';
 
-export type AIModelType = 'local' | 'ollama' | 'deepseek' | 'groq' | 'openrouter' | 'custom';
+export type AIModelType = 'local' | 'ollama';
 
 export interface AIModelConfig {
   type: AIModelType;
   name: string;
   description: string;
   apiEndpoint?: string;
-  apiKey?: string;
   model?: string;
   isAvailable: boolean;
   icon: string;
@@ -25,49 +23,19 @@ export const AI_MODELS: AIModelConfig[] = [
   {
     type: 'ollama',
     name: 'Ollama 本地模型',
-    description: '本机部署开源模型，适合内网或离线环境',
+    description: '只连接本机回环地址，不在浏览器保存云模型密钥',
     apiEndpoint: 'http://localhost:11434/api/generate',
     model: 'qwen2.5:7b',
     isAvailable: false,
     icon: 'OL',
   },
-  {
-    type: 'deepseek',
-    name: 'DeepSeek',
-    description: '外部云模型，必须通过隐私闸门后才允许连接',
-    apiEndpoint: 'https://api.chatanywhere.tech/v1/chat/completions',
-    model: 'deepseek-v3',
-    isAvailable: false,
-    icon: 'DS',
-  },
-  {
-    type: 'groq',
-    name: 'Groq',
-    description: '外部高速推理服务，仅用于非敏感、非业务原文任务',
-    apiEndpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    model: 'llama-3.3-70b-versatile',
-    isAvailable: false,
-    icon: 'GQ',
-  },
-  {
-    type: 'openrouter',
-    name: 'OpenRouter',
-    description: '外部多模型网关，仅用于非敏感、非业务原文任务',
-    apiEndpoint: 'https://openrouter.ai/api/v1/chat/completions',
-    model: 'mistralai/mistral-7b-instruct:free',
-    isAvailable: false,
-    icon: 'OR',
-  },
-  {
-    type: 'custom',
-    name: '自定义 API',
-    description: '兼容 OpenAI 格式的自定义服务；远程地址必须通过隐私闸门',
-    isAvailable: false,
-    icon: 'API',
-  },
 ];
 
 const STORAGE_KEY = 'ai_model_config';
+const OLLAMA_DEFAULT = {
+  apiEndpoint: 'http://localhost:11434/api/generate',
+  model: 'qwen2.5:7b',
+};
 
 interface AIConfigState {
   selectedModel: AIModelType;
@@ -78,11 +46,7 @@ const defaultState: AIConfigState = {
   selectedModel: 'local',
   configs: {
     local: {},
-    ollama: { apiEndpoint: 'http://localhost:11434/api/generate', model: 'qwen2.5:7b' },
-    deepseek: { apiEndpoint: 'https://api.chatanywhere.tech/v1/chat/completions', model: 'deepseek-v3' },
-    groq: { apiEndpoint: 'https://api.groq.com/openai/v1/chat/completions', model: 'llama-3.3-70b-versatile' },
-    openrouter: { apiEndpoint: 'https://openrouter.ai/api/v1/chat/completions', model: 'mistralai/mistral-7b-instruct:free' },
-    custom: {},
+    ollama: { ...OLLAMA_DEFAULT },
   },
 };
 
@@ -91,42 +55,54 @@ export const isLocalAIEndpoint = (endpoint?: string): boolean => {
   try {
     const url = new URL(endpoint);
     const hostname = url.hostname.toLowerCase();
-    return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    return (url.protocol === 'http:' || url.protocol === 'https:')
+      && (hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1');
   } catch {
-    return endpoint.startsWith('/') || endpoint.startsWith('http://localhost') || endpoint.startsWith('http://127.0.0.1');
+    return false;
   }
+};
+
+const sanitizeConfig = (value: unknown): AIConfigState => {
+  const candidate = value && typeof value === 'object' ? value as Record<string, unknown> : {};
+  const configs = candidate.configs && typeof candidate.configs === 'object'
+    ? candidate.configs as Record<string, Record<string, unknown> | undefined>
+    : {};
+  const ollama = configs.ollama || {};
+  const endpoint = typeof ollama.apiEndpoint === 'string' && isLocalAIEndpoint(ollama.apiEndpoint)
+    ? ollama.apiEndpoint
+    : OLLAMA_DEFAULT.apiEndpoint;
+  const model = typeof ollama.model === 'string' && ollama.model.trim()
+    ? ollama.model.trim()
+    : OLLAMA_DEFAULT.model;
+
+  return {
+    selectedModel: candidate.selectedModel === 'ollama' ? 'ollama' : 'local',
+    configs: {
+      local: {},
+      ollama: { apiEndpoint: endpoint, model },
+    },
+  };
 };
 
 export const getAIConfig = (): AIConfigState => {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored) {
-      const parsed = { ...defaultState, ...JSON.parse(stored) } as AIConfigState;
-      if (!isBrowserExternalAIPolicyEnabled()) {
-        const configs = Object.fromEntries(Object.entries(parsed.configs).map(([type, config]) => {
-          const { apiKey: _discardedApiKey, ...safeConfig } = config || {};
-          return [type, safeConfig];
-        })) as AIConfigState['configs'];
-        const selectedModel = parsed.selectedModel === 'local' || parsed.selectedModel === 'ollama'
-          ? parsed.selectedModel
-          : 'local';
-        const sanitized = { ...parsed, selectedModel, configs };
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
-        localStorage.setItem('ailao.ai.externalEnabled', 'false');
-        return sanitized;
-      }
-      return parsed;
-    }
+    if (!stored) return defaultState;
+    const sanitized = sanitizeConfig(JSON.parse(stored));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    localStorage.removeItem('ailao.ai.externalEnabled');
+    return sanitized;
   } catch (error) {
     reportClientIssue('ai-config-load', error, 'warning');
+    return defaultState;
   }
-  return defaultState;
 };
 
 export const saveAIConfig = (config: Partial<AIConfigState>): void => {
   try {
-    const current = getAIConfig();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...current, ...config }));
+    const sanitized = sanitizeConfig({ ...getAIConfig(), ...config });
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(sanitized));
+    localStorage.removeItem('ailao.ai.externalEnabled');
   } catch (error) {
     reportClientIssue('ai-config-save', error);
   }
@@ -134,14 +110,12 @@ export const saveAIConfig = (config: Partial<AIConfigState>): void => {
 
 export const getCurrentModel = (): AIModelConfig => {
   const config = getAIConfig();
-  const modelType = config.selectedModel;
-  const baseModel = AI_MODELS.find(model => model.type === modelType) || AI_MODELS[0];
-  const savedConfig = config.configs[modelType] || {};
-
+  const baseModel = AI_MODELS.find(model => model.type === config.selectedModel) || AI_MODELS[0];
   return {
     ...baseModel,
-    ...savedConfig,
-    isAvailable: modelType === 'local' || modelType === 'ollama' || Boolean(savedConfig.apiKey),
+    ...config.configs[config.selectedModel],
+    isAvailable: config.selectedModel === 'local'
+      || isLocalAIEndpoint(config.configs.ollama.apiEndpoint),
   };
 };
 
@@ -150,67 +124,33 @@ export const setCurrentModel = (type: AIModelType): void => {
 };
 
 export const updateModelConfig = (type: AIModelType, config: Partial<AIModelConfig>): void => {
-  const safeConfig = !isBrowserExternalAIPolicyEnabled() && type !== 'ollama'
-    ? { ...config, apiKey: undefined }
-    : config;
   const current = getAIConfig();
   saveAIConfig({
     ...current,
     configs: {
       ...current.configs,
-      [type]: { ...current.configs[type], ...safeConfig },
+      [type]: type === 'ollama'
+        ? { apiEndpoint: config.apiEndpoint, model: config.model }
+        : {},
     },
   });
 };
 
-const externalSafety = (prompt: string, systemPrompt?: string): { allowed: boolean; message?: string } => {
-  const decision = canSendToExternalAI(prompt, systemPrompt);
-  if (decision.allowed) return { allowed: true };
-  return { allowed: false, message: decision.reason };
-};
-
 export const testAIConnection = async (type: AIModelType): Promise<{ success: boolean; message: string }> => {
-  const modelConfig = getAIConfig().configs[type] || {};
-  const endpoint = modelConfig.apiEndpoint || '';
-  const model = modelConfig.model || '';
-
   if (type === 'local') return { success: true, message: '本地规则引擎始终可用' };
-
+  const modelConfig = getAIConfig().configs.ollama;
+  const endpoint = modelConfig.apiEndpoint || '';
   if (!isLocalAIEndpoint(endpoint)) {
-    const safety = externalSafety('AI connection test');
-    if (!safety.allowed) return { success: false, message: safety.message || '外部 AI 未通过隐私闸门' };
-  }
-
-  if (!modelConfig.apiKey && type !== 'ollama') {
-    return { success: false, message: '请先配置 API 密钥' };
+    return { success: false, message: '浏览器模型只允许连接本机回环地址' };
   }
 
   try {
-    if (type === 'ollama') {
-      const response = await fetch(endpoint.replace('/api/generate', '/api/tags'), { method: 'GET' });
-      return response.ok
-        ? { success: true, message: 'Ollama 连接成功' }
-        : { success: false, message: 'Ollama 连接失败' };
-    }
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${modelConfig.apiKey}`,
-      },
-      body: JSON.stringify({
-        model,
-        messages: [{ role: 'user', content: 'connection test' }],
-        max_tokens: 5,
-      }),
-    });
-
-    if (response.ok) return { success: true, message: '连接成功' };
-    const error = await response.json().catch(() => null);
-    return { success: false, message: error?.error?.message || '连接失败' };
+    const response = await fetch(endpoint.replace('/api/generate', '/api/tags'), { method: 'GET' });
+    return response.ok
+      ? { success: true, message: 'Ollama 连接成功' }
+      : { success: false, message: 'Ollama 连接失败' };
   } catch (error) {
-    return { success: false, message: error instanceof Error ? error.message : '连接失败' };
+    return { success: false, message: error instanceof Error ? error.message : 'Ollama 连接失败' };
   }
 };
 
@@ -219,58 +159,22 @@ const processLocalRules = (input: string): string =>
 
 export const callAIModel = async (prompt: string, systemPrompt?: string): Promise<string> => {
   const model = getCurrentModel();
-
-  if (model.type === 'local') return processLocalRules(prompt);
-
-  if (model.type === 'ollama') {
-    if (!isLocalAIEndpoint(model.apiEndpoint)) {
-      const safety = externalSafety(prompt, systemPrompt);
-      if (!safety.allowed) return safety.message || processLocalRules(prompt);
-    }
-
-    try {
-      const response = await fetch(model.apiEndpoint!, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: model.model,
-          prompt: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt,
-          stream: false,
-        }),
-      });
-      const data = await response.json();
-      return data.response || processLocalRules(prompt);
-    } catch (error) {
-      reportClientIssue('ai-ollama-call', error, 'warning');
-      return processLocalRules(prompt);
-    }
-  }
-
-  const safety = externalSafety(prompt, systemPrompt);
-  if (!safety.allowed) return safety.message || processLocalRules(prompt);
+  if (model.type === 'local' || !isLocalAIEndpoint(model.apiEndpoint)) return processLocalRules(prompt);
 
   try {
-    const messages: Array<{ role: 'system' | 'user'; content: string }> = [];
-    if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
-    messages.push({ role: 'user', content: prompt });
-
     const response = await fetch(model.apiEndpoint!, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${model.apiKey}`,
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         model: model.model,
-        messages,
-        max_tokens: 1000,
-        temperature: 0.3,
+        prompt: systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt,
+        stream: false,
       }),
     });
     const data = await response.json();
-    return data.choices?.[0]?.message?.content || processLocalRules(prompt);
+    return data.response || processLocalRules(prompt);
   } catch (error) {
-    reportClientIssue('ai-api-call', error, 'warning');
+    reportClientIssue('ai-ollama-call', error, 'warning');
     return processLocalRules(prompt);
   }
 };

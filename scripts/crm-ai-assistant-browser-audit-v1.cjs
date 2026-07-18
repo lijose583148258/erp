@@ -225,7 +225,7 @@ async function run() {
         externalEnabled: localStorage.getItem('ailao.ai.externalEnabled'),
         storedConfig: localStorage.getItem('ai_model_config') || '',
       }));
-      if (policyState.externalEnabled !== 'false' || policyState.storedConfig.includes('BROWSER-KEY-MUST-BE-REMOVED')) {
+      if (policyState.externalEnabled !== null || policyState.storedConfig.includes('BROWSER-KEY-MUST-BE-REMOVED')) {
         throw new Error('browser external AI policy did not scrub the injected credential');
       }
       const modal = page.locator('div.fixed.inset-0.z-\\[200\\]');
