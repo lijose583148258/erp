@@ -12,9 +12,12 @@ observability_report="${8:-}"
 load_reconciliation_reports_dir="${9:-}"
 ai_reports_dir="${10:-}"
 security_reports_dir="${11:-}"
+approval_trust_dir="${12:-}"
+approval_receipts_dir="${13:-}"
+provider_profile="${14:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" || -z "${approval_trust_dir}" || -z "${approval_receipts_dir}" || -z "${provider_profile}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir> <approval-trust-dir> <approval-receipts-dir> <provider-profile>" >&2
   exit 2
 fi
 
@@ -69,6 +72,12 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-ai-evidence.cjs" \
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-security-evidence.cjs" \
   --reports-dir "${security_reports_dir}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-production-approvals.cjs" \
+  --provider-profile "${provider_profile}" \
+  --trust-dir "${approval_trust_dir}" \
+  --receipts-dir "${approval_receipts_dir}" \
   --evidence "${evidence_file}"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-app-placement.cjs" \
@@ -263,10 +272,26 @@ jq -e '
   and (.securityDrill.readinessReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.securityDrill.defaultCredentialReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
 
-  and (.approvals.platformOwner | length) >= 2
-  and (.approvals.databaseOwner | length) >= 2
-  and (.approvals.securityOwner | length) >= 2
-  and (.approvals.businessPilotOwner | length) >= 2
+  and .approvals.status == "passed"
+  and (.approvals.evidenceCoreSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.approvals.verifiedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+  and ([
+    .approvals.receipts.platformOwner,
+    .approvals.receipts.databaseOwner,
+    .approvals.receipts.securityOwner,
+    .approvals.receipts.businessPilotOwner
+  ] | all(
+    (.issuer | type == "string" and length >= 3)
+    and (.approver | type == "string" and length >= 3)
+    and (.approvedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+    and (.receiptSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  ))
+  and ([
+    .approvals.receipts.platformOwner.approver,
+    .approvals.receipts.databaseOwner.approver,
+    .approvals.receipts.securityOwner.approver,
+    .approvals.receipts.businessPilotOwner.approver
+  ] | unique | length) == 4
 ' "${evidence_file}" >/dev/null || {
   echo "FAILED: runtime evidence does not satisfy enterprise production admission" >&2
   exit 1

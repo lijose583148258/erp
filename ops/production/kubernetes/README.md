@@ -50,6 +50,13 @@ node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
   --evidence <evidence.json> \
   --bind
 
+node ops/production/kubernetes/verify-production-approvals.cjs \
+  --provider-profile <formal-pilot-provider-profile.json> \
+  --trust-dir <approval-public-keys> \
+  --receipts-dir <signed-approval-receipts> \
+  --evidence <evidence.json> \
+  --bind
+
 node ops/production/kubernetes/run-enterprise-production-admission.cjs \
   --bundle <admission-bundle.json> \
   --check-only
@@ -66,6 +73,10 @@ Create the bundle from `admission-bundle.example.json`. Every artifact path
 must be relative, remain inside one evidence directory after symlink resolution,
 and match the release identity in the main evidence file. The bundle must include
 the exact formal preflight report produced against the bound provider profile.
+The bundle also contains four public approval keys and four signed receipts as
+defined in `PRODUCTION_APPROVAL_PROTOCOL.md`; private signing keys stay outside
+the bundle and cluster. Each signature covers the exact evidence snapshot,
+release identity, environment, and change ticket.
 Admission rejects reports older than 24 hours, incomplete check sets, insufficient
 topology, or any adapter hash drift. `--check-only` validates only paths, release
 identity, provider profile, preflight, and adapter bindings; it deliberately

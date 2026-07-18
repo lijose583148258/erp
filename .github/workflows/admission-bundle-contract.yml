@@ -8,6 +8,9 @@ on:
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
       - 'ops/production/kubernetes/verify-kubernetes-app-placement.cjs'
       - 'ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-production-approvals.cjs'
+      - 'ops/production/kubernetes/production-approval-contract.test.cjs'
+      - 'ops/production/kubernetes/PRODUCTION_APPROVAL_PROTOCOL.md'
       - 'ops/production/kubernetes/failure-domain-evidence.example.json'
       - 'ops/production/kubernetes/admission-bundle.example.json'
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
@@ -35,6 +38,7 @@ jobs:
           node --check ops/production/kubernetes/run-enterprise-production-admission.cjs
           bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
           node ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs
+          node ops/production/kubernetes/production-approval-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');
           const fs = require('fs');
@@ -100,6 +104,12 @@ jobs:
             },
             ai: { mode: 'local-only', externalGateway: false, paidCallBudget: 0 },
             observation: { continuousHours: 8, pilotDays: 7, collectorImageDigest: `sha256:${'e'.repeat(64)}` },
+            approvals: {
+              platformOwner: { issuer: 'platform-approval-service', publicKeyFile: 'platform-owner.pem', publicKeySha256: '3'.repeat(64) },
+              databaseOwner: { issuer: 'database-approval-service', publicKeyFile: 'database-owner.pem', publicKeySha256: '4'.repeat(64) },
+              securityOwner: { issuer: 'security-approval-service', publicKeyFile: 'security-owner.pem', publicKeySha256: '5'.repeat(64) },
+              businessPilotOwner: { issuer: 'business-approval-service', publicKeyFile: 'business-pilot-owner.pem', publicKeySha256: '6'.repeat(64) },
+            },
           };
           const providerProfileText = JSON.stringify(providerProfile);
           identity.providerProfile = {
@@ -219,6 +229,8 @@ jobs:
             loadReconciliationReportsDir: 'load',
             aiReportsDir: 'ai',
             securityReportsDir: 'security',
+            approvalTrustDir: 'approvals/trust',
+            approvalReceiptsDir: 'approvals/receipts',
           };
           for (const [key, relative] of Object.entries(artifacts)) {
             const target = path.join(root, relative);

@@ -126,7 +126,13 @@ jobs:
             "search":{"kind":"meilisearch","servingInstances":2,"backupMethod":"dump-to-object-store","isolatedRestore":true,"restoreNamespace":"ailaoda-pilot-recovery"},
             "observability":{"traceBackend":"tempo","alertRoute":"pilot-operations","deliveryReceiptStore":"webhook-audit-store"},
             "ai":{"mode":"local-only","externalGateway":false,"paidCallBudget":0},
-            "observation":{"continuousHours":8,"pilotDays":7,"collectorImageDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+            "observation":{"continuousHours":8,"pilotDays":7,"collectorImageDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+            "approvals":{
+              "platformOwner":{"issuer":"platform-approval-service","publicKeyFile":"platform-owner.pem","publicKeySha256":"$(printf '3%.0s' {1..64})"},
+              "databaseOwner":{"issuer":"database-approval-service","publicKeyFile":"database-owner.pem","publicKeySha256":"$(printf '4%.0s' {1..64})"},
+              "securityOwner":{"issuer":"security-approval-service","publicKeyFile":"security-owner.pem","publicKeySha256":"$(printf '5%.0s' {1..64})"},
+              "businessPilotOwner":{"issuer":"business-approval-service","publicKeyFile":"business-pilot-owner.pem","publicKeySha256":"$(printf '6%.0s' {1..64})"}
+            }
           }
           JSON
           node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \

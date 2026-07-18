@@ -19,6 +19,8 @@
     "observabilityReport": "observability/observability-report.json",
     "loadReconciliationReportsDir": "load-reconciliation",
     "aiReportsDir": "ai",
-    "securityReportsDir": "security"
+    "securityReportsDir": "security",
+    "approvalTrustDir": "approvals/trust",
+    "approvalReceiptsDir": "approvals/receipts"
   }
 }

@@ -33,6 +33,8 @@ const artifactTypes = {
   loadReconciliationReportsDir: 'directory',
   aiReportsDir: 'directory',
   securityReportsDir: 'directory',
+  approvalTrustDir: 'directory',
+  approvalReceiptsDir: 'directory',
 };
 const exactKeys = (value, expected, label) => {
   const actual = Object.keys(value || {}).sort();
@@ -212,6 +214,12 @@ const verifyEvidenceContent = () => {
     '--reports-dir', resolved.securityReportsDir,
     '--evidence', resolved.evidence,
   ]);
+  runEvidenceVerifier('verify-production-approvals.cjs', [
+    '--provider-profile', resolved.providerProfile,
+    '--trust-dir', resolved.approvalTrustDir,
+    '--receipts-dir', resolved.approvalReceiptsDir,
+    '--evidence', resolved.evidence,
+  ]);
 };
 
 verifyEvidenceContent();
@@ -242,6 +250,9 @@ execFileSync('bash', [
   resolved.loadReconciliationReportsDir,
   resolved.aiReportsDir,
   resolved.securityReportsDir,
+  resolved.approvalTrustDir,
+  resolved.approvalReceiptsDir,
+  resolved.providerProfile,
 ], {
   cwd: bundleRoot,
   encoding: 'utf8',

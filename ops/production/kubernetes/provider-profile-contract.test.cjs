@@ -75,6 +75,12 @@ const valid = {
     pilotDays: 7,
     collectorImageDigest: `sha256:${'e'.repeat(64)}`,
   },
+  approvals: {
+    platformOwner: { issuer: 'platform-approval-service', publicKeyFile: 'platform-owner.pem', publicKeySha256: '3'.repeat(64) },
+    databaseOwner: { issuer: 'database-approval-service', publicKeyFile: 'database-owner.pem', publicKeySha256: '4'.repeat(64) },
+    securityOwner: { issuer: 'security-approval-service', publicKeyFile: 'security-owner.pem', publicKeySha256: '5'.repeat(64) },
+    businessPilotOwner: { issuer: 'business-approval-service', publicKeyFile: 'business-pilot-owner.pem', publicKeySha256: '6'.repeat(64) },
+  },
 };
 const run = (name, value) => {
   const file = path.join(root, `${name}.json`);
@@ -91,6 +97,7 @@ try {
   assert.equal(summary.failureDomainCount, 3);
   assert.equal(summary.paidCallBudget, 0);
   assert.equal(summary.observation.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
+  assert.equal(Object.keys(summary.approvals).length, 4);
 
   const boundProfilePath = path.join(root, 'bound-profile.json');
   const evidencePath = path.join(root, 'evidence.json');
@@ -161,6 +168,10 @@ try {
   const shortObservation = clone(valid);
   shortObservation.observation.continuousHours = 2;
   assert.notEqual(run('short-observation', shortObservation).status, 0);
+
+  const sharedApprovalKey = clone(valid);
+  sharedApprovalKey.approvals.securityOwner.publicKeySha256 = sharedApprovalKey.approvals.platformOwner.publicKeySha256;
+  assert.notEqual(run('shared-approval-key', sharedApprovalKey).status, 0);
 
   console.log('Formal pilot provider profile contract: PASSED');
 } finally {

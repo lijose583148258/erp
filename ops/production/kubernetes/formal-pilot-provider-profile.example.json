@@ -88,5 +88,27 @@
     "continuousHours": 8,
     "pilotDays": 7,
     "collectorImageDigest": "sha256:replace-with-64-hex-pilot-observer-image-digest"
+  },
+  "approvals": {
+    "platformOwner": {
+      "issuer": "replace-with-platform-approval-issuer",
+      "publicKeyFile": "platform-owner.pem",
+      "publicKeySha256": "replace-with-platform-owner-public-key-sha256"
+    },
+    "databaseOwner": {
+      "issuer": "replace-with-database-approval-issuer",
+      "publicKeyFile": "database-owner.pem",
+      "publicKeySha256": "replace-with-database-owner-public-key-sha256"
+    },
+    "securityOwner": {
+      "issuer": "replace-with-security-approval-issuer",
+      "publicKeyFile": "security-owner.pem",
+      "publicKeySha256": "replace-with-security-owner-public-key-sha256"
+    },
+    "businessPilotOwner": {
+      "issuer": "replace-with-business-pilot-approval-issuer",
+      "publicKeyFile": "business-pilot-owner.pem",
+      "publicKeySha256": "replace-with-business-pilot-owner-public-key-sha256"
+    }
   }
 }

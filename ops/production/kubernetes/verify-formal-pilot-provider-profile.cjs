@@ -64,7 +64,7 @@ const rejectSensitiveFields = (value, location = 'profile') => {
 rejectSensitiveFields(profile);
 requireKeys(profile, [
   'schemaVersion', 'environment', 'platform', 'adapters', 'postgresql', 'redis',
-  'objectStorage', 'search', 'observability', 'ai', 'observation',
+  'objectStorage', 'search', 'observability', 'ai', 'observation', 'approvals',
 ], 'profile');
 if (profile.schemaVersion !== 1) fail('Unsupported provider profile schemaVersion.');
 const environment = requireString(profile.environment, 'environment');
@@ -197,6 +197,26 @@ requireInteger(profile.observation.pilotDays, 7, 'observation.pilotDays');
 const collectorImageDigest = requireString(profile.observation.collectorImageDigest, 'observation.collectorImageDigest');
 if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('observation.collectorImageDigest must be immutable.');
 
+const approvalRoles = ['platformOwner', 'databaseOwner', 'securityOwner', 'businessPilotOwner'];
+requireKeys(profile.approvals, approvalRoles, 'approvals');
+const approvalBindings = {};
+for (const role of approvalRoles) {
+  const binding = profile.approvals[role];
+  requireKeys(binding, ['issuer', 'publicKeyFile', 'publicKeySha256'], `approvals.${role}`);
+  const issuer = requireString(binding.issuer, `approvals.${role}.issuer`);
+  if (issuer.length > 128) fail(`approvals.${role}.issuer is too long.`);
+  const publicKeyFile = requireString(binding.publicKeyFile, `approvals.${role}.publicKeyFile`);
+  if (path.basename(publicKeyFile) !== publicKeyFile || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(publicKeyFile)) {
+    fail(`approvals.${role}.publicKeyFile must be a plain file name.`);
+  }
+  const publicKeySha256 = String(binding.publicKeySha256 || '').trim();
+  if (!/^[0-9a-f]{64}$/.test(publicKeySha256)) fail(`approvals.${role}.publicKeySha256 must be a lowercase SHA-256.`);
+  approvalBindings[role] = { issuer, publicKeyFile, publicKeySha256 };
+}
+if (new Set(Object.values(approvalBindings).map(binding => binding.publicKeySha256)).size !== approvalRoles.length) {
+  fail('Each production approval role requires a distinct public key.');
+}
+
 const providerProfileSha256 = crypto.createHash('sha256').update(fs.readFileSync(profilePath)).digest('hex');
 if (bind && !evidenceValue) fail('--bind requires --evidence.');
 if (evidenceValue) {
@@ -243,6 +263,7 @@ process.stdout.write(`${JSON.stringify({
     serviceFileName: receiptServiceFileName,
     serviceSha256: receiptServiceSha256,
   },
+  approvals: approvalBindings,
   providerProfileSha256,
   evidenceBound: Boolean(evidenceValue),
 })}\n`);
