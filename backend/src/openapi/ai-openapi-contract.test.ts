@@ -1,5 +1,17 @@
 import fs from 'fs';
 import path from 'path';
+
+jest.mock('../routes/apiRegistry', () => ({
+  API_PREFIXES: ['/api', '/api/v1'],
+  API_ROUTE_MODULES: [{
+    path: '/ai',
+    tag: 'AI',
+    summary: 'Governed AI assistant contract.',
+    requiresAuth: true,
+    router: {},
+  }],
+}));
+
 import { buildOpenApiDocument } from './openapiDocument';
 
 const expectedReasons = [
