@@ -3,12 +3,27 @@ import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { StockMovementService } from '../services/stock-movement.service';
+import { StockMovementConflictError } from '../services/stock-movement.errors';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
 
 const WAREHOUSE_DATA_SCOPE = 'warehouse_visible' as const;
 
 function rejectWarehouseScope(res: Response) {
   return res.status(403).json({ success: false, message: '当前角色未获得仓储数据范围' } as ApiResponse);
+}
+
+const normalizeWarehouseRequestId = (value: unknown): string | null => {
+  const requestId = String(value ?? '').trim();
+  return /^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/.test(requestId) ? requestId : null;
+};
+
+function respondStockConflict(res: Response, error: unknown) {
+  if (!(error instanceof StockMovementConflictError)) return null;
+  return res.status(409).json({
+    success: false,
+    message: error.message,
+    errorCode: error.code,
+  } as ApiResponse);
 }
 
 /**
@@ -292,6 +307,8 @@ export class WarehouseController {
         timestamp: new Date().toISOString(),
       } as ApiResponse);
     } catch (error) {
+      const conflict = respondStockConflict(res, error);
+      if (conflict) return conflict;
       logger.error('录入库存失败', error);
       res.status(500).json({ success: false, message: '录入库存失败' } as ApiResponse);
     }
@@ -306,7 +323,12 @@ export class WarehouseController {
 
       const prisma = (await import('../config/database')).default;
       const id = Number(req.params.id);
-      const { quantity, note } = req.body;
+      const { quantity, expectedQuantity, note } = req.body;
+      const requestId = normalizeWarehouseRequestId(req.body.requestId);
+
+      if (!requestId) {
+        return res.status(400).json({ success: false, message: '库存调整必须提供合法 requestId' } as ApiResponse);
+      }
 
       const stock = await prisma.stockBalance.findUnique({ where: { id } });
       if (!stock) {
@@ -318,8 +340,20 @@ export class WarehouseController {
         return res.status(400).json({ success: false, message: '调整后库存数量不能小于 0' } as ApiResponse);
       }
 
-      const quantityDelta = nextQuantity - Number(stock.quantity || 0);
+      const expected = Number(expectedQuantity);
+      if (!Number.isFinite(expected) || expected < 0) {
+        return res.status(400).json({ success: false, message: 'expectedQuantity 必须是非负数' } as ApiResponse);
+      }
+
+      const quantityDelta = nextQuantity - expected;
       if (quantityDelta === 0) {
+        if (Math.abs(Number(stock.quantity || 0) - expected) > 0.000001) {
+          return res.status(409).json({
+            success: false,
+            message: '库存已被其他操作更新，请刷新后重试。',
+            errorCode: 'STOCK_MOVEMENT_CONFLICT',
+          } as ApiResponse);
+        }
         return res.json({
           success: true,
           data: stock,
@@ -329,7 +363,7 @@ export class WarehouseController {
 
       const result = await StockMovementService.postStockEntry({
         sourceType: 'warehouse_adjustment',
-        sourceRef: `stock_balance:${stock.id}`,
+        sourceRef: `warehouse_adjustment:${requestId}`,
         reason: note ? String(note) : 'manual_adjustment',
         note: note ? String(note) : null,
         createdBy: req.user?.userId || null,
@@ -339,6 +373,7 @@ export class WarehouseController {
           batchNo: stock.batchNo,
           quantityDelta,
           unit: stock.unit,
+          expectedQuantityBefore: expected,
         }],
       });
 
@@ -351,6 +386,8 @@ export class WarehouseController {
         timestamp: new Date().toISOString(),
       } as ApiResponse);
     } catch (error) {
+      const conflict = respondStockConflict(res, error);
+      if (conflict) return conflict;
       logger.error('调整库存失败', error);
       res.status(500).json({ success: false, message: '调整库存失败' } as ApiResponse);
     }
@@ -367,7 +404,7 @@ export class WarehouseController {
       const stockBalanceId = Number(req.params.id);
       const toLocationId = Number(req.body.toLocationId);
       const quantity = Number(req.body.quantity);
-      const requestId = String(req.body.requestId || req.body.transferRef || '').trim();
+      const requestId = normalizeWarehouseRequestId(req.body.requestId);
 
       if (!Number.isInteger(stockBalanceId) || stockBalanceId <= 0) {
         return res.status(400).json({ success: false, message: '库存记录参数不正确' } as ApiResponse);
@@ -379,7 +416,7 @@ export class WarehouseController {
         return res.status(400).json({ success: false, message: '调拨数量必须大于 0' } as ApiResponse);
       }
       if (!requestId) {
-        return res.status(400).json({ success: false, message: '调拨必须提供 requestId，避免网络重试造成重复过账' } as ApiResponse);
+        return res.status(400).json({ success: false, message: '调拨必须提供合法 requestId，避免网络重试造成重复过账' } as ApiResponse);
       }
 
       const stock = await prisma.stockBalance.findUnique({
@@ -400,12 +437,7 @@ export class WarehouseController {
       if (!destination) {
         return res.status(404).json({ success: false, message: '目标库位不存在' } as ApiResponse);
       }
-      if (Number(stock.quantity || 0) + 0.000001 < quantity) {
-        return res.status(409).json({ success: false, message: '调拨数量超过可用库存' } as ApiResponse);
-      }
-
-      const safeRequestId = requestId.replace(/[^a-zA-Z0-9._:-]/g, '-').slice(0, 80);
-      const sourceRef = `warehouse_transfer:${safeRequestId}`;
+      const sourceRef = `warehouse_transfer:${requestId}`;
       const result = await StockMovementService.postStockEntry({
         sourceType: 'warehouse_transfer',
         sourceRef,
@@ -459,6 +491,8 @@ export class WarehouseController {
         message: '库存调拨已通过凭证入账',
       } as ApiResponse);
     } catch (error) {
+      const conflict = respondStockConflict(res, error);
+      if (conflict) return conflict;
       logger.error('库存调拨失败', error);
       res.status(500).json({ success: false, message: '库存调拨失败' } as ApiResponse);
     }

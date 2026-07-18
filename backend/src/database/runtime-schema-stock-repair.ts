@@ -14,6 +14,7 @@ const IDEMPOTENT_STOCK_SOURCE_TYPES = [
   'production_output',
   'procurement_receipt',
   'warehouse_manual_inbound',
+  'warehouse_adjustment',
   'shipping_issue',
   'barter_receipt',
   'barter_issue',

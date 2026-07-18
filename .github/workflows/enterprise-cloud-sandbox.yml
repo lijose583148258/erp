@@ -9,9 +9,13 @@ on:
       - 'backend/prisma/**'
       - 'backend/src/database/**'
       - 'backend/src/services/backup.service.ts'
+      - 'backend/src/services/stock-movement*.ts'
+      - 'backend/src/controllers/warehouse.controller.ts'
+      - 'backend/src/routes/warehouse.routes.ts'
       - 'scripts/cloud-postgres-*.cjs'
       - 'scripts/postgres-*.cjs'
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
+      - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
       - 'ops/cloud-sandbox/**'
       - 'package.json'
       - 'package-lock.json'
@@ -37,7 +41,7 @@ jobs:
     name: Current enterprise source evidence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Verify enterprise pilot artifacts exist
         id: gate
@@ -51,6 +55,7 @@ jobs:
             scripts/minio-application-failover-audit-v1.cjs
             scripts/meilisearch-application-failover-audit-v1.cjs
             scripts/ai-governed-runtime-audit-v1.cjs
+            scripts/warehouse-adjustment-concurrency-audit-v1.cjs
             ops/production/kubernetes/ailaoda-ha.yaml
             docs/runbooks/ENTERPRISE_PILOT_RUNBOOK.md
           )
@@ -68,7 +73,7 @@ jobs:
 
       - name: Upload source evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
         with:
           name: enterprise-source-gate
           path: cloud-evidence/
@@ -84,7 +89,7 @@ jobs:
       GRAFANA_ADMIN_USER: sandbox-admin
       AILAODA_IMAGE_TAG: ${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Generate ephemeral sandbox secrets
         shell: bash
@@ -166,7 +171,7 @@ jobs:
 
       - name: Upload runtime evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
         with:
           name: enterprise-cloud-runtime-evidence
           path: cloud-evidence/
@@ -193,7 +198,7 @@ jobs:
       BROWSER_AUDIT_VISIBLE: "0"
       BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Generate ephemeral sandbox and audit secrets
         shell: bash
@@ -244,7 +249,7 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -379,6 +384,11 @@ jobs:
           AILAODA_LOAD_REQUESTS: "1000"
           AILAODA_LOAD_CONCURRENCY: "25"
 
+      - name: Verify warehouse adjustment idempotency and optimistic concurrency
+        run: npm run audit:warehouse:adjustment-concurrency
+        env:
+          WAREHOUSE_ADJUSTMENT_REPORT_PATH: cloud-evidence/warehouse-adjustment-concurrency-audit-v1.json
+
       - name: Run short HA soak gate
         run: npm run audit:soak:ha
         env:
@@ -420,7 +430,7 @@ jobs:
 
       - name: Upload application evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0 # v7.0.1
         with:
           name: enterprise-cloud-application-evidence
           path: cloud-evidence/

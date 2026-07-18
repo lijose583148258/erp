@@ -162,6 +162,7 @@
         "audit:finance:summary": "node ./scripts/finance-summary-consistency-audit-v1.cjs",
         "audit:stock:ledger": "node ./scripts/stock-ledger-reconcile-audit-v1.cjs",
         "audit:warehouse:transfer": "node ./scripts/warehouse-transfer-api-audit-v1.cjs",
+        "audit:warehouse:adjustment-concurrency": "node ./scripts/warehouse-adjustment-concurrency-audit-v1.cjs",
         "audit:warehouse:transfer:browser": "node ./scripts/warehouse-transfer-browser-audit-v1.cjs",
         "audit:warehouse:ledger": "node ./scripts/warehouse-ledger-api-audit-v1.cjs",
         "audit:permissions:assignment": "node ./scripts/role-permission-assignment-audit-v1.cjs",

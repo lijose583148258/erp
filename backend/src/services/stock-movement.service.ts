@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import {
+  assertIdempotentReplayMatches,
   findPostedEntryResult,
   normalizeDbNumber,
   normalizeId,
@@ -11,6 +12,7 @@ import {
   resolveDirection,
   roundQuantity,
 } from './stock-movement.helpers';
+import { StockMovementConflictError } from './stock-movement.errors';
 import { syncProductBatchForOperationalStock } from './stock-movement.product-batch-sync';
 import type {
   PostStockEntryInput,
@@ -44,6 +46,7 @@ export class StockMovementService {
         unit: normalizeText(line.unit || 'kg') || 'kg',
         unitCost: normalizeOptionalNumber(line.unitCost, 'unitCost'),
         costAmountDelta: normalizeOptionalNumber(line.costAmountDelta, 'costAmountDelta'),
+        expectedQuantityBefore: normalizeOptionalNumber(line.expectedQuantityBefore, 'expectedQuantityBefore'),
       }));
 
       if (input.sourceType === 'warehouse_manual_inbound' && (!sourceRef || !reason)) {
@@ -65,6 +68,7 @@ export class StockMovementService {
 
       const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, sourceRef);
       if (existingPostedEntry) {
+        assertIdempotentReplayMatches(existingPostedEntry, normalizedLines);
         return existingPostedEntry;
       }
 
@@ -97,6 +101,7 @@ export class StockMovementService {
       } catch (error) {
         const existingAfterInsert = await findPostedEntryResult(tx, input.sourceType, sourceRef);
         if (existingAfterInsert) {
+          assertIdempotentReplayMatches(existingAfterInsert, normalizedLines);
           return existingAfterInsert;
         }
         throw error;
@@ -142,7 +147,32 @@ export class StockMovementService {
 
         let balance;
         if (existing) {
-          if (line.quantityDelta < 0) {
+          if (line.expectedQuantityBefore !== null) {
+            const tolerance = 0.000001;
+            const expectedQuantity = line.expectedQuantityBefore;
+            const nextQuantity = expectedQuantity + line.quantityDelta;
+            if (nextQuantity < -tolerance) {
+              throw new StockMovementConflictError(`调整后库存不能小于 0：${line.productName} / ${line.batchNo}`);
+            }
+            const updated = await tx.stockBalance.updateMany({
+              where: {
+                id: existing.id,
+                quantity: {
+                  gte: expectedQuantity - tolerance,
+                  lte: expectedQuantity + tolerance,
+                },
+              },
+              data: {
+                quantity: { increment: line.quantityDelta },
+                unit: line.unit,
+                lastMoveAt: new Date(),
+              },
+            });
+            if (updated.count !== 1) {
+              throw new StockMovementConflictError(`库存已被其他操作更新：${line.productName} / ${line.batchNo}，请刷新后重试。`);
+            }
+            balance = await tx.stockBalance.findUnique({ where: { id: existing.id } });
+          } else if (line.quantityDelta < 0) {
             const requestedDecrease = Math.abs(line.quantityDelta);
             const availableQuantity = Number(existing.quantity || 0);
             const tolerance = 0.000001;
@@ -161,7 +191,7 @@ export class StockMovementService {
               },
             });
             if (updated.count !== 1) {
-              throw new Error(`库存不足：${line.productName} / ${line.batchNo}，请先核对库存余额。`);
+              throw new StockMovementConflictError(`库存不足或已被其他操作更新：${line.productName} / ${line.batchNo}，请刷新后重试。`);
             }
             balance = await tx.stockBalance.findUnique({ where: { id: existing.id } });
           } else {
@@ -175,8 +205,11 @@ export class StockMovementService {
             });
           }
         } else {
+          if (line.expectedQuantityBefore !== null && Math.abs(line.expectedQuantityBefore) > 0.000001) {
+            throw new StockMovementConflictError(`库存记录已变化：${line.productName} / ${line.batchNo}，请刷新后重试。`);
+          }
           if (line.quantityDelta < 0) {
-            throw new Error(`库存不足：${line.productName} / ${line.batchNo}，请先核对库存余额。`);
+            throw new StockMovementConflictError(`库存不足：${line.productName} / ${line.batchNo}，请刷新后重试。`);
           }
           try {
             balance = await tx.stockBalance.create({

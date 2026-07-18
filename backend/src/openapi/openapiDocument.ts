@@ -257,6 +257,45 @@ export const buildOpenApiDocument = () => {
         },
       },
     };
+
+    paths[`${prefix}/warehouses/stock-balances/{id}`] = {
+      patch: {
+        tags: ['Warehouse'],
+        summary: 'Adjust an inventory balance with optimistic concurrency',
+        description: 'Sets an absolute stock quantity. requestId makes exact retries idempotent; expectedQuantity prevents stale clients from overwriting concurrent stock movements. Requires warehouse.write.',
+        security: secured(true),
+        parameters: [{
+          name: 'id', in: 'path', required: true,
+          schema: { type: 'integer', minimum: 1 },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockAdjustmentRequest' } } },
+        },
+        responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/warehouses/stock-balances/{id}/transfer`] = {
+      post: {
+        tags: ['Warehouse'],
+        summary: 'Transfer stock between locations idempotently',
+        description: 'Posts one outbound and one inbound ledger movement in one transaction. Reusing requestId with a different payload returns HTTP 409. Requires warehouse.write.',
+        security: secured(true),
+        parameters: [{
+          name: 'id', in: 'path', required: true,
+          schema: { type: 'integer', minimum: 1 },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockTransferRequest' } } },
+        },
+        responses: {
+          ...writeResponses,
+          '201': { description: 'The transfer voucher and both balance movements were posted.' },
+        },
+      },
+    };
   }
 
   paths['/internal/ready'] = {
@@ -490,6 +529,35 @@ export const buildOpenApiDocument = () => {
               },
             },
           ],
+        },
+        WarehouseRequestId: {
+          type: 'string',
+          minLength: 1,
+          maxLength: 80,
+          pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$',
+          description: 'Caller-generated idempotency key. An exact retry is accepted; reuse with a different payload is rejected.',
+        },
+        WarehouseStockAdjustmentRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['quantity', 'expectedQuantity', 'requestId'],
+          properties: {
+            quantity: { type: 'number', minimum: 0, description: 'Requested absolute quantity after adjustment.' },
+            expectedQuantity: { type: 'number', minimum: 0, description: 'Quantity last read by the caller. A stale value returns HTTP 409.' },
+            requestId: { $ref: '#/components/schemas/WarehouseRequestId' },
+            note: { type: 'string', maxLength: 500 },
+          },
+        },
+        WarehouseStockTransferRequest: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['toLocationId', 'quantity', 'requestId'],
+          properties: {
+            toLocationId: { type: 'integer', minimum: 1 },
+            quantity: { type: 'number', exclusiveMinimum: 0 },
+            requestId: { $ref: '#/components/schemas/WarehouseRequestId' },
+            note: { type: 'string', maxLength: 500 },
+          },
         },
         ApiResponse: {
           type: 'object',

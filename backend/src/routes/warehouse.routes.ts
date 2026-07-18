@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { param } from 'express-validator';
+import { body, param } from 'express-validator';
 import { authenticate, authorizePermission, authRoute } from '../middleware/auth';
 import { validateRequest } from '../middleware/validateRequest';
 import { WarehouseController } from '../controllers/warehouse.controller';
@@ -29,14 +29,26 @@ router.post('/stock-balances', authorizePermission('warehouse.write'), authRoute
 router.patch(
   '/stock-balances/:id',
   authorizePermission('warehouse.write'),
-  [param('id').isInt({ min: 1 })],
+  [
+    param('id').isInt({ min: 1 }),
+    body('quantity').isFloat({ min: 0 }),
+    body('expectedQuantity').isFloat({ min: 0 }),
+    body('requestId').isString().matches(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/),
+    body('note').optional({ nullable: true }).isString().isLength({ max: 500 }),
+  ],
   validateRequest,
   authRoute((req, res) => controller.updateStockBalance(req, res)),
 );
 router.post(
   '/stock-balances/:id/transfer',
   authorizePermission('warehouse.write'),
-  [param('id').isInt({ min: 1 })],
+  [
+    param('id').isInt({ min: 1 }),
+    body('toLocationId').isInt({ min: 1 }),
+    body('quantity').isFloat({ gt: 0 }),
+    body('requestId').isString().matches(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$/),
+    body('note').optional({ nullable: true }).isString().isLength({ max: 500 }),
+  ],
   validateRequest,
   authRoute((req, res) => controller.transferStockBalance(req, res)),
 );

@@ -92,6 +92,25 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.OrderListItem).toBeDefined();
   });
 
+  it('documents warehouse idempotency and optimistic concurrency contracts', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const adjustment = document.paths[`${prefix}/warehouses/stock-balances/{id}`]?.patch;
+      const transfer = document.paths[`${prefix}/warehouses/stock-balances/{id}/transfer`]?.post;
+      expect(adjustment?.responses['409']).toBeDefined();
+      expect(transfer?.responses['409']).toBeDefined();
+      expect((adjustment?.requestBody?.content as any)?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/WarehouseStockAdjustmentRequest',
+      });
+    }
+
+    expect(document.components.schemas.WarehouseStockAdjustmentRequest.required)
+      .toEqual(['quantity', 'expectedQuantity', 'requestId']);
+    expect(document.components.schemas.WarehouseRequestId.pattern)
+      .toBe('^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$');
+  });
+
   it('documents the overdue collection read model as an endpoint-level contract', () => {
     const document = buildOpenApiDocument();
     const overdue = document.paths['/api/v1/collections/overdue']?.get;
