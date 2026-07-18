@@ -36,6 +36,12 @@ data:
   BACKUP_DIR: /data/backups
   UPLOAD_DIR: /data/upload-cache
 ---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ailaoda-app
+automountServiceAccountToken: false
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -55,6 +61,8 @@ spec:
       labels:
         app: ailaoda-app
     spec:
+      serviceAccountName: ailaoda-app
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       topologySpreadConstraints:
         - maxSkew: 1

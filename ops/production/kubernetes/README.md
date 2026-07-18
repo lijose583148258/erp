@@ -114,6 +114,13 @@ without granting the admission identity permission to read Kubernetes TLS
 private-key Secrets. Replace the host and class placeholders in `ailaoda-ha.yaml`
 before applying it.
 
+The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
+`automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The
+placement gate rechecks the live ServiceAccount and every admitted Pod, rejecting
+the default account or any Pod that mounts a Kubernetes API token. The application
+therefore receives no ambient Kubernetes API credential after a container
+compromise; drill adapters continue to use separate, narrowly scoped identities.
+
 
 ## Isolated PostgreSQL backup recovery drill
 

@@ -57,6 +57,7 @@ kubectl get deployment -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/deplo
 kubectl get replicasets -n "${namespace}" -o json > "${tmp_dir}/replicasets.json"
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
 kubectl get service -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service.json"
+kubectl get serviceaccount -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service-account.json"
 kubectl get endpointslices.discovery.k8s.io -n "${namespace}" -l kubernetes.io/service-name=ailaoda-app -o json > "${tmp_dir}/endpoint-slices.json"
 ingress_name="$(jq -r '.applicationIngress.name' "${tmp_dir}/provider-verdict.json")"
 ingress_class="$(jq -r '.applicationIngress.className' "${tmp_dir}/provider-verdict.json")"
@@ -108,6 +109,7 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-app-placement.cjs" \
   --replicasets "${tmp_dir}/replicasets.json" \
   --pdb "${tmp_dir}/pdb.json" \
   --service "${tmp_dir}/service.json" \
+  --service-account "${tmp_dir}/service-account.json" \
   --endpoint-slices "${tmp_dir}/endpoint-slices.json" \
   --namespace "${namespace}" \
   --image-digest "$(jq -r '.imageDigest // empty' "${evidence_file}")" \

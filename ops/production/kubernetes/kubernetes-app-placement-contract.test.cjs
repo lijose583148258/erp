@@ -17,7 +17,7 @@ const write = (name, value) => {
 const node = (name, zone) => ({ metadata: { name, labels: { 'topology.kubernetes.io/zone': zone } }, spec: {}, status: { conditions: ready } });
 const pod = (name, nodeName, ownerName, podImage = image, imageID = `containerd://${image}`, ownerUid = 'replicaset-uid') => ({
   metadata: { name, uid: `${name}-uid`, namespace: 'ailaoda-pilot', ownerReferences: [{ kind: 'ReplicaSet', name: ownerName, uid: ownerUid, controller: true }] },
-  spec: { nodeName, containers: [{ name: 'app', image: podImage }] },
+  spec: { nodeName, serviceAccountName: 'ailaoda-app', automountServiceAccountToken: false, containers: [{ name: 'app', image: podImage }] },
   status: { phase: 'Running', conditions: ready, containerStatuses: [{ name: 'app', ready: true, imageID }] },
 });
 
@@ -26,13 +26,14 @@ try {
     nodes: { items: [node('node-a', 'zone-a'), node('node-b', 'zone-b')] },
     deployment: {
       metadata: { name: 'ailaoda-app', uid: 'deployment-uid', namespace: 'ailaoda-pilot', generation: 3 },
-      spec: { selector: { matchLabels: { app: 'ailaoda-app' } }, template: { metadata: { labels: { app: 'ailaoda-app' } }, spec: { containers: [{ name: 'app', image }] } } },
+      spec: { selector: { matchLabels: { app: 'ailaoda-app' } }, template: { metadata: { labels: { app: 'ailaoda-app' } }, spec: { serviceAccountName: 'ailaoda-app', automountServiceAccountToken: false, containers: [{ name: 'app', image }] } } },
       status: { observedGeneration: 3, updatedReplicas: 2, readyReplicas: 2, availableReplicas: 2, unavailableReplicas: 0 },
     },
     replicasets: { items: [{ metadata: { name: 'ailaoda-app-current', uid: 'replicaset-uid', namespace: 'ailaoda-pilot', ownerReferences: [{ kind: 'Deployment', name: 'ailaoda-app', uid: 'deployment-uid', controller: true }] } }] },
     pods: { items: [pod('app-a', 'node-a', 'ailaoda-app-current'), pod('app-b', 'node-b', 'ailaoda-app-current')] },
     pdb: { metadata: { name: 'ailaoda-app', namespace: 'ailaoda-pilot' }, spec: { selector: { matchLabels: { app: 'ailaoda-app' } } }, status: { expectedPods: 2, currentHealthy: 2, disruptionsAllowed: 1 } },
     service: { metadata: { name: 'ailaoda-app', namespace: 'ailaoda-pilot' }, spec: { type: 'ClusterIP', selector: { app: 'ailaoda-app' }, ports: [{ name: 'http', port: 80, targetPort: 'http', protocol: 'TCP' }] } },
+    serviceAccount: { metadata: { name: 'ailaoda-app', namespace: 'ailaoda-pilot' }, automountServiceAccountToken: false },
     endpointSlices: { items: [{
       metadata: { name: 'ailaoda-app-abc', namespace: 'ailaoda-pilot', labels: { 'kubernetes.io/service-name': 'ailaoda-app' } },
       endpoints: ['app-a', 'app-b'].map(name => ({ conditions: { ready: true, serving: true, terminating: false }, targetRef: { kind: 'Pod', namespace: 'ailaoda-pilot', name, uid: `${name}-uid` } })),
@@ -48,6 +49,7 @@ try {
       '--replicasets', files.replicasets,
       '--pdb', files.pdb,
       '--service', files.service,
+      '--service-account', files.serviceAccount,
       '--endpoint-slices', files.endpointSlices,
       '--namespace', 'ailaoda-pilot',
       '--image-digest', digest,
@@ -103,6 +105,16 @@ try {
   const missingEndpoint = structuredClone(fixture);
   missingEndpoint.endpointSlices.items[0].endpoints.pop();
   assert.notEqual(run(missingEndpoint).status, 0, 'every admitted Pod must be covered by the service endpoints');
+
+  const defaultServiceAccount = structuredClone(fixture);
+  defaultServiceAccount.serviceAccount.metadata.name = 'default';
+  defaultServiceAccount.deployment.spec.template.spec.serviceAccountName = 'default';
+  defaultServiceAccount.pods.items.forEach(item => { item.spec.serviceAccountName = 'default'; });
+  assert.notEqual(run(defaultServiceAccount).status, 0, 'the default ServiceAccount must be rejected');
+
+  const mountedApiToken = structuredClone(fixture);
+  mountedApiToken.pods.items[0].spec.automountServiceAccountToken = true;
+  assert.notEqual(run(mountedApiToken).status, 0, 'a Pod mounting a Kubernetes API token must be rejected');
 
   console.log('Kubernetes application placement contract: PASSED');
 } finally {

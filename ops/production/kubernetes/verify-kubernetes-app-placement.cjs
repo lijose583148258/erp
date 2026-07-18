@@ -25,6 +25,7 @@ const deployment = readJson('--deployment', 'Deployment');
 const replicaSets = readJson('--replicasets', 'ReplicaSets');
 const pdb = readJson('--pdb', 'PodDisruptionBudget');
 const service = readJson('--service', 'Service');
+const serviceAccount = readJson('--service-account', 'ServiceAccount');
 const endpointSlices = readJson('--endpoint-slices', 'EndpointSlices');
 const items = value => Array.isArray(value?.items) ? value.items : [];
 const ready = value => Array.isArray(value?.status?.conditions)
@@ -53,6 +54,13 @@ const requireNamespace = (value, label) => {
 requireNamespace(deployment, 'Deployment');
 requireNamespace(pdb, 'PodDisruptionBudget');
 requireNamespace(service, 'Service');
+requireNamespace(serviceAccount, 'ServiceAccount');
+const serviceAccountName = String(serviceAccount?.metadata?.name || '').trim();
+if (!serviceAccountName || serviceAccountName === 'default' || serviceAccount?.automountServiceAccountToken !== false
+  || deployment?.spec?.template?.spec?.serviceAccountName !== serviceAccountName
+  || deployment?.spec?.template?.spec?.automountServiceAccountToken !== false) {
+  fail('Deployment must use a dedicated non-automounting ServiceAccount.');
+}
 if (!deploymentLabels || typeof deploymentLabels !== 'object' || Array.isArray(deploymentLabels)
   || Object.keys(deploymentLabels).length < 1
   || Object.entries(deploymentLabels).some(([key, value]) => deployment?.spec?.template?.metadata?.labels?.[key] !== value)) {
@@ -90,6 +98,7 @@ if (readyNodes.size < 2 || new Set(readyNodes.values()).size < 2) {
 
 const admittedPods = items(pods).filter(pod => {
   if (pod?.metadata?.namespace !== namespace) return false;
+  if (pod?.spec?.serviceAccountName !== serviceAccountName || pod?.spec?.automountServiceAccountToken !== false) return false;
   const owner = controllerOwner(pod, 'ReplicaSet');
   if (!owner || ownedReplicaSets.get(owner.name) !== owner.uid || pod?.status?.phase !== 'Running' || !ready(pod)) return false;
   const specContainer = (pod?.spec?.containers || []).find(container => container.name === 'app');
@@ -159,6 +168,7 @@ process.stdout.write(`${JSON.stringify({
   namespace,
   deployment: deploymentName,
   service: serviceName,
+  serviceAccount: serviceAccountName,
   imageDigest,
   replicaSetCount: ownedReplicaSets.size,
   readyPodCount: admittedPods.length,
