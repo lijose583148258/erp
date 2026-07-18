@@ -54,6 +54,8 @@ async function waitForJson(url, predicate, timeoutMs = 30_000) {
 }
 
 async function main() {
+  const metricsToken = String(process.env.METRICS_BEARER_TOKEN || process.env.AILAODA_METRICS_BEARER_TOKEN || '').trim();
+  if (!metricsToken) throw new Error('A metrics bearer token is required for protected health evidence.');
   for (const [name, relativePath, maxAgeHours] of requiredReports) {
     if (!fs.existsSync(path.join(ROOT, relativePath))) throw new Error(`Required report is missing: ${relativePath}`);
     const evidence = readJson(relativePath);
@@ -67,7 +69,9 @@ async function main() {
     if (!fresh) throw new Error(`Required report is stale or has an invalid timestamp: ${relativePath} (ageHours=${Number.isFinite(ageHours) ? ageHours.toFixed(3) : 'invalid'}, max=${maxAgeHours})`);
   }
 
-  const health = await Promise.all([5006, 5008].map(port => fetchJson(`http://127.0.0.1:${port}/health`)));
+  const health = await Promise.all([5006, 5008].map(port => fetchJson(`http://127.0.0.1:${port}/internal/health`, {
+    headers: { authorization: `Bearer ${metricsToken}` },
+  })));
   check('application-ha', health.every(item => item.status === 'ok' && item.database === 'ok'));
   check('redis-sentinel-clients', health.every(item => item.redis?.ready && item.redis?.mode === 'sentinel'));
   check('search-ha-config', health.every(item => item.search?.externalConfigured && item.search?.endpointCount >= 2));

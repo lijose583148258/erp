@@ -221,7 +221,7 @@ app.get('/internal/ready', authorizeOperationalAccess, async (_req: Request, res
   return res.status(snapshot.statusCode).json(snapshot.body);
 });
 
-app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
+const readHealth = async () => {
   const checks = {
     database: 'ok',
     backupDir: 'ok',
@@ -258,8 +258,7 @@ app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res:
   const healthy = Object.values(checks).every((value) => value === 'ok') && redis.ready;
   const cache = cacheService.status();
   const jwtSecret = getJwtSecretStatus();
-  res.setHeader('Cache-Control', 'no-store');
-  res.status(healthy ? 200 : 503).json({
+  return { statusCode: healthy ? 200 : 503, body: {
     status: healthy ? 'ok' : 'degraded',
     mode: runtime.nodeEnv,
     database: checks.database === 'ok' ? 'ok' : 'unavailable',
@@ -285,7 +284,22 @@ app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res:
     },
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+  } };
+};
+
+app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
+  const snapshot = await readHealth();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json({
+    status: snapshot.body.status,
+    timestamp: snapshot.body.timestamp,
   });
+});
+
+app.get('/internal/health', authorizeOperationalAccess, async (_req: Request, res: Response) => {
+  const snapshot = await readHealth();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json(snapshot.body);
 });
 
 app.get('/metrics', authorizeOperationalAccess, (_req: Request, res: Response) => {

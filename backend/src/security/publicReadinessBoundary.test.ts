@@ -22,6 +22,14 @@ describe('public readiness information boundary', () => {
 
   it('does not expose deep readiness anonymously', async () => {
     await request(app).get('/internal/ready').expect(401);
+    await request(app).get('/internal/health').expect(401);
+  });
+
+  it('returns only minimal status on the public health route', async () => {
+    const response = await request(app).get('/health');
+    expect([200, 503]).toContain(response.status);
+    expect(Object.keys(response.body).sort()).toEqual(['status', 'timestamp']);
+    expect(response.headers['cache-control']).toBe('no-store');
   });
 
   it('allows the metrics collector token to read deep readiness', async () => {
@@ -32,5 +40,11 @@ describe('public readiness information boundary', () => {
     expect([200, 503]).toContain(response.status);
     expect(response.body).toHaveProperty('dependencyPolicy');
     expect(response.body).toHaveProperty('degradable');
+    const health = await request(app)
+      .get('/internal/health')
+      .set('Authorization', 'Bearer readiness-boundary-token-1234567890');
+    expect([200, 503]).toContain(health.status);
+    expect(health.body).toHaveProperty('checks');
+    expect(health.body).toHaveProperty('telemetry');
   });
 });

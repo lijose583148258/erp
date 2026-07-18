@@ -125,6 +125,12 @@ degradable-provider state, errors, and uptime are available only from
 permission as `/metrics`. The continuous observer uses that protected route, so
 its Sentinel/dependency assertions remain semantic rather than becoming a
 minimal public-probe false green.
+Public `/health`, `/api/health`, and `/api/v1/health` likewise expose only status
+and timestamp. Disk capacity, Secret source, cache, auth-store, rate-limit,
+storage, search, realtime, and telemetry details moved to protected
+`/internal/health`. Formal preflight and observability evidence must supply the
+collector token; both credential files retain the same projected-Secret
+permission checks.
 
 The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
 `automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The
@@ -505,6 +511,7 @@ FORMAL_PILOT_PREFLIGHT_IMAGE_DIGEST=<sha256:digest> \
 FORMAL_PILOT_PREFLIGHT_APP_URLS=<https-app-a>,<https-app-b> \
 FORMAL_PILOT_PREFLIGHT_USERNAME=<least-privilege-audit-user> \
 FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE=<private-secret-file> \
+FORMAL_PILOT_PREFLIGHT_METRICS_TOKEN_FILE=<private-metrics-token-file> \
 FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=<https-receipt-verifier> \
 FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE=<ed25519-public-key> \
 node ops/production/kubernetes/run-formal-pilot-preflight.cjs \

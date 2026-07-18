@@ -55,6 +55,11 @@ const appUrls = String(process.env.FORMAL_PILOT_PREFLIGHT_APP_URLS || '').split(
 const username = String(process.env.FORMAL_PILOT_PREFLIGHT_USERNAME || '').trim();
 const passwordFile = resolveFile(String(process.env.FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE || '').trim(), 'Preflight password');
 const password = fs.readFileSync(passwordFile, 'utf8').trim();
+const metricsTokenFile = resolveFile(
+  String(process.env.FORMAL_PILOT_PREFLIGHT_METRICS_TOKEN_FILE || '').trim(),
+  'Preflight metrics token',
+);
+const metricsToken = fs.readFileSync(metricsTokenFile, 'utf8').trim();
 const backupReceiptUrl = String(process.env.FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL || '')
   .trim().replace(/\/$/, '');
 const backupReceiptPublicKeyFile = resolveFile(
@@ -71,13 +76,16 @@ if (appUrls.length < 2 || new Set(appUrls).size < 2) fail('Two distinct applicat
 if (appUrls.some(value => !/^https:\/\//i.test(value) && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(value))) {
   fail('Application URLs must use HTTPS; loopback HTTP is allowed only for contract tests.');
 }
-if (!username || !password) fail('Preflight username and password file are required.');
+if (!username || !password || !metricsToken) fail('Preflight username, password, and metrics token files are required.');
 if (!/^https:\/\//i.test(backupReceiptUrl)
   && !/^http:\/\/127\.0\.0\.1(?::\d+)?$/i.test(backupReceiptUrl)) {
   fail('Backup receipt preflight URL must use HTTPS; loopback HTTP is contract-only.');
 }
 if (!privateCredentialFile(passwordFile)) {
   fail('Preflight password file must be owner-only or current-group read-only.');
+}
+if (!privateCredentialFile(metricsTokenFile)) {
+  fail('Preflight metrics token file must be owner-only or current-group read-only.');
 }
 
 const evidence = JSON.parse(fs.readFileSync(evidencePath, 'utf8').replace(/^\uFEFF/, ''));
@@ -225,7 +233,7 @@ const writeReport = () => {
 
   const health = [];
   for (const baseUrl of appUrls) {
-    const status = await requestJson(baseUrl, '/health');
+    const status = await requestJson(baseUrl, '/internal/health', {}, metricsToken);
     const ready = await requestJson(baseUrl, '/api/v1/ready');
     const instanceId = String(status.body?.telemetry?.serviceInstanceId || '');
     check('application-health-and-readiness', status.response.status === 200

@@ -129,7 +129,7 @@ export const buildOpenApiDocument = () => {
         tags: ['Runtime'],
         summary: 'Health check',
         responses: {
-          '200': { description: 'The API is healthy.' },
+          '200': { description: 'The API is healthy; only minimal public status is returned.' },
           '503': { description: 'One or more runtime checks are degraded.' },
         },
       },
@@ -269,6 +269,19 @@ export const buildOpenApiDocument = () => {
         '200': { description: 'Critical dependencies are ready and detailed operational status is returned.' },
         '401': { description: 'A valid administrator JWT or metrics collector token is required.' },
         '503': { description: 'A critical dependency is unavailable.' },
+      },
+    },
+  };
+  paths['/internal/health'] = {
+    get: {
+      tags: ['Runtime'],
+      summary: 'Protected deep health report',
+      description: 'Returns storage, cache, auth, telemetry, secret-source, and disk details to an administrator or metrics collector only.',
+      security: [{ bearerAuth: [] }, { metricsBearerAuth: [] }],
+      responses: {
+        '200': { description: 'The application is healthy and detailed operational state is returned.' },
+        '401': { description: 'A valid administrator JWT or metrics collector token is required.' },
+        '503': { description: 'One or more runtime checks are degraded.' },
       },
     },
   };

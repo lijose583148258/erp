@@ -159,9 +159,10 @@ const fetchTimed = async (baseUrl, route, requiresAuth) => {
   try {
     let token = authToken;
     const deepReadiness = route === '/internal/ready';
+    const operationalRoute = route.startsWith('/internal/');
     let response = await fetch(`${baseUrl}${route}`, {
       redirect: 'error',
-      headers: deepReadiness
+      headers: operationalRoute
         ? { authorization: `Bearer ${metricsToken}` }
         : requiresAuth ? { authorization: `Bearer ${token}` } : undefined,
       signal: AbortSignal.timeout(10_000),
@@ -237,7 +238,7 @@ async function main() {
   const before = await metricsSnapshot();
   await probeComponents();
   samples.push(...before);
-  const routes = ['/health', '/internal/ready', '/api/v1/dashboard', '/api/v1/customers?page=1&pageSize=30', '/api/v1/orders?page=1&pageSize=30'];
+  const routes = ['/internal/health', '/internal/ready', '/api/v1/dashboard', '/api/v1/customers?page=1&pageSize=30', '/api/v1/orders?page=1&pageSize=30'];
   const deadline = Date.now() + durationMs;
   const worker = async () => {
     while (Date.now() < deadline) {

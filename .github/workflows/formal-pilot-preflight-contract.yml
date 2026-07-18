@@ -83,7 +83,7 @@ jobs:
                   publicKeySha256: receiptPublicKeySha256,
                 });
               }
-              if (req.url === '/health') return respond(res, 200, {
+              if (req.url === '/internal/health' && req.headers.authorization === 'Bearer metrics-contract-token') return respond(res, 200, {
                 database: 'ok', telemetry: { serviceInstanceId: `instance-${port}` },
               });
               if (req.url === '/api/v1/ready') return respond(res, 200, { database: 'ok' });
@@ -101,6 +101,8 @@ jobs:
           sleep 1
           printf '%s' 'random-contract-password' > "$root/password"
           chmod 440 "$root/password"
+          printf '%s' 'metrics-contract-token' > "$root/metrics-token"
+          chmod 440 "$root/metrics-token"
           cat > "$root/evidence.json" <<JSON
           {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
           JSON
@@ -144,6 +146,7 @@ jobs:
           export FORMAL_PILOT_PREFLIGHT_APP_URLS=http://127.0.0.1:18081,http://127.0.0.1:18082
           export FORMAL_PILOT_PREFLIGHT_USERNAME=audit-user
           export FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE="$root/password"
+          export FORMAL_PILOT_PREFLIGHT_METRICS_TOKEN_FILE="$root/metrics-token"
           export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=http://127.0.0.1:18083
           export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE="$root/receipt-public.pem"
           node ops/production/kubernetes/run-formal-pilot-preflight.cjs \
