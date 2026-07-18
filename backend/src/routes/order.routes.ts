@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { OrderController } from '../controllers/order.controller';
 import { authenticate, authorizePermission } from '../middleware/auth';
 import { validateZod } from '../middleware/validateZod';
-import { createOrderSchema, orderPaymentVerifyParamsSchema, orderQuerySchema, idParamSchema, paymentSchema, statusUpdateSchema, updateOrderSchema } from '../validators';
+import { createOrderSchema, importOrdersSchema, orderPaymentVerifyParamsSchema, orderQuerySchema, idParamSchema, paymentSchema, statusUpdateSchema, updateOrderSchema } from '../validators';
 
 const router = Router();
 const orderController = new OrderController();
@@ -107,6 +107,7 @@ router.post(
 router.post(
     '/import',
     authorizePermission('orders.import'),
+    validateZod(importOrdersSchema),
     orderController.importOrders
 );
 

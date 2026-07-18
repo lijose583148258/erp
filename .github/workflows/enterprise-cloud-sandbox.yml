@@ -378,6 +378,11 @@ jobs:
       - name: Verify governed AI runtime
         run: npm run audit:ai:governed-runtime
 
+      - name: Verify order import scope and credit governance
+        run: npm run audit:orders:import-governance-api
+        env:
+          ORDER_IMPORT_GOVERNANCE_REPORT_PATH: cloud-evidence/order-import-governance-api-audit-v1.json
+
       - name: Run dual-instance load gate
         run: npm run audit:load:ha
         env:

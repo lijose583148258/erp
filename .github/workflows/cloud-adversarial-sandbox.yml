@@ -141,6 +141,7 @@ jobs:
             audit:security:mfa
             audit:security:distributed-auth
             audit:security:dependencies
+            audit:orders:import-governance
             audit:ai:isolation
           )
           for audit in "${audits[@]}"; do

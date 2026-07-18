@@ -11,6 +11,7 @@ import { withDbRetry } from '../utils/dbRetry';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
+import { orderImportService } from '../services/order-import.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
@@ -455,7 +456,7 @@ export class OrderController {
     async importOrders(req: AuthRequest, res: Response) {
         try {
             const { orders } = req.body;
-            const result = await OrderWorkspaceService.importOrders(orders, req.user!.userId);
+            const result = await orderImportService.importOrders(orders, req);
 
             if ('error' in result) {
                 return res.status(400).json({

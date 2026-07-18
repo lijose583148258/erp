@@ -44,6 +44,14 @@ export const createOrderSchema = z.object({
   status: z.string().trim().optional(),
 }).passthrough();
 
+export const importOrdersSchema = z.object({
+  orders: z.array(z.object({
+    customerId: z.coerce.number().int().positive(),
+    paymentTerms: z.coerce.number().int().min(1).max(365).optional(),
+    items: z.array(orderItemSchema.strip()).min(1).max(100),
+  }).strict()).min(1).max(500),
+}).strict();
+
 export const updateOrderSchema = z.object({
   notes: z.string().trim().max(1000).optional(),
   items: z.array(orderItemSchema).min(1).optional(),
