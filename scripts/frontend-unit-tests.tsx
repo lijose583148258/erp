@@ -54,11 +54,16 @@ const tests: FrontendUnitTest[] = [
         customerId: '7',
         paymentTermsDays: 45,
         contractId: '',
-        items: [],
+        items: [{
+          productName: 'Resin A',
+          packagingSpec: 'EDIT-BOX',
+          specification: 'OLD-BOX',
+        }],
       } as any);
       assert.equal(payload.customerId, 7);
       assert.equal(payload.paymentTerms, 45);
       assert.equal(payload.contractId, null);
+      assert.equal(payload.items[0].specification, 'EDIT-BOX');
     },
   },
   {

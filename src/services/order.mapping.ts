@@ -22,5 +22,6 @@ export const buildSalesOrderUpdatePayload = (order: SalesOrder) => ({
     ...order,
     customerId: Number(order.customerId),
     paymentTerms: order.paymentTermsDays,
+    items: order.items.map((item) => ({ ...item, specification: item.packagingSpec })),
     contractId: order.contractId ? Number(order.contractId) : null,
 });
