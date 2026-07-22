@@ -215,17 +215,17 @@ export function ProductionBomSection({
             />
             <Field
               dataTestId="production-bom-standard-batch-size"
-              label="鏍囧噯鎵归噺"
+              label="标准批量"
               value={bomStandardBatchSize}
               onChange={value => {
                 onFormTouched();
                 clearBomFormError('standardBatchSize');
                 setBomStandardBatchSize(value);
               }}
-              placeholder="渚嬪 1000"
+              placeholder="例如 1000"
               error={bomFormErrors.standardBatchSize}
             />
-            <Field dataTestId="production-bom-batch-size-unit" label="鎵归噺鍗曚綅" value={bomBatchSizeUnit} onChange={setBomBatchSizeUnit} placeholder="kg" />
+            <Field dataTestId="production-bom-batch-size-unit" label="批量单位" value={bomBatchSizeUnit} onChange={setBomBatchSizeUnit} placeholder="kg" />
           </div>
           <div className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/50">
             <button

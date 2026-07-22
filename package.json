@@ -78,6 +78,7 @@
         "audit:package:freshness": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-stable.ps1 -CheckOnly",
         "audit:package:origin": "node ./scripts/stable-package-origin-audit-v1.cjs",
         "audit:active-source": "node ./scripts/active-source-inventory-v1.cjs",
+        "audit:source:mojibake": "node ./scripts/effective-source-mojibake-gate-v1.cjs && node ./scripts/mojibake-detector-contract-v1.cjs",
         "audit:refactor:freeze": "node ./scripts/refactor-freeze-gate-v1.cjs",
         "audit:entrypoints": "node ./scripts/stable-entrypoint-policy-audit-v1.cjs",
         "audit:legacy:disconnect": "node ./scripts/legacy-interface-disconnect-audit-v1.cjs",

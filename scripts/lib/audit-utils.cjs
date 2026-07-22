@@ -92,6 +92,14 @@ function assertNoMojibake(text, scopeName, forbidden = []) {
       throw new Error(`${scopeName} contains forbidden text: ${marker}`);
     }
   }
+  const privateUse = text.match(/[\uE000-\uF8FF]/u);
+  if (privateUse) {
+    throw new Error(`${scopeName} contains a private-use mojibake character: U+${privateUse[0].codePointAt(0).toString(16).toUpperCase()}`);
+  }
+  const knownGbkLabel = text.match(/(?:\u93cd\u56e7\u566f|\u93b5\u5f52\u567a|\u9357\u66da\u7d85|\u6e1a\u5b2a)/u);
+  if (knownGbkLabel) {
+    throw new Error(`${scopeName} contains a known GBK mojibake sequence: ${knownGbkLabel[0]}`);
+  }
 }
 
 module.exports = {
