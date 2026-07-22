@@ -11,9 +11,9 @@ import { withDbRetry } from '../utils/dbRetry';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
-import { orderImportService } from '../services/order-import.service';
-import { normalizeOrderImportIdempotencyKey } from '../services/order-import-idempotency.service';
+import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
+import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
     buildOrderDataScopeWhere,
@@ -26,29 +26,6 @@ import {
     buildCreateOrderAuditDetails,
     buildOrderItemsAndTotals,
 } from './order/order-controller.helpers';
-
-async function writeOrderAuditLog(req: AuthRequest, input: {
-    action: string;
-    resourceId?: number | null;
-    details: string;
-}) {
-    if (!req.user?.userId) return;
-    try {
-        await prisma.auditLog.create({
-            data: {
-                userId: req.user.userId,
-                action: input.action,
-                resource: 'order',
-                resourceId: input.resourceId ?? null,
-                details: input.details,
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent'),
-            },
-        });
-    } catch (error) {
-        logger.warn('订单审计日志写入失败，业务操作已保留', error);
-    }
-}
 
 class OrderCreationRejectedError extends Error {
     constructor(
@@ -455,36 +432,7 @@ export class OrderController {
     }
 
     async importOrders(req: AuthRequest, res: Response) {
-        try {
-            const { orders } = req.body;
-            const idempotencyKey = normalizeOrderImportIdempotencyKey(req.get('idempotency-key'));
-            if (!idempotencyKey) {
-                return res.status(400).json({
-                    success: false,
-                    message: 'A valid Idempotency-Key header (8-80 characters) is required.',
-                } as ApiResponse);
-            }
-            const result = await orderImportService.importOrders(orders, req, idempotencyKey);
-
-            if ('error' in result) {
-                return res.status(result.statusCode || 400).json({
-                    success: false,
-                    message: result.error,
-                } as ApiResponse);
-            }
-
-            return res.json({
-                success: true,
-                data: result.result,
-                message: `${result.replayed ? '幂等重放：' : '导入完成：'}成功 ${result.result.success} 条，失败 ${result.result.failed} 条`,
-            } as ApiResponse);
-        } catch (error) {
-            logger.error('Failed to import orders:', error);
-            return res.status(500).json({
-                success: false,
-                message: '服务器内部错误',
-            } as ApiResponse);
-        }
+        return importOrderRows(req, res);
     }
 
     /**
@@ -599,33 +547,6 @@ export class OrderController {
     }
 
     async exportOrders(req: AuthRequest, res: Response) {
-        try {
-            const { workbook, orders } = await OrderWorkspaceService.exportOrders(
-                {
-                    status: req.query.status as string | undefined,
-                    startDate: req.query.startDate as string | undefined,
-                    endDate: req.query.endDate as string | undefined,
-                    lang: req.query.lang as string | undefined,
-                },
-                req,
-            );
-
-            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename=orders_${new Date().toISOString().split('T')[0]}.xlsx`);
-
-            await writeOrderAuditLog(req, {
-                action: 'EXPORT',
-                details: `导出订单: ${orders.length} 条`,
-            });
-
-            await workbook.xlsx.write(res);
-            res.end();
-        } catch (error) {
-            logger.error('Failed to export orders:', error);
-            return res.status(500).json({
-                success: false,
-                message: '服务器内部错误',
-            } as ApiResponse);
-        }
+        return exportOrderRows(req, res);
     }
 }
