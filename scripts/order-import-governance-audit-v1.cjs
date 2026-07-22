@@ -18,6 +18,10 @@ requireTokens('backend/src/routes/order.routes.ts', [
   'validateZod(importOrdersSchema)',
 ]);
 requireTokens('backend/src/controllers/order.controller.ts', [
+  "from './order-io.controller'",
+  'return importOrderRows(req, res)',
+]);
+requireTokens('backend/src/controllers/order-io.controller.ts', [
   "from '../services/order-import.service'",
   "req.get('idempotency-key')",
   'orderImportService.importOrders(orders, req, idempotencyKey)',
@@ -57,6 +61,9 @@ if (workspace.includes('async importOrders(')) {
 }
 if (!exists('backend/src/services/order-import.service.test.ts')) {
   findings.push('backend/src/services/order-import.service.test.ts: governance regression tests are missing');
+}
+if (!exists('backend/src/controllers/order-io.controller.test.ts')) {
+  findings.push('backend/src/controllers/order-io.controller.test.ts: import HTTP boundary regression tests are missing');
 }
 requireTokens('scripts/order-import-governance-api-audit-v1.cjs', [
   'reject-cross-segment-customer',
