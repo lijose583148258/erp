@@ -1,7 +1,5 @@
-const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   ensureDir,
   createStepRecorder,
@@ -23,13 +21,14 @@ const {
   buildBomPasteText,
   fillBomHeaderFields: fillBomHeaderFieldsWithData,
   loginViaUi: runLoginViaUi,
+  openProductionRoute: runOpenProductionRoute,
   parsePayload,
-  readAuthTokenFromStorage,
   setControlByLabel,
   setControlByPlaceholder,
   switchProductionDesk: runSwitchProductionDesk,
   waitForAnyBodyText,
 } = require('./lib/production-browser-audit-helpers.cjs');
+const { createProductionBrowserAuditRuntime } = require('./lib/production-browser-audit-runtime.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'playwright');
@@ -53,72 +52,17 @@ const report = {
   steps: [],
   status: 'running',
 };
-
-let authToken = '';
-let browser = null;
-
-const loginViaUi = (page, recordStep) => runLoginViaUi(page, {
-  appUrl: APP_URL, recordStep, withTimebox, timeout: STEP_TIMEOUT_MS.login, shotDir: SHOT_DIR, account: AUDIT_ACCOUNT,
+const {
+  apiFetch,
+  recordFinal,
+  seedAuthToken,
+  syncAuthTokenFromPage,
+} = createProductionBrowserAuditRuntime({
+  appUrl: APP_URL,
+  auditAccount: AUDIT_ACCOUNT,
+  report,
+  reportPath: REPORT_PATH,
 });
-const switchProductionDesk = (page, options) =>
-  runSwitchProductionDesk(page, options, waitForBodyText, STEP_TIMEOUT_MS.readBack);
-const fillBomHeaderFields = (page) => fillBomHeaderFieldsWithData(page, TEST_DATA);
-
-function recordFinal() {
-  fs.writeFileSync(REPORT_PATH, JSON.stringify(report, null, 2), 'utf8');
-}
-
-async function apiFetch(page, endpoint, options = {}) {
-  let response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
-    ...options,
-    headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(options.headers || {}) },
-  });
-  if (response.status() === 401) {
-    await seedAuthToken(page);
-    response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
-      ...options,
-      headers: { 'Content-Type': 'application/json', ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}), ...(options.headers || {}) },
-    });
-  }
-  const text = await response.text();
-  let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { json = { raw: text }; }
-  return { ok: response.ok(), status: response.status(), json };
-}
-
-async function seedAuthToken(page) {
-  const session = await loginUiAuditUser(page, APP_URL, {
-    account: AUDIT_ACCOUNT,
-    storage: {
-      'ailao.activeTab': 'production',
-      'ailao.language': 'zh',
-      language: 'zh',
-      currency: 'CNY',
-    },
-  });
-  authToken = session.token;
-  if (!authToken) throw new Error('login api returned empty token');
-}
-
-async function syncAuthTokenFromPage(page) {
-  const token = await readAuthTokenFromStorage(page);
-  if (token) authToken = token;
-  if (!authToken) throw new Error('audit page has no auth token');
-}
-
-async function openProductionRoute(page, recordStep) {
-  await withTimebox(page, recordStep, 'open-production-route', STEP_TIMEOUT_MS.route, async () => {
-    await page.goto(`${APP_URL}#production`, { waitUntil: 'domcontentloaded', timeout: STEP_TIMEOUT_MS.route });
-    await page.evaluate(() => {
-      window.localStorage.setItem('ailao.activeTab', 'production');
-      window.location.hash = '#production';
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    });
-    await waitForAnyBodyText(page, [S.bomManagement, S.workOrderDesk, S.batchList], STEP_TIMEOUT_MS.route);
-    assertNoMojibake(await page.locator('body').innerText(), 'production route', FORBIDDEN_MOJIBAKE);
-  }, SHOT_DIR);
-  recordStep({ step: 'production-route-evidence', result: 'passed', evidence: await safeScreenshot(page, SHOT_DIR, 'production-route') });
-}
 
 async function importBomLinesViaExcelPaste(page, recordStep) {
   await withTimebox(page, recordStep, 'import-bom-lines-via-excel-paste', STEP_TIMEOUT_MS.fill, async () => {
@@ -609,7 +553,7 @@ async function main() {
     await loginViaUi(page, recordStep);
     await syncAuthTokenFromPage(page);
     stallGuard.assertAlive('after-login');
-    await openProductionRoute(page, recordStep);
+    await runOpenProductionRoute(page, recordStep, { appUrl: APP_URL, assertNoMojibake, forbiddenMojibake: FORBIDDEN_MOJIBAKE, routeCopy: [S.bomManagement, S.workOrderDesk, S.batchList], routeTimeout: STEP_TIMEOUT_MS.route, safeScreenshot, shotDir: SHOT_DIR, withTimebox });
     stallGuard.assertAlive('after-route-open');
     const bom = await createChemicalBom(page, recordStep);
     stallGuard.assertAlive('after-bom');

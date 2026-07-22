@@ -165,10 +165,34 @@ async function fillBomHeaderFields(page, testData) {
   await setControlByTestId(page, 'production-bom-quality-spec-text', testData.qualitySummary);
 }
 
+async function openProductionRoute(page, recordStep, {
+  appUrl,
+  assertNoMojibake,
+  forbiddenMojibake,
+  routeCopy,
+  routeTimeout,
+  safeScreenshot,
+  shotDir,
+  withTimebox,
+}) {
+  await withTimebox(page, recordStep, 'open-production-route', routeTimeout, async () => {
+    await page.goto(`${appUrl}#production`, { waitUntil: 'domcontentloaded', timeout: routeTimeout });
+    await page.evaluate(() => {
+      window.localStorage.setItem('ailao.activeTab', 'production');
+      window.location.hash = '#production';
+      window.dispatchEvent(new HashChangeEvent('hashchange'));
+    });
+    await waitForAnyBodyText(page, routeCopy, routeTimeout);
+    assertNoMojibake(await page.locator('body').innerText(), 'production route', forbiddenMojibake);
+  }, shotDir);
+  recordStep({ step: 'production-route-evidence', result: 'passed', evidence: await safeScreenshot(page, shotDir, 'production-route') });
+}
+
 module.exports = {
   buildBomPasteText,
   fillBomHeaderFields,
   loginViaUi,
+  openProductionRoute,
   parsePayload,
   readAuthTokenFromStorage,
   setControlByLabel,

@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
@@ -7,6 +7,7 @@ const {
   safeScreenshot: captureScreenshot,
   withTimebox: runWithTimebox,
 } = require('./lib/audit-utils.cjs');
+const { createProcurementBrowserAuditHelpers } = require('./lib/procurement-browser-audit-helpers.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -32,6 +33,7 @@ const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
 
 const TIMEOUTS = { login: 15000, route: 20000, fill: 20000, save: 25000, api: 15000, readBack: 15000 };
 
+
 const report = {
   appUrl: APP_URL,
   startedAt: new Date().toISOString(),
@@ -47,105 +49,31 @@ function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
 }
 
-async function answerNextDialog(page, accept) {
-  return new Promise((resolve) => {
-    page.once('dialog', async (dialog) => {
-      const message = dialog.message();
-      if (accept) await dialog.accept();
-      else await dialog.dismiss();
-      resolve(message);
-    });
-  });
-}
-
-async function verifyNavigationWarning(page, expectedValue, step) {
-  await page.waitForTimeout(100);
-  const dialogPromise = answerNextDialog(page, false);
-  await page.evaluate(() => {
-    window.location.hash = '#dashboard';
-  });
-  const message = await dialogPromise;
-  if (!message.includes('未保存')) throw new Error(`${step} warning is unclear: ${message}`);
-  const currentHash = await page.evaluate(() => window.location.hash);
-  if (currentHash === '#dashboard') throw new Error(`${step} navigation was not cancelled`);
-  recordStep({ step, result: 'passed', evidence: expectedValue });
-}
-
-async function safeScreenshot(page, name) {
-  return captureScreenshot(page, SHOT_DIR, name);
-}
-
-async function withTimebox(page, step, timeout, task) {
-  return runWithTimebox(page, recordStep, step, timeout, task, SHOT_DIR);
-}
-
-async function seedLoginState(page) {
-  return withTimebox(page, 'seed-login-state', TIMEOUTS.login, async () => {
-    const { token } = await loginUiAuditUser(page, APP_URL, {
-      defaultStorage: {
-        'ailao.activeTab': 'procurement',
-        'ailao.language': 'zh',
-        language: 'zh-CN',
-        currency: 'CNY',
-      },
-    });
-    authToken = token;
-  });
-}
-
-async function resolveForcePasswordChange(page) {
-  const card = page.locator('[data-testid="force-password-change"]');
-  if (!(await card.count())) return;
-  await card.waitFor({ state: 'visible', timeout: TIMEOUTS.route });
-  const fields = await card.locator('input[type="password"]').all();
-  if (fields.length < 3) throw new Error(`force password change inputs missing: ${fields.length}`);
-  const temporaryPassword = 'admin123';
-  const nextPassword = `ProcurementAudit${RUN_ID.slice(-6)}!`;
-  await fields[0].fill(temporaryPassword);
-  await fields[1].fill(nextPassword);
-  await fields[2].fill(nextPassword);
-  await page.getByTestId('force-password-change-submit').click();
-  await card.waitFor({ state: 'detached', timeout: TIMEOUTS.route });
-}
-
-async function apiFetch(page, endpoint, options = {}) {
-  const method = options.method || 'GET';
-  const response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
-    ...options,
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-  const text = await response.text();
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = { raw: text };
-  }
-  return { ok: response.ok(), status: response.status(), json };
-}
-
-function unwrapList(payload) {
-  const data = payload?.json?.data;
-  if (Array.isArray(data)) return data;
-  if (Array.isArray(data?.items)) return data.items;
-  return [];
-}
-
-function assertNoMojibake(text, scopeName) {
-  for (const keyword of FORBIDDEN_MOJIBAKE) {
-    if (text.includes(keyword)) {
-      throw new Error(`${scopeName} contains mojibake: ${keyword}`);
-    }
-  }
-  if (text.includes('undefined') || text.includes('\ufffd')) {
-    throw new Error(`${scopeName} contains visible undefined or replacement char`);
-  }
-}
+const {
+  apiFetch,
+  assertNoMojibake,
+  replaceInputValue,
+  resolveForcePasswordChange,
+  safeScreenshot,
+  seedLoginState,
+  selectOptionByValue,
+  unwrapList,
+  verifyNavigationWarning,
+  withTimebox,
+} = createProcurementBrowserAuditHelpers({
+  appUrl: APP_URL,
+  captureScreenshot,
+  forbiddenMojibake: FORBIDDEN_MOJIBAKE,
+  getAuthToken: () => authToken,
+  loginUiAuditUser,
+  readBackTimeout: TIMEOUTS.readBack,
+  recordStep,
+  runId: RUN_ID,
+  runWithTimebox,
+  setAuthToken: (token) => { authToken = token; },
+  shotDir: SHOT_DIR,
+  timeouts: TIMEOUTS,
+});
 
 async function ensureReceiptLocation(page) {
   return withTimebox(page, 'ensure-procurement-receipt-location', TIMEOUTS.api, async () => {
@@ -345,18 +273,6 @@ async function createSupplier(page) {
       supplierName: supplier.name,
     });
   });
-}
-
-async function selectOptionByValue(locator, value) {
-  await locator.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
-  await locator.selectOption(String(value));
-}
-
-async function replaceInputValue(locator, value) {
-  await locator.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
-  await locator.click();
-  await locator.press(process.platform === 'darwin' ? 'Meta+A' : 'Control+A');
-  await locator.type(String(value));
 }
 
 async function createPurchaseOrder(page) {

@@ -202,6 +202,14 @@ function buildCommercialReport({ runId, runRoot, startedAt, runnerResult, parall
       })),
     },
     scopeGuardEvidence: scopeEvidence,
+    architectureEvidence: {
+      backendLayering: {
+        label: 'backend layering',
+        command: 'npm run audit:backend:layering',
+        status: 'separate-gate-required',
+        reason: 'Commercial route evidence does not replace backend controller/service boundary verification.',
+      },
+    },
     approvedSkillAndAgentSupport,
     aiGovernance: {
       status: 'future-only-matrix',
