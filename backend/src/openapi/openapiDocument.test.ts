@@ -137,4 +137,29 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.CollectionOverdueListItem).toBeDefined();
     expect(document.components.schemas.CollectionOverdueListResponse).toBeDefined();
   });
+
+  it('resolves every local schema reference after composing the document', () => {
+    const document = buildOpenApiDocument();
+    const schemaNames = new Set(Object.keys(document.components.schemas));
+    const unresolved = new Set<string>();
+
+    const visit = (value: unknown) => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (!value || typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key === '$ref' && typeof child === 'string' && child.startsWith('#/components/schemas/')) {
+          const schemaName = child.slice('#/components/schemas/'.length);
+          if (!schemaNames.has(schemaName)) unresolved.add(schemaName);
+        } else {
+          visit(child);
+        }
+      }
+    };
+
+    visit(document);
+    expect(Array.from(unresolved)).toEqual([]);
+  });
 });
