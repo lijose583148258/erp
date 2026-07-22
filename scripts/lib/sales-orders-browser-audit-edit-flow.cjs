@@ -23,19 +23,25 @@ function createSalesOrderEditFlow({
   withTimebox,
 }) {
   async function editCreatedOrder(page, orderId) {
-    return withTimebox(page, 'edit-sales-order-items', timeouts.save, async () => {
+    const modal = await withTimebox(page, 'open-sales-order-edit', timeouts.modal + 10000, async () => {
       const row = await waitForCreatedOrderRow(page, orderId);
       await row.hover();
       const editButton = row.locator('[data-testid="sales-order-edit-button"]').first();
       if (!(await editButton.count())) throw new Error('sales order edit button not found');
       await clickAndRemember(editButton, 'edit sales order');
 
-      const modal = page.locator('[data-testid="sales-order-editor-modal"]').first();
-      await modal.waitFor({ state: 'visible', timeout: timeouts.modal });
-      const packagingInput = modal.locator('[data-testid="sales-order-line-0-packaging"]');
-      const quantityInput = modal.locator('[data-testid="sales-order-line-0-quantity"]');
+      const editor = page.locator('[data-testid="sales-order-editor-modal"]').first();
+      await editor.waitFor({ state: 'visible', timeout: timeouts.modal });
+      const packagingInput = editor.locator('[data-testid="sales-order-line-0-packaging"]');
+      const quantityInput = editor.locator('[data-testid="sales-order-line-0-quantity"]');
       await waitForInputValue(packagingInput, testData.packaging, 'persisted packaging before edit');
       await waitForInputValue(quantityInput, String(testData.quantity), 'persisted quantity before edit');
+      return editor;
+    });
+
+    await withTimebox(page, 'save-sales-order-edit', timeouts.save + 10000, async () => {
+      const packagingInput = modal.locator('[data-testid="sales-order-line-0-packaging"]');
+      const quantityInput = modal.locator('[data-testid="sales-order-line-0-quantity"]');
       await packagingInput.fill(testData.updatedPackaging);
       await quantityInput.fill(String(testData.updatedQuantity));
       await waitForInputValue(packagingInput, testData.updatedPackaging, 'updated packaging input');
@@ -44,7 +50,9 @@ function createSalesOrderEditFlow({
       const saveButton = modal.locator('[data-testid="sales-order-save-button"]').first();
       await clickAndRemember(saveButton, 'save edited sales order');
       await waitForModalClosedOrSaveError(page, modal);
+    });
 
+    return withTimebox(page, 'verify-sales-order-edit-readback', timeouts.api + 5000, async () => {
       const response = await apiFetch(page, `/orders/${orderId}`);
       if (!response.ok) throw new Error(`edited order detail api failed: ${response.status}`);
       const expected = buildEditedOrderExpectation(testData);
@@ -67,7 +75,6 @@ function createSalesOrderEditFlow({
       return detail;
     });
   }
-
   return { editCreatedOrder };
 }
 

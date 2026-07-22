@@ -1,3 +1,4 @@
+const fs = require('node:fs');
 const assert = require('node:assert/strict');
 const { createSalesOrdersBrowserAuditRuntime } = require('./lib/sales-orders-browser-audit-runtime.cjs');
 const { buildEditedOrderExpectation } = require('./lib/sales-orders-browser-audit-edit-flow.cjs');
@@ -37,6 +38,11 @@ assert.deepEqual(
   { ...expected, updatedPackaging: 'EDIT-BOX', updatedQuantity: 7, packaging: 'EDIT-BOX', quantity: 7 },
 );
 assert.throws(() => buildEditedOrderExpectation(expected), /packaging fixture is required/);
+const editFlowSource = fs.readFileSync(require.resolve('./lib/sales-orders-browser-audit-edit-flow.cjs'), 'utf8');
+for (const stage of ['open-sales-order-edit', 'save-sales-order-edit', 'verify-sales-order-edit-readback']) {
+  assert.ok(editFlowSource.includes(stage), `missing bounded edit stage: ${stage}`);
+}
+assert.ok(!editFlowSource.includes("'edit-sales-order-items'"), 'monolithic edit timebox must stay removed');
 
 async function verifyRuntimeFailureEvidence() {
   const runtimeReport = { steps: [] };
