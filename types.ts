@@ -242,6 +242,7 @@ export interface SalesOrderItem {
   discount: number;
   taxAmount: number;
   amount: number;
+  notes?: string;
   isDimensional?: boolean;
   dimLength?: number;
   dimWidth?: number;

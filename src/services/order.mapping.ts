@@ -1,5 +1,5 @@
 import type { SalesOrder } from '../../types';
-import { toApiRecord, toNumberValue, toStringValue } from '../../utils/apiMapping';
+import { toApiRecord, toNumberValue, toOptionalString, toStringValue } from '../../utils/apiMapping';
 
 export const mapSalesOrderItem = (value: unknown): SalesOrder['items'][number] => {
     const orderItem = toApiRecord(value);
@@ -14,6 +14,7 @@ export const mapSalesOrderItem = (value: unknown): SalesOrder['items'][number] =
         discount: toNumberValue(orderItem.discount),
         taxAmount: toNumberValue(orderItem.taxAmount),
         amount: toNumberValue(orderItem.amount ?? orderItem.totalPrice),
+        notes: toOptionalString(orderItem.notes),
     };
 };
 

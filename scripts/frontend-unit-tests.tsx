@@ -72,9 +72,11 @@ const tests: FrontendUnitTest[] = [
         unit: 'kg',
         unitPrice: 99,
         totalPrice: 495,
+        notes: null,
       });
       assert.equal(item.packagingSpec, '25kg/drum');
       assert.equal(item.amount, 495);
+      assert.equal(item.notes, undefined);
     },
   },
   {
