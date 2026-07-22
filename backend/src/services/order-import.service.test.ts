@@ -24,6 +24,7 @@ function createHarness(customer: Record<string, unknown>, creditAllowed = true) 
   const tx = {
     customer: { update: jest.fn(async () => customer) },
     order: {
+      findFirst: jest.fn(async () => null),
       create: jest.fn(async () => ({ id: 91, orderNo: 'ORD-IMP-TEST' })),
     },
   } as unknown as Prisma.TransactionClient;
@@ -37,14 +38,20 @@ function createHarness(customer: Record<string, unknown>, creditAllowed = true) 
   const runTransaction = (
     jest.fn(async (operation: (client: Prisma.TransactionClient) => Promise<unknown>) => operation(tx))
   ) as unknown as OrderImportDependencies['runTransaction'];
+  const idempotency = {
+    claim: jest.fn(async () => ({ kind: 'owner' as const, batchId: 71, leaseToken: 'lease-test' })),
+    renewLease: jest.fn(async () => true),
+    complete: jest.fn(async () => undefined),
+  };
   const service = new OrderImportService({
     runTransaction,
     checkCredit,
     scheduleOrderSync,
     writeAuditLog,
     buildOrderNo: () => 'ORD-IMP-TEST',
+    idempotency,
   });
-  return { service, tx, checkCredit, scheduleOrderSync, writeAuditLog, runTransaction };
+  return { service, tx, checkCredit, scheduleOrderSync, writeAuditLog, runTransaction, idempotency };
 }
 
 describe('order import governance', () => {
@@ -64,7 +71,7 @@ describe('order import governance', () => {
       dataScopes: ['own_customers'],
     });
 
-    const response = await harness.service.importOrders(importPayload(20), req);
+    const response = await harness.service.importOrders(importPayload(20), req, 'idem-test-20');
 
     const result = requireResult(response);
     expect(result).toMatchObject({ success: 0, failed: 1 });
@@ -72,6 +79,7 @@ describe('order import governance', () => {
     expect(harness.checkCredit).not.toHaveBeenCalled();
     expect(harness.tx.order.create).not.toHaveBeenCalled();
     expect(harness.scheduleOrderSync).not.toHaveBeenCalled();
+    expect(harness.idempotency.renewLease).toHaveBeenCalledWith(71, 'lease-test');
   });
 
   it('runs customer locking, credit validation, order creation, search sync, and audit for an allowed row', async () => {
@@ -90,7 +98,7 @@ describe('order import governance', () => {
       dataScopes: ['team_customers'],
     });
 
-    const response = await harness.service.importOrders(importPayload(21), req);
+    const response = await harness.service.importOrders(importPayload(21), req, 'idem-test-21');
 
     expect(requireResult(response)).toMatchObject({ success: 1, failed: 0, imported: 1 });
     expect(harness.tx.customer.update).toHaveBeenCalledWith(expect.objectContaining({
@@ -104,6 +112,8 @@ describe('order import governance', () => {
         totalAmount: 50,
         finalAmount: 50,
         createdBy: 10,
+        importBatchId: 71,
+        importRowNumber: 1,
       }),
     }));
     expect(harness.scheduleOrderSync).toHaveBeenCalledWith(91);
@@ -112,6 +122,7 @@ describe('order import governance', () => {
       action: 'IMPORT',
       resource: 'order',
     }));
+    expect(harness.idempotency.complete).toHaveBeenCalledWith(71, 'lease-test', expect.objectContaining({ success: 1 }));
   });
 
   it('preserves the row failure when customer credit validation rejects the import', async () => {
@@ -130,7 +141,7 @@ describe('order import governance', () => {
       dataScopes: ['own_customers'],
     });
 
-    const response = await harness.service.importOrders(importPayload(22), req);
+    const response = await harness.service.importOrders(importPayload(22), req, 'idem-test-22');
 
     const result = requireResult(response);
     expect(result).toMatchObject({ success: 0, failed: 1 });
@@ -156,7 +167,7 @@ describe('order import governance', () => {
     });
     const response = await harness.service.importOrders(importPayload(23, {
       items: [{ productName: 'Resin A', quantity: -1, unitPrice: 25 }],
-    }), req);
+    }), req, 'idem-test-23');
 
     const result = requireResult(response);
     expect(result).toMatchObject({ success: 0, failed: 1 });
@@ -164,6 +175,7 @@ describe('order import governance', () => {
     expect(harness.tx.customer.update).not.toHaveBeenCalled();
     expect(harness.tx.order.create).not.toHaveBeenCalled();
     expect(harness.runTransaction).not.toHaveBeenCalled();
+    expect(harness.idempotency.renewLease).not.toHaveBeenCalled();
   });
 
   it('keeps a committed row successful when the follow-up audit write fails', async () => {
@@ -183,11 +195,55 @@ describe('order import governance', () => {
       dataScopes: ['own_customers'],
     });
 
-    const response = await harness.service.importOrders(importPayload(24), req);
+    const response = await harness.service.importOrders(importPayload(24), req, 'idem-test-24');
 
     expect(requireResult(response)).toMatchObject({ success: 1, failed: 0, imported: 1 });
     expect(harness.tx.order.create).toHaveBeenCalledTimes(1);
     expect(harness.scheduleOrderSync).toHaveBeenCalledWith(91);
     expect(harness.writeAuditLog).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns a completed exact replay without opening a transaction or duplicating audit', async () => {
+    const harness = createHarness({});
+    (harness.idempotency.claim as jest.Mock).mockResolvedValueOnce({
+      kind: 'replay',
+      batchId: 71,
+      result: { success: 1, failed: 0, errors: [], attempted: 1, imported: 1 },
+    });
+    const req = requestFor({
+      userId: 10, username: 'direct-manager', role: 'manager', segment: 'direct', dataScopes: ['team_customers'],
+    });
+
+    const response = await harness.service.importOrders(importPayload(25), req, 'idem-replay-25');
+
+    expect(requireResult(response)).toMatchObject({ success: 1, failed: 0 });
+    expect('replayed' in response && response.replayed).toBe(true);
+    expect(harness.runTransaction).not.toHaveBeenCalled();
+    expect(harness.writeAuditLog).not.toHaveBeenCalled();
+  });
+
+  it('rejects an in-progress or payload-mismatched key before business writes', async () => {
+    const harness = createHarness({});
+    (harness.idempotency.claim as jest.Mock).mockResolvedValueOnce({ kind: 'conflict', message: 'payload mismatch' });
+    const req = requestFor({
+      userId: 10, username: 'direct-manager', role: 'manager', segment: 'direct', dataScopes: ['team_customers'],
+    });
+
+    const response = await harness.service.importOrders(importPayload(26), req, 'idem-conflict-26');
+
+    expect(response).toEqual({ error: 'payload mismatch', statusCode: 409 });
+    expect(harness.runTransaction).not.toHaveBeenCalled();
+  });
+
+  it('leaves transient infrastructure failures resumable instead of storing a false completed result', async () => {
+    const harness = createHarness({});
+    (harness.tx.customer.update as jest.Mock).mockRejectedValueOnce(new Error('database unavailable'));
+    const req = requestFor({
+      userId: 10, username: 'direct-manager', role: 'manager', segment: 'direct', dataScopes: ['team_customers'],
+    });
+
+    await expect(harness.service.importOrders(importPayload(27), req, 'idem-infra-27'))
+      .rejects.toThrow('database unavailable');
+    expect(harness.idempotency.complete).not.toHaveBeenCalled();
   });
 });

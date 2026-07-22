@@ -88,10 +88,13 @@ model Order {
   createdBy       Int       @map("created_by")
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
+  importBatchId   Int?      @map("import_batch_id")
+  importRowNumber Int?      @map("import_row_number")
 
   // 关联
   customer        Customer  @relation(fields: [customerId], references: [id])
   creator         User      @relation(fields: [createdBy], references: [id])
+  importBatch     OrderImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
   items           OrderItem[]
   shipments       Shipment[]
   purchaseOrders  PurchaseOrder[]
@@ -114,6 +117,7 @@ model Order {
   shipmentHoldSource String? @map("shipment_hold_source")
   shipmentHoldUpdatedAt DateTime? @map("shipment_hold_updated_at")
 
+  @@unique([importBatchId, importRowNumber])
   @@index([customerId])
   @@index([status])
   @@index([paymentStatus])
@@ -122,6 +126,26 @@ model Order {
   @@index([createdAt])
   @@index([status, createdAt]) // 复合索引：优化状态筛选+时间排序
   @@map("orders")
+}
+
+model OrderImportBatch {
+  id             Int      @id @default(autoincrement())
+  userId         Int      @map("user_id")
+  idempotencyKey String   @map("idempotency_key")
+  fingerprint    String
+  status         String   @default("processing")
+  leaseToken     String   @map("lease_token")
+  leaseExpiresAt DateTime @map("lease_expires_at")
+  resultJson     String?  @map("result_json")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orders Order[]
+
+  @@unique([userId, idempotencyKey])
+  @@index([status, leaseExpiresAt])
+  @@map("order_import_batches")
 }
 
 // 订单明细表

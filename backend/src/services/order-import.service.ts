@@ -12,6 +12,11 @@ import { CreditEngine } from '../utils/CreditEngine';
 import { withDbRetry } from '../utils/dbRetry';
 import { logger } from '../utils/logger';
 import { canUseCustomerForBusinessWrite } from '../utils/recordAccess';
+import {
+  buildOrderImportFingerprint,
+  orderImportIdempotencyService,
+  type OrderImportIdempotencyService,
+} from './order-import-idempotency.service';
 import { SearchIndexService } from './search-index.service';
 
 type ImportOrderRow = {
@@ -37,12 +42,20 @@ export type OrderImportDependencies = {
   scheduleOrderSync: (orderId: number) => void;
   writeAuditLog: (data: Prisma.AuditLogUncheckedCreateInput) => Promise<void>;
   buildOrderNo: () => string;
+  idempotency: Pick<OrderImportIdempotencyService, 'claim' | 'renewLease' | 'complete'>;
 };
 
 class OrderImportRowError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'OrderImportRowError';
+  }
+}
+
+class OrderImportLeaseLostError extends Error {
+  constructor() {
+    super('Order import lease was lost; retry with the same Idempotency-Key.');
+    this.name = 'OrderImportLeaseLostError';
   }
 }
 
@@ -108,12 +121,17 @@ const defaultDependencies: OrderImportDependencies = {
   scheduleOrderSync: orderId => SearchIndexService.scheduleOrderSync(orderId),
   writeAuditLog: data => prisma.auditLog.create({ data }).then(() => undefined),
   buildOrderNo: () => buildBusinessNo('ORD-IMP'),
+  idempotency: orderImportIdempotencyService,
 };
 
 export class OrderImportService {
   constructor(private readonly dependencies: OrderImportDependencies = defaultDependencies) {}
 
-  private async createRow(row: ImportOrderRow, req: AuthRequest) {
+  private async createRow(
+    row: ImportOrderRow,
+    req: AuthRequest,
+    batch: { id: number; leaseToken: string; rowNumber: number },
+  ) {
     const actor = req.user;
     if (!actor) throw new OrderImportRowError('Authenticated user is required.');
 
@@ -128,9 +146,17 @@ export class OrderImportService {
     }
 
     const { orderItems, totalAmount } = buildImportItems(row.items);
-    const orderNo = this.dependencies.buildOrderNo();
+    if (!(await this.dependencies.idempotency.renewLease(batch.id, batch.leaseToken))) {
+      throw new OrderImportLeaseLostError();
+    }
 
     return this.dependencies.runTransaction(async (tx) => {
+      const existingOrder = await tx.order.findFirst({
+        where: { importBatchId: batch.id, importRowNumber: batch.rowNumber },
+        select: { id: true, orderNo: true },
+      });
+      if (existingOrder) return existingOrder;
+
       const customer = await tx.customer.update({
         where: { id: customerId },
         data: { updatedAt: new Date() },
@@ -162,7 +188,7 @@ export class OrderImportService {
 
       return tx.order.create({
         data: {
-          orderNo,
+          orderNo: this.dependencies.buildOrderNo(),
           customerId,
           totalAmount,
           discountAmount: 0,
@@ -170,6 +196,8 @@ export class OrderImportService {
           paymentTerms,
           status: 'pending',
           createdBy: actor.userId,
+          importBatchId: batch.id,
+          importRowNumber: batch.rowNumber,
           items: { create: orderItems },
         },
         select: { id: true, orderNo: true },
@@ -177,9 +205,19 @@ export class OrderImportService {
     });
   }
 
-  async importOrders(orders: unknown, req: AuthRequest) {
+  async importOrders(orders: unknown, req: AuthRequest, idempotencyKey: string) {
     const normalizedOrders = normalizeRows(orders);
     if (normalizedOrders.length === 0) return { error: 'Please provide order data.' } as const;
+    if (!req.user) return { error: 'Authenticated user is required.' } as const;
+
+    const fingerprint = buildOrderImportFingerprint(normalizedOrders);
+    const claim = await this.dependencies.idempotency.claim(req.user.userId, idempotencyKey, fingerprint);
+    if (claim.kind === 'conflict' || claim.kind === 'in_progress') {
+      return { error: claim.message, statusCode: 409 } as const;
+    }
+    if (claim.kind === 'replay') {
+      return { result: claim.result, replayed: true } as const;
+    }
 
     const result: ImportResult = createImportResult();
     result.attempted = normalizedOrders.length;
@@ -189,18 +227,26 @@ export class OrderImportService {
     const limitedOrders = normalizedOrders.slice(0, BATCH_IMPORT_LIMIT);
     for (let index = 0; index < limitedOrders.length; index += 1) {
       try {
-        const created = await this.createRow(limitedOrders[index], req);
+        const created = await this.createRow(limitedOrders[index], req, {
+          id: claim.batchId,
+          leaseToken: claim.leaseToken,
+          rowNumber: index + 1,
+        });
         result.success += 1;
         result.imported = result.success;
         this.dependencies.scheduleOrderSync(created.id);
       } catch (error) {
+        if (error instanceof OrderImportLeaseLostError) throw error;
+        if (!(error instanceof OrderImportRowError)) throw error;
         result.failed += 1;
         result.errors.push({
           row: index + 1,
-          message: error instanceof OrderImportRowError ? error.message : 'Failed to create order.',
+          message: error.message,
         });
       }
     }
+
+    await this.dependencies.idempotency.complete(claim.batchId, claim.leaseToken, result);
 
     if (req.user) {
       try {

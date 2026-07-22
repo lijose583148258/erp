@@ -37,6 +37,7 @@ const request = async (endpoint, options = {}) => {
     headers: {
       'content-type': 'application/json',
       ...(options.token ? { authorization: `Bearer ${options.token}` } : {}),
+      ...(options.headers || {}),
     },
     body: options.data === undefined ? undefined : JSON.stringify(options.data),
     signal: AbortSignal.timeout(15_000),
@@ -95,9 +96,10 @@ const createCustomer = async (token, suffix, overrides = {}) => {
   return customer;
 };
 
-const importOne = (token, customerId, productName, overrides = {}) => request('/orders/import', {
+const importOne = (token, customerId, productName, overrides = {}, idempotencyKey = `import-${productName}`) => request('/orders/import', {
   method: 'POST',
   token,
+  headers: { 'idempotency-key': idempotencyKey.slice(0, 80) },
   data: {
     orders: [{
       customerId: Number(customerId),
@@ -190,6 +192,52 @@ const main = async () => {
     persistedRows: 1,
     orderId: acceptedRows[0].order.id,
     finalAmount: Number(acceptedRows[0].order.finalAmount),
+  });
+
+  const replayKey = `import-replay-${runId}`;
+  const replayProduct = `IMPORT-GOV-REPLAY-${runId}`;
+  const firstReplay = await importOne(manager.token, directCustomer.id, replayProduct, {}, replayKey);
+  expectStatus('create-idempotent-import', firstReplay, 200);
+  const exactReplay = await importOne(manager.token, directCustomer.id, replayProduct, {}, replayKey);
+  expectStatus('exact-idempotent-replay', exactReplay, 200);
+  const replayRows = await readOrderItems(replayProduct);
+  expect(replayRows.length === 1, 'exact replay duplicated an order', { count: replayRows.length });
+  record('exact-replay-database-readback', { persistedRows: 1, orderId: replayRows[0].order.id });
+
+  const mismatchedReplay = await importOne(
+    manager.token,
+    directCustomer.id,
+    replayProduct,
+    { unitPrice: 126 },
+    replayKey,
+  );
+  expectStatus('reject-idempotency-key-payload-mismatch', mismatchedReplay, 409);
+  const mismatchRows = await readOrderItems(replayProduct);
+  expect(mismatchRows.length === 1, 'payload mismatch created another order', { count: mismatchRows.length });
+  record('payload-mismatch-database-readback', { persistedRows: 1 });
+
+  const concurrentKey = `import-concurrent-${runId}`;
+  const concurrentProduct = `IMPORT-GOV-CONCURRENT-${runId}`;
+  const concurrentResponses = await Promise.all([
+    importOne(manager.token, directCustomer.id, concurrentProduct, {}, concurrentKey),
+    importOne(manager.token, directCustomer.id, concurrentProduct, {}, concurrentKey),
+  ]);
+  const concurrentStatuses = concurrentResponses.map(response => response.status).sort();
+  expect(
+    concurrentStatuses.every(status => status === 200 || status === 409)
+      && concurrentStatuses.includes(200),
+    'concurrent exact retries returned an unexpected status combination',
+    concurrentResponses.map(response => ({ status: response.status, body: response.json })),
+  );
+  const concurrentRows = await readOrderItems(concurrentProduct);
+  expect(concurrentRows.length === 1, 'concurrent exact retries duplicated an order', {
+    count: concurrentRows.length,
+    statuses: concurrentStatuses,
+  });
+  record('concurrent-exact-retry-database-readback', {
+    httpStatuses: concurrentStatuses,
+    persistedRows: 1,
+    orderId: concurrentRows[0].order.id,
   });
 
   const creditDeniedProduct = `IMPORT-GOV-CREDIT-DENIED-${runId}`;

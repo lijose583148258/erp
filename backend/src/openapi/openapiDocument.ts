@@ -194,6 +194,27 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/orders/import`] = {
+      post: {
+        tags: ['Orders'],
+        summary: 'Import sales orders idempotently',
+        description: 'Imports up to 500 orders. Exact retries with the same Idempotency-Key and payload return the stored result; key reuse with a different payload returns 409. Requires orders.import.',
+        security: secured(true),
+        parameters: [{
+          name: 'Idempotency-Key',
+          in: 'header',
+          required: true,
+          description: 'Caller-generated key, 8-80 characters. Keep it stable for an exact network retry.',
+          schema: { type: 'string', minLength: 8, maxLength: 80, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$' },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', required: ['orders'], properties: { orders: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'object' } } } } } },
+        },
+        responses: writeResponses,
+      },
+    };
+
     paths[`${prefix}/collections/overdue`] = {
       get: {
         tags: ['Collections'],

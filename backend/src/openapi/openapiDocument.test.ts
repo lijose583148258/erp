@@ -111,6 +111,17 @@ describe('OpenAPI contract foundation', () => {
       .toBe('^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$');
   });
 
+  it('documents the persistent order import idempotency contract', () => {
+    const document = buildOpenApiDocument() as any;
+    for (const prefix of ['/api', '/api/v1']) {
+      const operation = document.paths[`${prefix}/orders/import`].post;
+      expect(operation.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+      ]));
+      expect(operation.responses['409']).toBeDefined();
+    }
+  });
+
   it('documents the overdue collection read model as an endpoint-level contract', () => {
     const document = buildOpenApiDocument();
     const overdue = document.paths['/api/v1/collections/overdue']?.get;

@@ -12,6 +12,7 @@ import { publishRealtimeNotification } from '../services/realtime-notification.s
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { orderImportService } from '../services/order-import.service';
+import { normalizeOrderImportIdempotencyKey } from '../services/order-import-idempotency.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
@@ -456,10 +457,17 @@ export class OrderController {
     async importOrders(req: AuthRequest, res: Response) {
         try {
             const { orders } = req.body;
-            const result = await orderImportService.importOrders(orders, req);
+            const idempotencyKey = normalizeOrderImportIdempotencyKey(req.get('idempotency-key'));
+            if (!idempotencyKey) {
+                return res.status(400).json({
+                    success: false,
+                    message: 'A valid Idempotency-Key header (8-80 characters) is required.',
+                } as ApiResponse);
+            }
+            const result = await orderImportService.importOrders(orders, req, idempotencyKey);
 
             if ('error' in result) {
-                return res.status(400).json({
+                return res.status(result.statusCode || 400).json({
                     success: false,
                     message: result.error,
                 } as ApiResponse);
@@ -468,7 +476,7 @@ export class OrderController {
             return res.json({
                 success: true,
                 data: result.result,
-                message: `导入完成：成功 ${result.result.success} 条，失败 ${result.result.failed} 条`,
+                message: `${result.replayed ? '幂等重放：' : '导入完成：'}成功 ${result.result.success} 条，失败 ${result.result.failed} 条`,
             } as ApiResponse);
         } catch (error) {
             logger.error('Failed to import orders:', error);
