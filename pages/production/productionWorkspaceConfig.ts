@@ -119,6 +119,7 @@ export const newBomItems = (count = 10): BomItemDraft[] =>
   Array.from({ length: count }, () => newBomItem());
 
 export const newStep = (title = ''): StepDraft => ({ title, operatorName: '', note: '' });
+export const createInitialWorkOrderSteps = () => [newStep('备料'), newStep('生产'), newStep('质检')];
 
 export const WO_LABELS: Record<ProductionWorkOrderStatus, string> = {
   draft: '草稿',

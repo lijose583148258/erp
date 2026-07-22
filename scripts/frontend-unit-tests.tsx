@@ -31,6 +31,13 @@ import {
   normalizeRoleValue,
   parseBomPasteText,
 } from '../pages/production/productionBomLineModel';
+import {
+  validateAdjustmentForm,
+  validateBomForm,
+  validateQualityForm,
+  validateWorkOrderForm,
+} from '../pages/production/productionWorkspaceSave';
+import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 
 type FrontendUnitTest = {
   name: string;
@@ -38,6 +45,42 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'production workspace validators preserve save boundaries',
+    run: () => {
+      const bom = validateBomForm({
+        productName: '',
+        outputUnit: '',
+        formulationMode: 'percentage',
+        standardBatchSizeInput: '0',
+        percentageSummary: 99,
+        effectiveItemCount: 2,
+        bomType: 'chemical_formula',
+      });
+      assert.equal(bom.standardBatchSize, 0);
+      assert.equal(bom.errors.productName, '请填写产品名称');
+      assert.equal(bom.errors.outputUnit, '请填写输出单位');
+      assert.ok(bom.errors.standardBatchSize);
+      assert.ok(bom.errors.percentage);
+      assert.ok(bom.errors.items);
+
+      const workOrder = validateWorkOrderForm({ productName: '树脂', targetQuantityInput: '0' });
+      assert.equal(workOrder.targetQuantity, 0);
+      assert.ok(workOrder.errors.targetQuantity);
+
+      const quality = validateQualityForm({ result: 'fail', defectRateInput: '101', checkedBy: '' });
+      assert.equal(quality.defectRateValue, 101);
+      assert.ok(quality.errors.defectRate);
+      assert.ok(quality.errors.checkedBy);
+
+      const adjustment = validateAdjustmentForm({ hasBatch: false, quantityInput: '-1', reason: '' });
+      assert.equal(adjustment.quantity, -1);
+      assert.ok(adjustment.errors.batch);
+      assert.ok(adjustment.errors.quantity);
+      assert.ok(adjustment.errors.reason);
+      assert.deepEqual(createInitialWorkOrderSteps().map((step) => step.title), ['备料', '生产', '质检']);
+    },
+  },
   {
     name: 'production BOM model normalizes rows and parses batch paste quantities',
     run: () => {
