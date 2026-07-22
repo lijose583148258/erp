@@ -60,6 +60,10 @@ function assertPaymentReadback(order, payment, expected, baselinePaidAmount) {
   }
 }
 
+function isIgnorableRequestFailure(url, failure) {
+  return /\/api\/(?:v1\/)?rum\/vitals(?:\?|$)/.test(String(url || ''))
+    && String(failure || '').includes('ERR_ABORTED');
+}
 function assertBrowserRuntimeClean(report) {
   const failures = [
     ...(report.consoleErrors || []).map((message) => `console: ${message}`),
@@ -79,4 +83,4 @@ function extractMarker(rowText) {
   return line.trim().slice(0, 32);
 }
 
-module.exports = { assertBrowserRuntimeClean, assertCreatedOrderReadback, assertPaymentReadback, extractMarker };
+module.exports = { assertBrowserRuntimeClean, assertCreatedOrderReadback, assertPaymentReadback, extractMarker, isIgnorableRequestFailure };

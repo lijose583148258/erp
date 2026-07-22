@@ -6,6 +6,7 @@ const {
   assertBrowserRuntimeClean,
   assertCreatedOrderReadback,
   assertPaymentReadback,
+  isIgnorableRequestFailure,
 } = require('./lib/sales-orders-browser-audit-assertions.cjs');
 
 const expected = {
@@ -33,6 +34,10 @@ assert.throws(() => assertPaymentReadback(detail, { ...payment, amount: 12 }, ex
 assert.throws(() => assertPaymentReadback(detail, { ...payment, status: 'verified' }, expected, 0), /must remain pending/);
 assert.doesNotThrow(() => assertBrowserRuntimeClean({ consoleErrors: [], pageErrors: [], failedApiRequests: [], serverApiFailures: [] }));
 assert.throws(() => assertBrowserRuntimeClean({ consoleErrors: ['boom'] }), /runtime errors/);
+assert.equal(isIgnorableRequestFailure('http://app/api/rum/vitals', 'net::ERR_ABORTED'), true);
+assert.equal(isIgnorableRequestFailure('http://app/api/v1/rum/vitals', 'net::ERR_ABORTED'), true);
+assert.equal(isIgnorableRequestFailure('http://app/api/orders', 'net::ERR_ABORTED'), false);
+assert.equal(isIgnorableRequestFailure('http://app/api/rum/vitals', 'net::ERR_CONNECTION_RESET'), false);
 assert.deepEqual(
   buildEditedOrderExpectation({ ...expected, updatedPackaging: 'EDIT-BOX', updatedQuantity: 7 }),
   { ...expected, updatedPackaging: 'EDIT-BOX', updatedQuantity: 7, packaging: 'EDIT-BOX', quantity: 7 },

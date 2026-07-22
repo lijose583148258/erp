@@ -10,6 +10,7 @@ const {
   assertCreatedOrderReadback,
   assertPaymentReadback,
   extractMarker,
+  isIgnorableRequestFailure,
 } = require('./lib/sales-orders-browser-audit-assertions.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
@@ -519,7 +520,10 @@ async function main() {
     });
     page.on('requestfailed', (request) => {
       if (request.url().includes('/api/')) {
-        report.failedApiRequests.push({ url: request.url(), failure: request.failure()?.errorText || 'request failed' });
+        const failure = request.failure()?.errorText || 'request failed';
+        if (!isIgnorableRequestFailure(request.url(), failure)) {
+          report.failedApiRequests.push({ url: request.url(), failure });
+        }
       }
     });
     page.on('response', (response) => {
