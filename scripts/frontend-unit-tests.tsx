@@ -24,6 +24,13 @@ import {
   statusBadge,
 } from '../pages/collections/collectionCenter.helpers';
 import { serializeServerStateKey, serverStateClient } from '../app/serverState';
+import {
+  getEffectiveBomQuantityPerUnit,
+  isEffectiveBomItemDraft,
+  normalizeDosageValue,
+  normalizeRoleValue,
+  parseBomPasteText,
+} from '../pages/production/productionBomLineModel';
 
 type FrontendUnitTest = {
   name: string;
@@ -31,6 +38,25 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'production BOM model normalizes rows and parses batch paste quantities',
+    run: () => {
+      assert.equal(normalizeRoleValue('主树脂'), 'main_resin');
+      assert.equal(normalizeDosageValue('按百分比'), 'percentage');
+
+      const parsed = parseBomPasteText(
+        '树脂\tR-1\t主树脂\t按百分比\t20\t200\tkg\n助剂\tA-1\t助剂\t固定单耗\t\t3.5\tkg',
+        1000,
+      );
+      assert.equal(parsed.importedItems.length, 2);
+      assert.equal(parsed.importedItems[0]?.quantityPerUnit, '0.2');
+      assert.equal(parsed.importedItems[1]?.quantityPerUnit, '3.5');
+      assert.equal(parsed.conversionNotices.length, 1);
+      assert.equal(getEffectiveBomQuantityPerUnit(parsed.importedItems[0]!), 0.2);
+      assert.equal(isEffectiveBomItemDraft(parsed.importedItems[0]!), true);
+      assert.equal(isEffectiveBomItemDraft({ ...parsed.importedItems[0]!, materialName: '', materialCode: '' }), false);
+    },
+  },
   {
     name: 'status badge logic normalizes status and maps risk tones',
     run: () => {

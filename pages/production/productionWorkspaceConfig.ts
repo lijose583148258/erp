@@ -1,6 +1,6 @@
 import type { ProductionWorkOrderStatus } from '../../services/production.service';
 import type { WorkspaceTaskNavigatorItem } from '../../components/ui/WorkspaceTaskNavigator';
-import type { BomItemDraft } from './ProductionBomLineGrid';
+import type { BomItemDraft } from './productionBomLineModel';
 
 export type ProductionDeskTab = 'bom' | 'workOrders' | 'batches';
 export type BatchStatusFilter = 'all' | 'healthy' | 'expiring' | 'expired';

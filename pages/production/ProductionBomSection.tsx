@@ -1,7 +1,8 @@
 import React, { Dispatch, SetStateAction } from 'react';
 import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
 import { ProductionBom } from '../../services/production.service';
-import { ProductionBomLineGrid, type BomItemDraft } from './ProductionBomLineGrid';
+import { ProductionBomLineGrid } from './ProductionBomLineGrid';
+import type { BomItemDraft } from './productionBomLineModel';
 import { buildBomDraftPreviewSummary } from './ProductionWorkspaceDerived';
 import {
   BOM_STATUS_LABELS,
