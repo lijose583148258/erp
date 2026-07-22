@@ -16,3 +16,10 @@ export const mapSalesOrderItem = (value: unknown): SalesOrder['items'][number] =
         amount: toNumberValue(orderItem.amount ?? orderItem.totalPrice),
     };
 };
+
+export const buildSalesOrderUpdatePayload = (order: SalesOrder) => ({
+    ...order,
+    customerId: Number(order.customerId),
+    paymentTerms: order.paymentTermsDays,
+    contractId: order.contractId ? Number(order.contractId) : null,
+});

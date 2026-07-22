@@ -1,5 +1,6 @@
 const assert = require('node:assert/strict');
 const { createSalesOrdersBrowserAuditRuntime } = require('./lib/sales-orders-browser-audit-runtime.cjs');
+const { buildEditedOrderExpectation } = require('./lib/sales-orders-browser-audit-edit-flow.cjs');
 const {
   assertBrowserRuntimeClean,
   assertCreatedOrderReadback,
@@ -31,6 +32,11 @@ assert.throws(() => assertPaymentReadback(detail, { ...payment, amount: 12 }, ex
 assert.throws(() => assertPaymentReadback(detail, { ...payment, status: 'verified' }, expected, 0), /must remain pending/);
 assert.doesNotThrow(() => assertBrowserRuntimeClean({ consoleErrors: [], pageErrors: [], failedApiRequests: [], serverApiFailures: [] }));
 assert.throws(() => assertBrowserRuntimeClean({ consoleErrors: ['boom'] }), /runtime errors/);
+assert.deepEqual(
+  buildEditedOrderExpectation({ ...expected, updatedPackaging: 'EDIT-BOX', updatedQuantity: 7 }),
+  { ...expected, updatedPackaging: 'EDIT-BOX', updatedQuantity: 7, packaging: 'EDIT-BOX', quantity: 7 },
+);
+assert.throws(() => buildEditedOrderExpectation(expected), /packaging fixture is required/);
 
 async function verifyRuntimeFailureEvidence() {
   const runtimeReport = { steps: [] };

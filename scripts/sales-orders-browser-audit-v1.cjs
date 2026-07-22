@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { createSalesOrdersBrowserAuditRuntime } = require('./lib/sales-orders-browser-audit-runtime.cjs');
@@ -39,7 +39,9 @@ const TEST_DATA = {
   customerName: `SO-AUDIT-CUST-${runId}`,
   productName: `SO-AUDIT-PROD-${runId}`,
   packaging: `BOX-${runId.slice(-4)}`,
+  updatedPackaging: `EDIT-BOX-${runId.slice(-4)}`,
   quantity: 5,
+  updatedQuantity: 7,
   unit: 'kg',
   unitPrice: 99,
   taxAmount: 0,
@@ -542,6 +544,8 @@ async function main() {
     report.status = 'passed';
   } catch (error) {
     markReportFromLaunchError(report, error);
+    const annotation = String(error?.message || error).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    console.error(`::error file=scripts/sales-orders-browser-audit-v1.cjs,line=1,title=Sales orders browser audit::${annotation}`);
     if (report.status !== 'blocked_env') {
       process.exitCode = 1;
     }

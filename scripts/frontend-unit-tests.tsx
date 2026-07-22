@@ -38,7 +38,7 @@ import {
   validateWorkOrderForm,
 } from '../pages/production/productionWorkspaceSave';
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
-import { mapSalesOrderItem } from '../src/services/order.mapping';
+import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
 
 type FrontendUnitTest = {
   name: string;
@@ -46,6 +46,21 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'sales order update payload maps payment terms to the backend contract',
+    run: () => {
+      const payload = buildSalesOrderUpdatePayload({
+        id: '42',
+        customerId: '7',
+        paymentTermsDays: 45,
+        contractId: '',
+        items: [],
+      } as any);
+      assert.equal(payload.customerId, 7);
+      assert.equal(payload.paymentTerms, 45);
+      assert.equal(payload.contractId, null);
+    },
+  },
   {
     name: 'sales order mapping restores packaging from the canonical specification field',
     run: () => {

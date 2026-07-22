@@ -1,3 +1,13 @@
+function buildEditedOrderExpectation(testData) {
+  const updatedPackaging = String(testData.updatedPackaging || '').trim();
+  const updatedQuantity = Number(testData.updatedQuantity);
+  if (!updatedPackaging) throw new Error('updated sales order packaging fixture is required');
+  if (!Number.isFinite(updatedQuantity) || updatedQuantity <= 0) {
+    throw new Error('updated sales order quantity fixture must be positive');
+  }
+  return { ...testData, packaging: updatedPackaging, quantity: updatedQuantity };
+}
+
 function createSalesOrderEditFlow({
   testData,
   report,
@@ -37,11 +47,7 @@ function createSalesOrderEditFlow({
 
       const response = await apiFetch(page, `/orders/${orderId}`);
       if (!response.ok) throw new Error(`edited order detail api failed: ${response.status}`);
-      const expected = {
-        ...testData,
-        packaging: testData.updatedPackaging,
-        quantity: testData.updatedQuantity,
-      };
+      const expected = buildEditedOrderExpectation(testData);
       const detail = response.json?.data;
       const line = assertCreatedOrderReadback(detail, expected, report.seedCustomer);
       report.editedOrder = {
@@ -65,4 +71,4 @@ function createSalesOrderEditFlow({
   return { editCreatedOrder };
 }
 
-module.exports = { createSalesOrderEditFlow };
+module.exports = { buildEditedOrderExpectation, createSalesOrderEditFlow };
