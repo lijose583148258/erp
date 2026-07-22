@@ -283,19 +283,19 @@ export const useSalesOrders = () => {
             let savedOrder: SalesOrder;
             if (isEditMode) {
                 savedOrder = await orderService.update(orderPayload, currentUser.name);
-                await loadOrderWorkspace({ force: true });
-                upsertOrder(savedOrder);
                 notify('success', '订单更新成功，变更已记录。');
             } else {
                 savedOrder = await orderService.create(orderPayload);
-                await loadOrderWorkspace({ force: true });
-                upsertOrder(savedOrder);
                 notify('success', '销售订单创建成功。');
             }
+            upsertOrder(savedOrder);
             clearDraft();
             setOrderLineErrors({});
             setIsCreateOpen(false);
             setFormData(initialOrderForm);
+            void loadOrderWorkspace({ force: true }).catch((error) => {
+                notify('error', error instanceof Error ? `订单列表刷新失败：${error.message}` : '订单列表刷新失败，请手动刷新。');
+            });
         } catch (error) {
             notify('error', error instanceof Error ? `订单保存失败：${error.message}` : '订单保存失败，请检查网络或稍后重试。');
         } finally {

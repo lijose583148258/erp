@@ -544,7 +544,13 @@ async function main() {
     report.status = 'passed';
   } catch (error) {
     markReportFromLaunchError(report, error);
-    const annotation = String(error?.message || error).replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    const diagnostic = [
+      String(error?.message || error),
+      report.lastApiResponseStatus ? `last api status=${report.lastApiResponseStatus}` : '',
+      report.lastApiResponseBody ? `last api body=${report.lastApiResponseBody}` : '',
+      report.consoleErrors?.length ? `console=${report.consoleErrors.slice(-3).join(' | ')}` : '',
+    ].filter(Boolean).join(' | ');
+    const annotation = diagnostic.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
     console.error(`::error file=scripts/sales-orders-browser-audit-v1.cjs,line=1,title=Sales orders browser audit::${annotation}`);
     if (report.status !== 'blocked_env') {
       process.exitCode = 1;

@@ -168,6 +168,7 @@ function createSalesOrdersBrowserAuditRuntime({ appUrl, auditAccount, testData, 
 
   async function waitForModalClosedOrSaveError(page, modal) {
     const started = Date.now();
+    const baselineApiResponseUrl = report.lastApiResponseUrl || null;
     const errorSummary = modal.locator('[data-testid="sales-order-line-error-summary"]').first();
     const lineError = modal.locator('[data-testid="sales-order-line-0-errors"]').first();
     while (Date.now() - started < timeouts.save) {
@@ -176,6 +177,15 @@ function createSalesOrdersBrowserAuditRuntime({ appUrl, auditAccount, testData, 
         const summary = await errorSummary.innerText().catch(() => '');
         const line = await lineError.innerText().catch(() => '');
         throw new Error(`sales order save blocked by validation: ${summary} ${line}`.trim());
+      }
+      if (
+        report.lastApiResponseUrl
+        && report.lastApiResponseUrl !== baselineApiResponseUrl
+        && Number(report.lastApiResponseStatus) >= 400
+      ) {
+        throw new Error(
+          `sales order save api failed: ${report.lastApiResponseStatus} ${report.lastApiResponseBody || report.lastApiResponseUrl}`,
+        );
       }
       await page.waitForTimeout(300);
     }
