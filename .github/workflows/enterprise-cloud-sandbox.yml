@@ -383,6 +383,59 @@ jobs:
         env:
           ORDER_IMPORT_GOVERNANCE_REPORT_PATH: cloud-evidence/order-import-governance-api-audit-v1.json
 
+      - name: Verify order import retention lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="retention_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U ailaoda -d ailaoda -v marker="${marker}" <<'SQL'
+          INSERT INTO order_import_batches (
+            user_id, idempotency_key, fingerprint, status, lease_token,
+            lease_expires_at, result_json, completed_at, created_at, updated_at
+          )
+          SELECT id, :'marker', repeat('a', 64), 'completed', :'marker',
+            CURRENT_TIMESTAMP - INTERVAL '400 days',
+            '{"success":0,"failed":1,"errors":[]}',
+            CURRENT_TIMESTAMP - INTERVAL '400 days',
+            CURRENT_TIMESTAMP - INTERVAL '400 days',
+            CURRENT_TIMESTAMP - INTERVAL '400 days'
+          FROM users ORDER BY id LIMIT 1;
+
+          UPDATE order_import_batches
+          SET completed_at = CURRENT_TIMESTAMP - INTERVAL '40 days',
+              created_at = CURRENT_TIMESTAMP - INTERVAL '400 days',
+              updated_at = CURRENT_TIMESTAMP - INTERVAL '40 days'
+          WHERE id = (
+            SELECT batch.id
+            FROM order_import_batches batch
+            WHERE batch.status = 'completed'
+              AND EXISTS (SELECT 1 FROM orders item WHERE item.import_batch_id = batch.id)
+            ORDER BY batch.id
+            LIMIT 1
+          );
+          SQL
+
+          docker compose exec -T app-primary env ORDER_IMPORT_RETENTION_MODE=report-only \
+            node backend/dist/maintenance/order-import-retention.js \
+            | tee cloud-evidence/order-import-retention-report-only.json
+          for pass in 1 2; do
+            docker compose exec -T app-primary env \
+              ORDER_IMPORT_RETENTION_MODE=enforce \
+              ORDER_IMPORT_REPLAY_DAYS=30 \
+              ORDER_IMPORT_STALE_PROCESSING_DAYS=7 \
+              ORDER_IMPORT_PURGE_DAYS=365 \
+              ORDER_IMPORT_RETENTION_BATCH_SIZE=500 \
+              node backend/dist/maintenance/order-import-retention.js \
+              | tee "cloud-evidence/order-import-retention-enforce-${pass}.json"
+          done
+
+          orphan_count="$(docker compose exec -T postgres psql -At -U ailaoda -d ailaoda \
+            -c "SELECT count(*) FROM order_import_batches WHERE idempotency_key = '${marker}'")"
+          linked_compacted_count="$(docker compose exec -T postgres psql -At -U ailaoda -d ailaoda \
+            -c "SELECT count(*) FROM order_import_batches batch WHERE batch.status = 'expired' AND batch.result_json IS NULL AND EXISTS (SELECT 1 FROM orders item WHERE item.import_batch_id = batch.id)")"
+          test "${orphan_count}" = "0"
+          test "${linked_compacted_count}" -ge 1
+
       - name: Verify core order and finance collection write boundaries
         run: npm run audit:orders:write-scope-api
         env:

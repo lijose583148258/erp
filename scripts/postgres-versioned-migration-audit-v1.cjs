@@ -21,12 +21,18 @@ const runner = requireTokens('scripts/postgres-schema-migrate-v1.cjs', [
   'unknown migration versions',
   'migration history has gaps',
 ]);
-const sql = requireTokens('backend/prisma/postgres-migrations/202607220001_order-import-idempotency/migration.sql', [
+requireTokens('backend/prisma/postgres-migrations/202607220001_order-import-idempotency/migration.sql', [
   'CREATE TABLE IF NOT EXISTS "order_import_batches"',
   'ALTER TABLE "orders" ADD COLUMN IF NOT EXISTS "import_batch_id"',
   'orders_import_batch_id_import_row_number_key',
   'orders_import_batch_id_fkey',
   'ON DELETE SET NULL',
+]);
+requireTokens('backend/prisma/postgres-migrations/202607220002_order-import-retention/migration.sql', [
+  'ADD COLUMN IF NOT EXISTS "completed_at"',
+  'WHERE "status" = \'completed\' AND "completed_at" IS NULL',
+  'order_import_batches_status_completed_at_idx',
+  'order_import_batches_status_created_at_idx',
 ]);
 requireTokens('scripts/run-postgres-import-rehearsal-v1.cjs', [
   'apply-versioned-postgres-migrations',
@@ -43,7 +49,11 @@ requireTokens('scripts/build-postgres-server-artifact-v1.cjs', [
   'postgres-schema-migrate-v1.cjs verify',
 ]);
 
-if (/^\s*(DROP|TRUNCATE|DELETE)\b/im.test(sql)) findings.push('migration.sql: destructive statement is forbidden in this additive migration');
+for (const migration of loadMigrations()) {
+  if (/^\s*(DROP|TRUNCATE|DELETE)\b/im.test(migration.sql)) {
+    findings.push(`${migration.id}/migration.sql: destructive statement is forbidden in an additive migration`);
+  }
+}
 if (!runner.includes('application_name: \'ailaoda-schema-migrator\'')) findings.push('migrator: application_name is missing');
 
 try {
@@ -74,4 +84,4 @@ console.log('PostgreSQL Versioned Migration Audit: PASS');
 console.log('- Ordered additive migrations use a checksum ledger, advisory lock, and per-migration transaction.');
 console.log('- Applied migration drift and unknown database versions fail closed.');
 console.log('- Migration history gaps fail closed instead of applying an older migration out of order.');
-console.log('- Order import idempotency has an in-place PostgreSQL upgrade path.');
+console.log('- Order import idempotency and retention metadata have in-place PostgreSQL upgrade paths.');

@@ -143,6 +143,7 @@ jobs:
             audit:security:dependencies
             audit:db:postgres-versioned-migrations
             audit:orders:import-governance
+            audit:orders:import-retention
             audit:orders:write-scope
             audit:ai:isolation
           )

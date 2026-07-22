@@ -166,6 +166,8 @@
         "audit:warehouse:transfer": "node ./scripts/warehouse-transfer-api-audit-v1.cjs",
         "audit:warehouse:adjustment-concurrency": "node ./scripts/warehouse-adjustment-concurrency-audit-v1.cjs",
         "audit:orders:import-governance": "node ./scripts/order-import-governance-audit-v1.cjs",
+        "audit:orders:import-retention": "node ./scripts/order-import-retention-audit-v1.cjs",
+        "maintenance:orders:import-retention": "node ./backend/dist/maintenance/order-import-retention.js",
         "audit:orders:import-governance-api": "node ./scripts/order-import-governance-api-audit-v1.cjs",
         "audit:orders:write-scope": "node ./scripts/order-write-scope-governance-audit-v1.cjs",
         "audit:orders:write-scope-api": "node ./scripts/order-write-scope-governance-api-audit-v1.cjs",

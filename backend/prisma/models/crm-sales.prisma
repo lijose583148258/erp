@@ -137,6 +137,7 @@ model OrderImportBatch {
   leaseToken     String   @map("lease_token")
   leaseExpiresAt DateTime @map("lease_expires_at")
   resultJson     String?  @map("result_json")
+  completedAt    DateTime? @map("completed_at")
   createdAt      DateTime @default(now()) @map("created_at")
   updatedAt      DateTime @updatedAt @map("updated_at")
 
@@ -145,6 +146,8 @@ model OrderImportBatch {
 
   @@unique([userId, idempotencyKey])
   @@index([status, leaseExpiresAt])
+  @@index([status, completedAt])
+  @@index([status, createdAt])
   @@map("order_import_batches")
 }
 

@@ -17,6 +17,12 @@ const ARTIFACT_ORDER_IMPORT_MIGRATION = path.join(
   '202607220001_order-import-idempotency',
   'migration.sql',
 );
+const ARTIFACT_ORDER_IMPORT_RETENTION_MIGRATION = path.join(
+  ARTIFACT_PRISMA,
+  'postgres-migrations',
+  '202607220002_order-import-retention',
+  'migration.sql',
+);
 const ARTIFACT_SCRIPTS = path.join(OUTPUT_ROOT, 'scripts');
 const ARTIFACT_FRONTEND_DIST = path.join(OUTPUT_ROOT, 'dist');
 const SOURCE_POSTGRES_CLIENT = path.join(ROOT, 'output', 'postgres-prisma-artifact', 'generated-client');
@@ -178,6 +184,10 @@ function writeManifest() {
       'node scripts/postgres-schema-migrate-v1.cjs apply',
       'node scripts/postgres-schema-migrate-v1.cjs verify',
     ],
+    maintenanceCommands: [
+      'ORDER_IMPORT_RETENTION_MODE=report-only node backend/dist/maintenance/order-import-retention.js',
+      'ORDER_IMPORT_RETENTION_MODE=enforce node backend/dist/maintenance/order-import-retention.js',
+    ],
     requiredEnvironment: [
       'NODE_ENV=production',
       'AILAODA_DEPLOYMENT_MODE=saas',
@@ -210,6 +220,7 @@ function verifyArtifact() {
     path.join(ARTIFACT_CLIENT, 'index.js'),
     path.join(ARTIFACT_PRISMA, 'schema.prisma'),
     ARTIFACT_ORDER_IMPORT_MIGRATION,
+    ARTIFACT_ORDER_IMPORT_RETENTION_MIGRATION,
     path.join(ARTIFACT_SCRIPTS, 'postgres-schema-migrate-v1.cjs'),
     path.join(OUTPUT_ROOT, 'manifest.json'),
   ];

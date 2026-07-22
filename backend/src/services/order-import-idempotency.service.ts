@@ -48,11 +48,13 @@ const parseStoredResult = (value: string | null): ImportResult | null => {
 };
 
 export class OrderImportIdempotencyService {
+  constructor(private readonly client: Pick<typeof prisma, 'orderImportBatch'> = prisma) {}
+
   async claim(userId: number, idempotencyKey: string, fingerprint: string): Promise<OrderImportBatchClaim> {
     const leaseToken = randomUUID();
     const leaseExpiresAt = new Date(Date.now() + LEASE_MS);
     try {
-      const created = await prisma.orderImportBatch.create({
+      const created = await this.client.orderImportBatch.create({
         data: { userId, idempotencyKey, fingerprint, leaseToken, leaseExpiresAt },
         select: { id: true },
       });
@@ -61,7 +63,7 @@ export class OrderImportIdempotencyService {
       if ((error as { code?: string }).code !== 'P2002') throw error;
     }
 
-    const existing = await prisma.orderImportBatch.findUnique({
+    const existing = await this.client.orderImportBatch.findUnique({
       where: { userId_idempotencyKey: { userId, idempotencyKey } },
     });
     if (!existing) throw new Error('Idempotency batch disappeared after unique-key conflict.');
@@ -73,11 +75,14 @@ export class OrderImportIdempotencyService {
       if (!result) return { kind: 'conflict', message: 'Stored import replay state is invalid; manual review is required.' };
       return { kind: 'replay', batchId: existing.id, result };
     }
+    if (existing.status === 'expired') {
+      return { kind: 'conflict', message: 'The replay window for this Idempotency-Key has expired; use a new key.' };
+    }
     if (existing.leaseExpiresAt.getTime() > Date.now()) {
       return { kind: 'in_progress', message: 'An import with this Idempotency-Key is still processing.' };
     }
 
-    const takeover = await prisma.orderImportBatch.updateMany({
+    const takeover = await this.client.orderImportBatch.updateMany({
       where: {
         id: existing.id,
         fingerprint,
@@ -95,7 +100,7 @@ export class OrderImportIdempotencyService {
     batchId: number,
     leaseToken: string,
   ) {
-    const renewed = await prisma.orderImportBatch.updateMany({
+    const renewed = await this.client.orderImportBatch.updateMany({
       where: { id: batchId, leaseToken, status: 'processing' },
       data: { leaseExpiresAt: new Date(Date.now() + LEASE_MS) },
     });
@@ -103,11 +108,12 @@ export class OrderImportIdempotencyService {
   }
 
   async complete(batchId: number, leaseToken: string, result: ImportResult) {
-    const completed = await prisma.orderImportBatch.updateMany({
+    const completed = await this.client.orderImportBatch.updateMany({
       where: { id: batchId, leaseToken, status: 'processing' },
       data: {
         status: 'completed',
         resultJson: JSON.stringify(result),
+        completedAt: new Date(),
         leaseExpiresAt: new Date(),
       },
     });

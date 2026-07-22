@@ -44,6 +44,8 @@ const manifest = requireIncludes('output/postgres-server-artifact/manifest.json'
 requireExists('output/postgres-server-artifact/backend/dist/server.js');
 requireExists('output/postgres-server-artifact/backend/prisma/generated-client/index.js');
 requireExists('output/postgres-server-artifact/backend/prisma/postgres-migrations/202607220001_order-import-idempotency/migration.sql');
+requireExists('output/postgres-server-artifact/backend/prisma/postgres-migrations/202607220002_order-import-retention/migration.sql');
+requireExists('output/postgres-server-artifact/backend/dist/maintenance/order-import-retention.js');
 requireExists('output/postgres-server-artifact/scripts/postgres-schema-migrate-v1.cjs');
 requireIncludes('output/postgres-server-artifact/backend/package.json', ['"type": "commonjs"']);
 requireExists('output/postgres-server-artifact/backend/node_modules/express/package.json');
@@ -84,6 +86,8 @@ requireIncludes('scripts/build-postgres-server-artifact-v1.cjs', [
   'copy-postgres-versioned-migrator',
   'postgres-schema-migrate-v1.cjs apply',
   'postgres-schema-migrate-v1.cjs verify',
+  'ORDER_IMPORT_RETENTION_MODE=report-only',
+  'ORDER_IMPORT_RETENTION_MODE=enforce',
 ]);
 
 requireIncludes('package.json', [
