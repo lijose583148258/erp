@@ -50,6 +50,7 @@ function recordStep(entry) {
 }
 
 const {
+  answerNextDialog,
   apiFetch,
   assertNoMojibake,
   replaceInputValue,
