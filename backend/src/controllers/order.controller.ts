@@ -6,6 +6,8 @@ import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
+import { OrderUpdateRejectedError, OrderUpdateService } from '../services/order-update.service';
+import { buildOrderItemsAndTotals } from '../services/order-item-normalization';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
@@ -24,7 +26,6 @@ import {
 import {
     ORDER_STATUS_TRANSITIONS,
     buildCreateOrderAuditDetails,
-    buildOrderItemsAndTotals,
 } from './order/order-controller.helpers';
 
 class OrderCreationRejectedError extends Error {
@@ -231,44 +232,7 @@ export class OrderController {
             const { id } = req.params;
             const updateData = req.body;
 
-            const existing = await prisma.order.findUnique({
-                where: { id: Number(id) },
-                select: {
-                    id: true,
-                    orderNo: true,
-                    status: true,
-                    createdBy: true,
-                    customer: { select: { salespersonId: true, poolState: true, segment: true } },
-                },
-            });
-            if (!existing) {
-                return res.status(404).json({
-                    success: false,
-                    message: '订单不存在，请刷新后重试。',
-                } as ApiResponse);
-            }
-            if (!canUseOrderForBusinessWrite(req, existing)) {
-                return res.status(403).json({
-                    success: false,
-                    message: '无权编辑该订单。',
-                } as ApiResponse);
-            }
-
-            if (existing.status !== 'pending') {
-                return res.status(400).json({
-                    success: false,
-                    message: '只有待处理订单可以编辑。',
-                } as ApiResponse);
-            }
-
-            const updatedOrder = await prisma.order.update({
-                where: { id: Number(id) },
-                data: {
-                    notes: updateData.notes,
-                    paymentTerms: updateData.paymentTerms,
-                    contractId: updateData.contractId ? Number(updateData.contractId) : undefined,
-                },
-            });
+            const updatedOrder = await OrderUpdateService.updateOrder(Number(id), updateData, req);
 
             await writeOrderAuditLog(req, {
                 action: 'UPDATE',
@@ -299,6 +263,13 @@ export class OrderController {
                 message: '订单更新成功。',
             } as ApiResponse);
         } catch (error) {
+            if (error instanceof OrderUpdateRejectedError) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: error.message,
+                    data: error.data,
+                } as ApiResponse);
+            }
             logger.error('Update order error:', error);
             return res.status(500).json({
                 success: false,

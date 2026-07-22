@@ -38,6 +38,7 @@ import {
   validateWorkOrderForm,
 } from '../pages/production/productionWorkspaceSave';
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
+import { mapSalesOrderItem } from '../src/services/order.mapping';
 
 type FrontendUnitTest = {
   name: string;
@@ -45,6 +46,22 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'sales order mapping restores packaging from the canonical specification field',
+    run: () => {
+      const item = mapSalesOrderItem({
+        id: 1,
+        productName: 'Resin A',
+        specification: '25kg/drum',
+        quantity: 5,
+        unit: 'kg',
+        unitPrice: 99,
+        totalPrice: 495,
+      });
+      assert.equal(item.packagingSpec, '25kg/drum');
+      assert.equal(item.amount, 495);
+    },
+  },
   {
     name: 'production workspace validators preserve save boundaries',
     run: () => {

@@ -30,4 +30,30 @@ describe('CreditEngine transaction boundary', () => {
       where: expect.objectContaining({ customerId: 7 }),
     }));
   });
+
+  it('excludes the edited order when checking a replacement amount', async () => {
+    const findUnique = jest.fn().mockResolvedValue({
+      creditLimit: 100,
+      creditHold: false,
+      creditHoldReason: null,
+      collectionsStatus: 'normal',
+      dunningLevel: 0,
+    });
+    const findMany = jest.fn().mockResolvedValue([]);
+    const tx = {
+      customer: { findUnique },
+      order: { findMany },
+    } as never;
+
+    const result = await CreditEngine.checkOrder(7, 50, tx, 42);
+
+    expect(result.allow).toBe(true);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        customerId: 7,
+        id: { not: 42 },
+      }),
+    }));
+  });
+
 });
