@@ -509,6 +509,13 @@ async function main() {
     });
     page.on('request', (request) => {
       if (request.url().includes('/api/')) report.lastApiRequestUrl = request.url();
+      if (/\/api\/(?:v1\/)?orders\/\d+$/.test(request.url()) && ['PUT', 'PATCH'].includes(request.method())) {
+        report.lastOrderMutation = {
+          url: request.url(),
+          method: request.method(),
+          body: request.postData(),
+        };
+      }
     });
     page.on('requestfailed', (request) => {
       if (request.url().includes('/api/')) {
@@ -549,6 +556,7 @@ async function main() {
       report.lastApiResponseStatus ? `last api status=${report.lastApiResponseStatus}` : '',
       report.lastApiResponseBody ? `last api body=${report.lastApiResponseBody}` : '',
       report.consoleErrors?.length ? `console=${report.consoleErrors.slice(-3).join(' | ')}` : '',
+      report.lastOrderMutation?.body ? `order mutation=${report.lastOrderMutation.body.slice(0, 1500)}` : '',
     ].filter(Boolean).join(' | ');
     const annotation = diagnostic.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
     console.error(`::error file=scripts/sales-orders-browser-audit-v1.cjs,line=1,title=Sales orders browser audit::${annotation}`);
