@@ -95,6 +95,16 @@ function main() {
       'push-postgres-schema',
       { DATABASE_URL: postgresUrl });
 
+    const migrationRunner = path.join(ROOT, 'scripts', 'postgres-schema-migrate-v1.cjs');
+    run(process.execPath, [migrationRunner, 'apply'], 'apply-versioned-postgres-migrations', {
+      POSTGRES_URL: postgresUrl,
+      DATABASE_URL: postgresUrl,
+    });
+    run(process.execPath, [migrationRunner, 'verify'], 'verify-versioned-postgres-migrations', {
+      POSTGRES_URL: postgresUrl,
+      DATABASE_URL: postgresUrl,
+    });
+
     run(process.platform === 'win32' ? 'cmd.exe' : 'npm',
       process.platform === 'win32'
         ? ['/d', '/s', '/c', 'npm run db:pg -- import']

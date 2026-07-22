@@ -15,6 +15,7 @@ npm run audit:db:postgres-artifact
 npm run build:backend:postgres-server-artifact
 npm run audit:db:postgres-server-artifact
 npm run audit:db:postgres-raw-sql
+npm run audit:db:postgres-versioned-migrations
 npm run audit:db:postgres-migration-rehearsal
 npm run audit:db:postgres-portable-rehearsal
 ```
@@ -120,8 +121,21 @@ When the PostgreSQL schema is provisioned and the target database is empty, run 
 
 ```powershell
 node node_modules/prisma/build/index.js db push --schema output/postgres-prisma-artifact/prisma/schema.prisma --skip-generate
+npm run db:pg:migrate -- apply
+npm run db:pg:migrate -- verify
 npm run db:pg -- import
 ```
+
+For an already populated PostgreSQL deployment, skip `db push` and run the versioned migrator before starting the new application artifact:
+
+```powershell
+$env:POSTGRES_URL=$env:DATABASE_URL
+npm run db:pg:migrate -- status
+npm run db:pg:migrate -- apply
+npm run db:pg:migrate -- verify
+```
+
+`verify` fails when a checked-in migration was modified after application, when the database contains an unknown migration version, when migration history has a gap, or when a migration is still pending. Keep the migration report at `output/audit/postgres-schema-migrate-v1.json` with the release evidence.
 
 If the rehearsal database already contains data and you intend to reset it first:
 

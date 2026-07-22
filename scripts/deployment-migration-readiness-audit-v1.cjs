@@ -275,7 +275,7 @@ function checkBackupAndMigrationEvidence(findings) {
 
   const postgresImportRehearsalRunner = requireFile(findings, 'scripts/run-postgres-import-rehearsal-v1.cjs', 'postgres-import-rehearsal');
   if (postgresImportRehearsalRunner) {
-    for (const token of ['POSTGRES_URL is required', 'PRISMA_DB_PUSH_ARGS', "'db'", "'push'", '--schema', 'output/postgres-prisma-artifact/prisma', '--skip-generate', 'npm run db:pg -- import', 'npm run audit:db:postgres-import-rehearsal']) {
+    for (const token of ['POSTGRES_URL is required', 'PRISMA_DB_PUSH_ARGS', "'db'", "'push'", '--schema', 'output/postgres-prisma-artifact/prisma', '--skip-generate', 'apply-versioned-postgres-migrations', 'verify-versioned-postgres-migrations', 'npm run db:pg -- import', 'npm run audit:db:postgres-import-rehearsal']) {
       if (!postgresImportRehearsalRunner.includes(token)) {
         addFinding(findings, 'P1', 'postgres-import-rehearsal', 'scripts/run-postgres-import-rehearsal-v1.cjs', `PostgreSQL import rehearsal runner should assert: ${token}`);
       }
@@ -293,7 +293,7 @@ function checkBackupAndMigrationEvidence(findings) {
 
   const packageJson = requireFile(findings, 'package.json', 'postgres-artifact');
   if (packageJson) {
-    for (const token of ['audit:db:postgres-artifact', 'audit:db:postgres-raw-sql', 'audit:db:postgres-json-normalization', 'audit:db:postgres-migration-rehearsal', 'audit:db:postgres-import-rehearsal', 'audit:db:postgres-portable-rehearsal', 'run:db:postgres-import-rehearsal', 'db:pg:start-rehearsal', 'db:pg:stop-rehearsal', 'audit:api:openapi', 'audit:api:sdk', 'audit:frontend:production-readiness', 'audit:security:production-readiness', 'build:backend:postgres-artifact', 'build:backend:postgres-server-artifact', 'audit:db:postgres-server-artifact']) {
+    for (const token of ['audit:db:postgres-artifact', 'audit:db:postgres-raw-sql', 'audit:db:postgres-json-normalization', 'audit:db:postgres-migration-rehearsal', 'audit:db:postgres-import-rehearsal', 'audit:db:postgres-versioned-migrations', 'db:pg:migrate', 'audit:db:postgres-portable-rehearsal', 'run:db:postgres-import-rehearsal', 'db:pg:start-rehearsal', 'db:pg:stop-rehearsal', 'audit:api:openapi', 'audit:api:sdk', 'audit:frontend:production-readiness', 'audit:security:production-readiness', 'build:backend:postgres-artifact', 'build:backend:postgres-server-artifact', 'audit:db:postgres-server-artifact']) {
       if (!packageJson.includes(token)) {
         addFinding(findings, 'P1', 'postgres-artifact', 'package.json', `missing ${token} script`);
       }

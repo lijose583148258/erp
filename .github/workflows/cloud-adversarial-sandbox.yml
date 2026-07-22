@@ -141,6 +141,7 @@ jobs:
             audit:security:mfa
             audit:security:distributed-auth
             audit:security:dependencies
+            audit:db:postgres-versioned-migrations
             audit:orders:import-governance
             audit:orders:write-scope
             audit:ai:isolation

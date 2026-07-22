@@ -1,4 +1,5 @@
 const { execFileSync } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -10,9 +11,17 @@ const ARTIFACT_PACKAGE_LOCK_JSON = path.join(ARTIFACT_BACKEND, 'package-lock.jso
 const ARTIFACT_DIST = path.join(ARTIFACT_BACKEND, 'dist');
 const ARTIFACT_PRISMA = path.join(ARTIFACT_BACKEND, 'prisma');
 const ARTIFACT_CLIENT = path.join(ARTIFACT_PRISMA, 'generated-client');
+const ARTIFACT_ORDER_IMPORT_MIGRATION = path.join(
+  ARTIFACT_PRISMA,
+  'postgres-migrations',
+  '202607220001_order-import-idempotency',
+  'migration.sql',
+);
+const ARTIFACT_SCRIPTS = path.join(OUTPUT_ROOT, 'scripts');
 const ARTIFACT_FRONTEND_DIST = path.join(OUTPUT_ROOT, 'dist');
 const SOURCE_POSTGRES_CLIENT = path.join(ROOT, 'output', 'postgres-prisma-artifact', 'generated-client');
 const SOURCE_POSTGRES_PRISMA = path.join(ROOT, 'output', 'postgres-prisma-artifact', 'prisma');
+const SOURCE_POSTGRES_MIGRATIONS = path.join(ROOT, 'backend', 'prisma', 'postgres-migrations');
 const SOURCE_BACKEND_PACKAGE_JSON = path.join(ROOT, 'backend', 'package.json');
 const SOURCE_BACKEND_PACKAGE_LOCK_JSON = path.join(ROOT, 'backend', 'package-lock.json');
 const SOURCE_FRONTEND_DIST = path.join(ROOT, 'dist');
@@ -67,7 +76,33 @@ function copyDirRecursive(source, target) {
     return;
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.copyFileSync(source, target);
+  copyFileWithRetry(source, target);
+}
+
+function copyFileWithRetry(source, target, attempts = 5) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    try {
+      fs.copyFileSync(source, target);
+      return;
+    } catch (error) {
+      const retryable = ['EBUSY', 'EPERM'].includes(error.code);
+      if (retryable && filesHaveSameDigest(source, target)) return;
+      if (!retryable || attempt === attempts) throw error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, attempt * 200);
+    }
+  }
+}
+
+function filesHaveSameDigest(source, target) {
+  try {
+    const sourceStat = fs.statSync(source);
+    const targetStat = fs.statSync(target);
+    if (sourceStat.size !== targetStat.size) return false;
+    const digest = filePath => crypto.createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+    return digest(source) === digest(target);
+  } catch {
+    return false;
+  }
 }
 
 function copyStep(name, source, target) {
@@ -139,6 +174,10 @@ function writeManifest() {
     generatedAt: new Date().toISOString(),
     prismaProvider: 'postgresql',
     startCommand: 'AILAODA_PRISMA_PROVIDER=postgresql node backend/dist/server.js',
+    preStartCommands: [
+      'node scripts/postgres-schema-migrate-v1.cjs apply',
+      'node scripts/postgres-schema-migrate-v1.cjs verify',
+    ],
     requiredEnvironment: [
       'NODE_ENV=production',
       'AILAODA_DEPLOYMENT_MODE=saas',
@@ -170,6 +209,8 @@ function verifyArtifact() {
     path.join(ARTIFACT_BACKEND, 'node_modules', 'express', 'package.json'),
     path.join(ARTIFACT_CLIENT, 'index.js'),
     path.join(ARTIFACT_PRISMA, 'schema.prisma'),
+    ARTIFACT_ORDER_IMPORT_MIGRATION,
+    path.join(ARTIFACT_SCRIPTS, 'postgres-schema-migrate-v1.cjs'),
     path.join(OUTPUT_ROOT, 'manifest.json'),
   ];
   for (const filePath of required) {
@@ -208,7 +249,17 @@ function main() {
     fs.mkdirSync(ARTIFACT_BACKEND, { recursive: true });
     copyStep('copy-backend-dist', path.join(ROOT, 'backend', 'dist'), ARTIFACT_DIST);
     copyStep('copy-postgres-prisma-schema', SOURCE_POSTGRES_PRISMA, ARTIFACT_PRISMA);
+    copyStep(
+      'copy-postgres-versioned-migrations',
+      SOURCE_POSTGRES_MIGRATIONS,
+      path.join(ARTIFACT_PRISMA, 'postgres-migrations'),
+    );
     copyStep('copy-postgres-generated-client', SOURCE_POSTGRES_CLIENT, ARTIFACT_CLIENT);
+    copyStep(
+      'copy-postgres-versioned-migrator',
+      path.join(ROOT, 'scripts', 'postgres-schema-migrate-v1.cjs'),
+      path.join(ARTIFACT_SCRIPTS, 'postgres-schema-migrate-v1.cjs'),
+    );
     copyStep('copy-frontend-dist', SOURCE_FRONTEND_DIST, ARTIFACT_FRONTEND_DIST);
 
     writeArtifactPackageMetadata();
