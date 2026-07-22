@@ -32,11 +32,21 @@ const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'scripts/lib/win32-audit-process-guard.cjs',
   'scripts/package-clean-runtime-zip-v1.ps1',
   'scripts/package-stable.ps1',
+  'scripts/start-enterprise-sandbox-v1.ps1',
   'scripts/start-cdp-browser.ps1',
   'scripts/start-stable-v2.ps1',
   'scripts/stop-runtime.ps1',
   'scripts/verify-phase3-package-browser.ps1',
   '启动系统.bat',
+]);
+
+const RUNTIME_SCRIPT_OWNERSHIP_CONTRACTS = new Map([
+  ['scripts/start-enterprise-sandbox-v1.ps1', [
+    'Assert-OwnedEnterpriseListener',
+    'otel-app-$Port.owner.json',
+    'PID record does not match',
+    'belongs to another artifact root',
+  ]],
 ]);
 
 const GOVERNED_NAMED_ACTIVE_FILES = new Set([
@@ -300,11 +310,25 @@ function isConsoleHeavyUtilityAsset(item) {
 }
 
 function isRuntimePolicyAuditAsset(item) {
-  return item.rel === 'scripts/stable-entrypoint-policy-audit-v1.cjs';
+  return item.rel === 'scripts/stable-entrypoint-policy-audit-v1.cjs'
+    || item.rel === 'scripts/runtime-script-ownership-audit-v1.cjs';
+}
+
+function assertRuntimeScriptOwnershipContracts() {
+  for (const [relativePath, markers] of RUNTIME_SCRIPT_OWNERSHIP_CONTRACTS) {
+    const text = safeRead(path.join(ROOT, relativePath));
+    if (text === null) throw new Error(`Governed runtime script is missing: ${relativePath}`);
+    for (const marker of markers) {
+      if (!text.includes(marker)) {
+        throw new Error(`Governed runtime script ${relativePath} is missing ownership marker: ${marker}`);
+      }
+    }
+  }
 }
 
 function main() {
   assertAuditAssetClassifierContract();
+  assertRuntimeScriptOwnershipContracts();
   ensureDir(OUTPUT_DIR);
   const bucket = { activeFiles: [], historicalFiles: [], excludedDirs: [] };
   walk(ROOT, bucket);

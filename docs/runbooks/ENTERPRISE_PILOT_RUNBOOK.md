@@ -21,6 +21,8 @@ npm run build:backend:postgres-server-artifact
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-enterprise-sandbox-v1.ps1
 ```
 
+Each launched app instance writes matching PID and owner records under the isolated runtime `run/` directory. A later start only terminates a listener when its PID, owner record, artifact root, Node executable, and server entrypoint all match; an occupied port without that evidence aborts the launch instead of stopping an unrelated process.
+
 Do not rebuild `output/postgres-server-artifact` while an application process is running from that directory. Windows locks the Prisma query-engine DLL.
 
 ## Gates

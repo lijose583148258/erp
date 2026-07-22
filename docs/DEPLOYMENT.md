@@ -51,7 +51,7 @@ $env:POSTGRES_PASSWORD = '<strong rehearsal password>'
 npm run db:pg:start-rehearsal
 ```
 
-On Windows, the native PostgreSQL data and binary paths must be ASCII-only. The rehearsal script automatically falls back to `C:\AilaoDaPostgresRehearsal` when this repository path contains non-ASCII characters. Set `POSTGRES_RUNTIME_ROOT` to an explicit ASCII-only location when a different isolated runtime root is required. The start report redacts its connection password; inject the same rehearsal secret through `POSTGRES_URL` or `DATABASE_URL` only in the import command environment.
+On Windows, the native PostgreSQL data and binary paths must be ASCII-only. The rehearsal script automatically falls back to `C:\AilaoDaPostgresRehearsal` when this repository path contains non-ASCII characters. Set `POSTGRES_RUNTIME_ROOT` to an explicit ASCII-only location when a different isolated runtime root is required. Portable archives are extracted into immutable SHA-256-addressed directories under `portable-cache`; changing the archive never recursively replaces a previous binary directory. The start report redacts its connection password; inject the same rehearsal secret through `POSTGRES_URL` or `DATABASE_URL` only in the import command environment.
 
 This does not start the application container. The current app image remains a SQLite Prisma artifact and intentionally refuses a PostgreSQL `DATABASE_URL`. A production PostgreSQL cutover still requires a PostgreSQL-specific server artifact, raw SQL compatibility checks, migration and rollback rehearsal, and route-level read/write smoke tests.
 

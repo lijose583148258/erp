@@ -18,6 +18,54 @@ $RuntimeRoot = Assert-AsciiRuntimePath $RuntimeRoot 'RuntimeRoot'
 if (-not $ArtifactRoot) {
   $ArtifactRoot = Join-Path (Split-Path $PSScriptRoot -Parent) 'output\postgres-server-artifact'
 }
+$ArtifactRoot = [System.IO.Path]::GetFullPath($ArtifactRoot)
+if (-not (Test-Path -LiteralPath $ArtifactRoot -PathType Container)) {
+  throw "Enterprise artifact root does not exist: $ArtifactRoot"
+}
+$ArtifactRoot = (Resolve-Path -LiteralPath $ArtifactRoot).Path.TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+$RuntimeOwnerDir = Join-Path $RuntimeRoot 'run'
+if (-not (Test-Path -LiteralPath $RuntimeOwnerDir)) {
+  New-Item -ItemType Directory -Path $RuntimeOwnerDir -Force | Out-Null
+}
+
+function Assert-OwnedEnterpriseListener([int]$Port, [int]$ListenerProcessId) {
+  $pidPath = Join-Path $RuntimeOwnerDir "otel-app-$Port.pid"
+  $ownerPath = Join-Path $RuntimeOwnerDir "otel-app-$Port.owner.json"
+  if (-not (Test-Path -LiteralPath $pidPath) -or -not (Test-Path -LiteralPath $ownerPath)) {
+    throw "Refusing to stop process $ListenerProcessId on port $Port without AilaoDa PID and owner records."
+  }
+
+  $recordedPid = 0
+  if (-not [int]::TryParse((Get-Content -LiteralPath $pidPath -Raw).Trim(), [ref]$recordedPid) -or $recordedPid -ne $ListenerProcessId) {
+    throw "Refusing to stop process $ListenerProcessId on port $Port because its PID record does not match."
+  }
+
+  try {
+    $owner = Get-Content -LiteralPath $ownerPath -Raw | ConvertFrom-Json
+  } catch {
+    throw "Refusing to stop process $ListenerProcessId on port $Port because its owner record is invalid."
+  }
+  if ([int]$owner.processId -ne $ListenerProcessId) {
+    throw "Refusing to stop process $ListenerProcessId on port $Port because its owner process ID does not match."
+  }
+  if (-not [string]$owner.artifactRoot) {
+    throw "Refusing to stop process $ListenerProcessId on port $Port because its owner artifact root is missing."
+  }
+  try {
+    $recordedArtifactRoot = [System.IO.Path]::GetFullPath([string]$owner.artifactRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+  } catch {
+    throw "Refusing to stop process $ListenerProcessId on port $Port because its owner artifact root is invalid."
+  }
+  if (-not $recordedArtifactRoot.Equals($ArtifactRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+    throw "Refusing to stop process $ListenerProcessId on port $Port because it belongs to another artifact root: $recordedArtifactRoot"
+  }
+
+  $process = Get-CimInstance Win32_Process -Filter "ProcessId=$ListenerProcessId"
+  if (-not $process -or $process.Name -ne 'node.exe' -or $process.CommandLine -notlike '*backend/dist/server.js*') {
+    throw "Refusing to stop unexpected process $ListenerProcessId on port $Port."
+  }
+  return [pscustomobject]@{ PidPath = $pidPath; OwnerPath = $ownerPath }
+}
 
 function Read-Secret([string]$RelativePath) {
   $path = Join-Path $RuntimeRoot $RelativePath
@@ -26,14 +74,18 @@ function Read-Secret([string]$RelativePath) {
 }
 
 foreach ($port in $Ports) {
-  $connection = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
-  if (-not $connection) { continue }
-  $process = Get-CimInstance Win32_Process -Filter "ProcessId=$($connection.OwningProcess)"
-  if ($process.Name -ne 'node.exe' -or $process.CommandLine -notlike '*backend/dist/server.js*') {
-    throw "Refusing to stop unexpected process $($connection.OwningProcess) on port $port."
+  $connections = @(Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue)
+  if ($connections.Count -eq 0) { continue }
+  $listenerProcessIds = @($connections | Select-Object -ExpandProperty OwningProcess -Unique)
+  if ($listenerProcessIds.Count -ne 1) {
+    throw "Refusing to stop port $port because it has multiple listener owners: $($listenerProcessIds -join ', ')"
   }
-  Stop-Process -Id $connection.OwningProcess -Force
-  Wait-Process -Id $connection.OwningProcess -Timeout 10 -ErrorAction SilentlyContinue
+  $listenerProcessId = [int]$listenerProcessIds[0]
+  $ownership = Assert-OwnedEnterpriseListener -Port $port -ListenerProcessId $listenerProcessId
+  Stop-Process -Id $listenerProcessId -Force
+  Wait-Process -Id $listenerProcessId -Timeout 10 -ErrorAction SilentlyContinue
+  Remove-Item -LiteralPath $ownership.PidPath -Force
+  Remove-Item -LiteralPath $ownership.OwnerPath -Force
 }
 
 $postgresPassword = [uri]::EscapeDataString((Read-Secret '.pg-password.txt'))
@@ -103,11 +155,21 @@ foreach ($port in $Ports) {
     -RedirectStandardOutput (Join-Path $RuntimeRoot "otel-app-$port.stdout.log") `
     -RedirectStandardError (Join-Path $RuntimeRoot "otel-app-$port.stderr.log") `
     -PassThru
-  Set-Content -LiteralPath (Join-Path $RuntimeRoot "run\otel-app-$port.pid") -Value $process.Id -Encoding ascii
+  $pidPath = Join-Path $RuntimeOwnerDir "otel-app-$port.pid"
+  $ownerPath = Join-Path $RuntimeOwnerDir "otel-app-$port.owner.json"
+  Set-Content -LiteralPath $pidPath -Value $process.Id -Encoding ascii
+  [ordered]@{
+    processId = $process.Id
+    port = $port
+    artifactRoot = $ArtifactRoot
+    entrypoint = 'backend/dist/server.js'
+    startedAt = (Get-Date).ToString('o')
+  } | ConvertTo-Json | Set-Content -LiteralPath $ownerPath -Encoding utf8
   $started += [pscustomobject]@{ Port = $port; ProcessId = $process.Id }
 }
 
 foreach ($instance in $started) {
+  $health = $null
   $deadline = (Get-Date).AddSeconds(45)
   do {
     Start-Sleep -Milliseconds 500

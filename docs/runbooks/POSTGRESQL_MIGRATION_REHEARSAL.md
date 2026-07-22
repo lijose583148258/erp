@@ -96,7 +96,7 @@ npm run db:pg:start-rehearsal
 npm run audit:db:postgres-portable-rehearsal
 ```
 
-This extracts the official binaries under `output/postgres-runtime/` if needed, initializes a local data directory, and starts PostgreSQL on `127.0.0.1:${POSTGRES_PORT:-5432}`. Native PostgreSQL Windows tools require ASCII-only binary and data paths. When the repository path contains non-ASCII characters, the script automatically isolates the runtime under `C:\AilaoDaPostgresRehearsal`; set `POSTGRES_RUNTIME_ROOT` to an explicit ASCII-only location to override it. The start report redacts the password, so provide the rehearsal secret through `POSTGRES_URL` or `DATABASE_URL` only to the import command that needs it.
+This extracts the official binaries into an immutable SHA-256-addressed directory under `output/postgres-runtime/portable-cache/`, initializes a local data directory, and starts PostgreSQL on `127.0.0.1:${POSTGRES_PORT:-5432}`. A different archive creates a different cache directory; the launcher never recursively replaces an existing portable binary directory. Native PostgreSQL Windows tools require ASCII-only binary and data paths. When the repository path contains non-ASCII characters, the script automatically isolates the runtime under `C:\AilaoDaPostgresRehearsal`; set `POSTGRES_RUNTIME_ROOT` to an explicit ASCII-only location to override it. The start report redacts the password, so provide the rehearsal secret through `POSTGRES_URL` or `DATABASE_URL` only to the import command that needs it.
 
 Do not start the default application container from this compose file. The current default app package is SQLite-first and must not be pointed at PostgreSQL by changing only `DATABASE_URL`.
 
