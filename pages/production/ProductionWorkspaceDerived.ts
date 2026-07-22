@@ -6,8 +6,11 @@ import type {
   ProductionWorkOrder,
 } from '../../services/production.service';
 import type { ProductionWorkspaceStats } from './ProductionWorkspaceHeader';
-import type { BomItemDraft } from './ProductionBomLineGrid';
-import { getEffectiveBomQuantityPerUnit, isEffectiveBomItemDraft } from './ProductionBomLineGrid';
+import {
+  getEffectiveBomQuantityPerUnit,
+  isEffectiveBomItemDraft,
+  type BomItemDraft,
+} from './productionBomLineModel';
 import { PRODUCTION_DESK_TABS, type StepDraft } from './productionWorkspaceConfig';
 
 export type BatchTraceNode = {

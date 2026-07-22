@@ -22,6 +22,8 @@ describe('OpenAPI contract foundation', () => {
 
     expect(document.paths['/api/health']).toBeDefined();
     expect(document.paths['/api/v1/health']).toBeDefined();
+    expect(document.paths['/internal/ready']?.get?.security).toEqual([{ bearerAuth: [] }, { metricsBearerAuth: [] }]);
+    expect(document.paths['/internal/health']?.get?.security).toEqual([{ bearerAuth: [] }, { metricsBearerAuth: [] }]);
     expect(document.paths['/api/rum/vitals']?.post?.responses['202']).toBeDefined();
     expect(document.paths['/api/v1/rum/vitals']?.post?.responses['202']).toBeDefined();
     expect(document.paths['/metrics']).toBeDefined();
@@ -90,6 +92,36 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.OrderListItem).toBeDefined();
   });
 
+  it('documents warehouse idempotency and optimistic concurrency contracts', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const adjustment = document.paths[`${prefix}/warehouses/stock-balances/{id}`]?.patch;
+      const transfer = document.paths[`${prefix}/warehouses/stock-balances/{id}/transfer`]?.post;
+      expect(adjustment?.responses['409']).toBeDefined();
+      expect(transfer?.responses['409']).toBeDefined();
+      expect((adjustment?.requestBody?.content as any)?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/WarehouseStockAdjustmentRequest',
+      });
+    }
+
+    expect(document.components.schemas.WarehouseStockAdjustmentRequest.required)
+      .toEqual(['quantity', 'expectedQuantity', 'requestId']);
+    expect(document.components.schemas.WarehouseRequestId.pattern)
+      .toBe('^[A-Za-z0-9][A-Za-z0-9._:-]{0,79}$');
+  });
+
+  it('documents the persistent order import idempotency contract', () => {
+    const document = buildOpenApiDocument() as any;
+    for (const prefix of ['/api', '/api/v1']) {
+      const operation = document.paths[`${prefix}/orders/import`].post;
+      expect(operation.parameters).toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'Idempotency-Key', in: 'header', required: true }),
+      ]));
+      expect(operation.responses['409']).toBeDefined();
+    }
+  });
+
   it('documents the overdue collection read model as an endpoint-level contract', () => {
     const document = buildOpenApiDocument();
     const overdue = document.paths['/api/v1/collections/overdue']?.get;
@@ -104,5 +136,30 @@ describe('OpenAPI contract foundation', () => {
     });
     expect(document.components.schemas.CollectionOverdueListItem).toBeDefined();
     expect(document.components.schemas.CollectionOverdueListResponse).toBeDefined();
+  });
+
+  it('resolves every local schema reference after composing the document', () => {
+    const document = buildOpenApiDocument();
+    const schemaNames = new Set(Object.keys(document.components.schemas));
+    const unresolved = new Set<string>();
+
+    const visit = (value: unknown) => {
+      if (Array.isArray(value)) {
+        value.forEach(visit);
+        return;
+      }
+      if (!value || typeof value !== 'object') return;
+      for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+        if (key === '$ref' && typeof child === 'string' && child.startsWith('#/components/schemas/')) {
+          const schemaName = child.slice('#/components/schemas/'.length);
+          if (!schemaNames.has(schemaName)) unresolved.add(schemaName);
+        } else {
+          visit(child);
+        }
+      }
+    };
+
+    visit(document);
+    expect(Array.from(unresolved)).toEqual([]);
   });
 });

@@ -1,11 +1,10 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditUser, resolveDefaultAccount } = require('./lib/ui-audit-user.cjs');
 
 const reportPath = path.join(process.cwd(), 'output/audit/cloud-redis-sentinel-failover-audit-v1.json');
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
-const account = { username: 'cloud_redis_failover', password: 'CloudRedisFailover12345!', role: 'admin' };
 const report = { name: 'Cloud Redis Sentinel Controlled Failover Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const check = (name, passed, details = {}) => {
@@ -56,6 +55,7 @@ const appsReady = async () => {
 };
 
 async function main() {
+  const account = resolveDefaultAccount();
   await ensureUiAuditUser(account);
   const login = await fetch(`${instances[0]}/api/v1/auth/login`, {
     method: 'POST',

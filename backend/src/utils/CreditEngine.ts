@@ -19,7 +19,7 @@ export class CreditEngine {
      * 计算客户当前的信用风险敞口
      * 敞口 = 所有未结清(pending/processing/shipped)订单的总金额 - 部分付款金额
      */
-    static async getExposure(customerId: number, db: CreditDataClient = prisma): Promise<CreditExposure> {
+    static async getExposure(customerId: number, db: CreditDataClient = prisma, excludeOrderId?: number): Promise<CreditExposure> {
         const customer = await db.customer.findUnique({
             where: { id: customerId },
             select: { creditLimit: true }
@@ -32,6 +32,7 @@ export class CreditEngine {
         const activeOrders = await db.order.findMany({
             where: {
                 customerId,
+                ...(excludeOrderId ? { id: { not: excludeOrderId } } : {}),
                 status: { notIn: ['completed', 'cancelled'] },
                 paymentStatus: { not: 'paid' }
             },
@@ -70,7 +71,7 @@ export class CreditEngine {
      *   0     = 明确禁止赊账 → 拒绝所有新订单
      *   > 0   = 正常信用额度检查
      */
-    static async checkOrder(customerId: number, newOrderAmount: number, db: CreditDataClient = prisma) {
+    static async checkOrder(customerId: number, newOrderAmount: number, db: CreditDataClient = prisma, excludeOrderId?: number) {
         const customer = await db.customer.findUnique({
             where: { id: customerId },
             select: {
@@ -125,7 +126,7 @@ export class CreditEngine {
             };
         }
 
-        const exposure = await this.getExposure(customerId, db);
+        const exposure = await this.getExposure(customerId, db, excludeOrderId);
 
         let projectedUsage = 0;
         if (exposure.creditLimit > 0) {

@@ -58,38 +58,47 @@ function Resolve-PortableDir {
         Fail "POSTGRES_WINDOWS_BIN_ZIP does not exist: $ZipPath"
     }
 
-    $extractRoot = Join-Path $TargetRoot 'portable'
+    $archiveHash = (Get-FileHash -LiteralPath $resolvedZip.Path -Algorithm SHA256).Hash.ToLowerInvariant()
+    $portableCacheRoot = Join-Path $TargetRoot 'portable-cache'
+    $extractRoot = Join-Path $portableCacheRoot $archiveHash
+    $targetRootFull = [System.IO.Path]::GetFullPath($TargetRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+    $extractRootFull = [System.IO.Path]::GetFullPath($extractRoot)
+    if (-not $extractRootFull.StartsWith($targetRootFull + [System.IO.Path]::DirectorySeparatorChar, [System.StringComparison]::OrdinalIgnoreCase)) {
+        Fail "Refusing to extract PostgreSQL outside the owned runtime root: $extractRootFull"
+    }
+
+    if (-not (Test-Path -LiteralPath $portableCacheRoot)) {
+        New-Item -ItemType Directory -Path $portableCacheRoot | Out-Null
+    }
     if (-not (Test-Path -LiteralPath $extractRoot)) {
         New-Item -ItemType Directory -Path $extractRoot | Out-Null
     }
 
-    $marker = Join-Path $extractRoot '.zip-source.txt'
-    $currentZip = $resolvedZip.Path
+    $marker = Join-Path $extractRoot '.archive-sha256.txt'
     $flatPostgresExe = Join-Path $extractRoot 'bin\postgres.exe'
     $nestedPortableRoot = Join-Path $extractRoot 'pgsql'
     $nestedPostgresExe = Join-Path $nestedPortableRoot 'bin\postgres.exe'
     $needsExtract = -not ((Test-Path -LiteralPath $flatPostgresExe) -or (Test-Path -LiteralPath $nestedPostgresExe))
 
-    if ((Test-Path -LiteralPath $marker) -and -not $needsExtract) {
-        $previousZip = (Get-Content -LiteralPath $marker -Raw).Trim()
-        if ($previousZip -ne $currentZip) {
-            Remove-Item -LiteralPath $extractRoot -Recurse -Force
-            New-Item -ItemType Directory -Path $extractRoot | Out-Null
-            $needsExtract = $true
+    if (Test-Path -LiteralPath $marker) {
+        $recordedHash = (Get-Content -LiteralPath $marker -Raw).Trim().ToLowerInvariant()
+        if ($recordedHash -ne $archiveHash) {
+            Fail "Portable PostgreSQL cache ownership marker does not match its archive hash: $extractRoot"
         }
-    } else {
-        $needsExtract = $true
+    } elseif ((Get-ChildItem -LiteralPath $extractRoot -Force | Select-Object -First 1)) {
+        Fail "Refusing to reuse an unowned non-empty PostgreSQL cache directory: $extractRoot"
     }
 
     if ($needsExtract) {
-        Expand-Archive -LiteralPath $currentZip -DestinationPath $extractRoot -Force
-        Set-Content -LiteralPath $marker -Value $currentZip -Encoding UTF8
+        Expand-Archive -LiteralPath $resolvedZip.Path -DestinationPath $extractRoot -Force
     }
 
     if (Test-Path -LiteralPath $flatPostgresExe) {
+        Set-Content -LiteralPath $marker -Value $archiveHash -Encoding ASCII -NoNewline
         return $extractRoot
     }
     if (Test-Path -LiteralPath $nestedPostgresExe) {
+        Set-Content -LiteralPath $marker -Value $archiveHash -Encoding ASCII -NoNewline
         return $nestedPortableRoot
     }
 

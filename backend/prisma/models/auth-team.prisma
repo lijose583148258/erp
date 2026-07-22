@@ -17,6 +17,7 @@ model User {
   // 关联
   customers     Customer[]
   orders        Order[]
+  orderImportBatches OrderImportBatch[]
   samples       Sample[]
   shipments     Shipment[]
   rmas          Rma[]

@@ -157,7 +157,12 @@ export const warehouseService = {
   },
 
   /** 调整指定库存记录的数量 */
-  async updateStockBalance(id: number, data: { quantity: number; note?: string }): Promise<StockBalanceRecord> {
+  async updateStockBalance(id: number, data: {
+    quantity: number;
+    expectedQuantity: number;
+    requestId: string;
+    note?: string;
+  }): Promise<StockBalanceRecord> {
     const response = await api.patch<any, { success: boolean; data: StockBalanceRecord }>(`/warehouses/stock-balances/${id}`, data);
     return response.data;
   },

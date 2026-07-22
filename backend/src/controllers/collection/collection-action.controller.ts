@@ -7,7 +7,7 @@ import { CollectionReminderService } from '../../services/collection-reminder.se
 import { CollectionService } from '../../services/collection.service';
 import { getCollectionMutationConflictMessage } from '../../services/collection-mutation.service';
 import { CollectionStateService } from '../../services/collection-state.service';
-import { canUseOrderForBusinessWrite } from '../../utils/recordAccess';
+import { canUseOrderForCollectionWrite } from '../../utils/recordAccess';
 import {
   collectionOrderScopeSelect,
   getConflictMessage,
@@ -101,7 +101,7 @@ export class CollectionActionController {
         return res.status(404).json({ success: false, message: 'Promise record not found' } as ApiResponse);
       }
 
-      if (!canUseOrderForBusinessWrite(req, promise.order)) {
+      if (!canUseOrderForCollectionWrite(req, promise.order)) {
         return sendCollectionForbidden(res, 'You do not have permission to update this promise record.');
       }
 
@@ -178,7 +178,7 @@ export class CollectionActionController {
         return res.status(404).json({ success: false, message: 'Dispute record not found' } as ApiResponse);
       }
 
-      if (!canUseOrderForBusinessWrite(req, dispute.order)) {
+      if (!canUseOrderForCollectionWrite(req, dispute.order)) {
         return sendCollectionForbidden(res, 'You do not have permission to update this dispute record.');
       }
 
@@ -240,7 +240,7 @@ export class CollectionActionController {
         return res.status(404).json({ success: false, message: 'One or more orders were not found' } as ApiResponse);
       }
 
-      if (scopedOrders.some(order => !canUseOrderForBusinessWrite(req, order))) {
+      if (scopedOrders.some(order => !canUseOrderForCollectionWrite(req, order))) {
         return sendCollectionForbidden(res, 'You do not have permission to create reminders for one or more orders.');
       }
 

@@ -1,7 +1,17 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { createSalesOrdersBrowserAuditRuntime } = require('./lib/sales-orders-browser-audit-runtime.cjs');
+const { createSalesOrderEditFlow } = require('./lib/sales-orders-browser-audit-edit-flow.cjs');
+const { createSalesOrderCustomerSelector } = require('./lib/sales-orders-browser-audit-customer-selector.cjs');
+const { assertNoMojibake } = require('./lib/audit-utils.cjs');
+const {
+  assertBrowserRuntimeClean,
+  assertCreatedOrderReadback,
+  assertPaymentReadback,
+  extractMarker,
+  isIgnorableRequestFailure,
+} = require('./lib/sales-orders-browser-audit-assertions.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -9,7 +19,6 @@ const SHOT_DIR = path.join(OUTPUT_DIR, 'sales-orders-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'sales-orders-audit-report-v1.json');
 
 const REQUIRED_ROUTE_COPY = ['\u8ba2\u5355'];
-const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
 
 const TIMEOUTS = {
   login: 15000,
@@ -31,7 +40,9 @@ const TEST_DATA = {
   customerName: `SO-AUDIT-CUST-${runId}`,
   productName: `SO-AUDIT-PROD-${runId}`,
   packaging: `BOX-${runId.slice(-4)}`,
+  updatedPackaging: `EDIT-BOX-${runId.slice(-4)}`,
   quantity: 5,
+  updatedQuantity: 7,
   unit: 'kg',
   unitPrice: 99,
   taxAmount: 0,
@@ -47,192 +58,46 @@ const report = {
   status: 'running',
 };
 
-let authToken = '';
+const {
+  apiFetch,
+  clickAndRemember,
+  ensureDir,
+  recordStep,
+  safeScreenshot,
+  seedAuditCustomer,
+  seedLoginState,
+  waitForInputValue,
+  waitForModalClosedOrSaveError,
+  withTimebox,
+} = createSalesOrdersBrowserAuditRuntime({
+  appUrl: APP_URL,
+  auditAccount: AUDIT_ACCOUNT,
+  testData: TEST_DATA,
+  report,
+  shotDir: SHOT_DIR,
+  timeouts: TIMEOUTS,
+});
 
-function ensureDir(target) {
-  fs.mkdirSync(target, { recursive: true });
-}
+const { selectSeedCustomer } = createSalesOrderCustomerSelector({
+  report,
+  testData: TEST_DATA,
+  modalTimeout: TIMEOUTS.modal,
+});
 
-function recordStep(entry) {
-  report.steps.push({ at: new Date().toISOString(), ...entry });
-}
-
-async function safeScreenshot(page, name) {
-  const filePath = path.join(SHOT_DIR, `${name}.png`);
-  await page.screenshot({ path: filePath, fullPage: true });
-  return filePath;
-}
-
-async function withTimebox(page, step, timeout, task) {
-  const started = Date.now();
-  try {
-    const result = await Promise.race([
-      task(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error(`${step} exceeded ${timeout}ms`)), timeout)),
-    ]);
-    recordStep({ step, timeout, result: 'passed', durationMs: Date.now() - started });
-    return result;
-  } catch (error) {
-    const screenshot = await safeScreenshot(page, `fail-${step}`);
-    recordStep({
-      step,
-      timeout,
-      result: 'failed',
-      durationMs: Date.now() - started,
-      error: String(error.message || error),
-    screenshot,
-      pageHash: await page.evaluate(() => window.location.hash).catch(() => ''),
-      lastClickText: report.lastClickText || null,
-      lastApiRequestUrl: report.lastApiRequestUrl || null,
-      lastApiResponseUrl: report.lastApiResponseUrl || null,
-      lastApiResponseStatus: report.lastApiResponseStatus || null,
-      consoleErrors: report.consoleErrors || [],
-    });
-    throw error;
-  }
-}
-
-async function seedLoginState(page) {
-  return withTimebox(page, 'seed-login-state', TIMEOUTS.login, async () => {
-    const { token, user } = await loginUiAuditUser(page, APP_URL, {
-      account: AUDIT_ACCOUNT,
-      defaultStorage: {
-        'ailao.activeTab': 'orders',
-        'ailao.language': 'zh',
-        language: 'zh-CN',
-        currency: 'CNY',
-      },
-    });
-    authToken = token;
-
-    await page.addInitScript(({ savedToken, savedUser }) => {
-      const appUser = {
-        id: String(savedUser.id),
-        name: savedUser.username,
-        role: savedUser.role,
-        segment: savedUser.segment || 'mixed',
-        avatar: savedUser.avatar || '',
-      };
-      window.localStorage.setItem('token', savedToken);
-      window.localStorage.setItem('user', JSON.stringify(appUser));
-      window.localStorage.setItem('auth_token', savedToken);
-      window.localStorage.setItem('erp_auth_token', savedToken);
-      window.localStorage.setItem('currentUser', JSON.stringify(savedUser));
-      window.localStorage.setItem('erp_current_user', JSON.stringify(savedUser));
-      window.localStorage.setItem('erp_current_role', savedUser.role || 'super_admin');
-      window.localStorage.setItem('ailao.activeTab', 'orders');
-      window.localStorage.setItem('ailao.language', 'zh');
-      window.localStorage.setItem('language', 'zh-CN');
-      window.localStorage.setItem('currency', 'CNY');
-    }, { savedToken: token, savedUser: user });
-
-    return { token, user };
-  });
-}
-
-async function apiFetch(page, endpoint, options = {}) {
-  const method = options.method || 'GET';
-  let response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
-    ...options,
-    method,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-  if (response.status() === 401) {
-    await seedLoginState(page);
-    response = await page.request.fetch(`${APP_URL}api${endpoint}`, {
-      ...options,
-      method,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
-        ...(options.headers || {}),
-      },
-    });
-  }
-  const text = await response.text();
-  let json = null;
-  try {
-    json = text ? JSON.parse(text) : null;
-  } catch {
-    json = { raw: text };
-  }
-  return { ok: response.ok(), status: response.status(), json };
-}
-
-async function seedAuditCustomer(page) {
-  return withTimebox(page, 'seed-sales-order-customer', TIMEOUTS.api, async () => {
-    const payload = {
-      name: TEST_DATA.customerName,
-      nameZh: TEST_DATA.customerName,
-      creditLimit: 100000,
-      usedCredit: 0,
-      termsDays: 30,
-      riskLevel: 'low',
-      segment: 'direct',
-      poolState: 'internal',
-      contacts: [],
-      addresses: [],
-      status: 'active',
-    };
-    const response = await apiFetch(page, '/customers', { method: 'POST', data: payload });
-    if (!response.ok) {
-      throw new Error(`seed customer failed: ${response.status} ${JSON.stringify(response.json || {})}`);
-    }
-    const customer = response.json?.data;
-    if (!customer?.id) throw new Error('seed customer response missing id');
-    report.seedCustomer = {
-      id: String(customer.id),
-      label: customer.displayName || customer.nameZh || customer.name || TEST_DATA.customerName,
-    };
-    return report.seedCustomer;
-  });
-}
-
-async function clickAndRemember(locator, fallbackText = '') {
-  report.lastClickText = fallbackText || (await locator.innerText().catch(() => ''));
-  await locator.click();
-}
-
-async function waitForInputValue(locator, expected, label) {
-  for (let attempt = 0; attempt < 30; attempt += 1) {
-    const actual = await locator.inputValue().catch(() => '');
-    if (String(actual) === String(expected)) return;
-    await locator.page().waitForTimeout(100);
-  }
-  const actual = await locator.inputValue().catch(() => '');
-  throw new Error(`${label} did not settle: expected ${expected}, got ${actual}`);
-}
-
-async function waitForModalClosedOrSaveError(page, modal) {
-  const started = Date.now();
-  const errorSummary = modal.locator('[data-testid="sales-order-line-error-summary"]').first();
-  const lineError = modal.locator('[data-testid="sales-order-line-0-errors"]').first();
-  while (Date.now() - started < TIMEOUTS.save) {
-    if (!(await modal.isVisible().catch(() => false))) return;
-    if (await errorSummary.isVisible().catch(() => false)) {
-      const summary = await errorSummary.innerText().catch(() => '');
-      const line = await lineError.innerText().catch(() => '');
-      throw new Error(`sales order save blocked by validation: ${summary} ${line}`.trim());
-    }
-    await page.waitForTimeout(300);
-  }
-  throw new Error('sales order editor did not close after save');
-}
-
-function assertNoMojibake(text, scopeName) {
-  for (const keyword of FORBIDDEN_MOJIBAKE) {
-    if (text.includes(keyword)) {
-      throw new Error(`${scopeName} contains mojibake: ${keyword}`);
-    }
-  }
-  if (text.includes('undefined') || text.includes('\ufffd')) {
-    throw new Error(`${scopeName} contains visible undefined or replacement char`);
-  }
-}
+const { editCreatedOrder } = createSalesOrderEditFlow({
+  testData: TEST_DATA,
+  report,
+  timeouts: TIMEOUTS,
+  apiFetch,
+  assertCreatedOrderReadback,
+  clickAndRemember,
+  recordStep,
+  safeScreenshot,
+  waitForCreatedOrderRow,
+  waitForInputValue,
+  waitForModalClosedOrSaveError,
+  withTimebox,
+});
 
 async function openOrders(page) {
   await withTimebox(page, 'open-orders-route', TIMEOUTS.route, async () => {
@@ -271,74 +136,6 @@ async function openOrders(page) {
 
   const shot = await safeScreenshot(page, 'orders-route');
   recordStep({ step: 'orders-route-evidence', result: 'passed', evidence: shot });
-}
-
-async function selectFirstRealOption(selectLocator) {
-  if (await selectLocator.getAttribute('role') === 'combobox') {
-    await selectLocator.click();
-    await selectLocator.press('Home');
-    const activeOptionId = await selectLocator.getAttribute('aria-activedescendant');
-    if (!activeOptionId) throw new Error('customer combobox did not expose an active option');
-    const option = selectLocator.page().locator(`#${activeOptionId}`);
-    await option.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
-    const value = (await option.getAttribute('data-testid') || '').replace('sales-order-customer-option-', '');
-    const label = (await option.innerText()).trim();
-    await selectLocator.press('ArrowDown');
-    const nextActiveOptionId = await selectLocator.getAttribute('aria-activedescendant');
-    if (!nextActiveOptionId) throw new Error('customer combobox lost active option after ArrowDown');
-    const selectedOption = selectLocator.page().locator(`#${nextActiveOptionId}`);
-    const selectedValue = (await selectedOption.getAttribute('data-testid') || '').replace('sales-order-customer-option-', '');
-    const selectedLabel = (await selectedOption.innerText()).trim();
-    await selectLocator.press('Enter');
-    if (await selectLocator.getAttribute('aria-expanded') !== 'false') {
-      throw new Error('customer combobox did not close after keyboard selection');
-    }
-    return { value: selectedValue || value, label: selectedLabel || label };
-  }
-
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    const option = await selectLocator.evaluate((element) => {
-      const options = Array.from(element.options || []);
-      const target = options.find((item) => item.value && !item.disabled);
-      return target ? { value: target.value, label: target.textContent || '' } : null;
-    });
-
-    if (option?.value) {
-      await selectLocator.selectOption(option.value);
-      return option;
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 250));
-  }
-
-  throw new Error('no selectable option found');
-}
-
-async function selectSeedCustomer(selectLocator) {
-  const seed = report.seedCustomer;
-  if (!seed?.id) {
-    return selectFirstRealOption(selectLocator);
-  }
-
-  await selectLocator.fill(seed.label || TEST_DATA.customerName);
-  await selectLocator.click();
-  const option = selectLocator.page().locator(`[data-testid="sales-order-customer-option-${seed.id}"]`);
-  await option.waitFor({ state: 'visible', timeout: TIMEOUTS.modal });
-  const label = (await option.innerText()).trim();
-  await option.click();
-  if (await selectLocator.getAttribute('aria-expanded') !== 'false') {
-    throw new Error('seed customer combobox did not close after selection');
-  }
-  return { value: seed.id, label };
-}
-
-function extractMarker(rowText) {
-  const line = String(rowText || '').split('\n').find(Boolean) || '';
-  const hashMatch = line.match(/#\d+/);
-  if (hashMatch) return hashMatch[0];
-  const orderMatch = rowText.match(/ORD-[A-Z0-9-]+/i);
-  if (orderMatch) return orderMatch[0];
-  return line.trim().slice(0, 32);
 }
 
 async function readFirstOrderRowSnapshot(page) {
@@ -462,14 +259,21 @@ async function findCreatedOrderByApi(page) {
     if (!detailResponse.ok) throw new Error(`order detail api failed: ${detailResponse.status}`);
 
     const detail = detailResponse.json?.data;
-    const hasProduct = Array.isArray(detail?.items) && detail.items.some((line) => line.productName === TEST_DATA.productName);
-    if (!hasProduct) throw new Error('created order detail does not contain expected product');
+    const createdLine = assertCreatedOrderReadback(detail, TEST_DATA, report.seedCustomer);
 
     report.createdOrder = {
       id: detail.id,
       orderNo: detail.orderNo,
       customerName: detail.customerName || detail.customerDisplayName,
+      productName: createdLine.productName,
+      packaging: createdLine.packagingSpec || createdLine.specification,
+      quantity: Number(createdLine.quantity),
+      unit: createdLine.unit,
+      unitPrice: Number(createdLine.unitPrice),
+      totalAmount: Number(detail.totalAmount),
+      finalAmount: Number(detail.finalAmount),
       paidAmount: Number(detail.paidAmount || 0),
+      status: detail.status,
       paymentStatus: detail.paymentStatus,
     };
     report.createdRowMarker = extractMarker(detail.orderNo || `#${detail.id}`);
@@ -565,6 +369,7 @@ async function verifyPaymentByApi(page, orderId) {
     const order = response.json?.data;
     const payment = Array.isArray(order?.paymentRecords) ? order.paymentRecords.find((item) => item.note === TEST_DATA.paymentNote) : null;
     if (!payment) throw new Error('payment record not found in order detail');
+    assertPaymentReadback(order, payment, TEST_DATA, report.createdOrder?.paidAmount || 0);
     report.paymentReadback = {
       orderId: order.id,
       paymentId: payment.id,
@@ -572,6 +377,7 @@ async function verifyPaymentByApi(page, orderId) {
       amount: Number(payment.amount || 0),
       note: payment.note,
       paidAmount: Number(order.paidAmount || 0),
+      orderPaymentStatus: order.paymentStatus,
     };
     return { order, payment };
   });
@@ -691,13 +497,34 @@ async function main() {
     report.launcher = launched.launcher;
     page = await browser.newPage({ viewport: { width: 1600, height: 1200 } });
     report.consoleErrors = [];
+    report.pageErrors = [];
+    report.failedApiRequests = [];
+    report.serverApiFailures = [];
     page.on('console', (message) => {
       if (message.type() === 'error') {
         report.consoleErrors.push(message.text());
       }
     });
+    page.on('pageerror', (error) => {
+      report.pageErrors.push(String(error.message || error));
+    });
     page.on('request', (request) => {
       if (request.url().includes('/api/')) report.lastApiRequestUrl = request.url();
+      if (/\/api\/(?:v1\/)?orders\/\d+$/.test(request.url()) && ['PUT', 'PATCH'].includes(request.method())) {
+        report.lastOrderMutation = {
+          url: request.url(),
+          method: request.method(),
+          body: request.postData(),
+        };
+      }
+    });
+    page.on('requestfailed', (request) => {
+      if (request.url().includes('/api/')) {
+        const failure = request.failure()?.errorText || 'request failed';
+        if (!isIgnorableRequestFailure(request.url(), failure)) {
+          report.failedApiRequests.push({ url: request.url(), failure });
+        }
+      }
     });
     page.on('response', (response) => {
       if (response.url().includes('/api/')) {
@@ -708,6 +535,9 @@ async function main() {
             .then((text) => { report.lastApiResponseBody = text.slice(0, 1000); })
             .catch(() => {});
         }
+        if (response.status() >= 500) {
+          report.serverApiFailures.push({ url: response.url(), status: response.status() });
+        }
       }
     });
     await seedLoginState(page);
@@ -716,13 +546,24 @@ async function main() {
     await createOrder(page);
     const created = await findCreatedOrderByApi(page);
     await captureCreatedRowEvidence(page, created.id);
+    await editCreatedOrder(page, created.id);
     await recordPaymentForRow(page, created.id);
     await verifyPaymentByApi(page, created.id);
     await openHistoryAndVerify(page);
     await verifyAccessibilityLayout(page);
+    assertBrowserRuntimeClean(report);
     report.status = 'passed';
   } catch (error) {
     markReportFromLaunchError(report, error);
+    const diagnostic = [
+      String(error?.message || error),
+      report.lastApiResponseStatus ? `last api status=${report.lastApiResponseStatus}` : '',
+      report.lastApiResponseBody ? `last api body=${report.lastApiResponseBody}` : '',
+      report.consoleErrors?.length ? `console=${report.consoleErrors.slice(-3).join(' | ')}` : '',
+      report.lastOrderMutation?.body ? `order mutation=${report.lastOrderMutation.body.slice(0, 1500)}` : '',
+    ].filter(Boolean).join(' | ');
+    const annotation = diagnostic.replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+    console.error(`::error file=scripts/sales-orders-browser-audit-v1.cjs,line=1,title=Sales orders browser audit::${annotation}`);
     if (report.status !== 'blocked_env') {
       process.exitCode = 1;
     }

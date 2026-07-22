@@ -48,6 +48,16 @@ spec:
                 capabilities:
                   drop: ["ALL"]
               env:
+                - name: PILOT_AI_ENVIRONMENT
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-observation
+                      key: environment
+                - name: PILOT_AI_EVIDENCE_ID
+                  valueFrom:
+                    configMapKeyRef:
+                      name: ailaoda-pilot-observation
+                      key: evidence-id
                 - name: PILOT_AI_APP_URLS
                   valueFrom:
                     configMapKeyRef:

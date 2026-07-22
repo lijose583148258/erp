@@ -50,9 +50,20 @@ node ops/production/kubernetes/verify-pilot-observation-evidence.cjs \
   --evidence <evidence.json> \
   --bind
 
+node ops/production/kubernetes/verify-production-approvals.cjs \
+  --provider-profile <formal-pilot-provider-profile.json> \
+  --trust-dir <approval-public-keys> \
+  --receipts-dir <signed-approval-receipts> \
+  --evidence <evidence.json> \
+  --bind
+
 node ops/production/kubernetes/run-enterprise-production-admission.cjs \
   --bundle <admission-bundle.json> \
   --check-only
+
+node ops/production/kubernetes/run-enterprise-production-admission.cjs \
+  --bundle <admission-bundle.json> \
+  --verify-evidence
 
 node ops/production/kubernetes/run-enterprise-production-admission.cjs \
   --bundle <admission-bundle.json>
@@ -62,15 +73,114 @@ Create the bundle from `admission-bundle.example.json`. Every artifact path
 must be relative, remain inside one evidence directory after symlink resolution,
 and match the release identity in the main evidence file. The bundle must include
 the exact formal preflight report produced against the bound provider profile.
+The bundle also contains four public approval keys and four signed receipts as
+defined in `PRODUCTION_APPROVAL_PROTOCOL.md`; private signing keys stay outside
+the bundle and cluster. Each signature covers the exact evidence snapshot,
+release identity, environment, and change ticket.
 Admission rejects reports older than 24 hours, incomplete check sets, insufficient
-topology, or any adapter hash drift. `--check-only` validates this structure
-without contacting Kubernetes.
+topology, or any adapter hash drift. `--check-only` validates only paths, release
+identity, provider profile, preflight, and adapter bindings; it deliberately
+returns `productionAdmission:false` and does not validate report contents.
+`--verify-evidence` runs every non-Kubernetes evidence verifier and still returns
+`productionAdmission:false`. Only the command without either flag verifies both
+the complete evidence set and the live Kubernetes deployment.
 
 The runner then calls the low-level verifier, which reads Kubernetes state with
-`kubectl` and validates the evidence with `jq`. Evidence must come from the
+`kubectl` and validates the evidence with `jq` plus the placement contract. It
+requires the bundle namespace to equal the provider-approved application
+namespace. The admitted Service must use the Deployment's exact selector and
+its Ready EndpointSlices must resolve exclusively and completely to the admitted
+Pods by immutable Pod UID; a parallel Deployment or stale/rogue backend cannot
+receive production traffic under a passing verdict. The placement contract
+also re-runs the complete provider-profile verifier in the low-level shell entry
+point, including its evidence SHA-256 binding, so invoking that entry point
+directly cannot downgrade profile validation to a few selected fields. It
+accepts only Ready Pods owned through the target Deployment's exact
+ReplicaSet UID chain, requires a completed observed rollout, and matches both
+the Deployment image and each running container `imageID` to the admitted
+release digest. Unrelated labeled Pods and old images cannot satisfy the
+two-zone or disruption-budget gate. Evidence must come from the
 provider or operator drill and must not contain credentials, connection strings,
 customer records, prompts, or tokens. A passing local/single-node simulation is
 intentionally insufficient.
+
+Provider profile schema version 2 additionally binds the application Ingress
+name, ingress class, and real public hostname into the profile hash covered by
+the evidence approvals. Production admission rejects extra hosts, alternate
+backends, executable snippet annotations, missing TLS, or an unprovisioned load
+balancer. It then performs a system-trust-store HTTPS request to `/ready` and
+requires ready database and Redis semantics. This validates the public TLS path
+without granting the admission identity permission to read Kubernetes TLS
+private-key Secrets. Replace the host and class placeholders in `ailaoda-ha.yaml`
+before applying it.
+Before that HTTPS probe, the gate resolves both the profile-bound public hostname
+and every address advertised by the live Ingress load balancer. At least one
+resolved address must match, preventing an unrelated healthy endpoint from
+satisfying admission through stale or diverted DNS. TLS hostname and CA-chain
+validation remain enforced by `curl` after the DNS-to-Ingress binding passes.
+Public `/ready`, `/api/ready`, and `/api/v1/ready` responses expose only overall
+status plus database and Redis readiness booleans. Dependency policy, Redis mode,
+degradable-provider state, errors, and uptime are available only from
+`/internal/ready`, protected by the same opaque collector token or administrator
+permission as `/metrics`. The continuous observer uses that protected route, so
+its Sentinel/dependency assertions remain semantic rather than becoming a
+minimal public-probe false green.
+Public `/health`, `/api/health`, and `/api/v1/health` likewise expose only status
+and timestamp. Disk capacity, Secret source, cache, auth-store, rate-limit,
+storage, search, realtime, and telemetry details moved to protected
+`/internal/health`. Formal preflight and observability evidence must supply the
+collector token; both credential files retain the same projected-Secret
+permission checks.
+Root public probes are also protected by a per-instance in-memory limiter
+(`PUBLIC_PROBE_RATE_LIMIT_WINDOW_MS`, `PUBLIC_PROBE_RATE_LIMIT_MAX`) before the
+request logger and expensive database, Redis, and disk checks. API-prefixed
+probe aliases remain covered by the distributed API limiter. Kubernetes probes
+stay well below the default 120 requests per minute per application Pod.
+
+Provider profile v2 also hash-binds the application ingress NetworkPolicy name
+and the exact namespace/Pod labels of the ingress controller and Prometheus.
+The live admission gate rejects empty selectors, extra callers, IP blocks,
+additional ports, and policies that select anything beyond `app=ailaoda-app` or
+expose anything beyond TCP container port 5001. `ailaoda-ha.yaml` contains the
+matching example policy; customize all namespace and Pod labels together with
+the provider profile. This proves the declared policy structure, not CNI packet
+enforcement, because the Kubernetes API does not expose a universal "policy
+enforced" status.
+
+Run the provider-bound negative-connectivity drill after the application has
+ready Service endpoints and before production admission:
+
+```bash
+node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
+  --provider-profile /secure/provider-profile.json \
+  --evidence /secure/enterprise-evidence.json \
+  --report /secure/network-policy-enforcement-report.json \
+  --bind
+```
+
+The profile hash-binds `platform.applicationNetworkPolicy.probeImage`; it must
+be a complete `registry/repository@sha256:...` reference. The drill creates one
+short-lived, token-free, non-root Pod in the dedicated recovery namespace and
+connects directly to the application Service ClusterIP. Only curl exit code 28
+(TCP timeout) is accepted as denied traffic. HTTP success, DNS failure,
+connection refusal, scheduling failure, and unverified Pod cleanup all fail the
+drill. The report stores only a SHA-256 of the ClusterIP. The cloud contract in
+`.github/workflows/network-policy-enforcement-contract.yml` additionally boots
+KinD with Calico, proves the approved monitoring caller succeeds, and then runs
+the denied-caller drill. This CI evidence validates the code path and Calico
+fixture; the target provider cluster must still produce its own fresh report.
+`--bind` writes the report SHA-256 and release identity into
+`evidence.networkPolicyEnforcement`; run the signed production approvals only
+after this binding. The admission bundle must include that report as
+`artifacts.networkPolicyReport`, and admission rejects missing, stale, modified,
+or release/profile-mismatched reports.
+
+The application Deployment uses a dedicated `ailaoda-app` ServiceAccount with
+`automountServiceAccountToken: false` at both ServiceAccount and Pod levels. The
+placement gate rechecks the live ServiceAccount and every admitted Pod, rejecting
+the default account or any Pod that mounts a Kubernetes API token. The application
+therefore receives no ambient Kubernetes API credential after a container
+compromise; drill adapters continue to use separate, narrowly scoped identities.
 
 
 ## Isolated PostgreSQL backup recovery drill
@@ -205,7 +315,8 @@ two seconds, two serving application instances, and no failed checks.
 The pilot ledger must contain at least seven distinct UTC dates spanning six
 full days. Every entry is bound to a daily source report by SHA-256 and requires
 completed alert review, zero unreconciled business writes, resolved incidents,
-and an immutable release identity. The continuous report and complete ledger
+the same change-ticket evidence ID, and the exact immutable release identity
+and continuous-report hash on every day. The continuous report and complete ledger
 hashes are written into enterprise evidence by `--bind` and rechecked during
 formal admission.
 
@@ -358,6 +469,8 @@ fingerprints. The four incident counters must be supplied explicitly by the
 daily reviewer and must all be zero.
 
 ```bash
+PILOT_AI_ENVIRONMENT=<formal-pilot> \
+PILOT_AI_EVIDENCE_ID=<change-ticket> \
 PILOT_AI_APP_URLS=<https-app-a>,<https-app-b> \
 PILOT_AI_USERNAME=<least-privilege-ai-user> \
 PILOT_AI_PASSWORD_FILE=<private-secret-file> \
@@ -372,7 +485,11 @@ PILOT_AI_UNRESOLVED_INCIDENTS=0 \
 node ops/production/kubernetes/capture-pilot-ai-governance-review.cjs
 ```
 
-The generated report binds both the observer image digest and the exact collector source hash; the final verifier recomputes the source hash and requires every daily report to match the continuous observer image.
+The generated report binds the pilot environment, change ticket, observer image
+digest, and exact collector source hash. The final verifier recomputes the
+source hash and requires every daily report to match the continuous observer
+image. Alert, reconciliation, and incident support reports carry the same pilot
+identity so support files from another change ticket cannot be replayed.
 
 For Kubernetes, build the digest-pinned pilot-observer image and apply
 `formal-pilot-ai-daily-review-cronjob.example.yaml`. Its schedule is UTC,
@@ -394,6 +511,7 @@ cannot be copied into the pilot evidence bundle.
 ```bash
 node ops/production/kubernetes/record-pilot-daily-review.cjs \
   --environment <formal-pilot> \
+  --evidence-id <change-ticket> \
   --commit-sha <git-sha> \
   --image-digest <sha256:digest> \
   --date <YYYY-MM-DD> \
@@ -436,6 +554,7 @@ FORMAL_PILOT_PREFLIGHT_IMAGE_DIGEST=<sha256:digest> \
 FORMAL_PILOT_PREFLIGHT_APP_URLS=<https-app-a>,<https-app-b> \
 FORMAL_PILOT_PREFLIGHT_USERNAME=<least-privilege-audit-user> \
 FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE=<private-secret-file> \
+FORMAL_PILOT_PREFLIGHT_METRICS_TOKEN_FILE=<private-metrics-token-file> \
 FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=<https-receipt-verifier> \
 FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE=<ed25519-public-key> \
 node ops/production/kubernetes/run-formal-pilot-preflight.cjs \

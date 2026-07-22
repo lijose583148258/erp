@@ -47,6 +47,30 @@ const requireDns = (value, label) => {
   if (!/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(text)) fail(`${label} must be a DNS label.`);
   return text;
 };
+const requireHostname = (value, label) => {
+  const text = requireString(value, label).toLowerCase();
+  if (text.length > 253 || text.endsWith('.') || !text.includes('.')
+    || text.split('.').some(part => !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(part))
+    || /\.(invalid|example|test|localhost)$/.test(text)) {
+    fail(`${label} must be a real lowercase DNS hostname.`);
+  }
+  return text;
+};
+const requireLabelSelector = (value, label) => {
+  requireObject(value, label);
+  const entries = Object.entries(value);
+  if (entries.length < 1 || entries.length > 8) fail(`${label} must contain 1-8 exact match labels.`);
+  const output = {};
+  for (const [key, rawValue] of entries.sort(([a], [b]) => a.localeCompare(b))) {
+    const text = requireString(rawValue, `${label}.${key}`);
+    if (key.length > 253 || !/^(?:[a-z0-9](?:[-a-z0-9.]*[a-z0-9])?\/)?[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$/.test(key)
+      || text.length > 63 || !/^[A-Za-z0-9](?:[-_.A-Za-z0-9]*[A-Za-z0-9])?$/.test(text)) {
+      fail(`${label} contains an invalid Kubernetes label.`);
+    }
+    output[key] = text;
+  }
+  return output;
+};
 const requireInteger = (value, minimum, label) => {
   if (!Number.isInteger(value) || value < minimum) fail(`${label} must be an integer >= ${minimum}.`);
 };
@@ -64,14 +88,15 @@ const rejectSensitiveFields = (value, location = 'profile') => {
 rejectSensitiveFields(profile);
 requireKeys(profile, [
   'schemaVersion', 'environment', 'platform', 'adapters', 'postgresql', 'redis',
-  'objectStorage', 'search', 'observability', 'ai', 'observation',
+  'objectStorage', 'search', 'observability', 'ai', 'observation', 'approvals',
 ], 'profile');
-if (profile.schemaVersion !== 1) fail('Unsupported provider profile schemaVersion.');
+if (profile.schemaVersion !== 2) fail('Unsupported provider profile schemaVersion; ingress-bound schemaVersion 2 is required.');
 const environment = requireString(profile.environment, 'environment');
 if (/prod/i.test(environment)) fail('Provider profile is restricted to staging or formal pilot.');
 
 requireKeys(profile.platform, [
-  'kind', 'failureDomains', 'applicationNamespace', 'recoveryNamespace',
+  'kind', 'failureDomains', 'applicationNamespace', 'recoveryNamespace', 'applicationIngress',
+  'applicationNetworkPolicy',
 ], 'platform');
 if (profile.platform.kind !== 'kubernetes-native') fail('platform.kind must be kubernetes-native.');
 const domains = [...new Set((profile.platform.failureDomains || []).map(value => requireString(value, 'failure domain')))];
@@ -79,6 +104,48 @@ if (domains.length < 3) fail('At least three provider-observed failure domains a
 const applicationNamespace = requireDns(profile.platform.applicationNamespace, 'platform.applicationNamespace');
 const recoveryNamespace = requireDns(profile.platform.recoveryNamespace, 'platform.recoveryNamespace');
 if (applicationNamespace === recoveryNamespace) fail('Recovery resources require a dedicated namespace.');
+requireKeys(profile.platform.applicationIngress, ['name', 'className', 'publicHost'], 'platform.applicationIngress');
+const applicationIngress = {
+  name: requireDns(profile.platform.applicationIngress.name, 'platform.applicationIngress.name'),
+  className: requireDns(profile.platform.applicationIngress.className, 'platform.applicationIngress.className'),
+  publicHost: requireHostname(profile.platform.applicationIngress.publicHost, 'platform.applicationIngress.publicHost'),
+};
+requireKeys(profile.platform.applicationNetworkPolicy, [
+  'name', 'ingressControllerNamespace', 'ingressControllerPodLabels',
+  'observabilityNamespace', 'observabilityPodLabels', 'probeImage',
+], 'platform.applicationNetworkPolicy');
+const probeImage = requireString(
+  profile.platform.applicationNetworkPolicy.probeImage,
+  'platform.applicationNetworkPolicy.probeImage',
+);
+if (!/^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+@sha256:[0-9a-f]{64}$/.test(probeImage)
+  || !/[.:]/.test(probeImage.split('/')[0])) {
+  fail('platform.applicationNetworkPolicy.probeImage must be a fully qualified immutable image digest.');
+}
+const applicationNetworkPolicy = {
+  name: requireDns(profile.platform.applicationNetworkPolicy.name, 'platform.applicationNetworkPolicy.name'),
+  ingressControllerNamespace: requireDns(
+    profile.platform.applicationNetworkPolicy.ingressControllerNamespace,
+    'platform.applicationNetworkPolicy.ingressControllerNamespace',
+  ),
+  ingressControllerPodLabels: requireLabelSelector(
+    profile.platform.applicationNetworkPolicy.ingressControllerPodLabels,
+    'platform.applicationNetworkPolicy.ingressControllerPodLabels',
+  ),
+  observabilityNamespace: requireDns(
+    profile.platform.applicationNetworkPolicy.observabilityNamespace,
+    'platform.applicationNetworkPolicy.observabilityNamespace',
+  ),
+  observabilityPodLabels: requireLabelSelector(
+    profile.platform.applicationNetworkPolicy.observabilityPodLabels,
+    'platform.applicationNetworkPolicy.observabilityPodLabels',
+  ),
+  probeImage,
+};
+if (new Set([
+  applicationNamespace, recoveryNamespace, applicationNetworkPolicy.ingressControllerNamespace,
+  applicationNetworkPolicy.observabilityNamespace,
+]).size !== 4) fail('Application, recovery, ingress, and observability namespaces must be distinct.');
 
 requireKeys(profile.adapters, [
   'postgres', 'redis', 'objectStorage', 'search', 'backup', 'observability',
@@ -197,6 +264,26 @@ requireInteger(profile.observation.pilotDays, 7, 'observation.pilotDays');
 const collectorImageDigest = requireString(profile.observation.collectorImageDigest, 'observation.collectorImageDigest');
 if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('observation.collectorImageDigest must be immutable.');
 
+const approvalRoles = ['platformOwner', 'databaseOwner', 'securityOwner', 'businessPilotOwner'];
+requireKeys(profile.approvals, approvalRoles, 'approvals');
+const approvalBindings = {};
+for (const role of approvalRoles) {
+  const binding = profile.approvals[role];
+  requireKeys(binding, ['issuer', 'publicKeyFile', 'publicKeySha256'], `approvals.${role}`);
+  const issuer = requireString(binding.issuer, `approvals.${role}.issuer`);
+  if (issuer.length > 128) fail(`approvals.${role}.issuer is too long.`);
+  const publicKeyFile = requireString(binding.publicKeyFile, `approvals.${role}.publicKeyFile`);
+  if (path.basename(publicKeyFile) !== publicKeyFile || !/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/.test(publicKeyFile)) {
+    fail(`approvals.${role}.publicKeyFile must be a plain file name.`);
+  }
+  const publicKeySha256 = String(binding.publicKeySha256 || '').trim();
+  if (!/^[0-9a-f]{64}$/.test(publicKeySha256)) fail(`approvals.${role}.publicKeySha256 must be a lowercase SHA-256.`);
+  approvalBindings[role] = { issuer, publicKeyFile, publicKeySha256 };
+}
+if (new Set(Object.values(approvalBindings).map(binding => binding.publicKeySha256)).size !== approvalRoles.length) {
+  fail('Each production approval role requires a distinct public key.');
+}
+
 const providerProfileSha256 = crypto.createHash('sha256').update(fs.readFileSync(profilePath)).digest('hex');
 if (bind && !evidenceValue) fail('--bind requires --evidence.');
 if (evidenceValue) {
@@ -228,6 +315,8 @@ process.stdout.write(`${JSON.stringify({
   failureDomainCount: domains.length,
   applicationNamespace,
   recoveryNamespace,
+  applicationIngress,
+  applicationNetworkPolicy,
   aiMode: profile.ai.mode,
   paidCallBudget: profile.ai.paidCallBudget,
   observation: {
@@ -243,6 +332,7 @@ process.stdout.write(`${JSON.stringify({
     serviceFileName: receiptServiceFileName,
     serviceSha256: receiptServiceSha256,
   },
+  approvals: approvalBindings,
   providerProfileSha256,
   evidenceBound: Boolean(evidenceValue),
 })}\n`);

@@ -6,12 +6,16 @@ import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
+import { OrderUpdateRejectedError, OrderUpdateService } from '../services/order-update.service';
+import { buildOrderItemsAndTotals } from '../services/order-item-normalization';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
+import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
+import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
     buildOrderDataScopeWhere,
@@ -22,31 +26,7 @@ import {
 import {
     ORDER_STATUS_TRANSITIONS,
     buildCreateOrderAuditDetails,
-    buildOrderItemsAndTotals,
 } from './order/order-controller.helpers';
-
-async function writeOrderAuditLog(req: AuthRequest, input: {
-    action: string;
-    resourceId?: number | null;
-    details: string;
-}) {
-    if (!req.user?.userId) return;
-    try {
-        await prisma.auditLog.create({
-            data: {
-                userId: req.user.userId,
-                action: input.action,
-                resource: 'order',
-                resourceId: input.resourceId ?? null,
-                details: input.details,
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent'),
-            },
-        });
-    } catch (error) {
-        logger.warn('订单审计日志写入失败，业务操作已保留', error);
-    }
-}
 
 class OrderCreationRejectedError extends Error {
     constructor(
@@ -252,44 +232,7 @@ export class OrderController {
             const { id } = req.params;
             const updateData = req.body;
 
-            const existing = await prisma.order.findUnique({
-                where: { id: Number(id) },
-                select: {
-                    id: true,
-                    orderNo: true,
-                    status: true,
-                    createdBy: true,
-                    customer: { select: { salespersonId: true, poolState: true, segment: true } },
-                },
-            });
-            if (!existing) {
-                return res.status(404).json({
-                    success: false,
-                    message: '订单不存在，请刷新后重试。',
-                } as ApiResponse);
-            }
-            if (!canUseOrderForBusinessWrite(req, existing)) {
-                return res.status(403).json({
-                    success: false,
-                    message: '无权编辑该订单。',
-                } as ApiResponse);
-            }
-
-            if (existing.status !== 'pending') {
-                return res.status(400).json({
-                    success: false,
-                    message: '只有待处理订单可以编辑。',
-                } as ApiResponse);
-            }
-
-            const updatedOrder = await prisma.order.update({
-                where: { id: Number(id) },
-                data: {
-                    notes: updateData.notes,
-                    paymentTerms: updateData.paymentTerms,
-                    contractId: updateData.contractId ? Number(updateData.contractId) : undefined,
-                },
-            });
+            const updatedOrder = await OrderUpdateService.updateOrder(Number(id), updateData, req);
 
             await writeOrderAuditLog(req, {
                 action: 'UPDATE',
@@ -320,6 +263,13 @@ export class OrderController {
                 message: '订单更新成功。',
             } as ApiResponse);
         } catch (error) {
+            if (error instanceof OrderUpdateRejectedError) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: error.message,
+                    data: error.data,
+                } as ApiResponse);
+            }
             logger.error('Update order error:', error);
             return res.status(500).json({
                 success: false,
@@ -453,29 +403,7 @@ export class OrderController {
     }
 
     async importOrders(req: AuthRequest, res: Response) {
-        try {
-            const { orders } = req.body;
-            const result = await OrderWorkspaceService.importOrders(orders, req.user!.userId);
-
-            if ('error' in result) {
-                return res.status(400).json({
-                    success: false,
-                    message: result.error,
-                } as ApiResponse);
-            }
-
-            return res.json({
-                success: true,
-                data: result.result,
-                message: `导入完成：成功 ${result.result.success} 条，失败 ${result.result.failed} 条`,
-            } as ApiResponse);
-        } catch (error) {
-            logger.error('Failed to import orders:', error);
-            return res.status(500).json({
-                success: false,
-                message: '服务器内部错误',
-            } as ApiResponse);
-        }
+        return importOrderRows(req, res);
     }
 
     /**
@@ -590,33 +518,6 @@ export class OrderController {
     }
 
     async exportOrders(req: AuthRequest, res: Response) {
-        try {
-            const { workbook, orders } = await OrderWorkspaceService.exportOrders(
-                {
-                    status: req.query.status as string | undefined,
-                    startDate: req.query.startDate as string | undefined,
-                    endDate: req.query.endDate as string | undefined,
-                    lang: req.query.lang as string | undefined,
-                },
-                req,
-            );
-
-            res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
-            res.setHeader('Content-Disposition', `attachment; filename=orders_${new Date().toISOString().split('T')[0]}.xlsx`);
-
-            await writeOrderAuditLog(req, {
-                action: 'EXPORT',
-                details: `导出订单: ${orders.length} 条`,
-            });
-
-            await workbook.xlsx.write(res);
-            res.end();
-        } catch (error) {
-            logger.error('Failed to export orders:', error);
-            return res.status(500).json({
-                success: false,
-                message: '服务器内部错误',
-            } as ApiResponse);
-        }
+        return exportOrderRows(req, res);
     }
 }

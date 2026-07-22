@@ -5,6 +5,7 @@ import type {
   StockSourceType,
   TransactionClient,
 } from './stock-movement.types';
+import { StockMovementConflictError } from './stock-movement.errors';
 
 export const normalizeText = (value: unknown) => String(value ?? '').trim();
 
@@ -118,4 +119,29 @@ export const findPostedEntryResult = async (
   });
 
   return entry ? loadStockEntryResult(tx, entry as unknown as Record<string, unknown>) : null;
+};
+
+const movementSignature = (movement: Record<string, unknown>) => [
+  normalizeDbNumber(movement.locationId),
+  normalizeText(movement.productName),
+  normalizeText(movement.batchNo),
+  normalizeText(movement.unit || 'kg') || 'kg',
+  roundQuantity(normalizeNumber(movement.quantityDelta, 'quantityDelta')),
+].join('|');
+
+export const assertIdempotentReplayMatches = (
+  existing: StockEntryResult,
+  requestedLines: StockMovementLineInput[],
+) => {
+  const existingSignatures = existing.movements
+    .map(movementSignature)
+    .sort();
+  const requestedSignatures = requestedLines
+    .map(line => movementSignature(line as unknown as Record<string, unknown>))
+    .sort();
+
+  if (existingSignatures.length !== requestedSignatures.length
+    || existingSignatures.some((value, index) => value !== requestedSignatures[index])) {
+    throw new StockMovementConflictError('requestId 已用于不同的库存操作，请生成新的 requestId。');
+  }
 };

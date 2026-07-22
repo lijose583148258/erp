@@ -12,13 +12,17 @@ observability_report="${8:-}"
 load_reconciliation_reports_dir="${9:-}"
 ai_reports_dir="${10:-}"
 security_reports_dir="${11:-}"
+approval_trust_dir="${12:-}"
+approval_receipts_dir="${13:-}"
+provider_profile="${14:-}"
+network_policy_report="${15:-}"
 
-if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" ]]; then
-  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir>" >&2
+if [[ -z "${namespace}" || -z "${evidence_file}" || -z "${continuous_report}" || -z "${pilot_ledger}" || -z "${daily_reports_dir}" || -z "${backup_report}" || -z "${resilience_reports_dir}" || -z "${observability_report}" || -z "${load_reconciliation_reports_dir}" || -z "${ai_reports_dir}" || -z "${security_reports_dir}" || -z "${approval_trust_dir}" || -z "${approval_receipts_dir}" || -z "${provider_profile}" || -z "${network_policy_report}" ]]; then
+  echo "Usage: $0 <namespace> <evidence.json> <continuous-report.json> <pilot-ledger.json> <daily-reports-dir> <backup-report.json> <resilience-reports-dir> <observability-report.json> <load-reconciliation-reports-dir> <ai-reports-dir> <security-reports-dir> <approval-trust-dir> <approval-receipts-dir> <provider-profile> <network-policy-report>" >&2
   exit 2
 fi
 
-for command_name in kubectl jq node; do
+for command_name in kubectl jq node curl; do
   command -v "${command_name}" >/dev/null 2>&1 || {
     echo "Missing required command: ${command_name}" >&2
     exit 2
@@ -33,10 +37,35 @@ done
 tmp_dir="$(mktemp -d)"
 trap 'rm -rf "${tmp_dir}"' EXIT
 
+node "$(dirname "${BASH_SOURCE[0]}")/verify-formal-pilot-provider-profile.cjs" \
+  "${provider_profile}" \
+  --evidence "${evidence_file}" \
+  > "${tmp_dir}/provider-verdict.json"
+
+jq -e --arg namespace "${namespace}" '
+  .status == "passed"
+  and .evidenceBound == true
+  and .applicationNamespace == $namespace
+  and (.providerProfileSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+' "${tmp_dir}/provider-verdict.json" >/dev/null || {
+  echo "FAILED: provider profile is invalid, unbound, or targets another application namespace" >&2
+  exit 1
+}
+
 kubectl get nodes -o json > "${tmp_dir}/nodes.json"
-kubectl get pods -n "${namespace}" -l app=ailaoda-app -o json > "${tmp_dir}/pods.json"
+kubectl get pods -n "${namespace}" -o json > "${tmp_dir}/pods.json"
 kubectl get deployment -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/deployment.json"
+kubectl get replicasets -n "${namespace}" -o json > "${tmp_dir}/replicasets.json"
 kubectl get poddisruptionbudget -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/pdb.json"
+kubectl get service -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service.json"
+kubectl get serviceaccount -n "${namespace}" ailaoda-app -o json > "${tmp_dir}/service-account.json"
+kubectl get endpointslices.discovery.k8s.io -n "${namespace}" -l kubernetes.io/service-name=ailaoda-app -o json > "${tmp_dir}/endpoint-slices.json"
+ingress_name="$(jq -r '.applicationIngress.name' "${tmp_dir}/provider-verdict.json")"
+ingress_class="$(jq -r '.applicationIngress.className' "${tmp_dir}/provider-verdict.json")"
+public_host="$(jq -r '.applicationIngress.publicHost' "${tmp_dir}/provider-verdict.json")"
+kubectl get ingress.networking.k8s.io -n "${namespace}" "${ingress_name}" -o json > "${tmp_dir}/ingress.json"
+network_policy_name="$(jq -r '.applicationNetworkPolicy.name' "${tmp_dir}/provider-verdict.json")"
+kubectl get networkpolicy.networking.k8s.io -n "${namespace}" "${network_policy_name}" -o json > "${tmp_dir}/network-policy.json"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --continuous-report "${continuous_report}" \
@@ -45,6 +74,12 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-pilot-observation-evidence.cjs" \
   --evidence "${evidence_file}" \
   --output "${tmp_dir}/observation-verdict.json"
 jq -e '.status == "passed"' "${tmp_dir}/observation-verdict.json" >/dev/null
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-network-policy-enforcement-evidence.cjs" \
+  --report "${network_policy_report}" \
+  --evidence "${evidence_file}" \
+  --provider-profile "${provider_profile}" \
+  > "${tmp_dir}/network-policy-enforcement-verdict.json"
 
 node "$(dirname "${BASH_SOURCE[0]}")/verify-backup-restore-evidence.cjs" \
   --report "${backup_report}" \
@@ -70,47 +105,57 @@ node "$(dirname "${BASH_SOURCE[0]}")/verify-security-evidence.cjs" \
   --reports-dir "${security_reports_dir}" \
   --evidence "${evidence_file}"
 
+node "$(dirname "${BASH_SOURCE[0]}")/verify-production-approvals.cjs" \
+  --provider-profile "${provider_profile}" \
+  --trust-dir "${approval_trust_dir}" \
+  --receipts-dir "${approval_receipts_dir}" \
+  --evidence "${evidence_file}"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-app-placement.cjs" \
+  --nodes "${tmp_dir}/nodes.json" \
+  --pods "${tmp_dir}/pods.json" \
+  --deployment "${tmp_dir}/deployment.json" \
+  --replicasets "${tmp_dir}/replicasets.json" \
+  --pdb "${tmp_dir}/pdb.json" \
+  --service "${tmp_dir}/service.json" \
+  --service-account "${tmp_dir}/service-account.json" \
+  --endpoint-slices "${tmp_dir}/endpoint-slices.json" \
+  --namespace "${namespace}" \
+  --image-digest "$(jq -r '.imageDigest // empty' "${evidence_file}")" \
+  > "${tmp_dir}/placement-verdict.json"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-ingress.cjs" \
+  --ingress "${tmp_dir}/ingress.json" \
+  --namespace "${namespace}" \
+  --ingress-name "${ingress_name}" \
+  --ingress-class "${ingress_class}" \
+  --public-host "${public_host}" \
+  --service-name "ailaoda-app" \
+  > "${tmp_dir}/ingress-verdict.json"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-public-dns-ingress.cjs" \
+  --ingress "${tmp_dir}/ingress.json" \
+  --public-host "${public_host}" \
+  > "${tmp_dir}/dns-ingress-verdict.json"
+
+node "$(dirname "${BASH_SOURCE[0]}")/verify-kubernetes-network-policy.cjs" \
+  --network-policy "${tmp_dir}/network-policy.json" \
+  --provider-summary "${tmp_dir}/provider-verdict.json" \
+  --namespace "${namespace}" \
+  > "${tmp_dir}/network-policy-verdict.json"
+
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error \
+  --connect-timeout 5 --max-time 15 \
+  --header 'Cache-Control: no-cache' \
+  --header 'Accept: application/json' \
+  "https://${public_host}/ready" \
+  --output "${tmp_dir}/public-readiness.json"
 jq -e '
-  [.items[]
-    | select(.spec.unschedulable != true)
-    | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))
-  ] as $ready
-  | ($ready | length) >= 2
-  and ($ready | map(.metadata.name) | unique | length) >= 2
-  and ($ready | map(.metadata.labels["topology.kubernetes.io/zone"] // "") | all(length > 0))
-  and ($ready | map(.metadata.labels["topology.kubernetes.io/zone"]) | unique | length) >= 2
-' "${tmp_dir}/nodes.json" >/dev/null || {
-  echo "FAILED: fewer than two Ready nodes or two labeled zones" >&2
-  exit 1
-}
-
-jq -e --slurpfile nodes "${tmp_dir}/nodes.json" '
-  ($nodes[0].items
-    | map({key: .metadata.name, value: (.metadata.labels["topology.kubernetes.io/zone"] // "")})
-    | from_entries) as $zones
-  | [.items[]
-      | select(.status.phase == "Running")
-      | select(any(.status.conditions[]?; .type == "Ready" and .status == "True"))
-    ] as $ready
-  | ($ready | length) >= 2
-  and ($ready | map(.spec.nodeName) | unique | length) >= 2
-  and ($ready | map($zones[.spec.nodeName]) | all(length > 0))
-  and ($ready | map($zones[.spec.nodeName]) | unique | length) >= 2
-' "${tmp_dir}/pods.json" >/dev/null || {
-  echo "FAILED: application pods are not Ready across two nodes and two zones" >&2
-  exit 1
-}
-
-jq -e '(.status.availableReplicas // 0) >= 2' "${tmp_dir}/deployment.json" >/dev/null || {
-  echo "FAILED: deployment has fewer than two available replicas" >&2
-  exit 1
-}
-
-jq -e '
-  (.status.currentHealthy // 0) >= 2
-  and (.status.disruptionsAllowed // 0) >= 1
-' "${tmp_dir}/pdb.json" >/dev/null || {
-  echo "FAILED: disruption budget cannot currently tolerate one pod loss" >&2
+  .status == "ready"
+  and .database == "ok"
+  and .redis.ready == true
+' "${tmp_dir}/public-readiness.json" >/dev/null || {
+  echo "FAILED: public HTTPS readiness did not reach a fully ready application" >&2
   exit 1
 }
 
@@ -127,6 +172,14 @@ jq -e '
   and .providerProfile.environment == .environment
   and (.providerProfile.sha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.providerProfile.verifiedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+  and .networkPolicyEnforcement.status == "passed"
+  and .networkPolicyEnforcement.environment == .environment
+  and .networkPolicyEnforcement.evidenceId == .evidenceId
+  and .networkPolicyEnforcement.commitSha == .commitSha
+  and .networkPolicyEnforcement.imageDigest == .imageDigest
+  and .networkPolicyEnforcement.providerProfileSha256 == .providerProfile.sha256
+  and (.networkPolicyEnforcement.reportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.networkPolicyEnforcement.finishedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
   and .haDrill.status == "passed"
   and .haDrill.providerProfileSha256 == .providerProfile.sha256
   and (.haDrill.adapterSha256.postgres | type == "string" and test("^[0-9a-f]{64}$"))
@@ -297,16 +350,44 @@ jq -e '
   and (.securityDrill.readinessReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
   and (.securityDrill.defaultCredentialReportSha256 | type == "string" and test("^[0-9a-f]{64}$"))
 
-  and (.approvals.platformOwner | length) >= 2
-  and (.approvals.databaseOwner | length) >= 2
-  and (.approvals.securityOwner | length) >= 2
-  and (.approvals.businessPilotOwner | length) >= 2
+  and .approvals.status == "passed"
+  and (.approvals.evidenceCoreSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  and (.approvals.verifiedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+  and ([
+    .approvals.receipts.platformOwner,
+    .approvals.receipts.databaseOwner,
+    .approvals.receipts.securityOwner,
+    .approvals.receipts.businessPilotOwner
+  ] | all(
+    (.issuer | type == "string" and length >= 3)
+    and (.approver | type == "string" and length >= 3)
+    and (.approvedAt | type == "string" and test("^20[0-9]{2}-[0-9]{2}-[0-9]{2}T"))
+    and (.receiptSha256 | type == "string" and test("^[0-9a-f]{64}$"))
+  ))
+  and ([
+    .approvals.receipts.platformOwner.approver,
+    .approvals.receipts.databaseOwner.approver,
+    .approvals.receipts.securityOwner.approver,
+    .approvals.receipts.businessPilotOwner.approver
+  ] | unique | length) == 4
 ' "${evidence_file}" >/dev/null || {
   echo "FAILED: runtime evidence does not satisfy enterprise production admission" >&2
   exit 1
 }
 
-jq -n   --arg namespace "${namespace}"   --arg evidence "${evidence_file}"   --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)"   '{status:"passed", namespace:$namespace, evidence:$evidence, checkedAt:$checkedAt,
-    boundary:"Real cluster placement plus provider/operator failover evidence"}'
+jq -n \
+  --arg namespace "${namespace}" \
+  --arg evidence "${evidence_file}" \
+  --arg publicHost "${public_host}" \
+  --arg checkedAt "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --slurpfile placement "${tmp_dir}/placement-verdict.json" \
+  --slurpfile ingress "${tmp_dir}/ingress-verdict.json" \
+  --slurpfile dnsIngress "${tmp_dir}/dns-ingress-verdict.json" \
+  --slurpfile networkPolicy "${tmp_dir}/network-policy-verdict.json" \
+  --slurpfile networkPolicyEnforcement "${tmp_dir}/network-policy-enforcement-verdict.json" \
+  '{status:"passed", namespace:$namespace, evidence:$evidence, publicHost:$publicHost,
+    checkedAt:$checkedAt, placement:$placement[0], ingress:$ingress[0], dnsIngress:$dnsIngress[0],
+    networkPolicy:$networkPolicy[0], networkPolicyEnforcement:$networkPolicyEnforcement[0], publicHttpsReadiness:true,
+    boundary:"Real cluster placement, HTTPS traffic entry, and provider/operator failover evidence"}'
 
 echo "Enterprise production admission: PASSED" >&2

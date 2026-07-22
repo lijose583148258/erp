@@ -15,6 +15,7 @@ npm run audit:db:postgres-artifact
 npm run build:backend:postgres-server-artifact
 npm run audit:db:postgres-server-artifact
 npm run audit:db:postgres-raw-sql
+npm run audit:db:postgres-versioned-migrations
 npm run audit:db:postgres-migration-rehearsal
 npm run audit:db:postgres-portable-rehearsal
 ```
@@ -95,7 +96,7 @@ npm run db:pg:start-rehearsal
 npm run audit:db:postgres-portable-rehearsal
 ```
 
-This extracts the official binaries under `output/postgres-runtime/` if needed, initializes a local data directory, and starts PostgreSQL on `127.0.0.1:${POSTGRES_PORT:-5432}`. Native PostgreSQL Windows tools require ASCII-only binary and data paths. When the repository path contains non-ASCII characters, the script automatically isolates the runtime under `C:\AilaoDaPostgresRehearsal`; set `POSTGRES_RUNTIME_ROOT` to an explicit ASCII-only location to override it. The start report redacts the password, so provide the rehearsal secret through `POSTGRES_URL` or `DATABASE_URL` only to the import command that needs it.
+This extracts the official binaries into an immutable SHA-256-addressed directory under `output/postgres-runtime/portable-cache/`, initializes a local data directory, and starts PostgreSQL on `127.0.0.1:${POSTGRES_PORT:-5432}`. A different archive creates a different cache directory; the launcher never recursively replaces an existing portable binary directory. Native PostgreSQL Windows tools require ASCII-only binary and data paths. When the repository path contains non-ASCII characters, the script automatically isolates the runtime under `C:\AilaoDaPostgresRehearsal`; set `POSTGRES_RUNTIME_ROOT` to an explicit ASCII-only location to override it. The start report redacts the password, so provide the rehearsal secret through `POSTGRES_URL` or `DATABASE_URL` only to the import command that needs it.
 
 Do not start the default application container from this compose file. The current default app package is SQLite-first and must not be pointed at PostgreSQL by changing only `DATABASE_URL`.
 
@@ -119,9 +120,22 @@ Use `output/audit/postgres-migration-dry-run-v1.json` as the import checklist:
 When the PostgreSQL schema is provisioned and the target database is empty, run the importer:
 
 ```powershell
-npx prisma db push --schema output/postgres-prisma-artifact/prisma/schema.prisma
+node node_modules/prisma/build/index.js db push --schema output/postgres-prisma-artifact/prisma/schema.prisma --skip-generate
+npm run db:pg:migrate -- apply
+npm run db:pg:migrate -- verify
 npm run db:pg -- import
 ```
+
+For an already populated PostgreSQL deployment, skip `db push` and run the versioned migrator before starting the new application artifact:
+
+```powershell
+$env:POSTGRES_URL=$env:DATABASE_URL
+npm run db:pg:migrate -- status
+npm run db:pg:migrate -- apply
+npm run db:pg:migrate -- verify
+```
+
+`verify` fails when a checked-in migration was modified after application, when the database contains an unknown migration version, when migration history has a gap, or when a migration is still pending. Keep the migration report at `output/audit/postgres-schema-migrate-v1.json` with the release evidence.
 
 If the rehearsal database already contains data and you intend to reset it first:
 
@@ -219,6 +233,30 @@ npm run audit:stock:ledger
 ```
 
 Keep `DATABASE_URL` on SQLite until a new rehearsal passes.
+
+## Cloud same-window gate
+
+`.github/workflows/enterprise-cloud-sandbox.yml` performs the complete disposable rehearsal without starting the
+application on the operator workstation. The job creates a representative SQLite fixture, takes a manifest-backed
+backup, exports and imports the snapshot, reads the marker records back through the PostgreSQL client, deliberately
+mutates the SQLite source, restores the backup, and verifies the pre-cutover fingerprint. It then runs the existing
+PostgreSQL browser flows, logical backup/restore, and controlled promotion in the same job.
+
+The final gate is:
+
+```powershell
+npm run audit:db:postgres-cutover-window
+```
+
+Required report:
+
+```text
+output/audit/cloud-postgres-cutover-window-verdict-v1.json
+```
+
+The verdict must contain `status: passed`, matching SQLite/PostgreSQL/rollback fingerprints, and passing route,
+backup/restore, and promotion checks. The report deliberately retains non-claims for cross-region failover,
+production traffic, long soak, and customer-dataset zero-downtime migration.
 
 ## Non-Claims
 

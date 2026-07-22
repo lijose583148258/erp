@@ -85,13 +85,40 @@ async function waitForRowByText(page, text, timeout) {
   throw new Error(`row not visible within ${timeout}ms: ${text}`);
 }
 
-function assertNoMojibake(text, scopeName, forbidden = []) {
-  const markers = ['undefined', '\ufffd', ...forbidden];
-  for (const marker of markers) {
-    if (marker && text.includes(marker)) {
-      throw new Error(`${scopeName} contains forbidden text: ${marker}`);
-    }
+const KNOWN_MOJIBAKE_SEQUENCES = [
+  [0x951F, 0x65A4, 0x62F7],
+  [0x9347, 0x20AC],
+  [0x9359, 0x6218],
+  [0x9422, 0x7535],
+  [0x7039, 0x609A],
+  [0x95C6, 0x9E43],
+  [0x5CB7, 0x5CC4],
+  [0x81BD, 0x5564],
+  [0x93CD, 0x56E7, 0x566F],
+  [0x93B5, 0x5F52, 0x567A],
+  [0x9357, 0x66DA, 0x7D85],
+  [0x6E1A, 0x5B2A],
+].map((codes) => codes.map((code) => String.fromCharCode(code)).join(''));
+
+function findMojibake(text, { forbidden = [] } = {}) {
+  const value = String(text || '');
+  for (const marker of forbidden) {
+    if (marker && value.includes(marker)) return { code: 'forbidden-text', sample: marker };
   }
+  if (value.includes('\uFFFD')) return { code: 'replacement-character', sample: '\uFFFD' };
+  const privateUse = value.match(/[\uE000-\uF8FF]/u);
+  if (privateUse) return { code: 'private-use-character', sample: privateUse[0] };
+  const knownSequence = KNOWN_MOJIBAKE_SEQUENCES.find((sequence) => value.includes(sequence));
+  if (knownSequence) return { code: 'known-encoding-sequence', sample: knownSequence };
+  return null;
+}
+
+function assertNoMojibake(text, scopeName, forbidden = []) {
+  const finding = findMojibake(text, { forbidden: ['undefined', ...forbidden] });
+  if (!finding) return;
+  const codePoint = finding.sample.codePointAt(0)?.toString(16).toUpperCase();
+  const suffix = finding.code === 'private-use-character' ? `: U+${codePoint}` : `: ${finding.sample}`;
+  throw new Error(`${scopeName} contains ${finding.code}${suffix}`);
 }
 
 module.exports = {
@@ -103,4 +130,5 @@ module.exports = {
   waitForBodyText,
   waitForRowByText,
   assertNoMojibake,
+  findMojibake,
 };

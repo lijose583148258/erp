@@ -60,6 +60,8 @@ try {
     write(alertPath, {
       schemaVersion: 1,
       status: 'passed',
+      environment: 'formal-pilot',
+      evidenceId: 'CHG-12345',
       reviewedAt: checkedAt,
       reviewer: 'platform-owner',
       deliveryVerified: true,
@@ -68,6 +70,8 @@ try {
     write(reconciliationPath, {
       schemaVersion: 1,
       status: 'passed',
+      environment: 'formal-pilot',
+      evidenceId: 'CHG-12345',
       checkedAt,
       reviewer: 'finance-owner',
       unreconciledBusinessWrites: 0,
@@ -75,6 +79,8 @@ try {
     write(incidentPath, {
       schemaVersion: 1,
       status: 'passed',
+      environment: 'formal-pilot',
+      evidenceId: 'CHG-12345',
       checkedAt,
       reviewer: 'pilot-owner',
       unresolvedIncidents: 0,
@@ -82,6 +88,8 @@ try {
     write(aiGovernancePath, {
       schemaVersion: 1,
       status: 'passed',
+      environment: 'formal-pilot',
+      evidenceId: 'CHG-12345',
       checkedAt,
       reviewer: 'ai-governance-owner',
       source: 'runtime-probe',
@@ -102,6 +110,7 @@ try {
     execFileSync(process.execPath, [
       dailyRecorder,
       '--environment', 'formal-pilot',
+      '--evidence-id', 'CHG-12345',
       '--commit-sha', commitSha,
       '--image-digest', imageDigest,
       '--date', date,
@@ -156,6 +165,68 @@ try {
   assert.equal(evidence.observation.collectorImageDigest, collectorImageDigest);
   assert.equal(evidence.observation.continuousReportSha256, continuousHash);
   assert.equal(evidence.observation.pilotLedgerSha256, hash(ledgerPath));
+  const originalLedger = fs.readFileSync(ledgerPath, 'utf8');
+  const ledgerIdentity = JSON.parse(originalLedger);
+  assert.equal(ledgerIdentity.evidenceId, 'CHG-12345');
+  assert.ok(ledgerIdentity.entries.every(entry => entry.evidenceId === 'CHG-12345'));
+  const firstDailyPath = path.join(dailyDir, ledgerIdentity.entries[0].reportFile);
+  const originalFirstDaily = fs.readFileSync(firstDailyPath, 'utf8');
+
+  const replayedLedger = JSON.parse(originalLedger);
+  const replayedDaily = JSON.parse(originalFirstDaily);
+  replayedLedger.entries[0].evidenceId = 'CHG-OTHER';
+  replayedDaily.evidenceId = 'CHG-OTHER';
+  write(firstDailyPath, replayedDaily);
+  replayedLedger.entries[0].dailyReportSha256 = hash(firstDailyPath);
+  write(ledgerPath, replayedLedger);
+  let replayRejected = false;
+  try {
+    execFileSync(process.execPath, args, { stdio: 'pipe' });
+  } catch {
+    replayRejected = true;
+  }
+  assert.equal(replayRejected, true, 'daily evidence from another change ticket must be rejected');
+  fs.writeFileSync(firstDailyPath, originalFirstDaily);
+  fs.writeFileSync(ledgerPath, originalLedger);
+
+  const driftedLedger = JSON.parse(originalLedger);
+  const driftedDaily = JSON.parse(originalFirstDaily);
+  driftedLedger.entries[0].commitSha = 'f'.repeat(40);
+  driftedDaily.commitSha = 'f'.repeat(40);
+  write(firstDailyPath, driftedDaily);
+  driftedLedger.entries[0].dailyReportSha256 = hash(firstDailyPath);
+  write(ledgerPath, driftedLedger);
+  let releaseDriftRejected = false;
+  try {
+    execFileSync(process.execPath, args, { stdio: 'pipe' });
+  } catch {
+    releaseDriftRejected = true;
+  }
+  assert.equal(releaseDriftRejected, true, 'daily evidence from another release must be rejected');
+  fs.writeFileSync(firstDailyPath, originalFirstDaily);
+  fs.writeFileSync(ledgerPath, originalLedger);
+
+  const supportLedger = JSON.parse(originalLedger);
+  const supportDaily = JSON.parse(originalFirstDaily);
+  const firstSupportPath = path.join(dailyDir, supportDaily.support.alertReview.file);
+  const originalFirstSupport = fs.readFileSync(firstSupportPath, 'utf8');
+  const replayedSupport = JSON.parse(originalFirstSupport);
+  replayedSupport.evidenceId = 'CHG-OTHER';
+  write(firstSupportPath, replayedSupport);
+  supportDaily.support.alertReview.sha256 = hash(firstSupportPath);
+  write(firstDailyPath, supportDaily);
+  supportLedger.entries[0].dailyReportSha256 = hash(firstDailyPath);
+  write(ledgerPath, supportLedger);
+  let supportReplayRejected = false;
+  try {
+    execFileSync(process.execPath, args, { stdio: 'pipe' });
+  } catch {
+    supportReplayRejected = true;
+  }
+  assert.equal(supportReplayRejected, true, 'support evidence from another change ticket must be rejected');
+  fs.writeFileSync(firstSupportPath, originalFirstSupport);
+  fs.writeFileSync(firstDailyPath, originalFirstDaily);
+  fs.writeFileSync(ledgerPath, originalLedger);
 
   const continuousOriginal = fs.readFileSync(continuousPath, 'utf8');
   const readinessTampered = JSON.parse(continuousOriginal);

@@ -2,6 +2,12 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const { evaluateCommercialAuditStatus, scoreReport } = require('./lib/commercial-ui-ux-scoring.cjs');
+const {
+  buildAiFutureWorkGovernanceMatrix,
+  buildFuturePrLeadDispositions,
+  getRecommendedFollowUpOrder,
+} = require('./lib/commercial-ui-ux-governance.cjs');
 
 const ROOT = process.cwd();
 const ROUTES_FILE = path.join(ROOT, 'scripts', 'audit-routes', 'commercial-erp-crm-ui-ux-routes.cjs');
@@ -54,113 +60,6 @@ function toRepoRelative(filePath) {
 function normalizePathForReport(filePath) {
   if (!filePath) return null;
   return path.resolve(filePath).replace(/\\/g, '/');
-}
-
-function routeMetadataById() {
-  return Object.fromEntries(ROUTES.map((route) => [route.id, route]));
-}
-
-function countIssues(route) {
-  return (
-    (route.consoleErrors || []).length +
-    (route.pageErrors || []).length +
-    (route.httpFailures || []).length +
-    (route.failedRequests || []).length
-  );
-}
-
-function screenshotNameFor(routeId) {
-  return `${String(routeId).replace(/[^a-z0-9_-]/gi, '_')}.png`;
-}
-
-function resolveRouteScreenshot(route, workerOutputDir) {
-  if (!workerOutputDir) return null;
-  if (route.screenshot) {
-    return path.resolve(workerOutputDir, route.screenshot);
-  }
-  const fallback = path.resolve(workerOutputDir, 'screenshots', screenshotNameFor(route.id));
-  return fs.existsSync(fallback) ? fallback : null;
-}
-
-function scoreRoute(route, metadata, workerOutputDir) {
-  const screenshotAbsolute = resolveRouteScreenshot(route, workerOutputDir);
-  const scoring = {
-    routeRendered: route.status === 'passed',
-    screenshotCaptured: Boolean(screenshotAbsolute),
-    browserHealthy: countIssues(route) === 0,
-    metadataPresent: Boolean(metadata?.commercial),
-  };
-  const weights = COMMERCIAL_CONFIG.scoring || {};
-  const totalPossible =
-    (weights.routeRenderedWeight || 50) +
-    (weights.screenshotWeight || 20) +
-    (weights.browserHealthWeight || 25) +
-    (weights.metadataWeight || 5);
-  const earned =
-    (scoring.routeRendered ? weights.routeRenderedWeight || 50 : 0) +
-    (scoring.screenshotCaptured ? weights.screenshotWeight || 20 : 0) +
-    (scoring.browserHealthy ? weights.browserHealthWeight || 25 : 0) +
-    (scoring.metadataPresent ? weights.metadataWeight || 5 : 0);
-
-  const commercialWeight = Number(metadata?.commercial?.weight || 1);
-  return {
-    routeId: route.id,
-    moduleId: metadata?.commercial?.moduleId || route.id,
-    title: route.title,
-    hash: route.hash,
-    category: route.category,
-    group: metadata?.commercial?.group || 'unknown',
-    risk: metadata?.commercial?.risk || route.severity || 'unknown',
-    viewport: metadata?.commercial?.viewport || 'unknown',
-    commercialWeight,
-    criteriaIds: metadata?.commercial?.criteriaIds || [],
-    evidenceRequired: metadata?.commercial?.evidenceRequired || [],
-    actionEvidence: metadata?.commercial?.actionEvidence || [],
-    sampling: metadata?.commercial?.sampling || null,
-    score: Number(((earned / totalPossible) * 100).toFixed(2)),
-    weightedEarned: earned * commercialWeight,
-    weightedPossible: totalPossible * commercialWeight,
-    checks: scoring,
-    matchedText: route.matchedText || null,
-    issueCount: countIssues(route),
-    error: route.error || null,
-    screenshot: screenshotAbsolute ? normalizePathForReport(screenshotAbsolute) : null,
-  };
-}
-
-function scoreReport(parallelReport) {
-  const metadata = routeMetadataById();
-  const workerDirs = Object.fromEntries((parallelReport.workers || []).map((worker) => [worker.workerId, worker.outputDir]));
-  const routes = (parallelReport.routes || []).map((route) =>
-    scoreRoute(route, metadata[route.id], workerDirs[route.workerId]),
-  );
-  const weightedEarned = routes.reduce((sum, route) => sum + route.weightedEarned, 0);
-  const weightedPossible = routes.reduce((sum, route) => sum + route.weightedPossible, 0);
-  const score = weightedPossible > 0 ? Number(((weightedEarned / weightedPossible) * 100).toFixed(2)) : 0;
-  const missingRoutes = ROUTES.filter((route) => !routes.some((item) => item.routeId === route.id));
-  const blockers = routes.filter((route) => route.risk === 'critical' && route.score < 100);
-  const missingScreenshots = routes.filter((route) => !route.screenshot);
-  const groupsCovered = Array.from(new Set(routes.map((route) => route.group))).sort();
-  const criteriaCovered = Array.from(new Set(routes.flatMap((route) => route.criteriaIds || []))).sort();
-  const screenshots = routes
-    .filter((route) => route.screenshot)
-    .map((route) => ({
-      routeId: route.routeId,
-      moduleId: route.moduleId,
-      viewport: route.viewport,
-      path: route.screenshot,
-    }));
-  return {
-    score,
-    minScore: parseNumberEnv('COMMERCIAL_UI_UX_MIN_SCORE', COMMERCIAL_CONFIG.scoring?.minScore || 85, 0),
-    routes,
-    missingRoutes: missingRoutes.map((route) => route.id),
-    missingScreenshots: missingScreenshots.map((route) => route.routeId),
-    blockers,
-    groupsCovered,
-    criteriaCovered,
-    screenshots,
-  };
 }
 
 function gitScopeEvidence() {
@@ -223,321 +122,26 @@ function summarizeCriteriaMapping(criteria, coveredCriteriaIds) {
   };
 }
 
-function buildFuturePrLeadDispositions() {
-  return [
-    {
-      id: 'database-production',
-      label: 'SQLite to PostgreSQL production artifact',
-      currentEvidence: 'Default runtime remains SQLite, but scripts/db-migration-probe.cjs validates the copied schema as PostgreSQL, scripts/postgres-prisma-artifact-v1.cjs generates an isolated PostgreSQL Prisma client artifact under output/, docker-compose.postgres.yml provides a PostgreSQL-only rehearsal database, scripts/build-postgres-server-artifact-v1.cjs builds a copied backend dist wired to the generated PostgreSQL Prisma client, scripts/postgres-raw-sql-compat-audit-v1.cjs reports zero P1 cutover blockers and zero P2 raw SQL review files, and scripts/postgres-migration-rehearsal-audit-v1.cjs gates the preflight/backup/snapshot/rollback runbook.',
-      pr2Decision: 'done-foundation',
-      futureLane: 'Complete live PostgreSQL data import rehearsal, inventory/cost route smoke tests, same-window rollback execution, and PostgreSQL backup/restore verification.',
-      evidenceCommands: [
-        'npm run build:backend:postgres-server-artifact',
-        'npm run audit:db:postgres-server-artifact',
-        'npm run audit:db:postgres-artifact',
-        'npm run audit:db:postgres-boundary',
-        'npm run audit:db:postgres-raw-sql',
-        'rg -n "provider|sqlite|postgres|DATABASE_URL|postgres-prisma-artifact|postgres-server-artifact|postgres-boundary|postgres-raw-sql|docker-compose.postgres|audit:db:postgres-artifact|audit:db:postgres-server-artifact|audit:db:postgres-raw-sql" backend/prisma Dockerfile backend/Dockerfile backend/src/config/runtime.ts scripts package.json docker-compose.postgres.yml',
-      ],
-    },
-    {
-      id: 'typescript-strictness',
-      label: 'TypeScript strictness',
-      currentEvidence: 'root tsconfig.json has no full-app strict flag; backend/tsconfig.json already has strict: true; tsconfig.strict.json gates selected frontend typed boundaries, including state, runtime error boundaries, virtual rows, realtime service, shared contract, and SDK files, through npm run typecheck:strict.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Expand the strict include list route by route, then move strict flags into root tsconfig.',
-      evidenceCommands: ['npm run audit:frontend:strict-ratchet', 'npm run typecheck:strict', 'rg -n "\\"strict\\"|typecheck:strict|tsconfig.strict" tsconfig.json tsconfig.strict.json backend/tsconfig.json package.json'],
-    },
-    {
-      id: 'frontend-structure',
-      label: 'Frontend source structure',
-      currentEvidence: 'active frontend code lives in app/, components/, pages/, services/ and root tsconfig excludes src.',
-      pr2Decision: 'out-of-pr2',
-      futureLane: 'Staged src/ migration with import aliases and active-source gates.',
-      evidenceCommands: ['rg -n "exclude|src|app|components|pages|services" tsconfig.json package.json'],
-    },
-    {
-      id: 'shared-contracts',
-      label: 'Shared API/domain contracts',
-      currentEvidence: 'shared/api-contract.ts is generated from backend/src/routes/apiRegistry.ts for API namespaces, response envelopes, pagination metadata, route modules, and the first customer/order/collection overdue list DTOs; root types.ts still manually mirrors broader domain shapes while Prisma models live under backend/prisma/models/*.prisma.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Generate broader endpoint-specific API DTOs from richer OpenAPI schemas for payments, inventory, finance, procurement, and warehouse workflows.',
-      evidenceCommands: ['npm run audit:api:shared-contract', 'rg -n "interface|type|Prisma|model |AilaoDaApiResponse|AilaoDaCustomerList|AilaoDaOrderList|AILAO_DA_API_MODULES" shared sdk types.ts backend/prisma backend/src scripts'],
-    },
-    {
-      id: 'backend-layering',
-      label: 'backend layering',
-      currentEvidence: 'backend/src/services/customer-query.service.ts owns CRM customer list/stat reads and OrderWorkspaceService owns sales order reads; many remaining controllers still combine HTTP and data access.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Extract service boundaries route by route with transaction/read-model tests.',
-      evidenceCommands: ['npm run audit:backend:layering', 'rg -n "CustomerQueryService|OrderWorkspaceService|prisma\\." backend/src/controllers backend/src/services'],
-    },
-    {
-      id: 'client-server-state',
-      label: 'Client/server state management',
-      currentEvidence: 'app/serverState.ts adds deterministic query keys, in-flight dedupe, TTL reuse, and invalidation; app/clientState.ts adds a Zustand shell-level client-state store; the sales order workspace now loads orders, customer lookup, and active contracts through the server-state boundary, and the collection center loads workbench/overdue search pages through the same boundary.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Broaden server-state adoption route by route and migrate performance-sensitive Context consumers to direct Zustand selectors.',
-      evidenceCommands: ['npm run audit:frontend:server-state', 'npm run audit:frontend:client-state', 'rg -n "serverStateClient|invalidateSalesOrderWorkspaceState|invalidateCollectionCenterState|COLLECTION_WORKBENCH_QUERY_KEY|useClientStateStore|zustand|react-query|@tanstack/react-query|swr|createContext|useContext" package.json app components pages services'],
-    },
-    {
-      id: 'route-loading-error-boundary',
-      label: 'Route lazy loading and error boundaries',
-      currentEvidence: 'app/appContent.tsx uses React.lazy and PageErrorBoundary for active pages; index.tsx wraps the shell in ErrorBoundary; scripts/frontend-runtime-resilience-audit-v1.cjs and frontend unit tests cover actionable root/page fallbacks.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Add browser-level fault injection for lazy import failures and connect client issue reports to production observability.',
-      evidenceCommands: ['npm run audit:frontend:runtime-resilience', 'npm run test:unit:frontend', 'rg -n "React.lazy|PageErrorBoundary|ErrorBoundary|Suspense|RootErrorFallback|PageErrorFallback" app components pages index.tsx scripts'],
-    },
-    {
-      id: 'large-table-scalability',
-      label: 'Large table scalability',
-      currentEvidence: 'EnterpriseDataGrid uses @tanstack/react-virtual for measured row virtualization and overscan on large loaded pages; scripts/frontend-bundle-budget-audit-v1.cjs enforces build asset budgets after Vite output; server pagination/search remains the main production path.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Add browser route timing budgets, mobile-specific list renderers, and search/index strategy.',
-      evidenceCommands: ['npm run audit:ui:virtualized-grid', 'npm run audit:frontend:bundle-budget', 'rg -n "useVirtualizer|data-virtualizer|virtualizeThreshold|pagination|bundle-budget|manualChunks" components pages scripts vite.config.ts'],
-    },
-    {
-      id: 'pwa-offline',
-      label: 'PWA/offline policy',
-      currentEvidence: 'public/app-pwa.js registers /sw.js; public/sw.js caches only the app shell/static assets, excludes /api, /uploads, /metrics, /health, and /ready, and falls back to public/offline.html for failed navigation.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Define stale-data labels, conflict handling, encrypted persistence, and per-module mobile offline read/write rules before caching ERP record data.',
-      evidenceCommands: ['npm run audit:pwa:offline', 'rg -n "/sw\\.js|manifest|serviceWorker|Service Worker|offline" backend/src public app components pages services'],
-    },
-    {
-      id: 'observability-rum',
-      label: 'Browser RUM and Web Vitals',
-      currentEvidence: 'public/app-vitals.js collects privacy-safe browser Web Vitals, backend /api/rum/vitals aggregates them into Prometheus metrics, requests emit W3C traceparent/X-Request-Id, and docker-compose.yml includes optional Prometheus/Grafana/OpenTelemetry Collector under the observability profile with starter alerts and ops/grafana/dashboards/ailaoda-overview.json.',
-      pr2Decision: 'done-foundation',
-      futureLane: 'Add token rotation, alert receivers, tuned thresholds, OpenTelemetry SDK spans/exporters, log aggregation, and trace storage.',
-      evidenceCommands: [
-        'npm run audit:observability:rum',
-        'npm run audit:observability:stack',
-        'rg -n "web-vitals|PerformanceObserver|navigator\\.sendBeacon|/rum|/metrics|/health|/ready|traceparent|X-Request-Id|otel|prometheus|grafana|observability|ailaoda-overview" app components pages services backend/src package.json docker-compose.yml ops docs scripts',
-      ],
-    },
-    {
-      id: 'api-versioning',
-      label: 'API versioning',
-      currentEvidence: 'backend/src/routes/apiRegistry.ts mounts API_ROUTE_MODULES under both /api and /api/v1; OpenAPI JSON is served from both namespaces and documents typed customer/order/collection overdue list schemas under the stable v1 surface.',
-      pr2Decision: 'done-foundation',
-      futureLane: 'Add deprecation policy and expand endpoint DTOs once more schemas are fully specified.',
-      evidenceCommands: ['rg -n "/api/v1|API_PREFIXES|mountApiRoutes|openapi.json|CustomerListResponse|OrderListResponse|CollectionOverdueListResponse" backend/src'],
-    },
-    {
-      id: 'realtime-notifications',
-      label: 'Realtime notifications and collaboration',
-      currentEvidence: 'backend/src/services/realtime-notification.service.ts exposes authenticated /ws/notifications and order/payment mutation paths publish workflow events; services/realtime.service.ts connects the frontend shell after login.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Add persisted delivery receipts, tenant-aware channels, heartbeat telemetry, and managed WebSocket scaling when deployment topology is fixed.',
-      evidenceCommands: ['npm run audit:realtime:notifications', 'rg -n "socket\\.io|WebSocket|new WebSocket|EventSource|SSE|/ws/notifications|publishRealtimeNotification" backend/src app components pages services package.json backend/package.json'],
-    },
-    {
-      id: 'file-storage',
-      label: 'File storage abstraction',
-      currentEvidence: 'backend/src/services/file-storage.service.ts defines FileStorageProvider with local and S3/MinIO-compatible providers; contract/POD writes and protected downloads use fileStorage; docker-compose.yml includes optional MinIO rehearsal under the object-storage profile.',
-      pr2Decision: 'done-foundation',
-      futureLane: 'Add retention policy, bucket lifecycle rules, signed direct-upload URLs, and deployment-specific bucket provisioning.',
-      evidenceCommands: [
-        'npm run audit:storage:abstraction',
-        'npm --prefix backend test -- --runTestsByPath src/services/file-storage.service.test.ts',
-        'rg -n "FileStorageProvider|LocalFileStorageProvider|S3FileStorageProvider|FILE_STORAGE_DRIVER|S3_ENDPOINT|object-storage|minio" backend/src docker-compose.yml .env.production.example docs scripts',
-      ],
-    },
-    {
-      id: 'search-engine',
-      label: 'Search engine and indexing',
-      currentEvidence: 'backend/src/services/search.service.ts centralizes customer/order Prisma fallback search and Meilisearch candidate ID recall; customer/order lists still apply Prisma business filters and data-scope permissions; docker-compose.yml includes optional Meilisearch rehearsal under the search profile.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Add external indexer/backfill jobs, permission-aware document model, freshness monitoring, ranking, and procurement/warehouse indexing.',
-      evidenceCommands: [
-        'npm run audit:search:boundary',
-        'npm --prefix backend test -- --runTestsByPath src/services/search.service.test.ts src/services/customer-query.service.test.ts',
-        'rg -n "MeilisearchProvider|buildCustomerSearchWhereAsync|buildOrderSearchWhereAsync|getSearchStatus|SEARCH_DRIVER|MEILISEARCH_API_KEY|meilisearch|search profile|attributesToRetrieve" backend/src docker-compose.yml .env.production.example docs scripts',
-      ],
-    },
-    {
-      id: 'unified-cache',
-      label: 'Unified Redis/cache strategy',
-      currentEvidence: 'backend/src/services/cache.service.ts defines a unified cache boundary with optional ioredis, memory fallback, Prometheus cache metrics, health visibility, and currency rate snapshot adoption.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Broaden cache consumers for high-value read models, then add invalidation tests and dashboards.',
-      evidenceCommands: ['npm run audit:cache:strategy', 'rg -n "cacheService|ailaoda_cache_operations_total|ioredis|redis" backend/src scripts docs'],
-    },
-    {
-      id: 'json-normalization',
-      label: 'JSON field normalization',
-      currentEvidence: 'Business fields are stored as JSON strings, including addressesJson, contactsJson, evidenceJson, processJson, qualitySpecJson, ocrMetadata, and dataScopesJson.',
-      pr2Decision: 'out-of-pr2',
-      futureLane: 'Normalize or type high-risk JSON fields before building broad reporting/search contracts on top of them.',
-      evidenceCommands: ['rg -n "Json|Json\\?|String.*Json|addressesJson|contactsJson|evidenceJson|ocrMetadata|dataScopesJson" backend/prisma backend/src'],
-    },
-    {
-      id: 'api-docs-sdk-webhook',
-      label: 'OpenAPI, SDK, and webhook surface',
-      currentEvidence: 'backend/src/openapi/openapiDocument.ts serves OpenAPI JSON/docs for /api and /api/v1; shared/api-contract.ts and sdk/ailaoda-api-client.ts are generated from the route registry; customer/order/collection overdue list reads now have endpoint-specific DTO helpers; backend/src/services/webhook.service.ts publishes signed order/payment lifecycle webhooks.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Expand endpoint request/response schemas, generate broader endpoint DTOs, and add durable webhook retry/dead-letter management.',
-      evidenceCommands: ['npm run audit:api:sdk', 'npm run audit:api:shared-contract', 'npm run audit:webhooks', 'rg -n "swagger|openapi|api-docs|webhook|sdk|api-contract" docs backend/src package.json backend/package.json shared sdk scripts .github'],
-    },
-    {
-      id: 'security-collaboration',
-      label: 'CSRF, MFA, and secret management',
-      currentEvidence: 'Helmet CSP and JWT secret production guard exist; backend/src/security/csrfBoundary.ts enforces the current Bearer-token-only CSRF/session boundary; backend/src/security/secretManagement.ts centralizes JWT secret quality checks; backend/src/security/mfa.service.ts adds a TOTP login gate for configured roles; scripts/production-dependency-security-audit-v1.cjs gates zero production dependency vulnerabilities and blocks no-fix xlsx usage.',
-      pr2Decision: 'partial-foundation',
-      futureLane: 'Add per-user MFA enrollment/recovery, external secret-manager provider integration, and supersede the CSRF ADR if the product moves to HttpOnly cookie sessions.',
-      evidenceCommands: ['npm run audit:security:csrf-boundary', 'npm run audit:security:secrets', 'npm run audit:security:mfa', 'npm run audit:security:dependencies', 'rg -n "csrf|CSRF|helmet|contentSecurityPolicy|mfa|totp|two-factor|2fa|JWT_SECRET|secret manager|vault|audit:security:dependencies|exceljs|xlsx" backend/src backend/package.json package.json docs scripts utils'],
-    },
-    {
-      id: 'engineering-docs',
-      label: 'ADR, CONTRIBUTING, and CHANGELOG',
-      currentEvidence: 'CONTRIBUTING.md and CHANGELOG.md exist; docs/adr/ now records API/versioning, file storage, PostgreSQL artifact, unified cache, CSRF/session, secret management, MFA, generated SDK, PWA offline shell, frontend server-state, realtime notification, outbound webhook, virtualized grid, search provider, frontend strict ratchet, backend read service layering, shared API contract, frontend client-state, production dependency security, PostgreSQL deployment boundary, PostgreSQL server artifact, and PostgreSQL raw SQL compatibility decisions.',
-      pr2Decision: 'foundation-added',
-      futureLane: 'Expand release ownership, support policy, and module owner documentation.',
-      evidenceCommands: ['npm run audit:docs:engineering', 'Get-ChildItem -Force -Filter CONTRIBUTING*; Get-ChildItem -Force -Filter CHANGELOG*; Get-ChildItem docs/adr'],
-    },
-    {
-      id: 'frontend-component-tests',
-      label: 'Frontend component test foundation',
-      currentEvidence: 'package.json includes test:unit:frontend and scripts/frontend-unit-tests.tsx covers selected server-rendered UI/helpers plus a React Testing Library/JSDOM proof that TanStack Virtual bounds mounted grid rows; broad route-level component coverage is still future work.',
-      pr2Decision: 'partial-foundation',
-      futureLane: 'Add Vitest/React Testing Library coverage for grids, filters, dashboard states, and AI surfaces.',
-      evidenceCommands: ['rg -n "vitest|@testing-library|jest|describe\\(|it\\(|test\\(" package.json backend/package.json app components pages services utils backend/src'],
-    },
-  ];
-}
-
-function getRecommendedFollowUpOrder() {
-  return [
-    'Live PostgreSQL data import rehearsal, inventory/cost and route-level smoke tests, same-window rollback execution, and PostgreSQL backup/restore verification',
-    'endpoint-specific OpenAPI DTO generation beyond the customer/order/collection overdue read contracts',
-    'frontend state rollout with broader server-state adoption and direct Zustand selectors',
-    'frontend strictness and component/unit test foundation',
-    'browser-level fault injection for lazy route failures after the runtime resilience boundary is stable',
-    'browser route timing budgets and mobile-specific list renderers',
-    'Web Vitals/RUM and API versioning after the contract boundary is stable',
-    'object-storage retention/direct-upload strategy, search/cache strategy, JSON normalization, realtime notifications, and MFA/security hardening',
-  ];
-}
-
-function buildAiFutureWorkGovernanceMatrix() {
-  const blockedData = [
-    'raw customer records',
-    'supplier records',
-    'orders and receivables',
-    'finance details',
-    'formula/BOM details',
-    'contacts, addresses, bank data, and audit logs',
-  ];
-  return [
-    {
-      aiSurface: 'global-ai-assistant',
-      futureOnly: true,
-      featureLane: 'assistant',
-      allowedData: ['role', 'route', 'locale', 'safe counts', 'non-sensitive summaries'],
-      blockedData,
-      defaultMode: 'local/rules',
-      externalModelOptInRequired: true,
-      privacyGateEvidence: 'AI settings privacy gate screenshot or unavailable marker',
-      roleIsolationEvidence: 'crm AI assistant browser audit and permission AI audit evidence',
-      humanConfirmationRequired: true,
-      plannerExecutorVerifierRequired: true,
-      evalRedTeamEvidence: 'ai-security regression and ai-isolation red-team output',
-      auditLogEvidence: 'future AI action/refusal audit event evidence',
-      readBackEvidence: 'future read-back evidence for any assistant-suggested write',
-      status: 'future-only',
-      futurePR: 'AI assistant UX hardening with role-aware prompts, refusal clarity, mobile drawer, and eval evidence.',
-    },
-    {
-      aiSurface: 'ocr-document-recognition',
-      futureOnly: true,
-      featureLane: 'ocr',
-      allowedData: ['uploaded document metadata', 'user-approved extracted fields', 'validation errors'],
-      blockedData,
-      defaultMode: 'local/rules',
-      externalModelOptInRequired: true,
-      privacyGateEvidence: 'external model opt-in and sensitive document refusal evidence',
-      roleIsolationEvidence: 'role-restricted OCR route and permission evidence',
-      humanConfirmationRequired: true,
-      plannerExecutorVerifierRequired: true,
-      evalRedTeamEvidence: 'shipping OCR regression and sensitive prompt red-team evidence',
-      auditLogEvidence: 'future OCR parse, preview, confirm, and refusal audit events',
-      readBackEvidence: 'read-back of committed document fields after user confirmation',
-      status: 'future-only',
-      futurePR: 'OCR safety PR with preview, row/field validation, duplicate handling, and read-back audit.',
-    },
-    {
-      aiSurface: 'smart-import-and-table-parsing',
-      futureOnly: true,
-      featureLane: 'import',
-      allowedData: ['file schema', 'sample rows after user upload', 'validation summaries', 'duplicate policy choices'],
-      blockedData,
-      defaultMode: 'local/rules',
-      externalModelOptInRequired: true,
-      privacyGateEvidence: 'import privacy copy and external AI disabled-by-default evidence',
-      roleIsolationEvidence: 'import route permission and customer-pool isolation evidence',
-      humanConfirmationRequired: true,
-      plannerExecutorVerifierRequired: true,
-      evalRedTeamEvidence: 'import parser regression and failed-row export evidence',
-      auditLogEvidence: 'future import preview, confirm, reject, and failed-row export audit events',
-      readBackEvidence: 'post-import read-back evidence for created or updated records',
-      status: 'future-only',
-      futurePR: 'Smart import PR with template, preview, duplicate/update strategy, failed-row export, and read-back checks.',
-    },
-    {
-      aiSurface: 'ai-command-bar',
-      futureOnly: true,
-      featureLane: 'commandBar',
-      allowedData: ['navigation intent', 'read-only query intent', 'route metadata', 'permission-safe summaries'],
-      blockedData,
-      defaultMode: 'local/rules',
-      externalModelOptInRequired: true,
-      privacyGateEvidence: 'command intent privacy gate and blocked sensitive prompt evidence',
-      roleIsolationEvidence: 'typed tool registry with permission checks before every action',
-      humanConfirmationRequired: true,
-      plannerExecutorVerifierRequired: true,
-      evalRedTeamEvidence: 'command-bar intent eval, permission-bypass red-team, and hidden-write regression',
-      auditLogEvidence: 'future command plan, tool call, verifier result, refusal, and confirmation audit events',
-      readBackEvidence: 'read-back evidence for any confirmed write tool',
-      status: 'future-only',
-      futurePR: 'AI command-bar PR starting with navigation and read-only queries before any write-capable tool.',
-    },
-    {
-      aiSurface: 'ai-analytics',
-      futureOnly: true,
-      featureLane: 'analytics',
-      allowedData: ['canonical metric definitions', 'aggregated KPI values', 'source links', 'freshness timestamps'],
-      blockedData,
-      defaultMode: 'local/rules',
-      externalModelOptInRequired: true,
-      privacyGateEvidence: 'analytics prompt privacy gate and no-raw-record evidence',
-      roleIsolationEvidence: 'role-scoped metric source and dashboard permission evidence',
-      humanConfirmationRequired: false,
-      plannerExecutorVerifierRequired: true,
-      evalRedTeamEvidence: 'anti-fabrication metric eval and unavailable-marker cases',
-      auditLogEvidence: 'future analytics question, source metric, confidence, and unavailable-marker trace',
-      readBackEvidence: 'source metric link or unavailable marker for every AI explanation',
-      status: 'future-only',
-      futurePR: 'AI analytics PR with canonical metrics, source links, confidence, unavailable markers, and anti-fabrication eval.',
-    },
-  ];
-}
-
 function markdownCell(value) {
   return String(value ?? '').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
 }
 
 function buildCommercialReport({ runId, runRoot, startedAt, runnerResult, parallelReport, runnerReportPath }) {
+  const minScore = parseNumberEnv('COMMERCIAL_UI_UX_MIN_SCORE', COMMERCIAL_CONFIG.scoring?.minScore || 85, 0);
   const scoring = parallelReport
-    ? scoreReport(parallelReport)
+    ? scoreReport(parallelReport, { routes: ROUTES, scoringConfig: COMMERCIAL_CONFIG.scoring, minScore })
     : {
       score: 0,
-      minScore: parseNumberEnv('COMMERCIAL_UI_UX_MIN_SCORE', COMMERCIAL_CONFIG.scoring?.minScore || 85, 0),
+      minScore,
       routes: [],
       missingRoutes: ROUTES.map((route) => route.id),
       missingScreenshots: ROUTES.map((route) => route.id),
+      duplicateRoutes: [],
+      unknownRoutes: [],
+      duplicateWorkers: [],
       blockers: [],
       groupsCovered: [],
+      criteriaCovered: [],
       screenshots: [],
     };
   const scopeEvidence = gitScopeEvidence();
@@ -548,14 +152,11 @@ function buildCommercialReport({ runId, runRoot, startedAt, runnerResult, parall
   const approvedSkillAndAgentSupport = COMMERCIAL_CONFIG.approvedSkillAndAgentSupport || {};
   const futurePrLeadDispositions = buildFuturePrLeadDispositions();
   const aiFutureWorkGovernanceMatrix = buildAiFutureWorkGovernanceMatrix();
-  const status = runnerPassed &&
-    scoring.score >= scoring.minScore &&
-    scoring.missingRoutes.length === 0 &&
-    scoring.missingScreenshots.length === 0 &&
-    scoring.blockers.length === 0 &&
-    scopeEvidence.status === 'passed'
-    ? 'passed'
-    : 'failed';
+  const status = evaluateCommercialAuditStatus({
+    runnerPassed,
+    scoring,
+    scopeStatus: scopeEvidence.status,
+  });
 
   return {
     schemaVersion: 1,
@@ -589,6 +190,9 @@ function buildCommercialReport({ runId, runRoot, startedAt, runnerResult, parall
       routesScored: scoring.routes.length,
       missingRoutes: scoring.missingRoutes,
       missingScreenshots: scoring.missingScreenshots,
+      duplicateRoutes: scoring.duplicateRoutes,
+      unknownRoutes: scoring.unknownRoutes,
+      duplicateWorkers: scoring.duplicateWorkers,
       blockers: scoring.blockers.map((route) => ({
         routeId: route.routeId,
         moduleId: route.moduleId,
@@ -598,6 +202,14 @@ function buildCommercialReport({ runId, runRoot, startedAt, runnerResult, parall
       })),
     },
     scopeGuardEvidence: scopeEvidence,
+    architectureEvidence: {
+      backendLayering: {
+        label: 'backend layering',
+        command: 'npm run audit:backend:layering',
+        status: 'separate-gate-required',
+        reason: 'Commercial route evidence does not replace backend controller/service boundary verification.',
+      },
+    },
     approvedSkillAndAgentSupport,
     aiGovernance: {
       status: 'future-only-matrix',
@@ -691,6 +303,9 @@ function renderMarkdown(report) {
     `- criteria covered by routes: ${report.scoring.criteriaCovered.join(', ') || 'none'}`,
     `- missing routes: ${report.scoring.missingRoutes.length ? report.scoring.missingRoutes.join(', ') : 'none'}`,
     `- missing screenshots: ${report.scoring.missingScreenshots.length ? report.scoring.missingScreenshots.join(', ') : 'none'}`,
+    `- duplicate routes: ${report.scoring.duplicateRoutes.length ? report.scoring.duplicateRoutes.join(', ') : 'none'}`,
+    `- unknown routes: ${report.scoring.unknownRoutes.length ? report.scoring.unknownRoutes.join(', ') : 'none'}`,
+    `- duplicate workers: ${report.scoring.duplicateWorkers.length ? report.scoring.duplicateWorkers.join(', ') : 'none'}`,
     `- blocker routes: ${report.scoring.blockers.length}`,
     '',
     '| Route | Viewport | Group | Risk | Health Score | Criteria | Screenshot |',

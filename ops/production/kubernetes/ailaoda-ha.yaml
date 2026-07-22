@@ -22,6 +22,8 @@ data:
   SEARCH_DRIVER: meilisearch
   SEARCH_REQUEST_TIMEOUT_MS: "3000"
   SEARCH_RESULT_CACHE_TTL_SECONDS: "5"
+  PUBLIC_PROBE_RATE_LIMIT_WINDOW_MS: "60000"
+  PUBLIC_PROBE_RATE_LIMIT_MAX: "120"
   AI_GATEWAY_EXTERNAL_ENABLED: "false"
   AI_GATEWAY_TIMEOUT_MS: "12000"
   AI_GATEWAY_MAX_TOKENS: "500"
@@ -35,6 +37,12 @@ data:
   LOG_DIR: /data/logs
   BACKUP_DIR: /data/backups
   UPLOAD_DIR: /data/upload-cache
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: ailaoda-app
+automountServiceAccountToken: false
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -55,6 +63,8 @@ spec:
       labels:
         app: ailaoda-app
     spec:
+      serviceAccountName: ailaoda-app
+      automountServiceAccountToken: false
       terminationGracePeriodSeconds: 30
       topologySpreadConstraints:
         - maxSkew: 1
@@ -194,6 +204,52 @@ spec:
     - name: http
       port: 80
       targetPort: http
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ailaoda-app
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [replace-with-real-pilot-host.company.tld]
+      secretName: ailaoda-app-tls
+  rules:
+    - host: replace-with-real-pilot-host.company.tld
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: ailaoda-app
+                port: { name: http }
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: ailaoda-app-ingress
+spec:
+  podSelector:
+    matchLabels: { app: ailaoda-app }
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: ingress-nginx }
+      ports:
+        - { protocol: TCP, port: 5001 }
+    - from:
+        - namespaceSelector:
+            matchLabels: { kubernetes.io/metadata.name: monitoring }
+          podSelector:
+            matchLabels: { app.kubernetes.io/name: prometheus }
+      ports:
+        - { protocol: TCP, port: 5001 }
 ---
 apiVersion: policy/v1
 kind: PodDisruptionBudget

@@ -2,15 +2,10 @@ import ExcelJS from 'exceljs';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import {
-    addImportLimitError,
     BATCH_EXPORT_LIMIT,
-    BATCH_IMPORT_LIMIT,
-    createImportResult,
-    ImportResult,
     OrderQuery,
 } from '../types/api.types';
 import { logger } from '../utils/logger';
-import { buildBusinessNo } from '../utils/businessNo';
 import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
@@ -19,7 +14,6 @@ import { buildOrderSearchWhereAsync } from './search.service';
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
 export const MAX_EXPORT_SIZE = BATCH_EXPORT_LIMIT;
-export const MAX_IMPORT_SIZE = BATCH_IMPORT_LIMIT;
 const ORDER_SORT_KEY_MAP: Record<string, keyof Prisma.OrderOrderByWithRelationInput> = {
     createdAt: 'createdAt',
     updatedAt: 'updatedAt',
@@ -123,19 +117,6 @@ const ORDER_DETAIL_INCLUDE = {
 } as const satisfies Prisma.OrderInclude;
 
 type OrderDetail = Prisma.OrderGetPayload<{ include: typeof ORDER_DETAIL_INCLUDE }>;
-type ImportOrderRow = { customerId?: unknown; paymentTerms?: unknown; items: Record<string, unknown>[] };
-
-const asRecord = (value: unknown): Record<string, unknown> =>
-    value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
-
-const toImportOrders = (orders: unknown): ImportOrderRow[] =>
-    Array.isArray(orders)
-        ? orders.map((value) => {
-            const row = asRecord(value);
-            return { customerId: row.customerId, paymentTerms: row.paymentTerms, items: Array.isArray(row.items) ? row.items.map(asRecord) : [] };
-        })
-        : [];
-
 const formatOrderDetail = (order: OrderDetail) => {
     const customer = order.customer;
     const normalized = {
@@ -343,78 +324,6 @@ export const OrderWorkspaceService = {
 
     async getOrderById(orderId: number, req?: AuthRequest) {
         return getOrderDetailById(orderId, req);
-    },
-
-    async importOrders(orders: unknown, userId: number) {
-        const normalizedOrders = toImportOrders(orders);
-        if (normalizedOrders.length === 0) {
-            return { error: 'Please provide order data.' };
-        }
-
-        const result: ImportResult = createImportResult();
-        result.attempted = normalizedOrders.length;
-        result.imported = 0;
-        addImportLimitError(result, normalizedOrders.length, MAX_IMPORT_SIZE);
-        const limitedOrders = normalizedOrders.slice(0, MAX_IMPORT_SIZE);
-
-        for (let i = 0; i < limitedOrders.length; i++) {
-            try {
-                const order = limitedOrders[i];
-
-                if (!order.customerId || !Array.isArray(order.items) || order.items.length === 0) {
-                    result.failed++;
-                    result.errors.push({ row: i + 1, message: 'Missing customerId or order items.' });
-                    continue;
-                }
-
-                const orderNo = buildBusinessNo(`ORD-IMP-${i}`);
-                let totalAmount = 0;
-                const orderItems = order.items.map((item) => {
-                    const quantity = Number(item.quantity) || 1;
-                    const unitPrice = Number(item.unitPrice) || 0;
-                    const totalPrice = quantity * unitPrice;
-                    totalAmount += totalPrice;
-                    return {
-                        productName: String(item.productName || 'Unnamed product'),
-                        quantity,
-                        unit: String(item.unit || 'unit'),
-                        unitPrice,
-                        totalPrice,
-                    };
-                });
-
-                await prisma.order.create({
-                    data: {
-                        orderNo,
-                        customerId: Number(order.customerId),
-                        totalAmount,
-                        discountAmount: 0,
-                        finalAmount: totalAmount,
-                        paymentTerms: Number(order.paymentTerms) || 30,
-                        status: 'pending',
-                        createdBy: userId,
-                        items: { create: orderItems },
-                    },
-                });
-
-                result.success++;
-                result.imported = result.success;
-            } catch (err) {
-                result.failed++;
-                result.errors.push({ row: i + 1, message: 'Failed to create order.' });
-            }
-        }
-
-        await prisma.auditLog.create({
-            data: {
-                userId,
-                action: 'IMPORT',
-                resource: 'order',
-                details: `Bulk import orders: success ${result.success}, failed ${result.failed}`,
-            },
-        });
-
-        return { result };
     },
 
     async exportOrders(filters: { status?: string; startDate?: string; endDate?: string; lang?: string }, req?: AuthRequest) {

@@ -57,6 +57,8 @@ const run = (urls, output) => new Promise(resolve => {
       PILOT_AI_USERNAME: 'pilot-ai-user',
       PILOT_AI_PASSWORD_FILE: passwordFile,
       PILOT_AI_METRICS_TOKEN_FILE: metricsTokenFile,
+      PILOT_AI_ENVIRONMENT: 'formal-pilot',
+      PILOT_AI_EVIDENCE_ID: 'CHG-12345',
       PILOT_AI_REVIEWER: 'ai-governance-owner',
       PILOT_AI_COLLECTOR_IMAGE_DIGEST: `sha256:${'e'.repeat(64)}`,
       PILOT_AI_OUTPUT: output,
@@ -78,9 +80,12 @@ const run = (urls, output) => new Promise(resolve => {
     const urls = ports.map(port => `http://127.0.0.1:${port}`);
     const output = path.join(root, 'review.json');
     const passed = await run(urls, output);
-    assert.equal(passed.code, 0, passed.stderr);
+    const failedReport = fs.existsSync(output) ? JSON.parse(fs.readFileSync(output, 'utf8')) : null;
+    assert.equal(passed.code, 0, [passed.stderr, failedReport?.error].filter(Boolean).join('\n'));
     const report = JSON.parse(fs.readFileSync(output, 'utf8'));
     assert.equal(report.status, 'passed');
+    assert.equal(report.environment, 'formal-pilot');
+    assert.equal(report.evidenceId, 'CHG-12345');
     assert.equal(report.source, 'runtime-probe');
     assert.equal(report.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
     assert.equal(

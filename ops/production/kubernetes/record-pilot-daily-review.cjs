@@ -39,6 +39,7 @@ const parseTime = (value, label) => {
 };
 
 const environment = String(valueFor('--environment') || '').trim();
+const evidenceId = String(valueFor('--evidence-id') || '').trim();
 const commitSha = String(valueFor('--commit-sha') || '').trim();
 const imageDigest = String(valueFor('--image-digest') || '').trim();
 const date = String(valueFor('--date') || new Date().toISOString().slice(0, 10)).trim();
@@ -61,43 +62,49 @@ if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || new Date(checkedAtMs).toISOString().sli
   fail('Daily date must match checkedAt in UTC.');
 }
 if (!environment || /^replace-/i.test(environment)) fail('A real pilot environment is required.');
+if (evidenceId.length < 5 || /^replace-/i.test(evidenceId)) fail('A real pilot evidence ID is required.');
 if (!/^[0-9a-f]{40}$/.test(commitSha)) fail('Commit SHA is invalid.');
 if (!/^sha256:[0-9a-f]{64}$/.test(imageDigest)) fail('Image digest is invalid.');
 if (fs.existsSync(dailyOutput) && !has('--replace-date')) fail(`Daily report already exists for ${date}.`);
 
 const continuous = readJson(continuousPath);
-if (continuous.status !== 'passed' || continuous.commitSha !== commitSha || continuous.imageDigest !== imageDigest) {
-  fail('Continuous report is not passed or does not match the release identity.');
+if (continuous.status !== 'passed' || continuous.environment !== environment || continuous.evidenceId !== evidenceId
+  || continuous.commitSha !== commitSha || continuous.imageDigest !== imageDigest) {
+  fail('Continuous report is not passed or does not match the pilot and release identity.');
 }
 const continuousHash = sha256(continuousPath);
 
-let ledger = { schemaVersion: 1, environment, entries: [] };
+let ledger = { schemaVersion: 1, environment, evidenceId, entries: [] };
 if (fs.existsSync(ledgerPath)) ledger = readJson(ledgerPath);
-if (ledger.schemaVersion !== 1 || ledger.environment !== environment || !Array.isArray(ledger.entries)) {
-  fail('Existing pilot ledger is invalid or belongs to another environment.');
+if (ledger.schemaVersion !== 1 || ledger.environment !== environment || ledger.evidenceId !== evidenceId
+  || !Array.isArray(ledger.entries)) {
+  fail('Existing pilot ledger is invalid or belongs to another pilot identity.');
 }
 const existingIndex = ledger.entries.findIndex(entry => entry.date === date);
 if (existingIndex >= 0 && !has('--replace-date')) fail(`Pilot ledger already contains ${date}.`);
 
 const alertReview = readJson(alertPath);
-requireStrictKeys(alertReview, ['schemaVersion', 'status', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'], 'Alert review');
+requireStrictKeys(alertReview, ['schemaVersion', 'status', 'environment', 'evidenceId', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'], 'Alert review');
 if (alertReview.schemaVersion !== 1 || alertReview.status !== 'passed' || alertReview.deliveryVerified !== true
+  || alertReview.environment !== environment || alertReview.evidenceId !== evidenceId
   || Number(alertReview.unresolvedCriticalAlerts) !== 0 || String(alertReview.reviewer || '').trim().length < 2) {
   fail('Alert review is incomplete.');
 }
 if (new Date(parseTime(alertReview.reviewedAt, 'Alert review')).toISOString().slice(0, 10) !== date) fail('Alert review date does not match daily report.');
 
 const reconciliation = readJson(reconciliationPath);
-requireStrictKeys(reconciliation, ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unreconciledBusinessWrites'], 'Reconciliation');
+requireStrictKeys(reconciliation, ['schemaVersion', 'status', 'environment', 'evidenceId', 'checkedAt', 'reviewer', 'unreconciledBusinessWrites'], 'Reconciliation');
 if (reconciliation.schemaVersion !== 1 || reconciliation.status !== 'passed'
+  || reconciliation.environment !== environment || reconciliation.evidenceId !== evidenceId
   || Number(reconciliation.unreconciledBusinessWrites) !== 0 || String(reconciliation.reviewer || '').trim().length < 2) {
   fail('Business reconciliation is incomplete.');
 }
 if (new Date(parseTime(reconciliation.checkedAt, 'Reconciliation')).toISOString().slice(0, 10) !== date) fail('Reconciliation date does not match daily report.');
 
 const incidentReview = readJson(incidentPath);
-requireStrictKeys(incidentReview, ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unresolvedIncidents'], 'Incident review');
+requireStrictKeys(incidentReview, ['schemaVersion', 'status', 'environment', 'evidenceId', 'checkedAt', 'reviewer', 'unresolvedIncidents'], 'Incident review');
 if (incidentReview.schemaVersion !== 1 || incidentReview.status !== 'passed'
+  || incidentReview.environment !== environment || incidentReview.evidenceId !== evidenceId
   || Number(incidentReview.unresolvedIncidents) !== 0 || String(incidentReview.reviewer || '').trim().length < 2) {
   fail('Incident review is incomplete.');
 }
@@ -107,6 +114,8 @@ const aiGovernance = readJson(aiGovernancePath);
 requireStrictKeys(aiGovernance, [
   'schemaVersion',
   'status',
+  'environment',
+  'evidenceId',
   'checkedAt',
   'reviewer',
   'source',
@@ -126,6 +135,7 @@ requireStrictKeys(aiGovernance, [
 ], 'AI governance review');
 const governedAiRequests = Number(aiGovernance.governedAiRequests);
 if (aiGovernance.schemaVersion !== 1 || aiGovernance.status !== 'passed'
+  || aiGovernance.environment !== environment || aiGovernance.evidenceId !== evidenceId
   || aiGovernance.source !== 'runtime-probe'
   || !/^sha256:[0-9a-f]{64}$/.test(String(aiGovernance.collectorImageDigest || ''))
   || aiGovernance.collectorSha256 !== sha256(aiCollectorPath)
@@ -166,6 +176,7 @@ const daily = {
   checkedAt,
   status: 'passed',
   environment,
+  evidenceId,
   commitSha,
   imageDigest,
   continuousReportSha256: continuousHash,
@@ -183,6 +194,7 @@ const entry = {
   date,
   checkedAt,
   status: 'passed',
+  evidenceId,
   commitSha,
   imageDigest,
   reportFile: path.basename(dailyOutput),

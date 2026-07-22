@@ -1,5 +1,5 @@
 import { useMemo, useState, type SetStateAction } from 'react';
-import { type BomItemDraft } from './ProductionBomLineGrid';
+import type { BomItemDraft } from './productionBomLineModel';
 import {
   TEMPLATES,
   newBomItems,

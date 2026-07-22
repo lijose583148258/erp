@@ -97,6 +97,7 @@ const requiredContractChecks = [
   'prompt-injection-refusal', 'aggregate-context-allowlist', 'client-provider-field-rejection',
   'provider-failure-fallback', 'redirect-deny', 'bounded-safe-output',
   'unsafe-output-rejection', 'oversized-output-rejection', 'prompt-free-metrics',
+  'durable-audit-fail-closed', 'sanitized-pre-dispatch-audit',
   'budget-fail-closed', 'budget-exhaustion', 'shared-circuit-open', 'circuit-threshold-open',
 ];
 const contractChecks = new Set(reports.contract.checks || []);

@@ -3,6 +3,9 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const args = process.argv.slice(2);
+const checkOnly = args.includes('--check-only');
+const verifyEvidenceOnly = args.includes('--verify-evidence');
+if (checkOnly && verifyEvidenceOnly) throw new Error('--check-only and --verify-evidence are mutually exclusive.');
 const valueFor = name => {
   const index = args.indexOf(name);
   return index >= 0 ? args[index + 1] : '';
@@ -21,6 +24,7 @@ const artifactTypes = {
   evidence: 'file',
   providerProfile: 'file',
   preflightReport: 'file',
+  networkPolicyReport: 'file',
   continuousReport: 'file',
   pilotLedger: 'file',
   dailyReportsDir: 'directory',
@@ -30,6 +34,8 @@ const artifactTypes = {
   loadReconciliationReportsDir: 'directory',
   aiReportsDir: 'directory',
   securityReportsDir: 'directory',
+  approvalTrustDir: 'directory',
+  approvalReceiptsDir: 'directory',
 };
 const exactKeys = (value, expected, label) => {
   const actual = Object.keys(value || {}).sort();
@@ -78,12 +84,26 @@ const providerOutput = execFileSync(process.execPath, [providerVerifier, resolve
   stdio: ['ignore', 'pipe', 'inherit'],
 }).trim();
 const providerSummary = JSON.parse(providerOutput);
+const networkPolicyOutput = execFileSync(process.execPath, [
+  path.join(__dirname, 'verify-network-policy-enforcement-evidence.cjs'),
+  '--report', resolved.networkPolicyReport,
+  '--evidence', resolved.evidence,
+  '--provider-profile', resolved.providerProfile,
+], {
+  cwd: bundleRoot,
+  encoding: 'utf8',
+  stdio: ['ignore', 'pipe', 'inherit'],
+}).trim();
+const networkPolicySummary = JSON.parse(networkPolicyOutput);
 const continuousReportIdentity = JSON.parse(fs.readFileSync(resolved.continuousReport, 'utf8').replace(/^\uFEFF/, ''));
 if (continuousReportIdentity.collectorImageDigest !== providerSummary.observation?.collectorImageDigest) {
   throw new Error('Continuous observer image digest does not match the approved provider profile.');
 }
 if (providerSummary.status !== 'passed' || providerSummary.environment !== release.environment) {
   throw new Error('Provider profile verification did not pass for this release environment.');
+}
+if (providerSummary.applicationNamespace !== manifest.namespace) {
+  throw new Error('Admission namespace does not match the provider-approved application namespace.');
 }
 const preflightVerifier = path.join(__dirname, 'verify-formal-pilot-preflight-evidence.cjs');
 const preflightOutput = execFileSync(process.execPath, [
@@ -154,13 +174,84 @@ if (!expectedObservabilityAdapterSha256
 const artifactSummary = Object.fromEntries(Object.entries(manifest.artifacts)
   .filter(([key]) => Object.hasOwn(artifactTypes, key))
   .map(([key, value]) => [key, value]));
-if (args.includes('--check-only')) {
+if (checkOnly) {
   console.log(JSON.stringify({
-    status: 'valid',
+    status: 'bundle-structure-valid',
+    productionAdmission: false,
+    evidenceContentVerified: false,
+    kubernetesVerified: false,
+    scope: 'paths-release-provider-preflight-and-adapter-bindings',
     namespace: manifest.namespace,
     release,
     provider: providerSummary,
     preflight: preflightSummary,
+    networkPolicyEnforcement: networkPolicySummary,
+    artifacts: artifactSummary,
+  }, null, 2));
+  process.exit(0);
+}
+
+const runEvidenceVerifier = (script, verifierArgs) => execFileSync(process.execPath, [
+  path.join(__dirname, script),
+  ...verifierArgs,
+], {
+  cwd: bundleRoot,
+  encoding: 'utf8',
+  stdio: ['ignore', 'ignore', 'inherit'],
+});
+const verifyEvidenceContent = () => {
+  runEvidenceVerifier('verify-network-policy-enforcement-evidence.cjs', [
+    '--report', resolved.networkPolicyReport,
+    '--evidence', resolved.evidence,
+    '--provider-profile', resolved.providerProfile,
+  ]);
+  runEvidenceVerifier('verify-pilot-observation-evidence.cjs', [
+    '--continuous-report', resolved.continuousReport,
+    '--ledger', resolved.pilotLedger,
+    '--daily-reports-dir', resolved.dailyReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-backup-restore-evidence.cjs', [
+    '--report', resolved.backupReport,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-storage-search-evidence.cjs', [
+    '--reports-dir', resolved.resilienceReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-observability-evidence.cjs', [
+    '--report', resolved.observabilityReport,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-load-reconciliation-evidence.cjs', [
+    '--reports-dir', resolved.loadReconciliationReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-ai-evidence.cjs', [
+    '--reports-dir', resolved.aiReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-security-evidence.cjs', [
+    '--reports-dir', resolved.securityReportsDir,
+    '--evidence', resolved.evidence,
+  ]);
+  runEvidenceVerifier('verify-production-approvals.cjs', [
+    '--provider-profile', resolved.providerProfile,
+    '--trust-dir', resolved.approvalTrustDir,
+    '--receipts-dir', resolved.approvalReceiptsDir,
+    '--evidence', resolved.evidence,
+  ]);
+};
+
+verifyEvidenceContent();
+if (verifyEvidenceOnly) {
+  console.log(JSON.stringify({
+    status: 'evidence-valid',
+    productionAdmission: false,
+    evidenceContentVerified: true,
+    kubernetesVerified: false,
+    namespace: manifest.namespace,
+    release,
     artifacts: artifactSummary,
   }, null, 2));
   process.exit(0);
@@ -180,6 +271,10 @@ execFileSync('bash', [
   resolved.loadReconciliationReportsDir,
   resolved.aiReportsDir,
   resolved.securityReportsDir,
+  resolved.approvalTrustDir,
+  resolved.approvalReceiptsDir,
+  resolved.providerProfile,
+  resolved.networkPolicyReport,
 ], {
   cwd: bundleRoot,
   encoding: 'utf8',

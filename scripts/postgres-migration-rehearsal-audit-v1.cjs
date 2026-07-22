@@ -276,6 +276,16 @@ function checkGeneratedMigrationEvidence() {
 
 function checkMigrationCli() {
   requireTokens('backend/src/database/postgres-migration.ts', 'migration-cli', [
+    'postgres-migration-import-v1',
+    'postgres-migration-rollback-v1',
+    "case 'manifest'",
+    "case 'dry-run-import'",
+    "case 'import'",
+    "case 'snapshot'",
+    "case 'rollback'",
+  ]);
+
+  requireTokens('backend/src/database/postgres-migration-snapshot.ts', 'migration-snapshot-workflow', [
     'Create one final SQLite backup',
     'Export a migration snapshot JSON',
     'Provision PostgreSQL and set POSTGRES_URL',
@@ -285,18 +295,16 @@ function checkMigrationCli() {
     'postgres-migration-snapshot-v1',
     'postgres-migration-import-manifest-v1',
     'postgres-migration-dry-run-v1',
-    'postgres-migration-import-v1',
-    'postgres-migration-rollback-v1',
-    'checksumSha256',
+  ]);
+
+  requireTokens('backend/src/database/postgres-migration-contract.ts', 'migration-contract', [
     'CRITICAL_TABLE_NAMES',
-    "case 'manifest'",
-    "case 'dry-run-import'",
-    "case 'import'",
-    "case 'snapshot'",
-    "case 'rollback'",
+    'IMPORT_PHASES',
+    'checksumSha256',
+    'readSnapshotReport',
+    'readManifestReport',
   ]);
 }
-
 function checkBackupRestoreBoundary() {
   requireTokens('backend/src/services/backup.service.ts', 'backup-restore-boundary', [
     'verifyBackupIntegrity',

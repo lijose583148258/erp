@@ -54,6 +54,8 @@ async function waitForJson(url, predicate, timeoutMs = 30_000) {
 }
 
 async function main() {
+  const metricsToken = String(process.env.METRICS_BEARER_TOKEN || process.env.AILAODA_METRICS_BEARER_TOKEN || '').trim();
+  if (!metricsToken) throw new Error('A metrics bearer token is required for protected health evidence.');
   for (const [name, relativePath, maxAgeHours] of requiredReports) {
     if (!fs.existsSync(path.join(ROOT, relativePath))) throw new Error(`Required report is missing: ${relativePath}`);
     const evidence = readJson(relativePath);
@@ -67,7 +69,9 @@ async function main() {
     if (!fresh) throw new Error(`Required report is stale or has an invalid timestamp: ${relativePath} (ageHours=${Number.isFinite(ageHours) ? ageHours.toFixed(3) : 'invalid'}, max=${maxAgeHours})`);
   }
 
-  const health = await Promise.all([5006, 5008].map(port => fetchJson(`http://127.0.0.1:${port}/health`)));
+  const health = await Promise.all([5006, 5008].map(port => fetchJson(`http://127.0.0.1:${port}/internal/health`, {
+    headers: { authorization: `Bearer ${metricsToken}` },
+  })));
   check('application-ha', health.every(item => item.status === 'ok' && item.database === 'ok'));
   check('redis-sentinel-clients', health.every(item => item.redis?.ready && item.redis?.mode === 'sentinel'));
   check('search-ha-config', health.every(item => item.search?.externalConfigured && item.search?.endpointCount >= 2));
@@ -117,10 +121,15 @@ async function main() {
   check('otel-collector', /otelcol_receiver_accepted_spans\{[^\n]+\}\s+[1-9][0-9]*/.test(collectorMetrics));
 
   const aiSecurity = fs.readFileSync(path.join(ROOT, 'services', 'aiSecurity.ts'), 'utf8');
+  const browserAIConfig = fs.readFileSync(path.join(ROOT, 'services', 'aiConfig.ts'), 'utf8');
   const aiGateway = fs.readFileSync(path.join(ROOT, 'backend', 'src', 'services', 'ai-governance.service.ts'), 'utf8');
   const aiRoutes = fs.readFileSync(path.join(ROOT, 'backend', 'src', 'routes', 'ai.routes.ts'), 'utf8');
   const productionEnv = fs.readFileSync(path.join(ROOT, '.env.production.example'), 'utf8');
-  check('external-ai-default-deny', aiSecurity.includes('isBrowserExternalAIPolicyEnabled') && productionEnv.includes('VITE_AILAODA_ALLOW_BROWSER_EXTERNAL_AI=false'));
+  check('browser-ai-local-only',
+    aiSecurity.includes('BROWSER_EXTERNAL_AI_DISABLED = true')
+      && browserAIConfig.includes("export type AIModelType = 'local' | 'ollama'")
+      && !browserAIConfig.includes('Authorization: `Bearer')
+      && !productionEnv.includes('VITE_AILAODA_ALLOW_BROWSER_EXTERNAL_AI'));
   check('server-governed-ai-boundary',
     aiGateway.includes('AI_GATEWAY_EXTERNAL_ENABLED')
       && aiGateway.includes('AI_GATEWAY_ALLOWED_HOSTS')

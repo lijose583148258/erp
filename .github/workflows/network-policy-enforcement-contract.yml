@@ -1,0 +1,199 @@
+name: NetworkPolicy enforcement contract
+
+on:
+  pull_request:
+    paths:
+      - 'ops/production/kubernetes/run-network-policy-enforcement-drill.cjs'
+      - 'ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-network-policy-enforcement-evidence.cjs'
+      - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
+      - 'ops/production/kubernetes/formal-pilot-provider-profile.example.json'
+      - 'ops/production/kubernetes/ailaoda-ha.yaml'
+      - '.github/workflows/network-policy-enforcement-contract.yml'
+      - 'ops/production/kubernetes/README.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: network-policy-enforcement-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  kind-calico:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - name: Run isolated drill contract
+        run: |
+          set -euo pipefail
+          node --check ops/production/kubernetes/run-network-policy-enforcement-drill.cjs
+          node ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs
+      - name: Create KinD cluster without default CNI
+        run: |
+          cat > /tmp/kind-config.yaml <<'YAML'
+          kind: Cluster
+          apiVersion: kind.x-k8s.io/v1alpha4
+          networking:
+            disableDefaultCNI: true
+            podSubnet: 192.168.0.0/16
+          nodes:
+            - role: control-plane
+          YAML
+      - uses: helm/kind-action@ef37e7f390d99f746eb8b610417061a60e82a6cc
+        with:
+          cluster_name: ailaoda-network-policy
+          config: /tmp/kind-config.yaml
+      - name: Install pinned Calico CNI
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --output /tmp/calico.yaml \
+            https://raw.githubusercontent.com/projectcalico/calico/v3.32.1/manifests/calico.yaml
+          echo 'a1df919d9721cf667accdc3e72848911b0cb25cfab7d2478ad0c996302c95744  /tmp/calico.yaml' | sha256sum --check
+          kubectl apply -f /tmp/calico.yaml
+          kubectl -n kube-system rollout status daemonset/calico-node --timeout=240s
+          kubectl -n kube-system rollout status deployment/calico-kube-controllers --timeout=240s
+          kubectl -n kube-system rollout status deployment/coredns --timeout=120s
+      - name: Create isolated application fixture
+        run: |
+          set -euo pipefail
+          kubectl create namespace ailaoda-pilot
+          kubectl create namespace ailaoda-pilot-recovery
+          kubectl create namespace ingress-nginx
+          kubectl create namespace monitoring
+          cat > /tmp/application.yaml <<'YAML'
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: ailaoda-app
+            namespace: ailaoda-pilot
+          spec:
+            replicas: 1
+            selector:
+              matchLabels: { app: ailaoda-app }
+            template:
+              metadata:
+                labels: { app: ailaoda-app }
+              spec:
+                automountServiceAccountToken: false
+                containers:
+                  - name: http
+                    image: docker.io/library/busybox@sha256:9532d8c39891ca2ecde4d30d7710e01fb739c87a8b9299685c63704296b16028
+                    command: ["/bin/sh", "-ec", "mkdir -p /www && printf ok > /www/livez && exec httpd -f -p 5001 -h /www"]
+                    ports: [{ name: http, containerPort: 5001 }]
+          ---
+          apiVersion: v1
+          kind: Service
+          metadata:
+            name: ailaoda-app
+            namespace: ailaoda-pilot
+          spec:
+            selector: { app: ailaoda-app }
+            ports: [{ name: http, port: 80, targetPort: http }]
+          ---
+          apiVersion: networking.k8s.io/v1
+          kind: NetworkPolicy
+          metadata:
+            name: ailaoda-app-ingress
+            namespace: ailaoda-pilot
+          spec:
+            podSelector:
+              matchLabels: { app: ailaoda-app }
+            policyTypes: [Ingress]
+            ingress:
+              - from:
+                  - namespaceSelector:
+                      matchLabels: { kubernetes.io/metadata.name: ingress-nginx }
+                    podSelector:
+                      matchLabels: { app.kubernetes.io/name: ingress-nginx }
+                ports: [{ protocol: TCP, port: 5001 }]
+              - from:
+                  - namespaceSelector:
+                      matchLabels: { kubernetes.io/metadata.name: monitoring }
+                    podSelector:
+                      matchLabels: { app.kubernetes.io/name: prometheus }
+                ports: [{ protocol: TCP, port: 5001 }]
+          YAML
+          kubectl apply -f /tmp/application.yaml
+          kubectl -n ailaoda-pilot rollout status deployment/ailaoda-app --timeout=120s
+      - name: Prove approved caller can connect
+        run: |
+          set -euo pipefail
+          cat > /tmp/allowed-probe.yaml <<'YAML'
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: network-policy-allowed
+            namespace: monitoring
+            labels: { app.kubernetes.io/name: prometheus }
+          spec:
+            automountServiceAccountToken: false
+            restartPolicy: Never
+            containers:
+              - name: probe
+                image: docker.io/curlimages/curl@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6
+                command: ["/bin/sh", "-ec", "curl --fail --silent --show-error --max-time 10 http://ailaoda-app.ailaoda-pilot.svc.cluster.local/livez"]
+          YAML
+          kubectl apply -f /tmp/allowed-probe.yaml
+          kubectl -n monitoring wait --for=jsonpath='{.status.phase}'=Succeeded pod/network-policy-allowed --timeout=60s
+          kubectl -n monitoring delete pod/network-policy-allowed --wait=true
+      - name: Run real denied-caller enforcement drill
+        run: |
+          set -euo pipefail
+          root="$(mktemp -d)"
+          export ROOT="$root"
+          node <<'NODE'
+          const fs = require('fs');
+          const p = JSON.parse(fs.readFileSync('ops/production/kubernetes/formal-pilot-provider-profile.example.json', 'utf8'));
+          p.environment = 'formal-pilot';
+          p.platform.failureDomains = ['zone-a', 'zone-b', 'zone-c'];
+          p.platform.applicationIngress.publicHost = 'erp.pilot.company.com';
+          let index = 10;
+          for (const adapter of Object.values(p.adapters)) adapter.sha256 = (index++).toString(16).padStart(64, '0');
+          p.postgresql.backup.receiptVerifier.issuer = 'provider-control-plane';
+          p.postgresql.backup.receiptVerifier.publicKeySha256 = '1'.repeat(64);
+          p.postgresql.backup.receiptVerifier.serviceSha256 = '2'.repeat(64);
+          p.observability.alertRoute = 'pilot-operations';
+          p.observation.collectorImageDigest = 'sha256:' + '8'.repeat(64);
+          let key = 3;
+          for (const approval of Object.values(p.approvals)) {
+            approval.issuer = 'approval-service-' + key;
+            approval.publicKeySha256 = String(key++).repeat(64);
+          }
+          fs.writeFileSync(process.env.ROOT + '/provider.json', JSON.stringify(p));
+          fs.writeFileSync(process.env.ROOT + '/evidence.json', JSON.stringify({
+            environment: 'formal-pilot', evidenceId: 'CI-' + process.env.GITHUB_RUN_ID,
+            commitSha: process.env.GITHUB_SHA, imageDigest: 'sha256:' + 'b'.repeat(64),
+          }));
+          NODE
+          node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \
+            "$root/provider.json" --evidence "$root/evidence.json" --bind
+          if ! node ops/production/kubernetes/run-network-policy-enforcement-drill.cjs \
+              --provider-profile "$root/provider.json" \
+              --evidence "$root/evidence.json" \
+              --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json" \
+              --bind; then
+            failure="$(jq -r '.failure // "drill failed before a reason was recorded"' network-policy-enforcement-report.json)"
+            echo "::error title=NetworkPolicy enforcement drill failed::${failure}"
+            kubectl -n ailaoda-pilot-recovery get pods -o wide || true
+            exit 1
+          fi
+          node -e 'const r=require("./network-policy-enforcement-report.json"); if(r.status!=="passed"||r.cleanupVerified!==true||r.outcome!=="unauthorized-service-connect-timed-out") process.exit(1)'
+          node ops/production/kubernetes/verify-network-policy-enforcement-evidence.cjs \
+            --report "$GITHUB_WORKSPACE/network-policy-enforcement-report.json" \
+            --evidence "$root/evidence.json" \
+            --provider-profile "$root/provider.json"
+          cp "$root/evidence.json" "$GITHUB_WORKSPACE/network-policy-enforcement-evidence.json"
+      - name: Upload enforcement evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: network-policy-enforcement-${{ github.run_id }}
+          path: |
+            network-policy-enforcement-report.json
+            network-policy-enforcement-evidence.json
+          if-no-files-found: warn
+          retention-days: 14

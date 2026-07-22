@@ -28,6 +28,7 @@ import { createApiRateLimitStore, getRateLimitStoreStatus } from './services/dis
 import { getAuthTokenStoreStatus } from './services/auth-token-store.service';
 import { probeRedis } from './infrastructure/redis-runtime';
 import { getTelemetryStatus, shutdownTelemetry } from './observability/instrumentation';
+import { createPublicProbeLimiter } from './security/publicProbeRateLimit';
 
 loadRuntimeEnv();
 
@@ -125,6 +126,8 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+app.use(['/livez', '/ready', '/health'], createPublicProbeLimiter(runtime.nodeEnv));
+
 app.get(['/api/system/health-details', '/api/v1/system/health-details'], authenticate, authorize('admin'), async (_req: Request, res: Response) => {
   const minimumFreeDiskBytes = Number(process.env.MIN_FREE_DISK_BYTES || 512 * 1024 * 1024);
   const backupDir = getBackupDir();
@@ -172,10 +175,16 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.get(['/livez', '/api/livez', '/api/v1/livez'], (_req: Request, res: Response) => {
-  res.json({ status: 'alive', timestamp: new Date().toISOString(), uptime: process.uptime() });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json({ status: 'alive', timestamp: new Date().toISOString() });
 });
 
-app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Response) => {
+const authorizeOperationalAccess = (req: Request, res: Response, next: NextFunction) => {
+  if (hasValidMetricsBearerToken(req.headers.authorization)) return next();
+  return authenticate(req as AuthRequest, res, () => authorizePermission('system.metrics.read')(req as AuthRequest, res, next));
+};
+
+const readReadiness = async () => {
   const dependencyPolicy = {
     critical: ['database', 'redis'],
     degradable: ['search', 'objectStorage', 'telemetry'],
@@ -189,16 +198,33 @@ app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Re
     await prisma.$queryRaw`SELECT 1`;
     const redis = await probeRedis();
     if (!redis.ready) {
-      return res.status(503).json({ status: 'not-ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString() });
+      return { statusCode: 503, body: { status: 'not-ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString() } };
     }
-    return res.json({ status: 'ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString(), uptime: process.uptime() });
+    return { statusCode: 200, body: { status: 'ready', database: 'ok', redis, dependencyPolicy, degradable, timestamp: new Date().toISOString(), uptime: process.uptime() } };
   } catch (error) {
     logger.error('Readiness database probe failed', error);
-    return res.status(503).json({ status: 'not-ready', database: 'unavailable', dependencyPolicy, degradable, timestamp: new Date().toISOString() });
+    return { statusCode: 503, body: { status: 'not-ready', database: 'unavailable', redis: { ready: false }, dependencyPolicy, degradable, timestamp: new Date().toISOString() } };
   }
+};
+
+app.get(['/ready', '/api/ready', '/api/v1/ready'], async (_req: Request, res: Response) => {
+  const snapshot = await readReadiness();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json({
+    status: snapshot.body.status,
+    database: snapshot.body.database,
+    redis: { ready: snapshot.body.redis.ready },
+    timestamp: snapshot.body.timestamp,
+  });
 });
 
-app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
+app.get('/internal/ready', authorizeOperationalAccess, async (_req: Request, res: Response) => {
+  const snapshot = await readReadiness();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json(snapshot.body);
+});
+
+const readHealth = async () => {
   const checks = {
     database: 'ok',
     backupDir: 'ok',
@@ -235,7 +261,7 @@ app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res:
   const healthy = Object.values(checks).every((value) => value === 'ok') && redis.ready;
   const cache = cacheService.status();
   const jwtSecret = getJwtSecretStatus();
-  res.status(healthy ? 200 : 503).json({
+  return { statusCode: healthy ? 200 : 503, body: {
     status: healthy ? 'ok' : 'degraded',
     mode: runtime.nodeEnv,
     database: checks.database === 'ok' ? 'ok' : 'unavailable',
@@ -261,15 +287,25 @@ app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res:
     },
     timestamp: new Date().toISOString(),
     uptime: process.uptime(),
+  } };
+};
+
+app.get(['/health', '/api/health', '/api/v1/health'], async (_req: Request, res: Response) => {
+  const snapshot = await readHealth();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json({
+    status: snapshot.body.status,
+    timestamp: snapshot.body.timestamp,
   });
 });
 
-const authorizeMetricsAccess = (req: Request, res: Response, next: NextFunction) => {
-  if (hasValidMetricsBearerToken(req.headers.authorization)) return next();
-  return authenticate(req as AuthRequest, res, () => authorizePermission('system.metrics.read')(req as AuthRequest, res, next));
-};
+app.get('/internal/health', authorizeOperationalAccess, async (_req: Request, res: Response) => {
+  const snapshot = await readHealth();
+  res.setHeader('Cache-Control', 'no-store');
+  return res.status(snapshot.statusCode).json(snapshot.body);
+});
 
-app.get('/metrics', authorizeMetricsAccess, (_req: Request, res: Response) => {
+app.get('/metrics', authorizeOperationalAccess, (_req: Request, res: Response) => {
   res.type('text/plain; version=0.0.4');
   res.send(renderPrometheusMetrics());
 });

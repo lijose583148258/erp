@@ -11,6 +11,7 @@
     "evidence": "evidence/enterprise-evidence.json",
     "providerProfile": "provider/formal-pilot-provider-profile.json",
     "preflightReport": "preflight/formal-pilot-preflight-report.json",
+    "networkPolicyReport": "network/network-policy-enforcement-report.json",
     "continuousReport": "observation/continuous-observation-report.json",
     "pilotLedger": "observation/pilot-observation-ledger.json",
     "dailyReportsDir": "observation/daily",
@@ -19,6 +20,8 @@
     "observabilityReport": "observability/observability-report.json",
     "loadReconciliationReportsDir": "load-reconciliation",
     "aiReportsDir": "ai",
-    "securityReportsDir": "security"
+    "securityReportsDir": "security",
+    "approvalTrustDir": "approvals/trust",
+    "approvalReceiptsDir": "approvals/receipts"
   }
 }

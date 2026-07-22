@@ -1,6 +1,13 @@
 name: Enterprise Pilot Observation
 
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/enterprise-pilot-observation.yml'
+      - 'scripts/enterprise-ha-soak-audit-v1.cjs'
+      - 'scripts/lib/ui-audit-user.cjs'
+      - 'scripts/secret-management-audit-v1.cjs'
+      - 'ops/cloud-sandbox/**'
   workflow_dispatch:
     inputs:
       duration_minutes:
@@ -37,23 +44,19 @@ jobs:
         working-directory: ops/cloud-sandbox
     env:
       COMPOSE_PROJECT_NAME: ailaoda-observation-${{ github.run_id }}
-      POSTGRES_PASSWORD: sandbox-${{ github.run_id }}-postgres
-      REDIS_PASSWORD: sandbox-${{ github.run_id }}-redis
-      JWT_SECRET: sandbox-${{ github.run_id }}-jwt-secret-at-least-32-characters
-      METRICS_BEARER_TOKEN: sandbox-${{ github.run_id }}-metrics-token
+      MINIO_ROOT_USER: ailaoda-observation
+      GRAFANA_ADMIN_USER: observation-admin
       AILAODA_IMAGE_TAG: observation-${{ github.run_id }}
-      DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
       APP_URL: http://127.0.0.1:5006/
       SECONDARY_APP_URL: http://127.0.0.1:5008/
       AUDIT_PRISMA_PROVIDER: postgresql
-      AUDIT_DATABASE_URL: postgresql://ailaoda:sandbox-${{ github.run_id }}-postgres@127.0.0.1:55432/ailaoda?schema=public
       AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -63,6 +66,41 @@ jobs:
         run: |
           npm ci
           npm --prefix backend ci
+
+      - name: Generate ephemeral observation secrets
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          generated_secret=""
+          emit_secret() {
+            local name="$1"
+            generated_secret="$(openssl rand -hex 32)"
+            echo "::add-mask::${generated_secret}"
+            printf '%s=%s\n' "${name}" "${generated_secret}" >> "${GITHUB_ENV}"
+          }
+          emit_secret POSTGRES_PASSWORD
+          postgres_password="${generated_secret}"
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret REDIS_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
+          postgres_url="postgresql://ailaoda:${postgres_password}@127.0.0.1:55432/ailaoda?schema=public"
+          echo "::add-mask::${postgres_url}"
+          {
+            printf 'DATABASE_URL=%s\n' "${postgres_url}"
+            printf 'AUDIT_DATABASE_URL=%s\n' "${postgres_url}"
+          } >> "${GITHUB_ENV}"
+
+      - name: Remove stale observation evidence
+        working-directory: .
+        shell: bash
+        run: |
+          rm -rf output/audit cloud-evidence
+          mkdir -p output/audit cloud-evidence
 
       - name: Start dependency topology
         run: |
@@ -118,14 +156,18 @@ jobs:
         working-directory: .
         shell: bash
         env:
-          OBSERVATION_MINUTES: ${{ inputs.duration_minutes }}
+          OBSERVATION_MINUTES: ${{ github.event_name == 'pull_request' && '1' || inputs.duration_minutes }}
           HA_SOAK_CONCURRENCY: "8"
         run: |
           set -euo pipefail
           case "${OBSERVATION_MINUTES}" in
-            30|60|120|240|300) ;;
+            1|30|60|120|240|300) ;;
             *) echo "Unsupported observation duration"; exit 2 ;;
           esac
+          if [[ "${GITHUB_EVENT_NAME}" != "pull_request" && "${OBSERVATION_MINUTES}" == "1" ]]; then
+            echo "One-minute observation is reserved for pull-request smoke validation"
+            exit 2
+          fi
           export HA_SOAK_DURATION_MS="$((OBSERVATION_MINUTES * 60000))"
           npm run audit:soak:ha
 
@@ -134,8 +176,8 @@ jobs:
         working-directory: .
         env:
           JOB_STATUS: ${{ job.status }}
-          SEGMENT_LABEL: ${{ inputs.segment_label }}
-          OBSERVATION_MINUTES: ${{ inputs.duration_minutes }}
+          SEGMENT_LABEL: ${{ inputs.segment_label || 'pull-request-smoke' }}
+          OBSERVATION_MINUTES: ${{ github.event_name == 'pull_request' && '1' || inputs.duration_minutes }}
         run: |
           mkdir -p cloud-evidence
           docker compose -f ops/cloud-sandbox/docker-compose.yml --project-directory ops/cloud-sandbox --profile application ps -a > cloud-evidence/compose-ps.txt || true
@@ -152,13 +194,28 @@ jobs:
             checkedAt: new Date().toISOString(),
             limitation: 'A segmented GitHub-hosted run is not evidence of one continuous 8-hour or 24-hour process lifetime.',
           }, null, 2) + '\n');
+          const reportPath = 'output/audit/enterprise-ha-soak-audit-v1.json';
+          if (fs.existsSync(reportPath)) {
+            const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+            const escapeCommand = value => String(value)
+              .replace(/%/g, '%25').replace(/\r/g, '%0D').replace(/\n/g, '%0A');
+            for (const check of report.checks || []) {
+              if (check.status !== 'failed') continue;
+              console.log(`::error title=HA observation ${escapeCommand(check.name)}::${escapeCommand(JSON.stringify(check).slice(0, 1000))}`);
+            }
+            if (report.error) {
+              console.log(`::error title=HA observation runtime::${escapeCommand(report.error)}`);
+            }
+          } else {
+            console.log('::error title=HA observation evidence missing::enterprise-ha-soak-audit-v1.json was not produced');
+          }
           NODE
 
       - name: Upload observation evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: enterprise-pilot-observation-${{ inputs.segment_label }}-${{ github.run_id }}
+          name: enterprise-pilot-observation-${{ inputs.segment_label || 'pull-request-smoke' }}-${{ github.run_id }}
           path: cloud-evidence/
           retention-days: 30
 

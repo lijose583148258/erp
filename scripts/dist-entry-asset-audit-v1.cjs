@@ -44,7 +44,8 @@ function collectRefsFromText(text, currentAsset) {
   const refs = [];
   const patterns = [
     /(?:src|href)=["']([^"']*assets\/[^"']+)["']/g,
-    /["'](\.?\/?[^"']+\.(?:js|css|svg|png|jpg|jpeg|webp|gif|woff2?|ttf|ico))["']/g,
+    /["']([^"']*assets\/[^"']+\.(?:js|css|svg|png|jpg|jpeg|webp|gif|woff2?|ttf|ico))["']/g,
+    /(?:\bimport\s*\(|\bfrom\s*|\bexport[^;]*?\bfrom\s*|\bnew\s+URL\s*\()\s*["']([^"']+\.(?:js|css|svg|png|jpg|jpeg|webp|gif|woff2?|ttf|ico))["']/g,
     /url\((?:["']?)([^"')]+)(?:["']?)\)/g,
   ];
 
@@ -54,6 +55,10 @@ function collectRefsFromText(text, currentAsset) {
       const raw = match[1];
       if (!raw || raw.startsWith('data:') || raw.startsWith('http:') || raw.startsWith('https:')) continue;
       const withoutQuery = raw.split('?')[0].split('#')[0];
+      if (withoutQuery.startsWith('assets/')) {
+        refs.push(withoutQuery);
+        continue;
+      }
       if (withoutQuery.includes('/assets/')) {
         refs.push(withoutQuery.slice(withoutQuery.indexOf('assets/')));
         continue;
@@ -69,6 +74,26 @@ function collectRefsFromText(text, currentAsset) {
   }
 
   return refs;
+}
+
+function assertReferenceCollectorContract() {
+  const browserifyInternalRefs = collectRefsFromText(
+    'module.exports=s("./lib/_stream_readable.js");var a=s("asn1.js")',
+    'assets/spreadsheet.js',
+  );
+  if (browserifyInternalRefs.length > 0) {
+    throw new Error(`Bundled CommonJS module identifiers must not be treated as dist assets: ${browserifyInternalRefs.join(', ')}`);
+  }
+
+  const runtimeRefs = collectRefsFromText(
+    'import("./lazy.js");const deps=["assets/chunk.js"];new URL("./worker.js",import.meta.url)',
+    'assets/index.js',
+  );
+  for (const expected of ['assets/lazy.js', 'assets/chunk.js', 'assets/worker.js']) {
+    if (!runtimeRefs.includes(expected)) {
+      throw new Error(`Dist asset collector missed runtime reference: ${expected}`);
+    }
+  }
 }
 
 function buildReachableAssetSet() {
@@ -95,6 +120,7 @@ function buildReachableAssetSet() {
 }
 
 function main() {
+  assertReferenceCollectorContract();
   const allAssets = listFiles(ASSET_DIR).map(relToDist).sort();
   const reachable = buildReachableAssetSet();
   const missing = [...reachable.keys()].filter(asset => !fs.existsSync(path.join(DIST_DIR, asset))).sort();

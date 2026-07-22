@@ -8,6 +8,7 @@ const baseUrls = String(process.env.AILAODA_OBSERVABILITY_TARGETS || 'http://127
   .map(value => value.trim().replace(/\/$/, ''))
   .filter(Boolean);
 const collectorMetricsUrl = String(process.env.AILAODA_OTELCOL_METRICS_URL || 'http://127.0.0.1:8888/metrics').trim();
+const metricsToken = String(process.env.METRICS_BEARER_TOKEN || process.env.AILAODA_METRICS_BEARER_TOKEN || '').trim();
 const traceparentPattern = /^00-([0-9a-f]{32})-([0-9a-f]{16})-([0-9a-f]{2})$/;
 
 const report = {
@@ -42,16 +43,20 @@ const waitForSpanExport = async (before) => {
 
 const run = async () => {
   if (baseUrls.length < 2) throw new Error('At least two application targets are required for the HA observability proof.');
+  if (!metricsToken) throw new Error('A metrics bearer token is required for protected health evidence.');
   const spansBefore = await readAcceptedSpans();
 
   for (const baseUrl of baseUrls) {
-    for (const route of ['/livez', '/ready', '/health', '/api/openapi.json']) {
-      const response = await fetch(`${baseUrl}${route}`, { signal: AbortSignal.timeout(10000) });
+    for (const route of ['/livez', '/ready', '/internal/health', '/api/openapi.json']) {
+      const response = await fetch(`${baseUrl}${route}`, {
+        headers: route === '/internal/health' ? { authorization: `Bearer ${metricsToken}` } : undefined,
+        signal: AbortSignal.timeout(10000),
+      });
       const traceparent = response.headers.get('traceparent') || '';
       const requestId = response.headers.get('x-request-id') || '';
       const traceMatch = traceparent.match(traceparentPattern);
       let telemetryEnabled = null;
-      if (route === '/health') {
+      if (route === '/internal/health') {
         const body = await response.json();
         telemetryEnabled = body.telemetry?.enabled === true;
       } else {
@@ -60,7 +65,7 @@ const run = async () => {
       const passed = response.status === 200
         && Boolean(traceMatch)
         && requestId === traceMatch?.[1]
-        && (route !== '/health' || telemetryEnabled);
+        && (route !== '/internal/health' || telemetryEnabled);
       report.checks.push({ baseUrl, route, status: response.status, traceparentValid: Boolean(traceMatch), requestIdMatchesTrace: requestId === traceMatch?.[1], telemetryEnabled, passed });
     }
   }

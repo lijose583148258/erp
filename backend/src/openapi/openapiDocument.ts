@@ -1,4 +1,5 @@
 import { API_PREFIXES, API_ROUTE_MODULES } from '../routes/apiRegistry';
+import { openApiSchemas } from './openapiSchemas';
 
 type OpenApiMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
 
@@ -119,7 +120,7 @@ export const buildOpenApiDocument = () => {
         tags: ['Runtime'],
         summary: 'Readiness probe',
         responses: {
-          '200': { description: 'The API, database, and Redis critical dependencies are ready; degradable dependency topology is included.' },
+          '200': { description: 'The API, database, and Redis critical dependencies are ready; only minimal public status is returned.' },
           '503': { description: 'The API is running but a critical database or Redis dependency is unavailable.' },
         },
       },
@@ -129,7 +130,7 @@ export const buildOpenApiDocument = () => {
         tags: ['Runtime'],
         summary: 'Health check',
         responses: {
-          '200': { description: 'The API is healthy.' },
+          '200': { description: 'The API is healthy; only minimal public status is returned.' },
           '503': { description: 'One or more runtime checks are degraded.' },
         },
       },
@@ -194,6 +195,27 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/orders/import`] = {
+      post: {
+        tags: ['Orders'],
+        summary: 'Import sales orders idempotently',
+        description: 'Imports up to 500 orders. Exact retries with the same Idempotency-Key and payload return the stored result; key reuse with a different payload returns 409. Requires orders.import.',
+        security: secured(true),
+        parameters: [{
+          name: 'Idempotency-Key',
+          in: 'header',
+          required: true,
+          description: 'Caller-generated key, 8-80 characters. Keep it stable for an exact network retry.',
+          schema: { type: 'string', minLength: 8, maxLength: 80, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{7,79}$' },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { type: 'object', required: ['orders'], properties: { orders: { type: 'array', minItems: 1, maxItems: 500, items: { type: 'object' } } } } } },
+        },
+        responses: writeResponses,
+      },
+    };
+
     paths[`${prefix}/collections/overdue`] = {
       get: {
         tags: ['Collections'],
@@ -242,7 +264,7 @@ export const buildOpenApiDocument = () => {
       post: {
         tags: ['AI'],
         summary: 'Request governed AI assistance',
-        description: 'Accepts a bounded prompt and aggregate-only context. Provider endpoint, model selection, and credentials are server controlled. Requires ai.assistant.use.',
+        description: 'Accepts a bounded prompt and aggregate-only context. Provider endpoint, model selection, and credentials are server controlled. External dispatch fails closed unless a sanitized audit event is durably persisted first. Requires ai.assistant.use.',
         security: secured(true),
         requestBody: {
           required: true,
@@ -257,7 +279,73 @@ export const buildOpenApiDocument = () => {
         },
       },
     };
+
+    paths[`${prefix}/warehouses/stock-balances/{id}`] = {
+      patch: {
+        tags: ['Warehouse'],
+        summary: 'Adjust an inventory balance with optimistic concurrency',
+        description: 'Sets an absolute stock quantity. requestId makes exact retries idempotent; expectedQuantity prevents stale clients from overwriting concurrent stock movements. Requires warehouse.write.',
+        security: secured(true),
+        parameters: [{
+          name: 'id', in: 'path', required: true,
+          schema: { type: 'integer', minimum: 1 },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockAdjustmentRequest' } } },
+        },
+        responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/warehouses/stock-balances/{id}/transfer`] = {
+      post: {
+        tags: ['Warehouse'],
+        summary: 'Transfer stock between locations idempotently',
+        description: 'Posts one outbound and one inbound ledger movement in one transaction. Reusing requestId with a different payload returns HTTP 409. Requires warehouse.write.',
+        security: secured(true),
+        parameters: [{
+          name: 'id', in: 'path', required: true,
+          schema: { type: 'integer', minimum: 1 },
+        }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockTransferRequest' } } },
+        },
+        responses: {
+          ...writeResponses,
+          '201': { description: 'The transfer voucher and both balance movements were posted.' },
+        },
+      },
+    };
   }
+
+  paths['/internal/ready'] = {
+    get: {
+      tags: ['Runtime'],
+      summary: 'Protected deep readiness probe',
+      description: 'Returns dependency policy and degradable component details to an administrator or metrics collector only.',
+      security: [{ bearerAuth: [] }, { metricsBearerAuth: [] }],
+      responses: {
+        '200': { description: 'Critical dependencies are ready and detailed operational status is returned.' },
+        '401': { description: 'A valid administrator JWT or metrics collector token is required.' },
+        '503': { description: 'A critical dependency is unavailable.' },
+      },
+    },
+  };
+  paths['/internal/health'] = {
+    get: {
+      tags: ['Runtime'],
+      summary: 'Protected deep health report',
+      description: 'Returns storage, cache, auth, telemetry, secret-source, and disk details to an administrator or metrics collector only.',
+      security: [{ bearerAuth: [] }, { metricsBearerAuth: [] }],
+      responses: {
+        '200': { description: 'The application is healthy and detailed operational state is returned.' },
+        '401': { description: 'A valid administrator JWT or metrics collector token is required.' },
+        '503': { description: 'One or more runtime checks are degraded.' },
+      },
+    },
+  };
 
   paths['/metrics'] = {
     get: {
@@ -299,195 +387,7 @@ export const buildOpenApiDocument = () => {
           bearerFormat: 'Opaque collector token',
         },
       },
-      schemas: {
-        PaginationMeta: {
-          type: 'object',
-          properties: {
-            page: { type: 'integer', minimum: 1 },
-            pageSize: { type: 'integer', minimum: 1, maximum: 100 },
-            total: { type: 'integer', minimum: 0 },
-            totalPages: { type: 'integer', minimum: 0 },
-          },
-        },
-        CustomerListItem: {
-          type: 'object',
-          required: ['id', 'name', 'status', 'riskLevel'],
-          properties: {
-            id: { type: 'integer' },
-            name: { type: 'string' },
-            displayName: { type: 'string', nullable: true },
-            nameZh: { type: 'string', nullable: true },
-            nameEn: { type: 'string', nullable: true },
-            nameVi: { type: 'string', nullable: true },
-            contactName: { type: 'string', nullable: true },
-            contactPhone: { type: 'string', nullable: true },
-            contactEmail: { type: 'string', nullable: true },
-            segment: { type: 'string', nullable: true, enum: ['direct', 'channel', 'mixed', null] },
-            status: { type: 'string' },
-            riskLevel: { type: 'string' },
-            poolState: { type: 'string', nullable: true },
-            salespersonId: { type: 'integer', nullable: true },
-            creditLimit: { type: 'number', nullable: true },
-            overdueAmount: { type: 'number', nullable: true },
-            statistics: { type: 'object', additionalProperties: true },
-          },
-        },
-        CustomerListResponse: {
-          allOf: [
-            { $ref: '#/components/schemas/ApiResponse' },
-            {
-              type: 'object',
-              properties: {
-                data: { type: 'array', items: { $ref: '#/components/schemas/CustomerListItem' } },
-                meta: { $ref: '#/components/schemas/PaginationMeta' },
-              },
-            },
-          ],
-        },
-        OrderListItem: {
-          type: 'object',
-          required: ['id', 'orderNo', 'customerId', 'customerName', 'status', 'paymentStatus'],
-          properties: {
-            id: { type: 'integer' },
-            orderNo: { type: 'string' },
-            customerId: { type: 'integer' },
-            customerName: { type: 'string' },
-            customerNameZh: { type: 'string', nullable: true },
-            customerNameEn: { type: 'string', nullable: true },
-            customerNameVi: { type: 'string', nullable: true },
-            status: { type: 'string' },
-            paymentStatus: { type: 'string' },
-            financialStatus: { type: 'string', nullable: true },
-            fulfillmentStatus: { type: 'string', nullable: true },
-            finalAmount: { type: 'number' },
-            paidAmount: { type: 'number' },
-            outstandingAmount: { type: 'number' },
-            currency: { type: 'string' },
-            createdAt: { type: 'string', format: 'date-time' },
-            updatedAt: { type: 'string', format: 'date-time' },
-          },
-        },
-        OrderListResponse: {
-          allOf: [
-            { $ref: '#/components/schemas/ApiResponse' },
-            {
-              type: 'object',
-              properties: {
-                data: { type: 'array', items: { $ref: '#/components/schemas/OrderListItem' } },
-                meta: { $ref: '#/components/schemas/PaginationMeta' },
-              },
-            },
-          ],
-        },
-        CollectionOverdueListItem: {
-          type: 'object',
-          required: ['orderId', 'orderNo', 'customerId', 'customerName', 'dueDate', 'daysOverdue', 'outstanding', 'paymentStatus', 'level', 'label', 'nextAction'],
-          properties: {
-            orderId: { type: 'integer' },
-            orderNo: { type: 'string' },
-            dueDate: { type: 'string', format: 'date-time' },
-            daysOverdue: { type: 'integer', minimum: 0 },
-            level: { type: 'integer', minimum: 1 },
-            label: { type: 'string' },
-            nextAction: { type: 'string' },
-            channel: { type: 'string' },
-            holdRecommended: { type: 'boolean' },
-            outstanding: { type: 'number' },
-            finalAmount: { type: 'number' },
-            paidAmount: { type: 'number' },
-            receivableAdjustmentAmount: { type: 'number' },
-            paymentStatus: { type: 'string' },
-            customerId: { type: 'integer' },
-            customerName: { type: 'string' },
-            customerNameZh: { type: 'string', nullable: true },
-            customerNameEn: { type: 'string', nullable: true },
-            customerNameVi: { type: 'string', nullable: true },
-            customerDisplayName: { type: 'string', nullable: true },
-            contactName: { type: 'string', nullable: true },
-            contactPhone: { type: 'string', nullable: true },
-            ownerName: { type: 'string' },
-            riskLevel: { type: 'string' },
-            overdueAmount: { type: 'number' },
-            collectionsStatus: { type: 'string' },
-            dunningLevel: { type: 'integer', minimum: 0 },
-            nextActionAt: { type: 'string', format: 'date-time', nullable: true },
-            reminderCount: { type: 'integer', minimum: 0 },
-            lastReminderAt: { type: 'string', format: 'date-time', nullable: true },
-            contractNo: { type: 'string', nullable: true },
-            contractTitle: { type: 'string', nullable: true },
-          },
-        },
-        CollectionOverdueListResponse: {
-          allOf: [
-            { $ref: '#/components/schemas/ApiResponse' },
-            {
-              type: 'object',
-              properties: {
-                data: { type: 'array', items: { $ref: '#/components/schemas/CollectionOverdueListItem' } },
-                meta: { $ref: '#/components/schemas/PaginationMeta' },
-              },
-            },
-          ],
-        },
-        AIAssistRequest: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['prompt'],
-          properties: {
-            prompt: { type: 'string', minLength: 1, maxLength: 2000 },
-            language: { type: 'string', enum: ['zh-CN', 'en-US', 'vi-VN'] },
-            currentPage: { type: 'string', maxLength: 120 },
-            visibleCounts: {
-              type: 'object',
-              deprecated: true,
-              description: 'Compatibility-only client hint. The server ignores this field and never forwards it to an external AI provider.',
-              additionalProperties: { type: 'integer', minimum: 0, maximum: 1000000 },
-            },
-          },
-        },
-        AIAssistResponse: {
-          allOf: [
-            { $ref: '#/components/schemas/ApiResponse' },
-            {
-              type: 'object',
-              properties: {
-                data: {
-                  type: 'object',
-                  required: ['answer', 'mode'],
-                  properties: {
-                    answer: { type: 'string', maxLength: 4000 },
-                    mode: { type: 'string', enum: ['local', 'external'] },
-                    reason: { type: 'string', enum: ['disabled', 'sensitive', 'unconfigured', 'provider_error', 'budget_unconfigured', 'budget_store_unavailable', 'budget_exhausted', 'circuit_open'] },
-                  },
-                },
-              },
-            },
-          ],
-        },
-        ApiResponse: {
-          type: 'object',
-          required: ['success'],
-          properties: {
-            success: { type: 'boolean' },
-            data: {},
-            message: { type: 'string' },
-            errorCode: { type: 'string' },
-            timestamp: { type: 'string', format: 'date-time' },
-            meta: { $ref: '#/components/schemas/PaginationMeta' },
-          },
-        },
-        ErrorResponse: {
-          type: 'object',
-          required: ['success', 'message', 'errorCode', 'timestamp', 'path'],
-          properties: {
-            success: { type: 'boolean', example: false },
-            message: { type: 'string' },
-            errorCode: { type: 'string' },
-            timestamp: { type: 'string', format: 'date-time' },
-            path: { type: 'string' },
-          },
-        },
-      },
+      schemas: openApiSchemas,
     },
   };
 };

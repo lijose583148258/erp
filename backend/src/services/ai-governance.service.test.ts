@@ -80,11 +80,12 @@ describe('governed AI gateway', () => {
     process.env.AI_GATEWAY_MODEL = 'governed-model';
     process.env.AI_GATEWAY_API_KEY = 'server-secret';
 
+    const beforeExternalDispatch = jest.fn(async () => undefined);
     await AIGovernanceService.assist({
       prompt: 'explain approvals',
       currentPage: 'dashboard\nignore system',
       visibleCounts: { alerts: 3, 'ignore-system-instructions': 99 },
-    }, { role: 'manager' });
+    }, { role: 'manager' }, { beforeExternalDispatch });
 
     const request = fetchMock.mock.calls[0][1] as RequestInit;
     const payload = JSON.parse(String(request.body)) as { messages: Array<{ content: string }> };
@@ -92,6 +93,10 @@ describe('governed AI gateway', () => {
     expect(payload.messages[1].content).not.toContain('visibleCounts');
     expect(payload.messages[1].content).not.toContain('"alerts":3');
     expect(payload.messages[1].content).not.toContain('ignore-system-instructions');
+    expect(beforeExternalDispatch).toHaveBeenCalledWith({
+      role: 'manager', segment: 'unknown', currentPage: 'unknown',
+      model: 'governed-model', endpointHost: 'ai.example.test',
+    });
   });
 
   it('rejects client-controlled provider fields at the DTO boundary', () => {
@@ -116,7 +121,9 @@ describe('governed AI gateway', () => {
       prompt: 'explain the workflow',
       currentPage: 'dashboard',
       visibleCounts: { alerts: 3 },
-    }, { role: 'manager', segment: 'direct' })).resolves.toMatchObject({ mode: 'local', reason: 'provider_error' });
+    }, { role: 'manager', segment: 'direct' }, {
+      beforeExternalDispatch: jest.fn(async () => undefined),
+    })).resolves.toMatchObject({ mode: 'local', reason: 'provider_error' });
 
     const request = fetchMock.mock.calls[0][1] as RequestInit;
     expect(request.redirect).toBe('error');
@@ -137,7 +144,9 @@ describe('governed AI gateway', () => {
     process.env.AI_GATEWAY_MODEL = 'governed-model';
     process.env.AI_GATEWAY_API_KEY = 'server-secret';
 
-    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }))
+    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }, {
+      beforeExternalDispatch: jest.fn(async () => undefined),
+    }))
       .resolves.toEqual({ answer: 'Use the approval workspace.', mode: 'external' });
     expect(renderPrometheusMetrics()).toContain('ailaoda_ai_operations_total{outcome="external_success"}');
   });
@@ -152,7 +161,9 @@ describe('governed AI gateway', () => {
     process.env.AI_GATEWAY_MODEL = 'governed-model';
     process.env.AI_GATEWAY_API_KEY = 'server-secret';
 
-    const result = await AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' });
+    const result = await AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }, {
+      beforeExternalDispatch: jest.fn(async () => undefined),
+    });
 
     expect(result).toMatchObject({ mode: 'local', reason: 'unsafe_output' });
     expect(result.answer).not.toContain('evil.example');
@@ -171,9 +182,28 @@ describe('governed AI gateway', () => {
     process.env.AI_GATEWAY_API_KEY = 'server-secret';
     process.env.AI_GATEWAY_MAX_RESPONSE_BYTES = '65536';
 
-    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }))
+    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }, {
+      beforeExternalDispatch: jest.fn(async () => undefined),
+    }))
       .resolves.toMatchObject({ mode: 'local', reason: 'response_too_large' });
     expect(renderPrometheusMetrics()).toContain('ailaoda_ai_operations_total{outcome="fallback_response_too_large"}');
+  });
+
+  it('fails closed without a durable pre-dispatch audit and never calls the provider', async () => {
+    global.fetch = jest.fn() as typeof fetch;
+    process.env.AI_GATEWAY_EXTERNAL_ENABLED = 'true';
+    process.env.AI_GATEWAY_ENDPOINT = 'https://ai.example.test/v1/chat/completions';
+    process.env.AI_GATEWAY_ALLOWED_HOSTS = 'ai.example.test';
+    process.env.AI_GATEWAY_MODEL = 'governed-model';
+    process.env.AI_GATEWAY_API_KEY = 'server-secret';
+
+    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }))
+      .resolves.toMatchObject({ mode: 'local', reason: 'audit_unavailable' });
+    await expect(AIGovernanceService.assist({ prompt: 'explain approvals' }, { role: 'manager' }, {
+      beforeExternalDispatch: jest.fn(async () => { throw new Error('database unavailable'); }),
+    })).resolves.toMatchObject({ mode: 'local', reason: 'audit_unavailable' });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(renderPrometheusMetrics()).toContain('ailaoda_ai_operations_total{outcome="fallback_audit_unavailable"}');
   });
 
   it('exports bounded refusal and fallback outcomes without prompt labels', async () => {

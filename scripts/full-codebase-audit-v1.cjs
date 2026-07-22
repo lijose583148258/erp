@@ -16,6 +16,7 @@ const {
   SOURCE_EXTENSIONS,
 } = require('./lib/full-codebase-audit-policy.cjs');
 const { buildFullCodebaseAuditMarkdown } = require('./lib/full-codebase-audit-report.cjs');
+const { scanText: scanMojibakeText } = require('./effective-source-mojibake-gate-v1.cjs');
 
 const ROOT = process.cwd();
 const OUTPUT_DIR = path.join(ROOT, 'output', 'audit');
@@ -31,11 +32,21 @@ const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'scripts/lib/win32-audit-process-guard.cjs',
   'scripts/package-clean-runtime-zip-v1.ps1',
   'scripts/package-stable.ps1',
+  'scripts/start-enterprise-sandbox-v1.ps1',
   'scripts/start-cdp-browser.ps1',
   'scripts/start-stable-v2.ps1',
   'scripts/stop-runtime.ps1',
   'scripts/verify-phase3-package-browser.ps1',
   '启动系统.bat',
+]);
+
+const RUNTIME_SCRIPT_OWNERSHIP_CONTRACTS = new Map([
+  ['scripts/start-enterprise-sandbox-v1.ps1', [
+    'Assert-OwnedEnterpriseListener',
+    'otel-app-$Port.owner.json',
+    'PID record does not match',
+    'belongs to another artifact root',
+  ]],
 ]);
 
 const GOVERNED_NAMED_ACTIVE_FILES = new Set([
@@ -258,6 +269,8 @@ function isAuditOrTestAsset(item) {
   const file = item.rel.toLowerCase();
   const name = item.name.toLowerCase();
   if (file.startsWith('测试/')) return true;
+  if (/(^|\/)__tests__\//.test(file)) return true;
+  if (/\.(test|spec)\.[^.\/]+$/.test(file)) return true;
   if (file.startsWith('playwright-')) return true;
   if (file.startsWith('backend/src/database/seed')) return true;
   if (file.includes('/database/manage-db')) return true;
@@ -266,6 +279,25 @@ function isAuditOrTestAsset(item) {
   if (!file.startsWith('scripts/')) return false;
 
   return /(audit|gate|smoke|test|probe|verify|regression|debug|performance|consistency|reconcile|permission|scope|role|browser|api|chain|screenshot|dual-port|e2e|collection|procurement|orders|shipping|barter|production|receipt|customer|contract|supplier|dashboard|asset|money|backup|concurrency|cdp|ui)/i.test(name);
+}
+
+function assertAuditAssetClassifierContract() {
+  const fixtures = [
+    ['backend/src/security/demo-credentials.test.ts', true],
+    ['components/__tests__/Login.spec.tsx', true],
+    ['scripts/source-regression-v1.cjs', true],
+    ['backend/src/controllers/auth.controller.ts', false],
+  ];
+
+  for (const [relativePath, expected] of fixtures) {
+    const actual = isAuditOrTestAsset({
+      rel: relativePath,
+      name: path.posix.basename(relativePath),
+    });
+    if (actual !== expected) {
+      throw new Error(`Audit/test asset classifier contract failed for ${relativePath}: expected ${expected}, got ${actual}`);
+    }
+  }
 }
 
 function isConsoleHeavyUtilityAsset(item) {
@@ -278,10 +310,25 @@ function isConsoleHeavyUtilityAsset(item) {
 }
 
 function isRuntimePolicyAuditAsset(item) {
-  return item.rel === 'scripts/stable-entrypoint-policy-audit-v1.cjs';
+  return item.rel === 'scripts/stable-entrypoint-policy-audit-v1.cjs'
+    || item.rel === 'scripts/runtime-script-ownership-audit-v1.cjs';
+}
+
+function assertRuntimeScriptOwnershipContracts() {
+  for (const [relativePath, markers] of RUNTIME_SCRIPT_OWNERSHIP_CONTRACTS) {
+    const text = safeRead(path.join(ROOT, relativePath));
+    if (text === null) throw new Error(`Governed runtime script is missing: ${relativePath}`);
+    for (const marker of markers) {
+      if (!text.includes(marker)) {
+        throw new Error(`Governed runtime script ${relativePath} is missing ownership marker: ${marker}`);
+      }
+    }
+  }
 }
 
 function main() {
+  assertAuditAssetClassifierContract();
+  assertRuntimeScriptOwnershipContracts();
   ensureDir(OUTPUT_DIR);
   const bucket = { activeFiles: [], historicalFiles: [], excludedDirs: [] };
   walk(ROOT, bucket);
@@ -341,10 +388,8 @@ function main() {
       }
     }
 
-    const badEncodingMatches = isSelf ? [] : [
-      ...findMatches(text, /\uFFFD/g, 10),
-      ...findMatches(text, /(?:\u00c3.|\u00c2.|\u00e2\u20ac.|\u951f\u65a4\u62f7|\u934b|\u935a|\u941c|\u9470|\u9348|\u93c4|\u9201|\u9983|\u760b|\uFFFD)/g, 10),
-    ];
+    const badEncodingMatches = isSelf ? [] : scanMojibakeText(item.rel, text)
+      .map(match => ({ line: match.line, value: match.sample, pattern: match.pattern }));
     if (badEncodingMatches.length > 0) {
       addFinding(findings, 'P1', 'encoding', 'Possible real mojibake marker in active file', item.rel, badEncodingMatches[0].line, badEncodingMatches[0].value, { matches: badEncodingMatches.slice(0, 5) });
     }

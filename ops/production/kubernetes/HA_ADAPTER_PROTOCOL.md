@@ -2,8 +2,10 @@
 
 This protocol lets the provider or database operator own disruption commands
 while the ERP audit owns application-level verification. The runner invokes an
-adapter as an executable file with one operation argument. It does not use a
-shell.
+adapter with one operation argument. Repository `.js`, `.cjs`, and `.mjs`
+adapters are launched with the locked Node.js runtime, so they do not require
+an executable bit or shebang. Provider-native adapter binaries are launched
+directly. Neither path uses a shell.
 
 ## Safety boundary
 
@@ -29,7 +31,7 @@ Each PostgreSQL and Redis adapter implements:
 | `discover` | `{"id":"writer-a","failureDomain":"zone-a"}` | Return the currently observed writer/master. |
 | `fail-primary` | none | Isolate the discovered primary and return after injection is accepted. |
 | `recover` | none | Reintroduce the isolated member without forcing failback. |
-| `old-primary-status` | `{"rejoinedAsReplica":true}` | Prove the old primary is healthy as a replica. |
+| `old-primary-status` | `{"rejoinedAsReplica":true}` | Prove the old primary was recreated (new Kubernetes UID) and is healthy as a replica. |
 
 The Redis adapter may add `sentinelCount` to the `topology` response.
 

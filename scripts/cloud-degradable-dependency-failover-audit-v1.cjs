@@ -1,13 +1,12 @@
 const fs = require('fs');
 const path = require('path');
 const { execFileSync } = require('child_process');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditUser, resolveDefaultAccount } = require('./lib/ui-audit-user.cjs');
 
 const reportPath = path.join(process.cwd(), 'output/audit/cloud-degradable-dependency-failover-audit-v1.json');
 const shippingReportPath = path.join(process.cwd(), 'output/playwright/shipping-audit-report-v1.json');
 const appUrl = String(process.env.APP_URL || 'http://127.0.0.1:5006/').replace(/\/?$/, '/');
 const meiliKey = String(process.env.MEILI_MASTER_KEY || '');
-const account = { username: 'cloud_dependency_failover', password: 'CloudDependencyFailover12345!', role: 'admin' };
 const report = { name: 'Cloud Search and Object Storage Failover Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const check = (name, passed, details = {}) => {
@@ -52,6 +51,7 @@ const appOrderSearch = async (token, term) => {
 };
 
 async function main() {
+  const account = resolveDefaultAccount();
   check('meilisearch-key-configured', Boolean(meiliKey));
   await ensureUiAuditUser(account);
   const login = await fetch(`${appUrl}api/v1/auth/login`, {

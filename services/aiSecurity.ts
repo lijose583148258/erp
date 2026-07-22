@@ -19,14 +19,10 @@ export interface AISafetyDecision {
 
 export const AI_EXTERNAL_ENABLED_KEY = 'ailao.ai.externalEnabled';
 
-export const isBrowserExternalAIPolicyEnabled = (): boolean => {
-  try {
-    const env = (import.meta as ImportMeta & { env?: Record<string, string | boolean | undefined> }).env;
-    return String(env?.VITE_AILAODA_ALLOW_BROWSER_EXTERNAL_AI || '').toLowerCase() === 'true';
-  } catch {
-    return false;
-  }
-};
+// Enterprise boundary: browsers never own remote-provider endpoints or credentials.
+// Remote AI is available only through the authenticated, audited server gateway.
+export const BROWSER_EXTERNAL_AI_DISABLED = true as const;
+export const isBrowserExternalAIPolicyEnabled = (): boolean => false;
 
 const normalizeForSafety = (value: string): string =>
   value
@@ -228,18 +224,11 @@ const DANGEROUS_CONTEXT_KEYS = new Set([
   'rawData',
 ]);
 
-export const isExternalAIEnabled = (): boolean => {
-  if (!isBrowserExternalAIPolicyEnabled()) return false;
-  try {
-    return window.localStorage.getItem(AI_EXTERNAL_ENABLED_KEY) === 'true';
-  } catch {
-    return false;
-  }
-};
+export const isExternalAIEnabled = (): boolean => false;
 
-export const setExternalAIEnabled = (enabled: boolean): void => {
+export const setExternalAIEnabled = (_enabled: boolean): void => {
   try {
-    window.localStorage.setItem(AI_EXTERNAL_ENABLED_KEY, enabled && isBrowserExternalAIPolicyEnabled() ? 'true' : 'false');
+    window.localStorage.removeItem(AI_EXTERNAL_ENABLED_KEY);
   } catch {
     // Keep local-only mode if storage is unavailable.
   }
@@ -264,24 +253,11 @@ export const isHiddenDataRequest = (value: string): boolean => {
 export const canSendToExternalAI = (prompt: string, systemPrompt?: string): AISafetyDecision => {
   const combined = `${systemPrompt || ''}\n${prompt || ''}`;
   const sensitive = containsSensitiveBusinessData(combined);
-
-  if (!isExternalAIEnabled()) {
-    return {
-      allowed: false,
-      sensitive,
-      reason: '外部 AI 当前关闭。为避免客户、订单、金额、地址、联系人、配方、成本等业务数据外发，请继续使用本地规则引擎，或由管理员明确开启外部 AI。',
-    };
-  }
-
-  if (sensitive) {
-    return {
-      allowed: false,
-      sensitive,
-      reason: '检测到客户、订单、金额、地址、联系人、供应商、配方、成本或财务等敏感业务信息，已阻止发送到外部 AI。',
-    };
-  }
-
-  return { allowed: true, sensitive };
+  return {
+    allowed: false,
+    sensitive,
+    reason: '浏览器禁止直连外部 AI。外部模型请求必须经过服务端权限、审计、预算和地址白名单治理。',
+  };
 };
 
 const countIfArray = (value: unknown): number | undefined => Array.isArray(value) ? value.length : undefined;

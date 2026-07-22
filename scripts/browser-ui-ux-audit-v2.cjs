@@ -1,193 +1,18 @@
-const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
 const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
-
-const VIEWPORTS = [
-  { id: 'desktop-lg', width: 1440, height: 900, isMobile: false },
-  { id: 'desktop-md', width: 1366, height: 768, isMobile: false },
-  { id: 'laptop-sm', width: 1280, height: 720, isMobile: false },
-  { id: 'tablet-portrait', width: 768, height: 1024, isMobile: false },
-  { id: 'tablet-landscape', width: 1024, height: 768, isMobile: false },
-  { id: 'mobile-lg', width: 430, height: 932, isMobile: true },
-  { id: 'mobile-md', width: 390, height: 844, isMobile: true },
-  { id: 'mobile-sm', width: 360, height: 740, isMobile: true },
-];
-
-const FALLBACK_ROUTES = [
-  '#dashboard',
-  '#crm',
-  '#orders',
-  '#collections',
-  '#adjustment',
-  '#financeAnalytics',
-  '#contracts',
-  '#barter',
-  '#risk',
-  '#dealerAnalytics',
-  '#samples',
-  '#shipping',
-  '#discrepancies',
-  '#rma',
-  '#team',
-  '#assets',
-  '#production',
-  '#warehouse',
-  '#procurement',
-  '#audit',
-];
+const { findMojibake } = require('./lib/audit-utils.cjs');
+const { FALLBACK_ROUTES, VIEWPORTS, parseConfig } = require('./lib/browser-ui-ux-audit-config.cjs');
+const {
+  addFinding,
+  atomicWrite,
+  createRun,
+  ensureDir,
+  safeName,
+  writeReports,
+} = require('./lib/browser-ui-ux-audit-report.cjs');
 
 const DESTRUCTIVE_TEXT = /delete|remove|archive|void|cancel order|submit|save|confirm|approve|reject|支付|删除|移除|作废|提交|保存|确认|审批|拒绝/i;
-const MOJIBAKE_SEQUENCES = [
-  [0x951F, 0x65A4, 0x62F7],
-  [0x9347, 0x20AC],
-  [0x9359, 0x6218],
-  [0x9422, 0x7535],
-  [0x7039, 0x609A],
-  [0x95C6, 0x9E43],
-  [0x5CB7, 0x5CC4],
-  [0x81BD, 0x5564],
-].map((codes) => codes.map((code) => String.fromCharCode(code)).join(''));
-const MOJIBAKE_PATTERN = new RegExp(`[\\uFFFD]|(?:[\\u00C0-\\u00FF]{2,})|(?:${MOJIBAKE_SEQUENCES.join('|')})`);
-
-function boolEnv(name, defaultValue) {
-  const raw = process.env[name];
-  if (raw == null || raw === '') return defaultValue;
-  if (raw === '1' || /^true$/i.test(raw)) return true;
-  if (raw === '0' || /^false$/i.test(raw)) return false;
-  throw new Error(`${name} must be a boolean value: 0/1/true/false`);
-}
-
-function intEnv(name, defaultValue, min = 1) {
-  const raw = process.env[name];
-  if (raw == null || raw === '') return defaultValue;
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value < min) {
-    throw new Error(`${name} must be an integer >= ${min}`);
-  }
-  return value;
-}
-
-function enumEnv(name, defaultValue, allowed) {
-  const value = process.env[name] || defaultValue;
-  if (!allowed.includes(value)) {
-    throw new Error(`${name} must be one of: ${allowed.join(', ')}`);
-  }
-  return value;
-}
-
-function parseConfig() {
-  return {
-    appUrl: process.env.APP_URL || 'http://127.0.0.1:5001/',
-    username: process.env.AUDIT_ADMIN_USERNAME || 'ui_ux_audit_admin',
-    password: process.env.AUDIT_ADMIN_PASSWORD || 'AuditSmoke12345!',
-    forcedRoutes: (process.env.UI_UX_AUDIT_ROUTES || '')
-      .split(',')
-      .map((item) => normalizeRoute(item))
-      .filter(Boolean),
-    maxRoutes: intEnv('UI_UX_AUDIT_MAX_ROUTES', 30, 1),
-    timeoutMs: intEnv('UI_UX_AUDIT_TIMEOUT_MS', 420000, 1000),
-    pageTimeoutMs: intEnv('UI_UX_AUDIT_PAGE_TIMEOUT_MS', 15000, 1000),
-    failOnWarnings: boolEnv('UI_UX_AUDIT_FAIL_ON_WARNINGS', false),
-    failOnConsoleErrors: boolEnv('UI_UX_AUDIT_FAIL_ON_CONSOLE_ERRORS', true),
-    ignoreConsolePattern: regexEnv('UI_UX_AUDIT_IGNORE_CONSOLE_PATTERN'),
-    ignoreHttpPattern: regexEnv('UI_UX_AUDIT_IGNORE_HTTP_PATTERN'),
-    screenshotMode: enumEnv('UI_UX_AUDIT_SCREENSHOT_MODE', 'viewport', ['fullPage', 'viewport']),
-    traceOnFailure: boolEnv('UI_UX_AUDIT_TRACE_ON_FAILURE', false),
-    reducedMotion: boolEnv('UI_UX_AUDIT_REDUCED_MOTION', true),
-    colorScheme: enumEnv('UI_UX_AUDIT_COLOR_SCHEME', 'light', ['light', 'dark', 'both']),
-  };
-}
-
-function regexEnv(name) {
-  const raw = process.env[name];
-  if (!raw) return null;
-  try {
-    return new RegExp(raw, 'i');
-  } catch (error) {
-    throw new Error(`${name} is not a valid regex: ${String(error.message || error)}`);
-  }
-}
-
-function normalizeRoute(value) {
-  const route = String(value || '').trim();
-  if (!route) return '';
-  if (route.startsWith('#/')) return `#${route.slice(2)}`;
-  if (route.startsWith('#')) return route;
-  if (route.startsWith('/#')) return route.slice(1);
-  if (route.startsWith('/')) return `#${route}`;
-  return `#${route}`;
-}
-
-function safeName(value) {
-  return String(value || 'root')
-    .replace(/^#\/?/, '')
-    .replace(/[^a-z0-9_-]+/gi, '_')
-    .replace(/^_+|_+$/g, '') || 'root';
-}
-
-function ensureDir(dir) {
-  fs.mkdirSync(dir, { recursive: true });
-}
-
-function atomicWrite(filePath, content) {
-  ensureDir(path.dirname(filePath));
-  const tmpPath = `${filePath}.${process.pid}.${Date.now()}.tmp`;
-  fs.writeFileSync(tmpPath, content, 'utf8');
-  fs.renameSync(tmpPath, filePath);
-}
-
-function createRun(config) {
-  const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17);
-  const runId = `${stamp}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
-  const root = path.join(process.cwd(), 'output', 'ui-ux-audit', runId);
-  const report = {
-    runId,
-    startedAt: new Date().toISOString(),
-    finishedAt: '',
-    durationMs: 0,
-    appUrl: config.appUrl,
-    routes: [],
-    discoveredRoutes: [],
-    fallbackRoutes: FALLBACK_ROUTES,
-    skippedRoutes: [],
-    viewports: VIEWPORTS.map(({ id, width, height }) => ({ id, width, height })),
-    summary: {
-      routesAudited: 0,
-      viewportRuns: 0,
-      stateRuns: 0,
-      errors: 0,
-      warnings: 0,
-      info: 0,
-      screenshots: 0,
-    },
-    results: [],
-    findings: [],
-    artifacts: {
-      screenshots: [],
-      traces: [],
-      rawDom: [],
-    },
-  };
-  return { runId, root, report, startedAt: Date.now() };
-}
-
-function addFinding(report, finding) {
-  report.findings.push({
-    severity: finding.severity || 'warning',
-    category: finding.category || 'runtime',
-    code: finding.code || 'AUDIT_FINDING',
-    message: finding.message || 'Audit finding',
-    route: finding.route || '',
-    viewport: finding.viewport || '',
-    state: finding.state || 'initial',
-    selector: finding.selector || null,
-    bbox: finding.bbox || null,
-    screenshot: finding.screenshot || null,
-    details: finding.details || {},
-  });
-}
 
 async function saveScreenshot(page, run, route, viewport, state, failure = false) {
   const folder = failure ? 'failures' : 'screenshots';
@@ -589,7 +414,8 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
     return;
   }
 
-  if (MOJIBAKE_PATTERN.test(bodyText)) {
+  const mojibake = findMojibake(bodyText);
+  if (mojibake) {
     addFinding(run.report, {
       severity: 'error',
       category: 'visual',
@@ -598,7 +424,7 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
       route,
       viewport: viewport.id,
       state: 'initial',
-      details: { sample: bodyText.match(MOJIBAKE_PATTERN)?.[0] || '' },
+      details: { sample: mojibake.sample, detector: mojibake.code },
     });
   }
 
@@ -609,116 +435,9 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   await safeSearchEmptyState(page, run, route, viewport, collectors);
 }
 
-function writeReports(run, status) {
-  const { report } = run;
-  report.finishedAt = new Date().toISOString();
-  report.durationMs = Date.now() - run.startedAt;
-  report.summary.errors = report.findings.filter((item) => item.severity === 'error').length;
-  report.summary.warnings = report.findings.filter((item) => item.severity === 'warning').length;
-  report.summary.info = report.findings.filter((item) => item.severity === 'info').length;
-  report.summary.routesAudited = report.routes.length;
-
-  const reportJson = path.join(run.root, 'report.json');
-  const reportMd = path.join(run.root, 'report.md');
-  const summaryTxt = path.join(run.root, 'summary.txt');
-  atomicWrite(reportJson, JSON.stringify(report, null, 2));
-  atomicWrite(reportMd, renderMarkdown(report, status));
-  atomicWrite(summaryTxt, [
-    `status=${status}`,
-    `runId=${report.runId}`,
-    `routes=${report.routes.length}`,
-    `errors=${report.summary.errors}`,
-    `warnings=${report.summary.warnings}`,
-    `screenshots=${report.summary.screenshots}`,
-    `report=${reportJson}`,
-  ].join(os.EOL));
-  return { reportJson, reportMd, summaryTxt };
-}
-
-function renderMarkdown(report, status) {
-  const topErrors = report.findings.filter((item) => item.severity === 'error').slice(0, 10);
-  const groupedByRoute = groupBy(report.findings, 'route');
-  const groupedByViewport = groupBy(report.findings, 'viewport');
-  const mobileIssues = report.findings.filter((item) => /^mobile/.test(item.viewport));
-  const accessibilityIssues = report.findings.filter((item) => item.category === 'accessibility');
-  const consoleNetworkIssues = report.findings.filter((item) => item.category === 'console' || item.category === 'network');
-
-  return [
-    '# Browser UI/UX Audit v2',
-    '',
-    `Status: **${status}**`,
-    `Run ID: \`${report.runId}\``,
-    `App URL: \`${report.appUrl}\``,
-    '',
-    '## Executive Summary',
-    '',
-    `Routes audited: ${report.summary.routesAudited}`,
-    `Viewport runs: ${report.summary.viewportRuns}`,
-    `State runs: ${report.summary.stateRuns}`,
-    `Errors: ${report.summary.errors}`,
-    `Warnings: ${report.summary.warnings}`,
-    `Screenshots: ${report.summary.screenshots}`,
-    '',
-    '## Top Blocking Errors',
-    '',
-    topErrors.length ? topErrors.map((item, index) => `${index + 1}. [${item.code}] ${item.route} ${item.viewport} ${item.message}`).join('\n') : 'No blocking errors.',
-    '',
-    '## Findings By Route',
-    '',
-    renderGroups(groupedByRoute),
-    '',
-    '## Findings By Viewport',
-    '',
-    renderGroups(groupedByViewport),
-    '',
-    '## Mobile Issues',
-    '',
-    renderFindingList(mobileIssues),
-    '',
-    '## Accessibility Issues',
-    '',
-    renderFindingList(accessibilityIssues),
-    '',
-    '## Console And Network Issues',
-    '',
-    renderFindingList(consoleNetworkIssues),
-    '',
-    '## Screenshot Index',
-    '',
-    report.artifacts.screenshots.map((item) => `- ${item}`).join('\n') || 'No screenshots captured.',
-    '',
-    '## Reproduction Command',
-    '',
-    '```powershell',
-    'npm run test:browser:ui-ux',
-    '```',
-    '',
-  ].join('\n');
-}
-
-function groupBy(items, key) {
-  return items.reduce((groups, item) => {
-    const value = item[key] || 'unknown';
-    groups[value] = groups[value] || [];
-    groups[value].push(item);
-    return groups;
-  }, {});
-}
-
-function renderGroups(groups) {
-  const keys = Object.keys(groups).sort();
-  if (!keys.length) return 'No findings.';
-  return keys.map((key) => [`### ${key}`, renderFindingList(groups[key])].join('\n\n')).join('\n\n');
-}
-
-function renderFindingList(items) {
-  if (!items.length) return 'No findings.';
-  return items.slice(0, 50).map((item) => `- ${item.severity.toUpperCase()} [${item.category}/${item.code}] ${item.route} ${item.viewport} ${item.state}: ${item.message}`).join('\n');
-}
-
 async function run() {
   const config = parseConfig();
-  const run = createRun(config);
+  const run = createRun(config, { fallbackRoutes: FALLBACK_ROUTES, viewports: VIEWPORTS });
   run.config = config;
   ensureDir(run.root);
 

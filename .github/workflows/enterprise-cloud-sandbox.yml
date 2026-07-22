@@ -3,6 +3,22 @@ name: Enterprise Cloud Sandbox
 on:
   workflow_call:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/enterprise-cloud-sandbox.yml'
+      - 'backend/prisma/**'
+      - 'backend/src/database/**'
+      - 'backend/src/services/backup.service.ts'
+      - 'backend/src/services/stock-movement*.ts'
+      - 'backend/src/controllers/warehouse.controller.ts'
+      - 'backend/src/routes/warehouse.routes.ts'
+      - 'scripts/cloud-postgres-*.cjs'
+      - 'scripts/postgres-*.cjs'
+      - 'scripts/run-postgres-import-rehearsal-v1.cjs'
+      - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
+      - 'ops/cloud-sandbox/**'
+      - 'package.json'
+      - 'package-lock.json'
   push:
     branches:
       - codex/enterprise-cloud-sandbox
@@ -25,7 +41,7 @@ jobs:
     name: Current enterprise source evidence
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Verify enterprise pilot artifacts exist
         id: gate
@@ -39,6 +55,7 @@ jobs:
             scripts/minio-application-failover-audit-v1.cjs
             scripts/meilisearch-application-failover-audit-v1.cjs
             scripts/ai-governed-runtime-audit-v1.cjs
+            scripts/warehouse-adjustment-concurrency-audit-v1.cjs
             ops/production/kubernetes/ailaoda-ha.yaml
             docs/runbooks/ENTERPRISE_PILOT_RUNBOOK.md
           )
@@ -56,7 +73,7 @@ jobs:
 
       - name: Upload source evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: enterprise-source-gate
           path: cloud-evidence/
@@ -72,7 +89,7 @@ jobs:
       GRAFANA_ADMIN_USER: sandbox-admin
       AILAODA_IMAGE_TAG: ${{ github.run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Generate ephemeral sandbox secrets
         shell: bash
@@ -154,7 +171,7 @@ jobs:
 
       - name: Upload runtime evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: enterprise-cloud-runtime-evidence
           path: cloud-evidence/
@@ -181,7 +198,7 @@ jobs:
       BROWSER_AUDIT_VISIBLE: "0"
       BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Generate ephemeral sandbox and audit secrets
         shell: bash
@@ -232,7 +249,7 @@ jobs:
           } >> "${GITHUB_ENV}"
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -241,6 +258,12 @@ jobs:
         run: |
           npm ci
           npm --prefix backend ci
+
+      - name: Remove stale generated runtime evidence
+        shell: bash
+        run: |
+          rm -rf output/audit output/playwright cloud-evidence
+          mkdir -p output/audit output/playwright cloud-evidence
 
       - name: Verify cloud runner Chrome
         run: google-chrome --version
@@ -251,10 +274,34 @@ jobs:
           docker compose pull --ignore-buildable
           docker compose up -d --wait --wait-timeout 180
 
-      - name: Build PostgreSQL schema and application image
+      - name: Rehearse SQLite to PostgreSQL cutover and SQLite rollback
+        shell: bash
         run: |
+          set -euo pipefail
+          postgres_url="${DATABASE_URL}"
+          source_dir="${RUNNER_TEMP}/ailaoda-postgres-cutover-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          source_db="${source_dir}/source.db"
+          source_backup_dir="${source_dir}/backups"
+          mkdir -p "${source_backup_dir}"
+          sqlite_url="file:${source_db}"
+
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:prepare
+          DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs seed
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:backup
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- snapshot
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- manifest
+
           npm run build:backend:postgres-artifact
-          node node_modules/prisma/build/index.js db push --schema=output/postgres-prisma-artifact/prisma --skip-generate
+          DATABASE_URL="${sqlite_url}" POSTGRES_URL="${postgres_url}" POSTGRES_IMPORT_MODE=empty-only \
+            npm run run:db:postgres-import-rehearsal
+          node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
+
+          DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs mutate
+          DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
+          DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
+
+      - name: Build PostgreSQL application image
+        run: |
           docker compose --profile application build app-primary
 
       - name: Start dual application instances
@@ -331,11 +378,79 @@ jobs:
       - name: Verify governed AI runtime
         run: npm run audit:ai:governed-runtime
 
+      - name: Verify order import scope and credit governance
+        run: npm run audit:orders:import-governance-api
+        env:
+          ORDER_IMPORT_GOVERNANCE_REPORT_PATH: cloud-evidence/order-import-governance-api-audit-v1.json
+
+      - name: Verify order import retention lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          marker="retention_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          docker compose exec -T postgres psql -v ON_ERROR_STOP=1 -U ailaoda -d ailaoda -v marker="${marker}" <<'SQL'
+          INSERT INTO order_import_batches (
+            user_id, idempotency_key, fingerprint, status, lease_token,
+            lease_expires_at, result_json, completed_at, created_at, updated_at
+          )
+          SELECT id, :'marker', repeat('a', 64), 'completed', :'marker',
+            CURRENT_TIMESTAMP - INTERVAL '400 days',
+            '{"success":0,"failed":1,"errors":[]}',
+            CURRENT_TIMESTAMP - INTERVAL '400 days',
+            CURRENT_TIMESTAMP - INTERVAL '400 days',
+            CURRENT_TIMESTAMP - INTERVAL '400 days'
+          FROM users ORDER BY id LIMIT 1;
+
+          UPDATE order_import_batches
+          SET completed_at = CURRENT_TIMESTAMP - INTERVAL '40 days',
+              created_at = CURRENT_TIMESTAMP - INTERVAL '400 days',
+              updated_at = CURRENT_TIMESTAMP - INTERVAL '40 days'
+          WHERE id = (
+            SELECT batch.id
+            FROM order_import_batches batch
+            WHERE batch.status = 'completed'
+              AND EXISTS (SELECT 1 FROM orders item WHERE item.import_batch_id = batch.id)
+            ORDER BY batch.id
+            LIMIT 1
+          );
+          SQL
+
+          docker compose exec -T app-primary env ORDER_IMPORT_RETENTION_MODE=report-only \
+            node backend/dist/maintenance/order-import-retention.js \
+            | tee cloud-evidence/order-import-retention-report-only.json
+          for pass in 1 2; do
+            docker compose exec -T app-primary env \
+              ORDER_IMPORT_RETENTION_MODE=enforce \
+              ORDER_IMPORT_REPLAY_DAYS=30 \
+              ORDER_IMPORT_STALE_PROCESSING_DAYS=7 \
+              ORDER_IMPORT_PURGE_DAYS=365 \
+              ORDER_IMPORT_RETENTION_BATCH_SIZE=500 \
+              node backend/dist/maintenance/order-import-retention.js \
+              | tee "cloud-evidence/order-import-retention-enforce-${pass}.json"
+          done
+
+          orphan_count="$(docker compose exec -T postgres psql -At -U ailaoda -d ailaoda \
+            -c "SELECT count(*) FROM order_import_batches WHERE idempotency_key = '${marker}'")"
+          linked_compacted_count="$(docker compose exec -T postgres psql -At -U ailaoda -d ailaoda \
+            -c "SELECT count(*) FROM order_import_batches batch WHERE batch.status = 'expired' AND batch.result_json IS NULL AND EXISTS (SELECT 1 FROM orders item WHERE item.import_batch_id = batch.id)")"
+          test "${orphan_count}" = "0"
+          test "${linked_compacted_count}" -ge 1
+
+      - name: Verify core order and finance collection write boundaries
+        run: npm run audit:orders:write-scope-api
+        env:
+          ORDER_WRITE_SCOPE_REPORT_PATH: cloud-evidence/order-write-scope-governance-api-audit-v1.json
+
       - name: Run dual-instance load gate
         run: npm run audit:load:ha
         env:
           AILAODA_LOAD_REQUESTS: "1000"
           AILAODA_LOAD_CONCURRENCY: "25"
+
+      - name: Verify warehouse adjustment idempotency and optimistic concurrency
+        run: npm run audit:warehouse:adjustment-concurrency
+        env:
+          WAREHOUSE_ADJUSTMENT_REPORT_PATH: cloud-evidence/warehouse-adjustment-concurrency-audit-v1.json
 
       - name: Run short HA soak gate
         run: npm run audit:soak:ha
@@ -358,6 +473,9 @@ jobs:
       - name: Exercise PostgreSQL streaming promotion
         run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
 
+      - name: Issue PostgreSQL cutover same-window verdict
+        run: node ./scripts/cloud-postgres-cutover-window-verdict-v1.cjs
+
       - name: Issue enterprise pilot technical verdict
         run: node ./scripts/cloud-enterprise-pilot-verdict-v1.cjs
 
@@ -375,7 +493,7 @@ jobs:
 
       - name: Upload application evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: enterprise-cloud-application-evidence
           path: cloud-evidence/

@@ -2,6 +2,7 @@ import api, { ApiRequestOptions } from '../utils/api';
 import { SalesOrder, OrderStatus, CommissionStatus, PaymentRecord, HistoryLog, CollectionPromiseSnapshot } from '../../types';
 import { ApiDataResponse, toApiRecord, toApiRecordArray, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../../utils/apiMapping';
 import { decorateSalesOrder } from '../../utils/orderCommercialState';
+import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from './order.mapping';
 
 const normalizeDate = (value: unknown) => {
     if (!value) return '';
@@ -56,22 +57,6 @@ const mapCollectionPromise = (value: unknown): CollectionPromiseSnapshot => {
     note: toOptionalString(record.note),
     status: toOptionalString(record.status),
     createdAt: record.createdAt ? String(record.createdAt) : undefined,
-    };
-};
-
-const mapSalesOrderItem = (value: unknown): SalesOrder['items'][number] => {
-    const orderItem = toApiRecord(value);
-    return {
-        ...orderItem,
-        sku: toStringValue(orderItem.sku),
-        productName: toStringValue(orderItem.productName || orderItem.name),
-        packagingSpec: toStringValue(orderItem.packagingSpec),
-        quantity: toNumberValue(orderItem.quantity),
-        unit: toStringValue(orderItem.unit, 'kg'),
-        unitPrice: toNumberValue(orderItem.unitPrice),
-        discount: toNumberValue(orderItem.discount),
-        taxAmount: toNumberValue(orderItem.taxAmount),
-        amount: toNumberValue(orderItem.amount ?? orderItem.totalPrice),
     };
 };
 
@@ -213,11 +198,8 @@ export const orderService = {
 
     async update(order: SalesOrder, userName: string): Promise<SalesOrder> {
         void userName;
-        const payload = {
-            ...order,
-            customerId: Number(order.customerId),
-            contractId: order.contractId ? Number(order.contractId) : null,
-        };
+        const payload = buildSalesOrderUpdatePayload(order);
+
         const response = await api.put<unknown, ApiDataResponse<unknown>>(`/orders/${order.id}`, payload);
         return mapOrderResponse(response.data);
     },

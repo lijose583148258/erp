@@ -2,14 +2,13 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { execFileSync, spawnSync } = require('child_process');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditUser, resolveDefaultAccount } = require('./lib/ui-audit-user.cjs');
 
 const reportPath = path.join(process.cwd(), 'output/audit/cloud-postgres-backup-restore-audit-v1.json');
 const appUrl = String(process.env.APP_URL || 'http://127.0.0.1:5006/').replace(/\/?$/, '/');
 const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 const restoreDb = `ailaoda_restore_${runId}`.toLowerCase();
 const marker = `BACKUP-RESTORE-${runId}`;
-const account = { username: 'cloud_backup_restore', password: 'CloudBackupRestore12345!', role: 'admin' };
 const report = { name: 'Cloud PostgreSQL Logical Backup Restore Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
 const check = (name, passed, details = {}) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
@@ -23,6 +22,7 @@ const runBinary = (args, input) => {
 };
 
 async function main() {
+  const account = resolveDefaultAccount();
   await ensureUiAuditUser(account);
   const login = await fetch(`${appUrl}api/v1/auth/login`, {
     method: 'POST',

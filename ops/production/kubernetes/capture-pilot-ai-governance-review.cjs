@@ -10,6 +10,8 @@ const appUrls = String(process.env.PILOT_AI_APP_URLS || '')
 const username = String(process.env.PILOT_AI_USERNAME || '').trim();
 const passwordFile = String(process.env.PILOT_AI_PASSWORD_FILE || '').trim();
 const metricsTokenFile = String(process.env.PILOT_AI_METRICS_TOKEN_FILE || '').trim();
+const environment = String(process.env.PILOT_AI_ENVIRONMENT || '').trim();
+const evidenceId = String(process.env.PILOT_AI_EVIDENCE_ID || '').trim();
 const reviewer = String(process.env.PILOT_AI_REVIEWER || '').trim();
 const checkedAt = String(process.env.PILOT_AI_CHECKED_AT || new Date().toISOString());
 const collectorImageDigest = String(process.env.PILOT_AI_COLLECTOR_IMAGE_DIGEST || '').trim();
@@ -19,6 +21,8 @@ const outputExisted = fs.existsSync(outputPath);
 const report = {
   schemaVersion: 1,
   status: 'failed',
+  environment,
+  evidenceId,
   checkedAt,
   reviewer,
   source: 'runtime-probe',
@@ -101,6 +105,9 @@ const fingerprint = values => crypto.createHash('sha256')
 
 async function main() {
   if (outputExisted && !replaceOutput) fail('Pilot AI output already exists; explicit PILOT_AI_REPLACE_OUTPUT is required.');
+  if (!environment || /^replace-/i.test(environment) || evidenceId.length < 5 || /^replace-/i.test(evidenceId)) {
+    fail('PILOT_AI_ENVIRONMENT and PILOT_AI_EVIDENCE_ID are required.');
+  }
   if (!/^sha256:[0-9a-f]{64}$/.test(collectorImageDigest)) fail('PILOT_AI_COLLECTOR_IMAGE_DIGEST is required.');
   if (appUrls.length < 2 || new Set(appUrls).size !== appUrls.length) fail('Two distinct application URLs are required.');
   if (!appUrls.every(validBaseUrl)) {

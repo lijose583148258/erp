@@ -212,6 +212,15 @@ spec:
             summary: Governed AI gateway or budget store is failing
             runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
 
+        - alert: AilaoDaAIAuditUnavailable
+          expr: increase(ailaoda_ai_operations_total{outcome="fallback_audit_unavailable"}[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: External AI was blocked because durable audit was unavailable
+            runbook: ops/production/kubernetes/OBSERVABILITY_RUNBOOK.md
+
         - alert: AilaoDaAISensitivePromptSpike
           expr: sum(increase(ailaoda_ai_operations_total{outcome="refused_sensitive"}[10m])) > 10
           for: 5m

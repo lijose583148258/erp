@@ -9,6 +9,7 @@ const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
 const IDEMPOTENT_SOURCE_TYPES = [
   'warehouse_manual_inbound',
+  'warehouse_adjustment',
   'warehouse_transfer',
   'production_consumption',
   'production_output',

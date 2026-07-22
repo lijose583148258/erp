@@ -24,7 +24,7 @@ for (const [name, expected] of Object.entries({
   'ws': '8.21.0',
   'form-data': '4.0.6',
   'minimatch': '9.0.7',
-  'brace-expansion': '2.0.3',
+  'brace-expansion': '2.1.2',
   'uuid': '11.1.1',
 })) {
   if (overrides[name] !== expected) {

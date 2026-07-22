@@ -87,10 +87,15 @@
     "contextAllowlistPassed": false
   },
   "approvals": {
-    "platformOwner": "",
-    "databaseOwner": "",
-    "securityOwner": "",
-    "businessPilotOwner": ""
+    "status": "not-bound",
+    "evidenceCoreSha256": "",
+    "verifiedAt": "",
+    "receipts": {
+      "platformOwner": {},
+      "databaseOwner": {},
+      "securityOwner": {},
+      "businessPilotOwner": {}
+    }
   },
   "haDrill": {
     "status": "not-run",

@@ -1,5 +1,5 @@
 import React from 'react';
-import type { BomItemDraft } from './ProductionBomLineGrid';
+import type { BomItemDraft } from './productionBomLineModel';
 
 type BomOperatingMetrics = {
   effectiveBatchQuantity: number;

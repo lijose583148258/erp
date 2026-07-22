@@ -24,6 +24,21 @@ import {
   statusBadge,
 } from '../pages/collections/collectionCenter.helpers';
 import { serializeServerStateKey, serverStateClient } from '../app/serverState';
+import {
+  getEffectiveBomQuantityPerUnit,
+  isEffectiveBomItemDraft,
+  normalizeDosageValue,
+  normalizeRoleValue,
+  parseBomPasteText,
+} from '../pages/production/productionBomLineModel';
+import {
+  validateAdjustmentForm,
+  validateBomForm,
+  validateQualityForm,
+  validateWorkOrderForm,
+} from '../pages/production/productionWorkspaceSave';
+import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
+import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
 
 type FrontendUnitTest = {
   name: string;
@@ -31,6 +46,99 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'sales order update payload maps payment terms to the backend contract',
+    run: () => {
+      const payload = buildSalesOrderUpdatePayload({
+        id: '42',
+        customerId: '7',
+        paymentTermsDays: 45,
+        contractId: '',
+        items: [{
+          productName: 'Resin A',
+          packagingSpec: 'EDIT-BOX',
+          specification: 'OLD-BOX',
+        }],
+      } as any);
+      assert.equal(payload.customerId, 7);
+      assert.equal(payload.paymentTerms, 45);
+      assert.equal(payload.contractId, null);
+      assert.equal(payload.items[0].specification, 'EDIT-BOX');
+    },
+  },
+  {
+    name: 'sales order mapping restores packaging from the canonical specification field',
+    run: () => {
+      const item = mapSalesOrderItem({
+        id: 1,
+        productName: 'Resin A',
+        specification: '25kg/drum',
+        quantity: 5,
+        unit: 'kg',
+        unitPrice: 99,
+        totalPrice: 495,
+        notes: null,
+      });
+      assert.equal(item.packagingSpec, '25kg/drum');
+      assert.equal(item.amount, 495);
+      assert.equal(item.notes, undefined);
+    },
+  },
+  {
+    name: 'production workspace validators preserve save boundaries',
+    run: () => {
+      const bom = validateBomForm({
+        productName: '',
+        outputUnit: '',
+        formulationMode: 'percentage',
+        standardBatchSizeInput: '0',
+        percentageSummary: 99,
+        effectiveItemCount: 2,
+        bomType: 'chemical_formula',
+      });
+      assert.equal(bom.standardBatchSize, 0);
+      assert.equal(bom.errors.productName, '请填写产品名称');
+      assert.equal(bom.errors.outputUnit, '请填写输出单位');
+      assert.ok(bom.errors.standardBatchSize);
+      assert.ok(bom.errors.percentage);
+      assert.ok(bom.errors.items);
+
+      const workOrder = validateWorkOrderForm({ productName: '树脂', targetQuantityInput: '0' });
+      assert.equal(workOrder.targetQuantity, 0);
+      assert.ok(workOrder.errors.targetQuantity);
+
+      const quality = validateQualityForm({ result: 'fail', defectRateInput: '101', checkedBy: '' });
+      assert.equal(quality.defectRateValue, 101);
+      assert.ok(quality.errors.defectRate);
+      assert.ok(quality.errors.checkedBy);
+
+      const adjustment = validateAdjustmentForm({ hasBatch: false, quantityInput: '-1', reason: '' });
+      assert.equal(adjustment.quantity, -1);
+      assert.ok(adjustment.errors.batch);
+      assert.ok(adjustment.errors.quantity);
+      assert.ok(adjustment.errors.reason);
+      assert.deepEqual(createInitialWorkOrderSteps().map((step) => step.title), ['备料', '生产', '质检']);
+    },
+  },
+  {
+    name: 'production BOM model normalizes rows and parses batch paste quantities',
+    run: () => {
+      assert.equal(normalizeRoleValue('主树脂'), 'main_resin');
+      assert.equal(normalizeDosageValue('按百分比'), 'percentage');
+
+      const parsed = parseBomPasteText(
+        '树脂\tR-1\t主树脂\t按百分比\t20\t200\tkg\n助剂\tA-1\t助剂\t固定单耗\t\t3.5\tkg',
+        1000,
+      );
+      assert.equal(parsed.importedItems.length, 2);
+      assert.equal(parsed.importedItems[0]?.quantityPerUnit, '0.2');
+      assert.equal(parsed.importedItems[1]?.quantityPerUnit, '3.5');
+      assert.equal(parsed.conversionNotices.length, 1);
+      assert.equal(getEffectiveBomQuantityPerUnit(parsed.importedItems[0]!), 0.2);
+      assert.equal(isEffectiveBomItemDraft(parsed.importedItems[0]!), true);
+      assert.equal(isEffectiveBomItemDraft({ ...parsed.importedItems[0]!, materialName: '', materialCode: '' }), false);
+    },
+  },
   {
     name: 'status badge logic normalizes status and maps risk tones',
     run: () => {

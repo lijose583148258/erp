@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "environment": "replace-with-formal-pilot-environment",
   "platform": {
     "kind": "kubernetes-native",
@@ -9,7 +9,24 @@
       "replace-zone-c"
     ],
     "applicationNamespace": "ailaoda-pilot",
-    "recoveryNamespace": "ailaoda-pilot-recovery"
+    "recoveryNamespace": "ailaoda-pilot-recovery",
+    "applicationIngress": {
+      "name": "ailaoda-app",
+      "className": "nginx",
+      "publicHost": "replace-with-real-pilot-host.company.tld"
+    },
+    "applicationNetworkPolicy": {
+      "name": "ailaoda-app-ingress",
+      "ingressControllerNamespace": "ingress-nginx",
+      "ingressControllerPodLabels": {
+        "app.kubernetes.io/name": "ingress-nginx"
+      },
+      "observabilityNamespace": "monitoring",
+      "observabilityPodLabels": {
+        "app.kubernetes.io/name": "prometheus"
+      },
+      "probeImage": "docker.io/curlimages/curl@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6"
+    }
   },
   "adapters": {
     "postgres": {
@@ -88,5 +105,27 @@
     "continuousHours": 8,
     "pilotDays": 7,
     "collectorImageDigest": "sha256:replace-with-64-hex-pilot-observer-image-digest"
+  },
+  "approvals": {
+    "platformOwner": {
+      "issuer": "replace-with-platform-approval-issuer",
+      "publicKeyFile": "platform-owner.pem",
+      "publicKeySha256": "replace-with-platform-owner-public-key-sha256"
+    },
+    "databaseOwner": {
+      "issuer": "replace-with-database-approval-issuer",
+      "publicKeyFile": "database-owner.pem",
+      "publicKeySha256": "replace-with-database-owner-public-key-sha256"
+    },
+    "securityOwner": {
+      "issuer": "replace-with-security-approval-issuer",
+      "publicKeyFile": "security-owner.pem",
+      "publicKeySha256": "replace-with-security-owner-public-key-sha256"
+    },
+    "businessPilotOwner": {
+      "issuer": "replace-with-business-pilot-approval-issuer",
+      "publicKeyFile": "business-pilot-owner.pem",
+      "publicKeySha256": "replace-with-business-pilot-owner-public-key-sha256"
+    }
   }
 }

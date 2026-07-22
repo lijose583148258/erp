@@ -2,8 +2,9 @@ import { createLogger, format, transports } from 'winston';
 import fs from 'fs';
 import path from 'path';
 import { loadRuntimeEnv, runtime } from '../config/runtime';
+import { formatLogEntry } from './logSanitizer';
 
-const { combine, timestamp, printf, colorize, errors } = format;
+const { combine, timestamp, printf, colorize, errors, splat } = format;
 
 loadRuntimeEnv();
 
@@ -11,16 +12,15 @@ if (!fs.existsSync(runtime.logDir)) {
   fs.mkdirSync(runtime.logDir, { recursive: true });
 }
 
-// 自定义日志格式
-const logFormat = printf(({ level, message, timestamp, stack }) => {
-  return `${timestamp} [${level}]: ${stack || message}`;
-});
+// 保留可检索的诊断元数据，但在中央格式化边界脱敏并限制体积。
+const logFormat = printf(info => formatLogEntry(info as Record<string, unknown>));
 
 // 创建logger实例
 export const logger = createLogger({
   level: process.env.LOG_LEVEL || 'info',
   format: combine(
     errors({ stack: true }),
+    splat(),
     timestamp({ format: 'YYYY-MM-DD HH:mm:ss' }),
     logFormat
   ),

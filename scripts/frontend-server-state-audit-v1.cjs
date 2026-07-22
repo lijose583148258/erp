@@ -47,8 +47,12 @@ for (const file of ['pages/sales-orders/useSalesOrderActions.ts', 'pages/sales-o
   }
 }
 
-if (!read('pages/sales-orders/useSalesOrders.ts').includes('loadOrderWorkspace({ force: true })')) {
+const salesOrdersHook = read('pages/sales-orders/useSalesOrders.ts');
+if (!salesOrdersHook.includes('loadOrderWorkspace({ force: true })')) {
   add('P1', 'pages/sales-orders/useSalesOrders.ts', 'Sales order save flow should force refresh workspace server-state queries.');
+}
+if (!salesOrdersHook.includes('void loadOrderWorkspace({ force: true }).catch')) {
+  add('P1', 'pages/sales-orders/useSalesOrders.ts', 'Sales order save should close from mutation readback without blocking on workspace refresh.');
 }
 
 const collectionBundle = requireIncludes(

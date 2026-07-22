@@ -27,6 +27,8 @@ export interface StockMovementLineInput {
   unit?: string;
   unitCost?: number | null;
   costAmountDelta?: number | null;
+  /** Required by absolute-balance adjustments to prevent lost updates. */
+  expectedQuantityBefore?: number | null;
 }
 
 export interface PostStockEntryInput {

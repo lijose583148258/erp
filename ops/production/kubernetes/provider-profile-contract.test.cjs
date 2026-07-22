@@ -7,13 +7,22 @@ const { spawnSync } = require('child_process');
 const verifier = path.join(__dirname, 'verify-formal-pilot-provider-profile.cjs');
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'ailaoda-provider-profile-'));
 const valid = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   environment: 'formal-pilot',
   platform: {
     kind: 'kubernetes-native',
     failureDomains: ['zone-a', 'zone-b', 'zone-c'],
     applicationNamespace: 'ailaoda-pilot',
     recoveryNamespace: 'ailaoda-pilot-recovery',
+    applicationIngress: { name: 'ailaoda-app', className: 'nginx', publicHost: 'erp.pilot.company.com' },
+    applicationNetworkPolicy: {
+      name: 'ailaoda-app-ingress',
+      ingressControllerNamespace: 'ingress-nginx',
+      ingressControllerPodLabels: { 'app.kubernetes.io/name': 'ingress-nginx' },
+      observabilityNamespace: 'monitoring',
+      observabilityPodLabels: { 'app.kubernetes.io/name': 'prometheus' },
+      probeImage: `docker.io/curlimages/curl@sha256:${'7'.repeat(64)}`,
+    },
   },
   adapters: {
     postgres: { fileName: 'cnpg-ha-adapter.cjs', sha256: 'a'.repeat(64) },
@@ -75,6 +84,12 @@ const valid = {
     pilotDays: 7,
     collectorImageDigest: `sha256:${'e'.repeat(64)}`,
   },
+  approvals: {
+    platformOwner: { issuer: 'platform-approval-service', publicKeyFile: 'platform-owner.pem', publicKeySha256: '3'.repeat(64) },
+    databaseOwner: { issuer: 'database-approval-service', publicKeyFile: 'database-owner.pem', publicKeySha256: '4'.repeat(64) },
+    securityOwner: { issuer: 'security-approval-service', publicKeyFile: 'security-owner.pem', publicKeySha256: '5'.repeat(64) },
+    businessPilotOwner: { issuer: 'business-approval-service', publicKeyFile: 'business-pilot-owner.pem', publicKeySha256: '6'.repeat(64) },
+  },
 };
 const run = (name, value) => {
   const file = path.join(root, `${name}.json`);
@@ -91,6 +106,10 @@ try {
   assert.equal(summary.failureDomainCount, 3);
   assert.equal(summary.paidCallBudget, 0);
   assert.equal(summary.observation.collectorImageDigest, `sha256:${'e'.repeat(64)}`);
+  assert.equal(summary.applicationIngress.publicHost, 'erp.pilot.company.com');
+  assert.equal(summary.applicationNetworkPolicy.observabilityNamespace, 'monitoring');
+  assert.match(summary.applicationNetworkPolicy.probeImage, /@sha256:[0-9a-f]{64}$/);
+  assert.equal(Object.keys(summary.approvals).length, 4);
 
   const boundProfilePath = path.join(root, 'bound-profile.json');
   const evidencePath = path.join(root, 'evidence.json');
@@ -128,6 +147,30 @@ try {
   sameNamespace.search.restoreNamespace = sameNamespace.platform.applicationNamespace;
   assert.notEqual(run('same-namespace', sameNamespace).status, 0);
 
+  const placeholderHost = clone(valid);
+  placeholderHost.platform.applicationIngress.publicHost = 'erp.example.invalid';
+  assert.notEqual(run('placeholder-host', placeholderHost).status, 0);
+
+  const unboundIngressField = clone(valid);
+  unboundIngressField.platform.applicationIngress.tlsBypass = true;
+  assert.notEqual(run('unbound-ingress-field', unboundIngressField).status, 0);
+
+  const sameIngressNamespace = clone(valid);
+  sameIngressNamespace.platform.applicationNetworkPolicy.ingressControllerNamespace = 'ailaoda-pilot';
+  assert.notEqual(run('same-ingress-namespace', sameIngressNamespace).status, 0);
+
+  const broadControllerSelector = clone(valid);
+  broadControllerSelector.platform.applicationNetworkPolicy.ingressControllerPodLabels = {};
+  assert.notEqual(run('broad-controller-selector', broadControllerSelector).status, 0);
+
+  const mutableProbeImage = clone(valid);
+  mutableProbeImage.platform.applicationNetworkPolicy.probeImage = 'curlimages/curl:latest';
+  assert.notEqual(run('mutable-probe-image', mutableProbeImage).status, 0);
+
+  const implicitProbeRegistry = clone(valid);
+  implicitProbeRegistry.platform.applicationNetworkPolicy.probeImage = `curlimages/curl@sha256:${'7'.repeat(64)}`;
+  assert.notEqual(run('implicit-probe-registry', implicitProbeRegistry).status, 0);
+
   const unverifiedBackup = clone(valid);
   unverifiedBackup.postgresql.backup.checksumEvidence = 'manual';
   assert.notEqual(run('unverified-backup', unverifiedBackup).status, 0);
@@ -161,6 +204,10 @@ try {
   const shortObservation = clone(valid);
   shortObservation.observation.continuousHours = 2;
   assert.notEqual(run('short-observation', shortObservation).status, 0);
+
+  const sharedApprovalKey = clone(valid);
+  sharedApprovalKey.approvals.securityOwner.publicKeySha256 = sharedApprovalKey.approvals.platformOwner.publicKeySha256;
+  assert.notEqual(run('shared-approval-key', sharedApprovalKey).status, 0);
 
   console.log('Formal pilot provider profile contract: PASSED');
 } finally {

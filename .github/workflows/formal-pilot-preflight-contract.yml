@@ -83,7 +83,7 @@ jobs:
                   publicKeySha256: receiptPublicKeySha256,
                 });
               }
-              if (req.url === '/health') return respond(res, 200, {
+              if (req.url === '/internal/health' && req.headers.authorization === 'Bearer metrics-contract-token') return respond(res, 200, {
                 database: 'ok', telemetry: { serviceInstanceId: `instance-${port}` },
               });
               if (req.url === '/api/v1/ready') return respond(res, 200, { database: 'ok' });
@@ -101,6 +101,8 @@ jobs:
           sleep 1
           printf '%s' 'random-contract-password' > "$root/password"
           chmod 440 "$root/password"
+          printf '%s' 'metrics-contract-token' > "$root/metrics-token"
+          chmod 440 "$root/metrics-token"
           cat > "$root/evidence.json" <<JSON
           {"environment":"formal-pilot","evidenceId":"CHG-12345","commitSha":"${GITHUB_SHA}","imageDigest":"sha256:$(printf 'b%.0s' {1..64})"}
           JSON
@@ -109,9 +111,9 @@ jobs:
           receipt_key_sha="$(sha256sum "$root/receipt-public.pem" | awk '{print $1}')"
           cat > "$root/provider-profile.json" <<JSON
           {
-            "schemaVersion":1,
+            "schemaVersion":2,
             "environment":"formal-pilot",
-            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery"},
+            "platform":{"kind":"kubernetes-native","failureDomains":["zone-a","zone-b","zone-c"],"applicationNamespace":"ailaoda-pilot","recoveryNamespace":"ailaoda-pilot-recovery","applicationIngress":{"name":"ailaoda-app","className":"nginx","publicHost":"erp.pilot.company.com"},"applicationNetworkPolicy":{"name":"ailaoda-app-ingress","ingressControllerNamespace":"ingress-nginx","ingressControllerPodLabels":{"app.kubernetes.io/name":"ingress-nginx"},"observabilityNamespace":"monitoring","observabilityPodLabels":{"app.kubernetes.io/name":"prometheus"},"probeImage":"docker.io/curlimages/curl@sha256:463eaf6072688fe96ac64fa623fe73e1dbe25d8ad6c34404a669ad3ce1f104b6"}},
             "adapters":{
               "postgres":{"fileName":"postgres","sha256":"${adapter_sha}"},
               "redis":{"fileName":"redis","sha256":"${adapter_sha}"},
@@ -126,7 +128,13 @@ jobs:
             "search":{"kind":"meilisearch","servingInstances":2,"backupMethod":"dump-to-object-store","isolatedRestore":true,"restoreNamespace":"ailaoda-pilot-recovery"},
             "observability":{"traceBackend":"tempo","alertRoute":"pilot-operations","deliveryReceiptStore":"webhook-audit-store"},
             "ai":{"mode":"local-only","externalGateway":false,"paidCallBudget":0},
-            "observation":{"continuousHours":8,"pilotDays":7,"collectorImageDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"}
+            "observation":{"continuousHours":8,"pilotDays":7,"collectorImageDigest":"sha256:eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"},
+            "approvals":{
+              "platformOwner":{"issuer":"platform-approval-service","publicKeyFile":"platform-owner.pem","publicKeySha256":"$(printf '3%.0s' {1..64})"},
+              "databaseOwner":{"issuer":"database-approval-service","publicKeyFile":"database-owner.pem","publicKeySha256":"$(printf '4%.0s' {1..64})"},
+              "securityOwner":{"issuer":"security-approval-service","publicKeyFile":"security-owner.pem","publicKeySha256":"$(printf '5%.0s' {1..64})"},
+              "businessPilotOwner":{"issuer":"business-approval-service","publicKeyFile":"business-pilot-owner.pem","publicKeySha256":"$(printf '6%.0s' {1..64})"}
+            }
           }
           JSON
           node ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs \
@@ -138,6 +146,7 @@ jobs:
           export FORMAL_PILOT_PREFLIGHT_APP_URLS=http://127.0.0.1:18081,http://127.0.0.1:18082
           export FORMAL_PILOT_PREFLIGHT_USERNAME=audit-user
           export FORMAL_PILOT_PREFLIGHT_PASSWORD_FILE="$root/password"
+          export FORMAL_PILOT_PREFLIGHT_METRICS_TOKEN_FILE="$root/metrics-token"
           export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_URL=http://127.0.0.1:18083
           export FORMAL_PILOT_PREFLIGHT_BACKUP_RECEIPT_PUBLIC_KEY_FILE="$root/receipt-public.pem"
           node ops/production/kubernetes/run-formal-pilot-preflight.cjs \

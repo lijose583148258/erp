@@ -6,6 +6,19 @@ on:
       - 'ops/production/kubernetes/run-enterprise-production-admission.cjs'
       - 'ops/production/kubernetes/verify-formal-pilot-preflight-evidence.cjs'
       - 'ops/production/kubernetes/verify-enterprise-production-admission.sh'
+      - 'ops/production/kubernetes/verify-kubernetes-app-placement.cjs'
+      - 'ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-kubernetes-ingress.cjs'
+      - 'ops/production/kubernetes/kubernetes-ingress-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-public-dns-ingress.cjs'
+      - 'ops/production/kubernetes/public-dns-ingress-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-kubernetes-network-policy.cjs'
+      - 'ops/production/kubernetes/kubernetes-network-policy-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-network-policy-enforcement-evidence.cjs'
+      - 'ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs'
+      - 'ops/production/kubernetes/verify-production-approvals.cjs'
+      - 'ops/production/kubernetes/production-approval-contract.test.cjs'
+      - 'ops/production/kubernetes/PRODUCTION_APPROVAL_PROTOCOL.md'
       - 'ops/production/kubernetes/failure-domain-evidence.example.json'
       - 'ops/production/kubernetes/admission-bundle.example.json'
       - 'ops/production/kubernetes/verify-formal-pilot-provider-profile.cjs'
@@ -31,6 +44,13 @@ jobs:
         shell: bash
         run: |
           node --check ops/production/kubernetes/run-enterprise-production-admission.cjs
+          bash -n ops/production/kubernetes/verify-enterprise-production-admission.sh
+          node ops/production/kubernetes/kubernetes-app-placement-contract.test.cjs
+          node ops/production/kubernetes/kubernetes-ingress-contract.test.cjs
+          node ops/production/kubernetes/public-dns-ingress-contract.test.cjs
+          node ops/production/kubernetes/kubernetes-network-policy-contract.test.cjs
+          node ops/production/kubernetes/network-policy-enforcement-drill-contract.test.cjs
+          node ops/production/kubernetes/production-approval-contract.test.cjs
           node <<'NODE'
           const crypto = require('crypto');
           const fs = require('fs');
@@ -47,13 +67,22 @@ jobs:
           };
           const release = { ...identity };
           const providerProfile = {
-            schemaVersion: 1,
+            schemaVersion: 2,
             environment: 'formal-pilot',
             platform: {
               kind: 'kubernetes-native',
               failureDomains: ['zone-a', 'zone-b', 'zone-c'],
               applicationNamespace: 'ailaoda-pilot',
               recoveryNamespace: 'ailaoda-pilot-recovery',
+              applicationIngress: { name: 'ailaoda-app', className: 'nginx', publicHost: 'erp.pilot.company.com' },
+              applicationNetworkPolicy: {
+                name: 'ailaoda-app-ingress',
+                ingressControllerNamespace: 'ingress-nginx',
+                ingressControllerPodLabels: { 'app.kubernetes.io/name': 'ingress-nginx' },
+                observabilityNamespace: 'monitoring',
+                observabilityPodLabels: { 'app.kubernetes.io/name': 'prometheus' },
+                probeImage: `docker.io/curlimages/curl@sha256:${'7'.repeat(64)}`,
+              },
             },
             adapters: {
               postgres: { fileName: 'cnpg-ha-adapter.cjs', sha256: 'a'.repeat(64) },
@@ -96,6 +125,12 @@ jobs:
             },
             ai: { mode: 'local-only', externalGateway: false, paidCallBudget: 0 },
             observation: { continuousHours: 8, pilotDays: 7, collectorImageDigest: `sha256:${'e'.repeat(64)}` },
+            approvals: {
+              platformOwner: { issuer: 'platform-approval-service', publicKeyFile: 'platform-owner.pem', publicKeySha256: '3'.repeat(64) },
+              databaseOwner: { issuer: 'database-approval-service', publicKeyFile: 'database-owner.pem', publicKeySha256: '4'.repeat(64) },
+              securityOwner: { issuer: 'security-approval-service', publicKeyFile: 'security-owner.pem', publicKeySha256: '5'.repeat(64) },
+              businessPilotOwner: { issuer: 'business-approval-service', publicKeyFile: 'business-pilot-owner.pem', publicKeySha256: '6'.repeat(64) },
+            },
           };
           const providerProfileText = JSON.stringify(providerProfile);
           identity.providerProfile = {
@@ -178,6 +213,32 @@ jobs:
             'provider-search-marker-readback',
           ].map(name => ({ name, status: 'passed' }));
           const now = new Date().toISOString();
+          const networkPolicyReport = {
+            schemaVersion: 1,
+            status: 'passed',
+            drill: 'kubernetes-network-policy-enforcement',
+            outcome: 'unauthorized-service-connect-timed-out',
+            ...release,
+            providerProfileSha256: identity.providerProfile.sha256,
+            applicationNamespace: providerProfile.platform.applicationNamespace,
+            probeNamespace: providerProfile.platform.recoveryNamespace,
+            networkPolicy: providerProfile.platform.applicationNetworkPolicy.name,
+            probeImage: providerProfile.platform.applicationNetworkPolicy.probeImage,
+            serviceName: 'ailaoda-app',
+            serviceClusterIpSha256: '9'.repeat(64),
+            servicePort: 80,
+            readyEndpointCount: 2,
+            startedAt: now,
+            finishedAt: now,
+            cleanupVerified: true,
+          };
+          identity.networkPolicyEnforcement = {
+            status: 'passed',
+            ...release,
+            providerProfileSha256: identity.providerProfile.sha256,
+            reportSha256: crypto.createHash('sha256').update(JSON.stringify(networkPolicyReport)).digest('hex'),
+            finishedAt: now,
+          };
           const preflightReport = {
             name: 'Formal Pilot Read-Only Environment Preflight',
             version: '1.0',
@@ -206,6 +267,7 @@ jobs:
             evidence: 'evidence/enterprise-evidence.json',
             providerProfile: 'provider/profile.json',
             preflightReport: 'preflight/report.json',
+            networkPolicyReport: 'network/report.json',
             continuousReport: 'observation/continuous.json',
             pilotLedger: 'observation/ledger.json',
             dailyReportsDir: 'observation/daily',
@@ -215,6 +277,8 @@ jobs:
             loadReconciliationReportsDir: 'load',
             aiReportsDir: 'ai',
             securityReportsDir: 'security',
+            approvalTrustDir: 'approvals/trust',
+            approvalReceiptsDir: 'approvals/receipts',
           };
           for (const [key, relative] of Object.entries(artifacts)) {
             const target = path.join(root, relative);
@@ -225,6 +289,7 @@ jobs:
               const value = key === 'evidence' ? identity
                 : key === 'providerProfile' ? providerProfile
                   : key === 'preflightReport' ? preflightReport
+                    : key === 'networkPolicyReport' ? networkPolicyReport
                     : key === 'backupReport' ? backupReport
                       : key === 'observabilityReport' ? observabilityReport
                         : key === 'continuousReport' ? { collectorImageDigest: providerProfile.observation.collectorImageDigest } : {};
@@ -248,6 +313,26 @@ jobs:
 
           const valid = run();
           if (valid.status !== 0) throw new Error(valid.stderr || valid.stdout || 'Valid bundle was rejected.');
+          const structural = JSON.parse(valid.stdout);
+          if (structural.status !== 'bundle-structure-valid'
+            || structural.productionAdmission !== false
+            || structural.evidenceContentVerified !== false
+            || structural.kubernetesVerified !== false) {
+            throw new Error('Structural bundle check claimed production or evidence verification.');
+          }
+          const networkReportPath = path.join(root, artifacts.networkPolicyReport);
+          networkPolicyReport.outcome = 'reachable';
+          fs.writeFileSync(networkReportPath, JSON.stringify(networkPolicyReport));
+          const tamperedNetworkPolicyReport = run();
+          if (tamperedNetworkPolicyReport.status === 0) throw new Error('Tampered NetworkPolicy enforcement report was accepted.');
+          networkPolicyReport.outcome = 'unauthorized-service-connect-timed-out';
+          fs.writeFileSync(networkReportPath, JSON.stringify(networkPolicyReport));
+          const conflictingModes = spawnSync(process.execPath, [
+            runner, '--bundle', manifestPath, '--check-only', '--verify-evidence',
+          ], { encoding: 'utf8' });
+          if (conflictingModes.status === 0) throw new Error('Conflicting admission validation modes were accepted.');
+          const evidenceOnly = spawnSync(process.execPath, [runner, '--bundle', manifestPath, '--verify-evidence'], { encoding: 'utf8' });
+          if (evidenceOnly.status === 0) throw new Error('Incomplete evidence directories passed full evidence verification.');
           manifest.artifacts.backupReport = '../outside.json';
           fs.writeFileSync(path.join(path.dirname(root), 'outside.json'), '{}');
           fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
@@ -306,6 +391,12 @@ jobs:
           if (tamperedObservabilityAdapter.status === 0) throw new Error('Tampered observability adapter hash was accepted.');
           observabilityReport.adapterSha256.observability = providerProfile.adapters.observability.sha256;
           fs.writeFileSync(path.join(root, artifacts.observabilityReport), JSON.stringify(observabilityReport));
+
+          manifest.namespace = 'other-pilot';
+          fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+          const mismatchedNamespace = run();
+          if (mismatchedNamespace.status === 0) throw new Error('Namespace outside the provider-approved application namespace was accepted.');
+          manifest.namespace = providerProfile.platform.applicationNamespace;
 
           providerProfile.environment = 'different-pilot';
           fs.writeFileSync(path.join(root, artifacts.providerProfile), JSON.stringify(providerProfile));

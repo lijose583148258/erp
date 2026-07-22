@@ -93,9 +93,11 @@ for (const name of ['object-storage', 'search-primary', 'search-secondary', 'pro
 if (!Array.isArray(continuous.checks) || continuous.checks.length === 0 || continuous.checks.some(check => check.status !== 'passed')) {
   fail('Continuous observation has missing or failed checks.');
 }
+const continuousHash = sha256(continuousPath);
 
 if (ledger.schemaVersion !== 1) fail('Pilot ledger schemaVersion must be 1.');
 if (ledger.environment !== evidence.environment) fail('Pilot ledger environment does not match enterprise evidence.');
+if (ledger.evidenceId !== evidence.evidenceId) fail('Pilot ledger evidence ID does not match enterprise evidence.');
 if (!Array.isArray(ledger.entries) || ledger.entries.length < 7) fail('Pilot ledger requires at least seven daily entries.');
 const entries = [...ledger.entries].sort((a, b) => isoMs(a.checkedAt, 'ledger checkedAt') - isoMs(b.checkedAt, 'ledger checkedAt'));
 const dates = new Set();
@@ -108,6 +110,8 @@ for (const entry of entries) {
   if (dates.has(date)) fail(`Pilot ledger contains duplicate UTC date: ${date}.`);
   dates.add(date);
   if (entry.status !== 'passed') fail(`Pilot ledger entry is not passed: ${date}.`);
+  if (checkedMs < finishedMs) fail(`Pilot daily review predates the continuous observation: ${date}.`);
+  if (entry.evidenceId !== evidence.evidenceId) fail(`Pilot ledger entry belongs to another evidence ID: ${date}.`);
   if (entry.alertReviewCompleted !== true) fail(`Alert review is incomplete: ${date}.`);
   if (Number(entry.unreconciledBusinessWrites) !== 0) fail(`Unreconciled business writes exist: ${date}.`);
   if (entry.serviceIncidentsResolved !== true) fail(`Service incident review is incomplete: ${date}.`);
@@ -115,7 +119,11 @@ for (const entry of entries) {
   if (entry.aiGovernanceReviewCompleted !== true || !Number.isInteger(governedAiRequests) || governedAiRequests < 0) {
     fail(`AI governance review is incomplete: ${date}.`);
   }
-  if (!hex40(entry.commitSha) || !digest(entry.imageDigest)) fail(`Release identity is invalid: ${date}.`);
+  if (!hex40(entry.commitSha) || !digest(entry.imageDigest)
+    || entry.commitSha !== continuous.commitSha || entry.imageDigest !== continuous.imageDigest) {
+    fail(`Release identity does not match the continuous observation: ${date}.`);
+  }
+  if (entry.continuousReportSha256 !== continuousHash) fail(`Continuous report identity does not match ledger: ${date}.`);
   const reportFile = String(entry.reportFile || '');
   if (!reportFile || path.basename(reportFile) !== reportFile) fail(`Daily report filename is invalid: ${date}.`);
   const dailyPath = path.resolve(dailyReportsDir, reportFile);
@@ -125,9 +133,11 @@ for (const entry of entries) {
   const dailyHash = sha256(dailyPath);
   if (entry.dailyReportSha256 !== dailyHash) fail(`Daily report hash does not match: ${date}.`);
   const daily = readJson(dailyPath);
-  if (daily.schemaVersion !== 1 || daily.status !== 'passed' || daily.date !== date || daily.checkedAt !== entry.checkedAt) {
+  if (daily.schemaVersion !== 1 || daily.status !== 'passed' || daily.date !== date || daily.checkedAt !== entry.checkedAt
+    || daily.environment !== evidence.environment || daily.evidenceId !== evidence.evidenceId) {
     fail(`Daily report identity is invalid: ${date}.`);
   }
+  if (daily.continuousReportSha256 !== continuousHash) fail(`Daily continuous report identity is invalid: ${date}.`);
   if (daily.commitSha !== entry.commitSha || daily.imageDigest !== entry.imageDigest) fail(`Daily release identity does not match ledger: ${date}.`);
   if (daily.alertReviewCompleted !== true || Number(daily.unreconciledBusinessWrites) !== 0 || daily.serviceIncidentsResolved !== true) {
     fail(`Daily report review or reconciliation failed: ${date}.`);
@@ -137,17 +147,17 @@ for (const entry of entries) {
   }
   const supportSpecs = {
     alertReview: {
-      allowed: ['schemaVersion', 'status', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'],
+      allowed: ['schemaVersion', 'status', 'environment', 'evidenceId', 'reviewedAt', 'reviewer', 'deliveryVerified', 'unresolvedCriticalAlerts'],
       timestamp: 'reviewedAt',
       valid: value => value.deliveryVerified === true && Number(value.unresolvedCriticalAlerts) === 0,
     },
     reconciliation: {
-      allowed: ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unreconciledBusinessWrites'],
+      allowed: ['schemaVersion', 'status', 'environment', 'evidenceId', 'checkedAt', 'reviewer', 'unreconciledBusinessWrites'],
       timestamp: 'checkedAt',
       valid: value => Number(value.unreconciledBusinessWrites) === 0,
     },
     incidentReview: {
-      allowed: ['schemaVersion', 'status', 'checkedAt', 'reviewer', 'unresolvedIncidents'],
+      allowed: ['schemaVersion', 'status', 'environment', 'evidenceId', 'checkedAt', 'reviewer', 'unresolvedIncidents'],
       timestamp: 'checkedAt',
       valid: value => Number(value.unresolvedIncidents) === 0,
     },
@@ -155,6 +165,8 @@ for (const entry of entries) {
       allowed: [
         'schemaVersion',
         'status',
+        'environment',
+        'evidenceId',
         'checkedAt',
         'reviewer',
         'source',
@@ -203,7 +215,9 @@ for (const entry of entries) {
     if (sha256(supportPath) !== reference.sha256) fail(`Daily support hash does not match: ${date} ${name}.`);
     const support = readJson(supportPath);
     strictKeys(support, spec.allowed, `Daily support ${date} ${name}`);
-    if (support.schemaVersion !== 1 || support.status !== 'passed' || String(support.reviewer || '').trim().length < 2 || !spec.valid(support)) {
+    if (support.schemaVersion !== 1 || support.status !== 'passed'
+      || support.environment !== evidence.environment || support.evidenceId !== evidence.evidenceId
+      || String(support.reviewer || '').trim().length < 2 || !spec.valid(support)) {
       fail(`Daily support review failed: ${date} ${name}.`);
     }
     if (new Date(isoMs(support[spec.timestamp], `daily support ${name}`)).toISOString().slice(0, 10) !== date) {
@@ -211,7 +225,7 @@ for (const entry of entries) {
     }
   }
   totalGovernedAiRequests += governedAiRequests;
-  if (entry.continuousReportSha256 && daily.continuousReportSha256 !== entry.continuousReportSha256) {
+  if (daily.continuousReportSha256 !== entry.continuousReportSha256) {
     fail(`Daily continuous-report reference does not match ledger: ${date}.`);
   }
 }
@@ -227,11 +241,7 @@ for (let index = 1; index < orderedDates.length; index += 1) {
   const current = Date.parse(orderedDates[index] + 'T00:00:00Z');
   if (current - previous !== 86_400_000) fail('Pilot ledger UTC dates are not consecutive.');
 }
-const continuousHash = sha256(continuousPath);
 const ledgerHash = sha256(ledgerPath);
-if (!entries.some(entry => entry.continuousReportSha256 === continuousHash)) {
-  fail('Pilot ledger does not reference the continuous observation report.');
-}
 if (continuous.commitSha !== evidence.commitSha || continuous.imageDigest !== evidence.imageDigest) {
   fail('Continuous observation release identity does not match enterprise evidence.');
 }

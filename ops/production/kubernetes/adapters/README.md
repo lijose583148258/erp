@@ -22,8 +22,12 @@ CloudNativePG must elect the replacement itself.
   `HA_ADAPTER_STATE_DIR` are configured.
 
 Use it as the `--postgres-adapter` argument documented in
-`HA_ADAPTER_PROTOCOL.md`. The adapter stores only the synthetic primary Pod
-identifier, zone, and injection timestamp; it stores no database credentials.
+`HA_ADAPTER_PROTOCOL.md`. The adapter stores only the target binding, synthetic
+primary Pod identifier, zone, pre-injection Kubernetes UID, and injection
+timestamp; it stores no database credentials. A Ready replica label is accepted
+as rejoin evidence only when the Pod UID changed, proving that the deleted Pod
+was recreated. State file names are hash-isolated by namespace, cluster, and
+change ticket so parallel drills cannot consume another target's state.
 
 
 ## Redis Kubernetes adapter
@@ -44,7 +48,9 @@ The selectors must reflect runtime roles; static chart labels are not valid
 evidence. The adapter requires at least two Ready data Pods across two zones and
 three Ready Sentinel voters across three zones. Data Pod identities must be
 stable so the deleted former master can be proven Ready with the replica label
-after recovery.
+after recovery. The former master's Kubernetes UID must also differ from its
+pre-injection UID. Redis state is hash-isolated by namespace, all role selectors,
+and change ticket.
 
 Use a dedicated staging namespace and an admission policy to restrict Pod
 deletion. The ERP runner independently proves post-failover session creation

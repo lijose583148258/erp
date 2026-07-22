@@ -24,7 +24,7 @@ const routes = [
 
 const report = {
   name: 'Enterprise HA Load Audit',
-  version: '2.0',
+  version: '2.1',
   status: 'failed',
   environment: String(process.env.ENTERPRISE_EVIDENCE_ENVIRONMENT || '').trim(),
   evidenceId: String(process.env.ENTERPRISE_EVIDENCE_ID || '').trim(),
@@ -73,8 +73,11 @@ const groupSummaries = (records, key) => Object.fromEntries(
   [...new Set(records.map(record => record[key]))].map(value => [value, summarize(records.filter(record => record[key] === value))]),
 );
 
-const readHealth = async target => {
-  const response = await fetch(`${target}/health`, { signal: AbortSignal.timeout(timeoutMs) });
+const readHealth = async (target, token) => {
+  const response = await fetch(`${target}/internal/health`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   const body = await response.json();
   return {
     status: response.status,
@@ -109,12 +112,12 @@ const verifySharedToken = async (token) => Promise.all(targets.map(async target 
 const main = async () => {
   if (targets.length < 2) throw new Error('At least two targets are required for an HA load audit.');
   if (!username || !password) throw new Error('AILAODA_LOAD_USERNAME and AILAODA_LOAD_PASSWORD_FILE (or password) are required.');
-  report.healthBefore = await Promise.all(targets.map(readHealth));
   const token = await login();
   report.sharedTokenPreflight = await verifySharedToken(token);
   if (!report.sharedTokenPreflight.every(check => check.passed)) {
     throw new Error('The login token was not accepted by every HA target before load started.');
   }
+  report.healthBefore = await Promise.all(targets.map(target => readHealth(target, token)));
   const records = new Array(totalRequests);
   let nextIndex = 0;
   const startedAt = performance.now();
@@ -146,7 +149,7 @@ const main = async () => {
   report.overall = summarize(records);
   report.byTarget = groupSummaries(records, 'target');
   report.byRoute = groupSummaries(records, 'route');
-  report.healthAfter = await Promise.all(targets.map(readHealth));
+  report.healthAfter = await Promise.all(targets.map(target => readHealth(target, token)));
 
   const healthPassed = [...report.healthBefore, ...report.healthAfter].every(health =>
     health.status === 200 && health.database === 'ok' && health.redisReady && health.cacheDriver === 'redis'

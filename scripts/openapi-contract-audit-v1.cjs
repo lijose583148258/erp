@@ -34,6 +34,20 @@ const openApiDocument = requireIncludes('backend/src/openapi/openapiDocument.ts'
   'OrderListResponse',
   'CollectionOverdueListResponse',
   'bearerAuth',
+  "import { openApiSchemas } from './openapiSchemas'",
+  'schemas: openApiSchemas',
+]);
+
+requireIncludes('backend/src/openapi/openapiSchemas.ts', [
+  'export const openApiSchemas',
+  'PaginationMeta',
+  'CustomerListResponse',
+  'OrderListResponse',
+  'CollectionOverdueListResponse',
+  'AIAssistRequest',
+  'WarehouseStockAdjustmentRequest',
+  'ApiResponse',
+  'ErrorResponse',
 ]);
 
 requireIncludes('backend/src/server.ts', [
