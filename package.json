@@ -138,7 +138,7 @@
         "audit:lists:server-query": "node ./scripts/high-frequency-list-query-audit-v1.cjs",
         "audit:docs:engineering": "node ./scripts/engineering-docs-audit-v1.cjs",
         "audit:api:openapi": "node ./scripts/openapi-contract-audit-v1.cjs",
-        "audit:api:sdk": "node ./scripts/api-sdk-audit-v1.cjs",
+        "audit:api:sdk": "node ./scripts/api-sdk-audit-v1.cjs && tsx ./scripts/api-sdk-runtime-audit-v1.ts",
         "audit:pwa:offline": "node ./scripts/pwa-offline-boundary-audit-v1.cjs",
         "audit:frontend:server-state": "node ./scripts/frontend-server-state-audit-v1.cjs",
         "audit:frontend:client-state": "node ./scripts/frontend-client-state-audit-v1.cjs",

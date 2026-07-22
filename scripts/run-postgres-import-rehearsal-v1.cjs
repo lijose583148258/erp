@@ -8,6 +8,13 @@ const JSON_REPORT = path.join(OUTPUT_DIR, 'postgres-import-rehearsal-run-v1.json
 const MD_REPORT = path.join(OUTPUT_DIR, 'postgres-import-rehearsal-run-v1.md');
 const TIMEOUT_MS = Number(process.env.POSTGRES_IMPORT_REHEARSAL_TIMEOUT_MS || 20 * 60 * 1000);
 const REQUIRED_POSTGRES_URL_MESSAGE = 'POSTGRES_URL is required for PostgreSQL import rehearsal.';
+const PRISMA_DB_PUSH_ARGS = [
+  'db',
+  'push',
+  '--schema',
+  'output/postgres-prisma-artifact/prisma',
+  '--skip-generate',
+];
 
 const report = {
   name: 'PostgreSQL Import Rehearsal Run',
@@ -84,8 +91,7 @@ function main() {
     });
 
     run(process.execPath,
-      [path.join(ROOT, 'node_modules', 'prisma', 'build', 'index.js'),
-        'db', 'push', '--schema', 'output/postgres-prisma-artifact/prisma', '--skip-generate'],
+      [path.join(ROOT, 'node_modules', 'prisma', 'build', 'index.js'), ...PRISMA_DB_PUSH_ARGS],
       'push-postgres-schema',
       { DATABASE_URL: postgresUrl });
 

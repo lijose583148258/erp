@@ -37,10 +37,14 @@ if (sdk) {
     'AilaoDaCustomerListResponse',
     'AilaoDaOrderListQuery',
     'AilaoDaOrderListResponse',
+    'AilaoDaOrderImportRow',
+    'AilaoDaOrderImportResponse',
     'AilaoDaCollectionOverdueListQuery',
     'AilaoDaCollectionOverdueListResponse',
     'listCustomers',
     'listOrders',
+    'importOrders(orders: AilaoDaOrderImportRow[], idempotencyKey: string',
+    '"Idempotency-Key": idempotencyKey',
     'listCollectionOverdueOrders',
   ]) {
     if (!sdk.includes(token)) add('P1', sdkPath, `Missing SDK contract token: ${token}`);
@@ -60,6 +64,8 @@ if (sharedContract) {
     'export type AilaoDaCustomerListResponse',
     'export type AilaoDaOrderListQuery',
     'export type AilaoDaOrderListResponse',
+    'export type AilaoDaOrderImportRow',
+    'export type AilaoDaOrderImportResponse',
     'export type AilaoDaCollectionOverdueListQuery',
     'export type AilaoDaCollectionOverdueListResponse',
     'export const AILAO_DA_API_MODULES',
@@ -83,6 +89,9 @@ if (sharedContract) {
 if (!exists('docs/adr/0008-generated-api-sdk-boundary.md')) {
   add('P1', 'docs/adr/0008-generated-api-sdk-boundary.md', 'Generated API SDK ADR is missing.');
 }
+if (!exists('scripts/api-sdk-runtime-audit-v1.ts')) {
+  add('P1', 'scripts/api-sdk-runtime-audit-v1.ts', 'API SDK runtime contract audit is missing.');
+}
 
 if (findings.length) {
   console.error('API SDK Audit: FAIL');
@@ -96,4 +105,5 @@ console.log('API SDK Audit: PASS');
 console.log(`- Shared API contract covers ${modules.length} API route modules from apiRegistry.`);
 console.log('- SDK defaults to /api/v1 and supports Bearer auth injection.');
 console.log('- Endpoint-specific list helpers cover high-frequency customer, order, and collection overdue reads.');
+console.log('- Bulk order import has a typed, idempotency-key-required SDK helper and runtime contract audit.');
 console.log('- Generated shared contract, SDK boundary, and ADR are present.');

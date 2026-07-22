@@ -275,7 +275,7 @@ function checkBackupAndMigrationEvidence(findings) {
 
   const postgresImportRehearsalRunner = requireFile(findings, 'scripts/run-postgres-import-rehearsal-v1.cjs', 'postgres-import-rehearsal');
   if (postgresImportRehearsalRunner) {
-    for (const token of ['POSTGRES_URL is required', 'prisma db push', 'npm run db:pg -- import', 'npm run audit:db:postgres-import-rehearsal']) {
+    for (const token of ['POSTGRES_URL is required', 'PRISMA_DB_PUSH_ARGS', "'db'", "'push'", '--schema', 'output/postgres-prisma-artifact/prisma', '--skip-generate', 'npm run db:pg -- import', 'npm run audit:db:postgres-import-rehearsal']) {
       if (!postgresImportRehearsalRunner.includes(token)) {
         addFinding(findings, 'P1', 'postgres-import-rehearsal', 'scripts/run-postgres-import-rehearsal-v1.cjs', `PostgreSQL import rehearsal runner should assert: ${token}`);
       }
