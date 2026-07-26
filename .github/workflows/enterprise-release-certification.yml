@@ -118,6 +118,7 @@ jobs:
             curl --fail --location --retry 3 "$ENTERPRISE_REAL_SNAPSHOT_URL" -o "$backup_dir/postgres-snapshot-real.json"
             curl --fail --location --retry 3 "$ENTERPRISE_REAL_MANIFEST_URL" -o "$backup_dir/postgres-migration-import-manifest-v1.json"
             echo "$ENTERPRISE_REAL_SNAPSHOT_SHA256  $backup_dir/postgres-snapshot-real.json" | sha256sum --check --strict
+            ENTERPRISE_REAL_SNAPSHOT_FILE="$backup_dir/postgres-snapshot-real.json" ENTERPRISE_REAL_MANIFEST_FILE="$backup_dir/postgres-migration-import-manifest-v1.json" ENTERPRISE_REAL_SNAPSHOT_SHA256="$ENTERPRISE_REAL_SNAPSHOT_SHA256" ENTERPRISE_TARGET_ROWS="$ENTERPRISE_TARGET_ROWS" node scripts/enterprise-real-snapshot-prepare-v1.cjs
           else
             DATABASE_URL="$sqlite_url" BACKUP_DIR="$backup_dir" NODE_ENV=test npm run db:prepare
             DATABASE_URL="$sqlite_url" node scripts/cloud-postgres-migration-fixture-v1.cjs seed
