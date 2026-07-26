@@ -1,0 +1,165 @@
+name: Apply Stage2 Fixes
+
+on:
+  push:
+    branches:
+      - codex/run-enterprise-cloud-sandbox-20260726
+    paths:
+      - '.github/workflows/apply-stage2-fixes.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Checkout repair branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: codex/run-enterprise-cloud-sandbox-20260726
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Apply targeted source fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(path: str, old: str, new: str) -> None:
+              file = Path(path)
+              text = file.read_text(encoding='utf-8-sig')
+              if old not in text:
+                  raise SystemExit(f'expected source fragment missing: {path}')
+              file.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          replace_once(
+              'scripts/lib/browser-human-flow-commercial-modules.cjs',
+              "  openHash,\n  safeScreenshot,",
+              "  openHash,\n  recordStep,\n  safeScreenshot,",
+          )
+          replace_once(
+              'scripts/lib/browser-human-flow-operations-modules.cjs',
+              "  FLOW_STATE,\n  TIMEOUTS,",
+              "  FLOW_STATE,\n  RUN_ID,\n  TIMEOUTS,",
+          )
+
+          production = Path('scripts/production-browser-audit-v1.cjs')
+          production_text = production.read_text(encoding='utf-8-sig')
+          runtime_block = """const {\n  apiFetch,\n  recordFinal,\n  seedAuthToken,\n  syncAuthTokenFromPage,\n} = createProductionBrowserAuditRuntime({\n  appUrl: APP_URL,\n  auditAccount: AUDIT_ACCOUNT,\n  report,\n  reportPath: REPORT_PATH,\n});\n"""
+          wrappers = runtime_block + """\nasync function loginViaUi(page, recordStep) {\n  return runLoginViaUi(page, {\n    appUrl: APP_URL,\n    recordStep,\n    withTimebox,\n    timeout: STEP_TIMEOUT_MS.login,\n    shotDir: SHOT_DIR,\n    account: AUDIT_ACCOUNT,\n  });\n}\n\nasync function fillBomHeaderFields(page) {\n  return fillBomHeaderFieldsWithData(page, TEST_DATA);\n}\n\nasync function switchProductionDesk(page, options) {\n  return runSwitchProductionDesk(page, options, waitForBodyText, STEP_TIMEOUT_MS.readBack);\n}\n"""
+          if runtime_block not in production_text:
+              raise SystemExit('production runtime block missing')
+          production.write_text(production_text.replace(runtime_block, wrappers, 1), encoding='utf-8')
+
+          replace_once(
+              'scripts/shipping-browser-audit-v1.cjs',
+              """      const bodyText = await page.locator('body').innerText();\n      const hasRequired = REQUIRED_ROUTE_COPY.every((item) => bodyText.includes(item));\n      if (hasRequired) {\n        assertNoMojibake(bodyText, 'shipping route');\n        return;\n      }\n""",
+              """      const bodyText = await page.locator('body').innerText();\n      const hasRequired = REQUIRED_ROUTE_COPY.every((item) => bodyText.includes(item));\n      const isStillLoading = /LOADING\\.\\.\\.|加载中|正在加载|Đang tải/i.test(bodyText);\n      const ocrDeskReady = await page.getByTestId('shipping-desk-ocr').isVisible().catch(() => false);\n      const logisticsDeskReady = await page.getByTestId('shipping-desk-logistics').isVisible().catch(() => false);\n      if (hasRequired && !isStillLoading && ocrDeskReady && logisticsDeskReady) {\n        assertNoMojibake(bodyText, 'shipping route');\n        return;\n      }\n""",
+          )
+          replace_once(
+              'scripts/shipping-browser-audit-v1.cjs',
+              "throw new Error('shipping route not ready');",
+              "throw new Error('shipping route not ready: required copy, loading settlement, or desk actions unavailable');",
+          )
+
+          Path('app/notificationQueue.ts').write_text("""import type { Notification } from '../types';\n\nexport const MAX_VISIBLE_NOTIFICATIONS = 3;\n\nexport const appendNotification = (\n  current: Notification[],\n  next: Notification,\n): Notification[] => {\n  const isDuplicate = current.some((item) => (\n    item.type === next.type && item.message === next.message\n  ));\n  if (isDuplicate) return current;\n\n  const withoutContradictoryResults = current.filter((item) => {\n    if (next.type === 'success') return item.type !== 'error';\n    if (next.type === 'error') return item.type !== 'success';\n    return true;\n  });\n\n  return [...withoutContradictoryResults, next].slice(-MAX_VISIBLE_NOTIFICATIONS);\n};\n""", encoding='utf-8')
+
+          replace_once(
+              'app/clientState.ts',
+              "import type { CurrentUser, Currency, Language, Notification, Theme } from '../types';\n",
+              "import type { CurrentUser, Currency, Language, Notification, Theme } from '../types';\nimport { appendNotification } from './notificationQueue';\n",
+          )
+          replace_once(
+              'app/clientState.ts',
+              """  addNotification: (notification) => set((state) => ({\n    notifications: [...state.notifications, notification],\n  })),""",
+              """  addNotification: (notification) => set((state) => ({\n    notifications: appendNotification(state.notifications, notification),\n  })),""",
+          )
+
+          replace_once(
+              'components/app/ToastStack.tsx',
+              '<div className="fixed top-6 left-1/2 -translate-x-1/2 z-[150] space-y-2 w-full max-w-sm px-4">',
+              '<div aria-live="polite" aria-relevant="additions removals" className="fixed top-6 left-1/2 -translate-x-1/2 z-[150] space-y-2 w-full max-w-sm px-4">',
+          )
+          replace_once(
+              'components/app/ToastStack.tsx',
+              "                    key={n.id}\n                    className=",
+              "                    key={n.id}\n                    role={n.type === 'error' ? 'alert' : 'status'}\n                    className=",
+          )
+
+          replace_once(
+              'scripts/frontend-unit-tests.tsx',
+              "import { serializeServerStateKey, serverStateClient } from '../app/serverState';\n",
+              "import { serializeServerStateKey, serverStateClient } from '../app/serverState';\nimport { appendNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/notificationQueue';\n",
+          )
+          replace_once(
+              'scripts/frontend-unit-tests.tsx',
+              "const tests: FrontendUnitTest[] = [\n",
+              """const tests: FrontendUnitTest[] = [\n  {\n    name: 'notification queue dedupes, removes contradictory results, and caps visible items',\n    run: () => {\n      const first = { id: '1', type: 'error', message: '保存失败' } as const;\n      const duplicate = { id: '2', type: 'error', message: '保存失败' } as const;\n      const success = { id: '3', type: 'success', message: '保存成功' } as const;\n      assert.deepEqual(appendNotification([first], duplicate), [first]);\n      assert.deepEqual(appendNotification([first], success), [success]);\n\n      const capped = [1, 2, 3, 4].reduce(\n        (queue, id) => appendNotification(queue, { id: String(id), type: 'info', message: `info-${id}` }),\n        [] as Array<{ id: string; type: 'info'; message: string }>,\n      );\n      assert.equal(capped.length, MAX_VISIBLE_NOTIFICATIONS);\n      assert.deepEqual(capped.map((item) => item.id), ['2', '3', '4']);\n    },\n  },\n""",
+          )
+
+          replace_once(
+              '.github/workflows/enterprise-cloud-sandbox.yml',
+              '      BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome\n',
+              '      BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome\n      LANG: C.UTF-8\n      LC_ALL: C.UTF-8\n',
+          )
+          replace_once(
+              '.github/workflows/enterprise-cloud-sandbox.yml',
+              """      - name: Verify cloud runner Chrome\n        run: google-chrome --version\n""",
+              """      - name: Install Chinese font coverage\n        shell: bash\n        run: |\n          set -euo pipefail\n          sudo apt-get update\n          sudo apt-get install -y --no-install-recommends fonts-noto-cjk\n          fc-cache -f\n          fc-match 'Noto Sans CJK SC'\n\n      - name: Verify cloud runner Chrome\n        run: |\n          google-chrome --version\n          fc-match 'Noto Sans CJK SC'\n""",
+          )
+
+          replace_once(
+              'Dockerfile.postgres',
+              '  && apt-get install -y --no-install-recommends ca-certificates openssl \\\n',
+              '  && apt-get install -y --no-install-recommends ca-certificates fontconfig fonts-noto-cjk openssl \\\n',
+          )
+          PY
+
+      - name: Install locked dependencies
+        run: |
+          npm ci --include=dev
+          npm --prefix backend ci --include=dev
+
+      - name: Verify targeted fixes
+        run: |
+          node --check scripts/lib/browser-human-flow-commercial-modules.cjs
+          node --check scripts/lib/browser-human-flow-operations-modules.cjs
+          node --check scripts/production-browser-audit-v1.cjs
+          node --check scripts/shipping-browser-audit-v1.cjs
+          npm run typecheck
+          npm run test:unit:frontend
+          npm run build:backend
+          npm run build
+
+      - name: Commit verified fixes
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'Codex Stage2 Fixer'
+          git config user.email 'codex-stage2-fixer@users.noreply.github.com'
+          git add \
+            .github/workflows/enterprise-cloud-sandbox.yml \
+            Dockerfile.postgres \
+            app/clientState.ts \
+            app/notificationQueue.ts \
+            components/app/ToastStack.tsx \
+            scripts/frontend-unit-tests.tsx \
+            scripts/lib/browser-human-flow-commercial-modules.cjs \
+            scripts/lib/browser-human-flow-operations-modules.cjs \
+            scripts/production-browser-audit-v1.cjs \
+            scripts/shipping-browser-audit-v1.cjs
+          if git diff --cached --quiet; then
+            echo 'No source changes to commit.'
+            exit 0
+          fi
+          git commit -m 'fix: repair UI-first audit and feedback states'
+          git push origin HEAD:codex/run-enterprise-cloud-sandbox-20260726
