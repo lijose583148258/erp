@@ -6,7 +6,17 @@ const { PrismaClient } = require(path.resolve(process.cwd(), process.env.AUDIT_P
 const LABEL = process.env.ENTERPRISE_FINGERPRINT_LABEL || 'database';
 const OUT = path.join(process.cwd(), 'output', 'audit', `enterprise-database-fingerprint-${LABEL}-v1.json`);
 const prisma = new PrismaClient({ datasources: { db: { url: process.env.AUDIT_DATABASE_URL || process.env.DATABASE_URL } } });
-const q = (name) => `\"${String(name).replace(/\"/g, '\"\"')}\"`;
+const q = (name) => `"${String(name).replace(/"/g, '""')}"`;
+
+function normalizeScalar(value) {
+  if (typeof value === 'bigint') return Number(value);
+  if (value instanceof Date) return value.toISOString();
+  if (Array.isArray(value)) return value.map(normalizeScalar);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, normalizeScalar(item)]));
+  }
+  return value;
+}
 
 async function main() {
   const provider = String(process.env.AUDIT_PRISMA_PROVIDER || '').toLowerCase();
@@ -29,10 +39,14 @@ async function main() {
     ['cost_ledger', 'SELECT COUNT(*) AS rows, COALESCE(SUM(cost_after),0) AS amount FROM inventory_cost_ledgers'],
   ];
   for (const [name, sql] of candidates) {
-    try { critical[name] = (await prisma.$queryRawUnsafe(sql))[0]; } catch { critical[name] = null; }
+    try {
+      critical[name] = normalizeScalar((await prisma.$queryRawUnsafe(sql))[0]);
+    } catch {
+      critical[name] = null;
+    }
   }
   const totalRows = Object.values(counts).reduce((a, b) => a + b, 0);
-  const payload = { label: LABEL, provider: provider || 'sqlite', totalRows, tableCount: Object.keys(counts).length, counts, critical };
+  const payload = normalizeScalar({ label: LABEL, provider: provider || 'sqlite', totalRows, tableCount: Object.keys(counts).length, counts, critical });
   payload.fingerprintSha256 = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, JSON.stringify({ name: 'Enterprise database fingerprint', version: 1, status: 'passed', ...payload, checkedAt: new Date().toISOString() }, null, 2) + '\n');
