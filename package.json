@@ -232,19 +232,29 @@
         "db:seed": "npm run db:manage -- seed",
         "db:restore": "npm run db:manage -- restore",
         "repair:db:reindex": "npx tsx ./scripts/runtime-db-reindex-repair-v1.ts",
-        "db:pg": "npm run build:backend && node backend/dist/database/postgres-migration.js"
+        "db:pg": "npm run build:backend && node backend/dist/database/postgres-migration.js",
+        "generate:fixtures:bom-grid": "node ./scripts/generate-bom-grid-fixtures-v1.cjs",
+        "test:contract:bom-grid": "tsx ./scripts/bom-grid-adapter-contract-v1.ts",
+        "test:browser:bom-grid": "node ./scripts/bom-grid-browser-poc-audit-v1.cjs",
+        "audit:licenses:bom-grid-candidates": "node ./scripts/license-allowlist-audit-v1.cjs --candidate-only",
+        "audit:licenses": "node ./scripts/license-allowlist-audit-v1.cjs",
+        "audit:bom-grid:poc": "npm run generate:fixtures:bom-grid && npm run test:contract:bom-grid && npm run typecheck && npm run build && npm run audit:licenses:bom-grid-candidates"
     },
     "dependencies": {
         "@google/genai": "^2.10.0",
         "@prisma/client": "^5.22.0",
+        "@revolist/revogrid": "4.23.22",
         "@tanstack/react-virtual": "^3.14.5",
         "axios": "^1.18.1",
+        "decimal.js": "10.6.0",
         "exceljs": "^4.4.0",
         "framer-motion": "^12.34.2",
         "lucide-react": "^0.563.0",
         "react": "^19.2.4",
+        "react-data-grid": "7.0.0-beta.61",
         "react-dom": "^19.2.4",
         "recharts": "^3.7.0",
+        "zod": "4.4.3",
         "zustand": "^5.0.14"
     },
     "overrides": {

@@ -1,0 +1,47 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-26T08:04:19.737Z",
+  "evidenceClass": "local-human-style-browser-simulation",
+  "limitations": [
+    "Keyboard typing uses Playwright pressSequentially rather than a physical keyboard.",
+    "Operating-system Chinese/Vietnamese IME composition remains a manual veto gate.",
+    "The runtime uses an isolated SQLite fixture; this is not PostgreSQL production certification."
+  ],
+  "results": [
+    {
+      "candidate": "revogrid",
+      "route": "/production/bom-grid-lab/revogrid",
+      "passed": true,
+      "clipboardPaste300": {
+        "passed": true,
+        "rows": 300,
+        "firstMaterialCode": "LAB-MAT-2001",
+        "lastLossRate": "0"
+      },
+      "load1000Ms": 55,
+      "goldenMessage": "黄金操作通过：粘贴 2400 个单元格，最终 301 行。",
+      "saveReadbackMessage": "后端保存与回读逐字段一致：BOM BOM-1785053055302-5375C4D377，301 行。",
+      "consoleErrors": [],
+      "screenshot": "output/audit/bom-grid-poc/revogrid.png",
+      "durationMs": 6103
+    },
+    {
+      "candidate": "react-data-grid",
+      "route": "/production/bom-grid-lab/react-data-grid",
+      "passed": true,
+      "clipboardPaste300": {
+        "passed": true,
+        "rows": 300,
+        "firstMaterialCode": "LAB-MAT-2001",
+        "lastLossRate": "0"
+      },
+      "load1000Ms": 90,
+      "goldenMessage": "黄金操作通过：粘贴 2400 个单元格，最终 301 行。",
+      "saveReadbackMessage": "后端保存与回读逐字段一致：BOM BOM-1785053059267-2E1F038C69，301 行。",
+      "consoleErrors": [],
+      "screenshot": "output/audit/bom-grid-poc/react-data-grid.png",
+      "durationMs": 3909
+    }
+  ],
+  "passed": true
+}

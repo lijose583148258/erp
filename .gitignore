@@ -59,3 +59,11 @@ Thumbs.db
 AilaoDa_Stable_Package/
 AilaoDa_Stable_Package_previous_*/
 AilaoDa_Stable_Package_*.zip
+
+# License audit copies the full dependency tree locally. Commit only the four
+# newly admitted BOM Grid PoC licenses; SBOM/report files retain the full tree.
+artifacts/licenses/texts/*
+!artifacts/licenses/texts/revolist__revogrid@4.23.22.LICENSE.txt
+!artifacts/licenses/texts/react-data-grid@7.0.0-beta.61.LICENSE.txt
+!artifacts/licenses/texts/zod@4.4.3.LICENSE.txt
+!artifacts/licenses/texts/decimal.js@10.6.0.LICENSE.txt

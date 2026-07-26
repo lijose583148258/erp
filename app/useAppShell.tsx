@@ -57,6 +57,10 @@ export const useAppShell = (): AppShellResult => {
     const setCurrentUser = useClientStateStore(state => state.setCurrentUser);
     const normalizeActiveTab = useCallback((tab: string) => (tab === 'timber' ? 'barter' : tab), []);
     const readTabFromLocation = useCallback(() => {
+        const path = window.location.pathname.replace(/^\/+|\/+$/g, '');
+        if (path === 'production/bom-grid-lab/revogrid' || path === 'production/bom-grid-lab/react-data-grid') {
+            return path;
+        }
         const hash = normalizeActiveTab(window.location.hash.replace(/^#/, '').trim());
         if (hash) return hash;
         try {

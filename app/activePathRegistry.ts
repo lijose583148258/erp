@@ -20,4 +20,6 @@ export const activePageImports = {
   collections: () => import('../pages/collections/CollectionCenterView'),
   warehouse: () => import('../pages/WarehouseWorkspace'),
   discrepancies: () => import('../pages/ReceiptDiscrepancyWorkbench'),
+  'production/bom-grid-lab/revogrid': () => import('../pages/BomGridLabRevo'),
+  'production/bom-grid-lab/react-data-grid': () => import('../pages/BomGridLabReactDataGrid'),
 } as const;
