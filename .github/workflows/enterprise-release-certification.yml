@@ -37,7 +37,7 @@ jobs:
   database-cutover-certification:
     name: 170911-row PostgreSQL cutover and SQLite rollback
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
       ENTERPRISE_EVIDENCE_CLASS: ${{ inputs.evidence_class || 'synthetic-scale' }}
@@ -47,6 +47,10 @@ jobs:
       MINIO_ROOT_USER: ailaoda-sandbox
       GRAFANA_ADMIN_USER: sandbox-admin
       AILAODA_IMAGE_TAG: ${{ github.run_id }}
+      APP_URL: http://127.0.0.1:5006/
+      SECONDARY_APP_URL: http://127.0.0.1:5008/
+      BROWSER_AUDIT_VISIBLE: "0"
+      BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
 
     steps:
       - name: Checkout isolated certification branch
@@ -76,22 +80,33 @@ jobs:
           emit_secret GRAFANA_ADMIN_PASSWORD
           emit_secret JWT_SECRET
           emit_secret METRICS_BEARER_TOKEN
-
+          audit_username="certification_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
+          audit_password="$(openssl rand -hex 24)Aa1!"
+          audit_password_file="${RUNNER_TEMP}/enterprise-certification-audit-password"
+          echo "::add-mask::${audit_password}"
+          umask 077
+          printf '%s' "${audit_password}" > "${audit_password_file}"
+          {
+            printf 'AUDIT_UI_USERNAME=%s\n' "${audit_username}"
+            printf 'AUDIT_UI_PASSWORD_FILE=%s\n' "${audit_password_file}"
+            printf 'AUDIT_UI_ROLE=admin\n'
+          } >> "${GITHUB_ENV}"
       - name: Install locked dependencies
         run: |
           npm ci --include=dev
           npm --prefix backend ci --include=dev
 
-      - name: Start isolated PostgreSQL
+      - name: Start enterprise dependency topology
         shell: bash
         run: |
           set -euo pipefail
-          docker compose pull --ignore-buildable postgres
-          docker compose up -d --wait --wait-timeout 180 postgres
+          docker compose pull --ignore-buildable
+          docker compose up -d --wait --wait-timeout 180
           docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
+          docker compose exec -T postgres-replica psql -U ailaoda -d ailaoda -tAc 'select pg_is_in_recovery()' | grep -Fx t
+          docker compose exec -T redis-primary redis-cli ping | grep -Fx PONG
           printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "$POSTGRES_PASSWORD" >> "$GITHUB_ENV"
           printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "$POSTGRES_PASSWORD" >> "$GITHUB_ENV"
-
       - name: Prepare source snapshot
         shell: bash
         env:
@@ -178,12 +193,37 @@ jobs:
           })().finally(() => prisma.$disconnect());
           NODE
 
+      - name: Build and start dual PostgreSQL application instances
+        run: |
+          docker compose --profile application build app-primary
+          docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+
+      - name: Verify application readiness
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5006 5008; do
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/health" > "output/audit/health-${port}.json"
+            curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" > "output/audit/ready-${port}.json"
+          done
+
+      - name: Simulate human-style ERP workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run audit:orders:browser
+          npm run audit:procurement:browser
+          npm run audit:warehouse:transfer:browser
+          npm run audit:shipping:browser
+          npm run audit:collection:human-flow
       - name: Upload certification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: enterprise-release-certification-evidence
-          path: output/audit/
+          path: |
+            output/audit/
+            output/playwright/
           if-no-files-found: error
           retention-days: 30
 
