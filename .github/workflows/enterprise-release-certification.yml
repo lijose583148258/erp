@@ -1,0 +1,198 @@
+name: Enterprise Release Certification
+
+on:
+  workflow_dispatch:
+    inputs:
+      evidence_class:
+        description: Evidence class
+        required: true
+        default: synthetic-scale
+        type: choice
+        options:
+          - synthetic-scale
+          - real-snapshot
+      expected_rows:
+        description: Expected user-table rows
+        required: true
+        default: "170911"
+        type: string
+  pull_request:
+    paths:
+      - '.github/workflows/enterprise-release-certification.yml'
+      - 'scripts/enterprise-*.cjs'
+      - 'scripts/postgres-*.cjs'
+      - 'scripts/run-postgres-import-rehearsal-v1.cjs'
+      - 'backend/prisma/**'
+      - 'backend/src/database/**'
+      - 'package*.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-release-certification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  database-cutover-certification:
+    name: 170911-row PostgreSQL cutover and SQLite rollback
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      COMPOSE_FILE: ops/cloud-sandbox/docker-compose.yml
+      ENTERPRISE_EVIDENCE_CLASS: ${{ inputs.evidence_class || 'synthetic-scale' }}
+      ENTERPRISE_TARGET_ROWS: ${{ inputs.expected_rows || '170911' }}
+      AUDIT_PRISMA_PROVIDER: postgresql
+      AUDIT_PRISMA_CLIENT_PATH: output/postgres-prisma-artifact/generated-client
+      MINIO_ROOT_USER: ailaoda-sandbox
+      GRAFANA_ADMIN_USER: sandbox-admin
+      AILAODA_IMAGE_TAG: ${{ github.run_id }}
+
+    steps:
+      - name: Checkout isolated certification branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Generate ephemeral sandbox secrets
+        shell: bash
+        run: |
+          set -euo pipefail
+          emit_secret() {
+            local name="$1"
+            local value
+            value="$(openssl rand -hex 32)"
+            echo "::add-mask::$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          }
+          emit_secret POSTGRES_PASSWORD
+          emit_secret POSTGRES_REPLICATION_PASSWORD
+          emit_secret MINIO_ROOT_PASSWORD
+          emit_secret MEILI_MASTER_KEY
+          emit_secret GRAFANA_ADMIN_PASSWORD
+          emit_secret JWT_SECRET
+          emit_secret METRICS_BEARER_TOKEN
+
+      - name: Install locked dependencies
+        run: |
+          npm ci --include=dev
+          npm --prefix backend ci --include=dev
+
+      - name: Start isolated PostgreSQL
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose pull --ignore-buildable postgres
+          docker compose up -d --wait --wait-timeout 180 postgres
+          docker compose exec -T postgres pg_isready -U ailaoda -d ailaoda
+          printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "$POSTGRES_PASSWORD" >> "$GITHUB_ENV"
+          printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "$POSTGRES_PASSWORD" >> "$GITHUB_ENV"
+
+      - name: Prepare source snapshot
+        shell: bash
+        env:
+          ENTERPRISE_REAL_SNAPSHOT_URL: ${{ secrets.ENTERPRISE_REAL_SNAPSHOT_URL }}
+          ENTERPRISE_REAL_MANIFEST_URL: ${{ secrets.ENTERPRISE_REAL_MANIFEST_URL }}
+          ENTERPRISE_REAL_SQLITE_BACKUP_URL: ${{ secrets.ENTERPRISE_REAL_SQLITE_BACKUP_URL }}
+          ENTERPRISE_REAL_SNAPSHOT_SHA256: ${{ secrets.ENTERPRISE_REAL_SNAPSHOT_SHA256 }}
+        run: |
+          set -euo pipefail
+          postgres_url="$DATABASE_URL"
+          source_dir="$RUNNER_TEMP/enterprise-release-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          source_db="$source_dir/source.db"
+          backup_dir="$source_dir/backups"
+          mkdir -p "$backup_dir" output/audit
+          sqlite_url="file:$source_db"
+          printf 'ENTERPRISE_SQLITE_URL=%s\nENTERPRISE_BACKUP_DIR=%s\nENTERPRISE_POSTGRES_URL=%s\n' "$sqlite_url" "$backup_dir" "$postgres_url" >> "$GITHUB_ENV"
+
+          if [[ "$ENTERPRISE_EVIDENCE_CLASS" == "real-snapshot" ]]; then
+            : "${ENTERPRISE_REAL_SNAPSHOT_URL:?real snapshot URL secret is required}"
+            : "${ENTERPRISE_REAL_MANIFEST_URL:?real manifest URL secret is required}"
+            : "${ENTERPRISE_REAL_SQLITE_BACKUP_URL:?real SQLite backup URL secret is required}"
+            : "${ENTERPRISE_REAL_SNAPSHOT_SHA256:?real snapshot SHA256 secret is required}"
+            curl --fail --location --retry 3 "$ENTERPRISE_REAL_SQLITE_BACKUP_URL" -o "$source_db"
+            curl --fail --location --retry 3 "$ENTERPRISE_REAL_SNAPSHOT_URL" -o "$backup_dir/postgres-snapshot-real.json"
+            curl --fail --location --retry 3 "$ENTERPRISE_REAL_MANIFEST_URL" -o "$backup_dir/postgres-migration-import-manifest-v1.json"
+            echo "$ENTERPRISE_REAL_SNAPSHOT_SHA256  $backup_dir/postgres-snapshot-real.json" | sha256sum --check --strict
+          else
+            DATABASE_URL="$sqlite_url" BACKUP_DIR="$backup_dir" NODE_ENV=test npm run db:prepare
+            DATABASE_URL="$sqlite_url" node scripts/cloud-postgres-migration-fixture-v1.cjs seed
+            DATABASE_URL="$sqlite_url" ENTERPRISE_TARGET_ROWS="$ENTERPRISE_TARGET_ROWS" node scripts/enterprise-scale-fixture-v1.cjs
+            DATABASE_URL="$sqlite_url" BACKUP_DIR="$backup_dir" NODE_ENV=test npm run db:backup
+            DATABASE_URL="$sqlite_url" BACKUP_DIR="$backup_dir" NODE_ENV=test npm run db:pg -- snapshot
+            DATABASE_URL="$sqlite_url" BACKUP_DIR="$backup_dir" NODE_ENV=test npm run db:pg -- manifest
+          fi
+
+          DATABASE_URL="$sqlite_url" AUDIT_DATABASE_URL="$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=source node scripts/enterprise-database-fingerprint-v1.cjs
+
+      - name: Import into PostgreSQL and compare every table
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run build:backend:postgres-artifact
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" POSTGRES_URL="$ENTERPRISE_POSTGRES_URL" POSTGRES_IMPORT_MODE=empty-only BACKUP_DIR="$ENTERPRISE_BACKUP_DIR" npm run run:db:postgres-import-rehearsal
+          if [[ "$ENTERPRISE_EVIDENCE_CLASS" != "real-snapshot" ]]; then
+            node scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
+          fi
+          AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" AUDIT_PRISMA_PROVIDER=postgresql AUDIT_PRISMA_CLIENT_PATH=output/postgres-prisma-artifact/generated-client ENTERPRISE_FINGERPRINT_LABEL=postgres node scripts/enterprise-database-fingerprint-v1.cjs
+
+      - name: Verify PostgreSQL business write and rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker compose exec -T postgres psql -U ailaoda -d ailaoda -v ON_ERROR_STOP=1 <<'SQL'
+          BEGIN;
+          INSERT INTO audit_logs (user_id, action, resource, details, created_at)
+          SELECT id, 'enterprise_postgres_write_probe', 'release_certification', '{"temporary":true}', NOW() FROM users ORDER BY id LIMIT 1;
+          DELETE FROM audit_logs WHERE action='enterprise_postgres_write_probe' AND resource='release_certification';
+          COMMIT;
+          SQL
+          if [[ "$ENTERPRISE_EVIDENCE_CLASS" != "real-snapshot" ]]; then
+            DATABASE_URL="$ENTERPRISE_SQLITE_URL" node scripts/cloud-postgres-migration-fixture-v1.cjs mutate
+          fi
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" BACKUP_DIR="$ENTERPRISE_BACKUP_DIR" NODE_ENV=test npm run db:pg -- rollback
+          if [[ "$ENTERPRISE_EVIDENCE_CLASS" != "real-snapshot" ]]; then
+            DATABASE_URL="$ENTERPRISE_SQLITE_URL" node scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
+          fi
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=rollback node scripts/enterprise-database-fingerprint-v1.cjs
+          ENTERPRISE_EVIDENCE_CLASS="$ENTERPRISE_EVIDENCE_CLASS" ENTERPRISE_TARGET_ROWS="$ENTERPRISE_TARGET_ROWS" node scripts/enterprise-release-verdict-v1.cjs
+
+      - name: Verify rollback SQLite remains writable
+        shell: bash
+        run: |
+          set -euo pipefail
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" node - <<'NODE'
+          const { PrismaClient } = require('./backend/node_modules/@prisma/client');
+          const prisma = new PrismaClient();
+          (async () => {
+            const user = await prisma.user.findFirst({ orderBy: { id: 'asc' } });
+            if (!user) throw new Error('rollback database has no user for write probe');
+            const row = await prisma.auditLog.create({ data: { userId: user.id, action: 'rollback_write_probe', resource: 'release_certification' } });
+            await prisma.auditLog.delete({ where: { id: row.id } });
+            console.log(JSON.stringify({ status: 'passed', createdAndDeletedAuditLogId: row.id }));
+          })().finally(() => prisma.$disconnect());
+          NODE
+
+      - name: Upload certification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: enterprise-release-certification-evidence
+          path: output/audit/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Capture PostgreSQL diagnostics
+        if: always()
+        shell: bash
+        run: |
+          docker compose ps -a || true
+          docker compose logs --no-color postgres > output/audit/postgres-container.log 2>&1 || true
+
+      - name: Stop isolated sandbox
+        if: always()
+        run: docker compose down -v --remove-orphans
