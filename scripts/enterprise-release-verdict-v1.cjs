@@ -1,4 +1,4 @@
-﻿const fs = require('fs');
+const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 
@@ -32,6 +32,16 @@ for (const [table, count] of Object.entries(source.counts || {})) {
   if (Number(snapshotCount) !== Number(count)) mismatch(mismatches, 'snapshot-source-table-count', { table, source: count, snapshot: snapshotCount });
 }
 for (const table of snapshot.tableSummary || []) if (!Object.prototype.hasOwnProperty.call(source.counts || {}, table.name)) mismatch(mismatches, 'source-missing-snapshot-table', { table: table.name });
+if (profile === 'real-snapshot') {
+  for (const report of [source, target, rollback]) {
+    if (!report.fullContent || !report.tableContentHashes) mismatch(mismatches, 'content-fingerprint-missing', { label: report.label });
+  }
+  for (const table of Object.keys(source.tableContentHashes || {})) {
+    if (target.tableContentHashes?.[table] !== source.tableContentHashes[table]) mismatch(mismatches, 'content-fingerprint-postgres', { table });
+    if (rollback.tableContentHashes?.[table] !== source.tableContentHashes[table]) mismatch(mismatches, 'content-fingerprint-rollback', { table });
+  }
+}
+
 for (const name of ['orders', 'payments', 'stock_balances', 'stock_movements', 'cost_ledger']) {
   if (!equal(source.critical?.[name], target.critical?.[name])) mismatch(mismatches, 'critical-postgres', { name, source: source.critical?.[name], target: target.critical?.[name] });
   if (!equal(source.critical?.[name], rollback.critical?.[name])) mismatch(mismatches, 'critical-rollback', { name, source: source.critical?.[name], rollback: rollback.critical?.[name] });

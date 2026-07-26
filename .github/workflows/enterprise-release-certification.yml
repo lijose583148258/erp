@@ -143,7 +143,7 @@ jobs:
             DATABASE_URL="$sqlite_url" BACKUP_DIR="$backup_dir" NODE_ENV=test npm run db:pg -- manifest
           fi
 
-          DATABASE_URL="$sqlite_url" AUDIT_DATABASE_URL="$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=source node scripts/enterprise-database-fingerprint-v1.cjs
+          DATABASE_URL="$sqlite_url" AUDIT_DATABASE_URL="$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=source ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
 
       - name: Import into PostgreSQL and compare every table
         shell: bash
@@ -154,7 +154,7 @@ jobs:
           if [[ "$ENTERPRISE_EVIDENCE_CLASS" != "real-snapshot" ]]; then
             node scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
           fi
-          AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" AUDIT_PRISMA_PROVIDER=postgresql AUDIT_PRISMA_CLIENT_PATH=output/postgres-prisma-artifact/generated-client ENTERPRISE_FINGERPRINT_LABEL=postgres node scripts/enterprise-database-fingerprint-v1.cjs
+          AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" AUDIT_PRISMA_PROVIDER=postgresql AUDIT_PRISMA_CLIENT_PATH=output/postgres-prisma-artifact/generated-client ENTERPRISE_FINGERPRINT_LABEL=postgres ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
 
       - name: Verify PostgreSQL business write and rollback
         shell: bash
@@ -174,7 +174,7 @@ jobs:
           if [[ "$ENTERPRISE_EVIDENCE_CLASS" != "real-snapshot" ]]; then
             DATABASE_URL="$ENTERPRISE_SQLITE_URL" node scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
           fi
-          DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=rollback node scripts/enterprise-database-fingerprint-v1.cjs
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=rollback ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
           ENTERPRISE_EVIDENCE_CLASS="$ENTERPRISE_EVIDENCE_CLASS" ENTERPRISE_TARGET_ROWS="$ENTERPRISE_TARGET_ROWS" node scripts/enterprise-release-verdict-v1.cjs
 
       - name: Verify rollback SQLite remains writable
