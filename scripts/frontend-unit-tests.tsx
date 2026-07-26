@@ -91,14 +91,17 @@ const tests: FrontendUnitTest[] = [
         productName: '',
         outputUnit: '',
         formulationMode: 'percentage',
+        shelfLifeDaysInput: '0',
         standardBatchSizeInput: '0',
         percentageSummary: 99,
         effectiveItemCount: 2,
         bomType: 'chemical_formula',
       });
+      assert.equal(bom.shelfLifeDays, 0);
       assert.equal(bom.standardBatchSize, 0);
       assert.equal(bom.errors.productName, '请填写产品名称');
       assert.equal(bom.errors.outputUnit, '请填写输出单位');
+      assert.ok(bom.errors.shelfLifeDays);
       assert.ok(bom.errors.standardBatchSize);
       assert.ok(bom.errors.percentage);
       assert.ok(bom.errors.items);

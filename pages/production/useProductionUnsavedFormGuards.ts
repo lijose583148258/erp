@@ -48,6 +48,7 @@ export const useProductionUnsavedFormGuards = ({
       bomStatus: bomForm.bomStatus,
       bomFormulationMode: bomForm.bomFormulationMode,
       bomOutputUnit: bomForm.bomOutputUnit,
+      bomShelfLifeDays: bomForm.bomShelfLifeDays,
       bomStandardBatchSize: bomForm.bomStandardBatchSize,
       bomBatchSizeUnit: bomForm.bomBatchSizeUnit,
       bomDensity: bomForm.bomDensity,

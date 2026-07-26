@@ -33,6 +33,14 @@ const roundQuantity = (value: number, precision = 6) => {
   return Math.round(value * factor) / factor;
 };
 
+export const calculateBatchExpiryDate = (productionDate: Date, shelfLifeDays: unknown) => {
+  const days = Number(shelfLifeDays);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new Error('BOM 缺少有效的保质期天数，禁止自动创建成品批次。');
+  }
+  return new Date(productionDate.getTime() + days * 24 * 60 * 60 * 1000);
+};
+
 const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number]) => {
   const dosageMode = String(item.dosageMode || '').trim();
   const percentage = Number(item.percentage || 0);
@@ -74,8 +82,18 @@ const WORK_ORDER_STATUS_RANK: Record<ProductionWorkOrderStatus, number> = {
 const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.productionWorkOrder.findUnique({
   where: { id },
   include: {
-    bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-    productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+    bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+    productBatch: {
+      select: {
+        id: true,
+        batchNo: true,
+        productName: true,
+        productionDate: true,
+        expiryDate: true,
+        stockQuantity: true,
+        unit: true,
+      },
+    },
     steps: { orderBy: { stepNo: 'asc' } },
     qualityChecks: { orderBy: { createdAt: 'desc' } },
   },
@@ -103,6 +121,7 @@ export class ProductionMutationService {
           status: input.status || 'draft',
           formulationMode: input.formulationMode || null,
           outputUnit: input.outputUnit,
+          shelfLifeDays: input.shelfLifeDays,
           standardBatchSize: input.standardBatchSize ?? null,
           batchSizeUnit: input.batchSizeUnit || null,
           density: input.density ?? null,
@@ -187,8 +206,18 @@ export class ProductionMutationService {
       return tx.productionWorkOrder.findUnique({
         where: { id: workOrder.id },
         include: {
-          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-          productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+          productBatch: {
+            select: {
+              id: true,
+              batchNo: true,
+              productName: true,
+              productionDate: true,
+              expiryDate: true,
+              stockQuantity: true,
+              unit: true,
+            },
+          },
           steps: { orderBy: { stepNo: 'asc' } },
           qualityChecks: true,
         },
@@ -238,6 +267,10 @@ export class ProductionMutationService {
       }> = [];
 
       if (status === 'completed') {
+        const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
+        if (netOutput > 0 && !workOrder.batchId) {
+          calculateBatchExpiryDate(new Date(), workOrder.bom?.shelfLifeDays);
+        }
         const requiredMaterialCount = workOrder.bom?.items?.length || 0;
         const aggregatedRecords = new Map<number, number>();
 
@@ -354,12 +387,13 @@ export class ProductionMutationService {
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
           } else {
+            const productionDate = new Date();
             const createdBatch = await tx.productBatch.create({
               data: {
         batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
                 productName: workOrder.productName,
-                productionDate: new Date(),
-                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                productionDate,
+                expiryDate: calculateBatchExpiryDate(productionDate, workOrder.bom?.shelfLifeDays),
                 stockQuantity: netOutput,
                 unit: workOrder.bom?.outputUnit || 'kg',
                 isColdChain: false,

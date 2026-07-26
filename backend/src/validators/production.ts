@@ -88,6 +88,7 @@ export const createProductionBomSchema = z.object({
   status: z.string().trim().optional().nullable(),
   formulationMode: z.string().trim().optional().nullable(),
   outputUnit: z.string().trim().min(1),
+  shelfLifeDays: z.coerce.number().int().min(1).max(3650),
   standardBatchSize: z.coerce.number().positive().optional().nullable(),
   batchSizeUnit: z.string().trim().optional().nullable(),
   density: z.coerce.number().positive().optional().nullable(),

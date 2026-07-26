@@ -227,6 +227,27 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/production/boms`] = {
+      post: {
+        tags: ['Production'],
+        summary: 'Create a governed production BOM',
+        description: 'Creates a production BOM with an explicit finished-product shelf-life policy. Requires production.write.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ProductionBomCreateRequest' },
+            },
+          },
+        },
+        responses: {
+          ...writeResponses,
+          '201': { description: 'The BOM was created and returned with its persisted shelf-life policy.' },
+        },
+      },
+    };
+
     paths[`${prefix}/system/search/status`] = {
       get: {
         tags: ['System'],

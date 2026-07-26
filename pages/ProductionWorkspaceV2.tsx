@@ -74,7 +74,7 @@ const ProductionWorkspaceV2 = () => {
   const workOrderForm = useProductionWorkOrderForm(createInitialWorkOrderSteps);
   const qualityForm = useProductionQualityForm();
   const adjustmentForm = useProductionAdjustmentForm();
-  const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
+  const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomShelfLifeDays, setBomShelfLifeDays, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
   const { woProductName, setWoProductName, setWoProductNameSilently, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
   const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
@@ -118,10 +118,11 @@ const ProductionWorkspaceV2 = () => {
     if (bomSaving) return;
     const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
     const expectedDraftSummary = buildExpectedBomDraftSummary(items);
-    const { errors: nextErrors, standardBatchSize } = validateBomForm({
+    const { errors: nextErrors, shelfLifeDays, standardBatchSize } = validateBomForm({
       productName: bomProductName,
       outputUnit: bomOutputUnit,
       formulationMode: bomFormulationMode,
+      shelfLifeDaysInput: bomShelfLifeDays,
       standardBatchSizeInput: bomStandardBatchSize,
       percentageSummary: derived.bomPercentageSummary,
       effectiveItemCount: items.length,
@@ -146,6 +147,7 @@ const ProductionWorkspaceV2 = () => {
         status: bomStatus,
         formulationMode: bomFormulationMode,
         outputUnit: bomOutputUnit.trim(),
+        shelfLifeDays,
         standardBatchSize: standardBatchSize > 0 ? standardBatchSize : null,
         batchSizeUnit: bomBatchSizeUnit.trim() || null,
         density: bomDensity.trim() ? Number(bomDensity || 0) : null,
@@ -167,6 +169,10 @@ const ProductionWorkspaceV2 = () => {
 
       if (!readbackBom) {
         notify('error', '保存后回读不一致，请不要继续使用该 BOM');
+        return;
+      }
+      if (readbackBom.shelfLifeDays !== shelfLifeDays) {
+        notify('error', `保存后保质期回读不一致：期望 ${shelfLifeDays} 天，实际 ${readbackBom.shelfLifeDays ?? '未配置'}`);
         return;
       }
 
@@ -411,6 +417,8 @@ const ProductionWorkspaceV2 = () => {
             setBomFormulationMode={setBomFormulationMode}
             bomOutputUnit={bomOutputUnit}
             setBomOutputUnit={setBomOutputUnit}
+            bomShelfLifeDays={bomShelfLifeDays}
+            setBomShelfLifeDays={setBomShelfLifeDays}
             bomStandardBatchSize={bomStandardBatchSize}
             setBomStandardBatchSize={setBomStandardBatchSize}
             bomBatchSizeUnit={bomBatchSizeUnit}

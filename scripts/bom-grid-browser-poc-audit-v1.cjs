@@ -1,5 +1,6 @@
 const fs = require('node:fs');
 const path = require('node:path');
+const crypto = require('node:crypto');
 const { chromium } = require('playwright');
 
 const root = path.resolve(__dirname, '..');
@@ -10,6 +11,11 @@ const baseUrl = process.env.APP_URL || 'http://127.0.0.1:3000';
 const username = process.env.AUDIT_UI_USERNAME;
 const password = process.env.AUDIT_UI_PASSWORD;
 if (!username || !password) throw new Error('AUDIT_UI_USERNAME and AUDIT_UI_PASSWORD are required');
+const restrictedAuditEnabled = Boolean(process.env.DATABASE_URL);
+const restrictedUser = {
+  username: 'bom_grid_restricted_auditor',
+  password: crypto.randomBytes(18).toString('base64url'),
+};
 const paste300 = fs.readFileSync(path.join(root, 'tests', 'fixtures', 'bom-grid', 'paste-300-rows.tsv'), 'utf8').trimEnd();
 const pasteLines = paste300.split(/\r?\n/);
 const firstPasteCode = pasteLines[0].split('\t')[0];
@@ -33,9 +39,47 @@ const waitForResult = async (locator, pattern, timeoutMs) => {
   throw new Error(`Timed out waiting for ${pattern}: ${text}`);
 };
 
+const provisionRestrictedUser = async () => {
+  if (!restrictedAuditEnabled) return null;
+  const bcrypt = require('../backend/node_modules/bcryptjs');
+  const { PrismaClient } = require('../backend/node_modules/@prisma/client');
+  const prisma = new PrismaClient();
+  try {
+    const passwordHash = await bcrypt.hash(restrictedUser.password, 12);
+    return await prisma.user.upsert({
+      where: { username: restrictedUser.username },
+      update: {
+        passwordHash,
+        role: 'sales',
+        segment: 'direct',
+        isActive: true,
+        mustChangePassword: false,
+      },
+      create: {
+        username: restrictedUser.username,
+        passwordHash,
+        role: 'sales',
+        segment: 'direct',
+        email: `${restrictedUser.username}@example.invalid`,
+        isActive: true,
+        mustChangePassword: false,
+      },
+      select: { id: true, username: true, role: true },
+    });
+  } finally {
+    await prisma.$disconnect();
+  }
+};
+
 const run = async () => {
+  const restrictedUserRecord = await provisionRestrictedUser();
   const browser = await chromium.launch({ headless: true });
   const results = [];
+  let restrictedAccess = {
+    executed: false,
+    passed: false,
+    reason: 'DATABASE_URL was not provided, so the restricted-role browser gate was not executed.',
+  };
   try {
     for (const candidate of candidates) {
       const context = await browser.newContext({
@@ -110,10 +154,17 @@ const run = async () => {
 
       const screenshot = path.join(outputDir, `${candidate.id}.png`);
       await page.screenshot({ path: screenshot, fullPage: true });
+      const uniqueConsoleErrors = Array.from(new Set(consoleErrors));
+      const rejectionReasons = uniqueConsoleErrors.map((message) => (
+        message.includes('Content Security Policy')
+          ? 'Browser console reported a CSP violation.'
+          : 'Browser console reported an error.'
+      )).filter((reason, index, values) => values.indexOf(reason) === index);
       results.push({
         candidate: candidate.id,
         route: candidate.route,
-        passed: true,
+        passed: rejectionReasons.length === 0,
+        rejectionReasons,
         clipboardPaste300: {
           passed: true,
           rows: pasteLines.length,
@@ -123,10 +174,45 @@ const run = async () => {
         load1000Ms,
         goldenMessage,
         saveReadbackMessage,
-        consoleErrors,
+        consoleErrors: uniqueConsoleErrors,
         screenshot: path.relative(root, screenshot).replace(/\\/g, '/'),
         durationMs: Date.now() - startedAt,
       });
+      await context.close();
+    }
+
+    if (restrictedUserRecord) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+      const page = await context.newPage();
+      await page.goto(`${baseUrl}/production/bom-grid-lab/revogrid`, { waitUntil: 'domcontentloaded' });
+      await page.locator('#login-username').pressSequentially(restrictedUser.username, { delay: 30 });
+      await page.locator('#login-password').pressSequentially(restrictedUser.password, { delay: 24 });
+      await page.getByRole('button', { name: /登录系统|Sign In|Đăng nhập/ }).click();
+      await page.getByTestId('bom-grid-lab-disabled').waitFor({ state: 'visible', timeout: 30_000 });
+      const candidateGridCount = await page.getByTestId('bom-grid-lab-revogrid').count();
+      const apiWriteProbe = await page.evaluate(async () => {
+        const token = localStorage.getItem('token');
+        const response = await fetch('/api/production/boms', {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${token}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({}),
+        });
+        return { status: response.status, body: await response.text() };
+      });
+      if (candidateGridCount !== 0 || apiWriteProbe.status !== 403) {
+        throw new Error(`Restricted BOM Grid access gate failed: ${JSON.stringify({ candidateGridCount, apiWriteProbe })}`);
+      }
+      restrictedAccess = {
+        executed: true,
+        passed: true,
+        userId: restrictedUserRecord.id,
+        role: restrictedUserRecord.role,
+        uiDenied: true,
+        apiWriteStatus: apiWriteProbe.status,
+      };
       await context.close();
     }
   } finally {
@@ -143,7 +229,10 @@ const run = async () => {
       'The runtime uses an isolated SQLite fixture; this is not PostgreSQL production certification.',
     ],
     results,
-    passed: results.length === candidates.length && results.every((result) => result.passed && result.consoleErrors.length === 0),
+    restrictedAccess,
+    passed: results.length === candidates.length
+      && results.every((result) => result.passed && result.consoleErrors.length === 0)
+      && (!restrictedAccess.executed || restrictedAccess.passed),
   };
   const reportPath = path.join(outputDir, 'bom-grid-browser-poc-report.json');
   fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');

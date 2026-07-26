@@ -8,7 +8,7 @@ Verified structural gaps:
 
 - business documents identify materials mainly by free-text names;
 - 105 Prisma `Float` fields and zero `Decimal` fields;
-- produced batch expiry silently defaults to 365 days;
+- legacy BOM rows may still lack a reviewed shelf-life policy; new BOM creation and automatic batch creation now fail closed instead of silently defaulting to 365 days;
 - quality checks do not persist individual specifications and results;
 - batch genealogy and recall are reconstructed indirectly rather than persisted;
 - barter posting primarily offsets customer receivables;
@@ -20,8 +20,8 @@ Verified structural gaps:
 ### P0 — prevent incorrect legal or financial facts
 
 1. Remove silent 365-day shelf-life behavior.
-   - Add governed shelf-life policy to product/formula version.
-   - Require explicit effective policy before automatic finished-batch creation.
+   - **Implemented in code:** governed `shelfLifeDays` on BOM, required by UI/API/OpenAPI, and required again inside the completion transaction before automatic finished-batch creation.
+   - **Verified locally:** a 365-day audit BOM produced a batch whose persisted production/expiry timestamps differ by exactly 365 days; missing or invalid policies are rejected by focused service tests.
    - Migrate existing batches with evidence and exception status, never by guessing.
 2. Freeze creation of new free-text variants.
    - Introduce material matching/temporary-material workflow before full migration.

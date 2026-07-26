@@ -26,6 +26,7 @@ export interface ProductionBomInput {
   status?: string | null;
   formulationMode?: string | null;
   outputUnit: string;
+  shelfLifeDays: number;
   standardBatchSize?: number | null;
   batchSizeUnit?: string | null;
   density?: number | null;
@@ -93,7 +94,14 @@ const resolveEffectiveQuantityPerUnit = (item: {
 
 export class ProductionQueryService {
   static async getSummary() {
-    const [bomCount, workOrders, batches] = await Promise.all([
+    const [
+      bomCount,
+      workOrders,
+      batches,
+      workOrderStatusCounts,
+      workOrderTotals,
+      qualityResultCounts,
+    ] = await Promise.all([
       prisma.productionBom.count(),
       prisma.productionWorkOrder.findMany({
         orderBy: { createdAt: 'desc' },
@@ -104,34 +112,39 @@ export class ProductionQueryService {
         },
       }),
       prisma.productBatch.count(),
+      prisma.productionWorkOrder.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      prisma.productionWorkOrder.aggregate({
+        _sum: {
+          targetQuantity: true,
+          producedQuantity: true,
+          lossQuantity: true,
+        },
+      }),
+      prisma.productionQualityCheck.groupBy({
+        by: ['result'],
+        _count: { _all: true },
+      }),
     ]);
 
-    const allOrders = await prisma.productionWorkOrder.findMany({
-      select: {
-        targetQuantity: true,
-        producedQuantity: true,
-        lossQuantity: true,
-        status: true,
-      },
-    });
-
-    const completed = allOrders.filter(item => item.status === 'completed').length;
-    const active = allOrders.filter(item => ['planned', 'in_progress', 'qc_pending'].includes(item.status)).length;
-    const qcPending = allOrders.filter(item => item.status === 'qc_pending').length;
-    const totalTarget = allOrders.reduce((sum, item) => sum + Number(item.targetQuantity || 0), 0);
-    const totalProduced = allOrders.reduce((sum, item) => sum + Number(item.producedQuantity || 0), 0);
-    const totalLoss = allOrders.reduce((sum, item) => sum + Number(item.lossQuantity || 0), 0);
-
-    const qcChecks = await prisma.productionQualityCheck.findMany({
-      select: { result: true },
-    });
-
-    const passCount = qcChecks.filter(item => item.result === 'pass').length;
-    const failCount = qcChecks.filter(item => item.result === 'fail').length;
+    const statusCount = new Map(workOrderStatusCounts.map(item => [item.status, item._count._all]));
+    const qualityCount = new Map(qualityResultCounts.map(item => [item.result, item._count._all]));
+    const workOrderCount = workOrderStatusCounts.reduce((sum, item) => sum + item._count._all, 0);
+    const completed = statusCount.get('completed') || 0;
+    const active = ['planned', 'in_progress', 'qc_pending']
+      .reduce((sum, status) => sum + (statusCount.get(status) || 0), 0);
+    const qcPending = statusCount.get('qc_pending') || 0;
+    const totalTarget = Number(workOrderTotals._sum.targetQuantity || 0);
+    const totalProduced = Number(workOrderTotals._sum.producedQuantity || 0);
+    const totalLoss = Number(workOrderTotals._sum.lossQuantity || 0);
+    const passCount = qualityCount.get('pass') || 0;
+    const failCount = qualityCount.get('fail') || 0;
 
     return {
       bomCount,
-      workOrderCount: allOrders.length,
+      workOrderCount,
       batchCount: batches,
       activeWorkOrders: active,
       completedWorkOrders: completed,
@@ -192,8 +205,18 @@ export class ProductionQueryService {
       where,
       orderBy: { createdAt: 'desc' },
       include: {
-        bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-        productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+        bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+        productBatch: {
+          select: {
+            id: true,
+            batchNo: true,
+            productName: true,
+            productionDate: true,
+            expiryDate: true,
+            stockQuantity: true,
+            unit: true,
+          },
+        },
         steps: { orderBy: { stepNo: 'asc' } },
         qualityChecks: { orderBy: { createdAt: 'desc' } },
       },

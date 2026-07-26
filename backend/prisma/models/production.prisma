@@ -7,6 +7,7 @@ model ProductionBom {
   status      String   @default("draft")
   formulationMode String? @map("formulation_mode")
   outputUnit  String   @map("output_unit")
+  shelfLifeDays Int?   @map("shelf_life_days")
   standardBatchSize Float? @map("standard_batch_size")
   batchSizeUnit String? @map("batch_size_unit")
   density     Float?

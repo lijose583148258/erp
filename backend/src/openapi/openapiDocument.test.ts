@@ -138,6 +138,23 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.CollectionOverdueListResponse).toBeDefined();
   });
 
+  it('requires an explicit shelf-life policy when creating a production BOM', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const createBom = document.paths[`${prefix}/production/boms`]?.post;
+      expect((createBom?.requestBody?.content as any)?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/ProductionBomCreateRequest',
+      });
+      expect(createBom?.responses['201']).toBeDefined();
+    }
+
+    expect(document.components.schemas.ProductionBomCreateRequest.required)
+      .toEqual(['productName', 'outputUnit', 'shelfLifeDays', 'items']);
+    expect(document.components.schemas.ProductionBomCreateRequest.properties.shelfLifeDays)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, maximum: 3650 }));
+  });
+
   it('resolves every local schema reference after composing the document', () => {
     const document = buildOpenApiDocument();
     const schemaNames = new Set(Object.keys(document.components.schemas));

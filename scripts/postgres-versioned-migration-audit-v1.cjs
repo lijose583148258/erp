@@ -34,6 +34,11 @@ requireTokens('backend/prisma/postgres-migrations/202607220002_order-import-rete
   'order_import_batches_status_completed_at_idx',
   'order_import_batches_status_created_at_idx',
 ]);
+requireTokens('backend/prisma/postgres-migrations/202607260001_production-bom-shelf-life/migration.sql', [
+  'ADD COLUMN IF NOT EXISTS "shelf_life_days"',
+  'production_boms_shelf_life_days_check',
+  'BETWEEN 1 AND 3650',
+]);
 requireTokens('scripts/run-postgres-import-rehearsal-v1.cjs', [
   'apply-versioned-postgres-migrations',
   'verify-versioned-postgres-migrations',

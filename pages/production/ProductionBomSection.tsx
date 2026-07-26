@@ -28,7 +28,7 @@ import {
   Th,
 } from './ProductionWorkspacePrimitives';
 
-type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatchSize' | 'percentage' | 'items', string>>;
+type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'shelfLifeDays' | 'standardBatchSize' | 'percentage' | 'items', string>>;
 
 interface ProductionBomSectionProps {
   bomKeyword: string;
@@ -45,6 +45,8 @@ interface ProductionBomSectionProps {
   setBomFormulationMode: (value: string) => void;
   bomOutputUnit: string;
   setBomOutputUnit: (value: string) => void;
+  bomShelfLifeDays: string;
+  setBomShelfLifeDays: (value: string) => void;
   bomStandardBatchSize: string;
   setBomStandardBatchSize: (value: string) => void;
   bomBatchSizeUnit: string;
@@ -99,6 +101,8 @@ export function ProductionBomSection({
   setBomFormulationMode,
   bomOutputUnit,
   setBomOutputUnit,
+  bomShelfLifeDays,
+  setBomShelfLifeDays,
   bomStandardBatchSize,
   setBomStandardBatchSize,
   bomBatchSizeUnit,
@@ -215,6 +219,19 @@ export function ProductionBomSection({
               error={bomFormErrors.outputUnit}
             />
             <Field
+              dataTestId="production-bom-shelf-life-days"
+              label="产品保质期（天）"
+              value={bomShelfLifeDays}
+              onChange={value => {
+                onFormTouched();
+                clearBomFormError('shelfLifeDays');
+                setBomShelfLifeDays(value);
+              }}
+              placeholder="例如：180"
+              type="number"
+              error={bomFormErrors.shelfLifeDays}
+            />
+            <Field
               dataTestId="production-bom-standard-batch-size"
               label="标准批量"
               value={bomStandardBatchSize}
@@ -327,7 +344,7 @@ export function ProductionBomSection({
                   <Td mono>{bom.bomNo}</Td>
                   <Td>
                     <div className="font-bold text-slate-900 dark:text-white text-sm">{bom.productName}</div>
-                    <div className="text-[11px] text-slate-400 mt-1">{bom.standardBatchSize ? `标准批量 ${bom.standardBatchSize} ${bom.batchSizeUnit || bom.outputUnit}` : `输出单位 ${bom.outputUnit}`}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">{bom.standardBatchSize ? `标准批量 ${bom.standardBatchSize} ${bom.batchSizeUnit || bom.outputUnit}` : `输出单位 ${bom.outputUnit}`} · 保质期 {bom.shelfLifeDays ? `${bom.shelfLifeDays} 天` : '未配置'}</div>
                   </Td>
                   <Td>{BOM_TYPE_LABELS[(bom.bomType as BomType) || 'standard'] || '标准BOM'}</Td>
                   <Td>
@@ -358,9 +375,10 @@ export function ProductionBomSection({
                 <MiniTag label={FORMULATION_MODE_LABELS[selectedBom.formulationMode || 'fixed'] || ''} />
               </div>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
               <SummaryChip label="配方状态" value={BOM_STATUS_LABELS[(selectedBom.status as BomLifecycleStatus) || 'draft'] || '草稿'} />
               <SummaryChip label="输出单位" value={selectedBom.outputUnit || '--'} />
+              <SummaryChip label="产品保质期" value={selectedBom.shelfLifeDays ? `${selectedBom.shelfLifeDays} 天` : '未配置（禁止自动建批次）'} />
               <SummaryChip label="标准批量" value={selectedBom.standardBatchSize ? `${selectedBom.standardBatchSize} ${selectedBom.batchSizeUnit || selectedBom.outputUnit}` : '--'} />
               <SummaryChip label="密度" value={selectedBom.density ? String(selectedBom.density) : '--'} />
               <SummaryChip label="固含" value={selectedBom.solidContent !== undefined && selectedBom.solidContent !== null ? `${selectedBom.solidContent}%` : '--'} />

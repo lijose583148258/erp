@@ -1,0 +1,102 @@
+{
+  "name": "production-completion-concurrency-audit-v1",
+  "version": "v1",
+  "startTime": "2026-07-26T08:48:13.363Z",
+  "status": "passed",
+  "steps": [
+    {
+      "name": "login_admin",
+      "status": "passed",
+      "time": "2026-07-26T08:48:13.681Z",
+      "appUrl": "http://127.0.0.1:5001"
+    },
+    {
+      "name": "bootstrap_locations",
+      "status": "passed",
+      "time": "2026-07-26T08:48:13.732Z",
+      "rawLocationId": 1,
+      "fgLocationId": 2
+    },
+    {
+      "name": "seed_raw_stock",
+      "status": "passed",
+      "time": "2026-07-26T08:48:13.995Z",
+      "materialCount": 10
+    },
+    {
+      "name": "create_10_line_bom",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.018Z",
+      "bomId": 20,
+      "itemCount": 10
+    },
+    {
+      "name": "create_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.039Z",
+      "workOrderId": 5,
+      "workOrderNo": "WO-1785055694028-7AA539B59A"
+    },
+    {
+      "name": "concurrent_complete_requests",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.136Z",
+      "statuses": [
+        200,
+        200
+      ]
+    },
+    {
+      "name": "read_back_completed_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.148Z",
+      "workOrderId": 5,
+      "batchId": 37,
+      "batchNo": "WO-5-BATCH-1785055694073-A0A583D723"
+    },
+    {
+      "name": "verify_raw_deducted_once",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.276Z",
+      "checkedCount": 10
+    },
+    {
+      "name": "verify_stock_entries_once",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.304Z",
+      "outputEntryCount": 1,
+      "consumptionEntryCount": 1
+    },
+    {
+      "name": "verify_finished_goods_once",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.314Z",
+      "quantity": 100,
+      "batchNo": "WO-5-BATCH-1785055694073-A0A583D723"
+    },
+    {
+      "name": "verify_finished_goods_cost_ledger_once",
+      "status": "passed",
+      "time": "2026-07-26T08:48:14.325Z",
+      "rowCount": 1,
+      "totalCostAmountDelta": 1450
+    }
+  ],
+  "evidence": {
+    "workOrderId": 5,
+    "workOrderNo": "WO-1785055694028-7AA539B59A",
+    "statuses": [
+      200,
+      200
+    ],
+    "rawDeductionCount": 10,
+    "outputEntryCount": 1,
+    "consumptionEntryCount": 1,
+    "finishedGoodsQuantity": 100,
+    "finishedGoodsCostLedgerRows": 1
+  },
+  "gaps": [],
+  "runId": "20260726084813",
+  "appUrl": "http://127.0.0.1:5001",
+  "finishedAt": "2026-07-26T08:48:14.325Z"
+}

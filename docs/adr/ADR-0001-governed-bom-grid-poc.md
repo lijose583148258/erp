@@ -62,9 +62,17 @@ Adoption requires at least 85/100, every veto gate passing, build/typecheck/brow
 Formal adoption remains disabled:
 
 ```dotenv
+VITE_BOM_GRID_LAB_ENABLED=false
+VITE_BOM_GRID_LAB_USER_IDS=
 VITE_BOM_GRID_V2_ENABLED=false
 VITE_BOM_GRID_V2_USER_IDS=
+VITE_BOM_GRID_V2_ALL_USERS=false
 ```
+
+The lab requires explicit enablement plus an administrator or lab user allowlist.
+V2 remains deny-by-default even when enabled: an explicit user allowlist or
+`VITE_BOM_GRID_V2_ALL_USERS=true` is required. These client gates do not replace
+the backend `production.write` authorization check.
 
 Rollout order: developers, test accounts, one high-frequency operator, limited production department, default-on, then old-page retirement review. The existing page and transaction chain remain the rollback path.
 

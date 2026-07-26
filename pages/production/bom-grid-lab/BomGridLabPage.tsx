@@ -1,7 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Decimal from 'decimal.js';
 import { ArrowLeft, ClipboardPaste, FlaskConical, Redo2, Save, Trash2, Undo2 } from 'lucide-react';
-import { bomGridFeatureFlags } from '../../../app/bomGridFeatureFlags';
+import { useAppContext } from '../../../app/AppContext';
+import { canUseBomGridLab } from '../../../app/bomGridFeatureFlags';
+import { can } from '../../../app/permissions';
 import { productionService, type ProductionBomItem } from '../../../services/production.service';
 import { createEmptyItem, type BomItemDraft } from '../productionBomLineModel';
 import fixture100Url from '../../../tests/fixtures/bom-grid/acrylic-emulsion-100-rows.json?url';
@@ -90,6 +92,9 @@ const compareDrafts = (actual: BomItemDraft[], expected: BomItemDraft[]) => {
 };
 
 export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngine; grid: GridRenderer }) {
+  const { currentUser } = useAppContext();
+  const labAllowed = canUseBomGridLab(currentUser);
+  const canWriteProduction = can(currentUser, 'production.write');
   const [rows, setRows] = useState<BomGridRow[]>(() => [toBomGridRow(createEmptyItem(), 1, 'lab-empty-0001')]);
   const [fixtures, setFixtures] = useState<GoldenFixtures | null>(null);
   const [validation, setValidation] = useState<BomValidationResult | null>(null);
@@ -129,11 +134,11 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
     return () => { cancelled = true; };
   }, [adapter]);
 
-  if (!bomGridFeatureFlags.labEnabled) {
+  if (!labAllowed) {
     return (
       <div className="app-card m-6 p-8" data-testid="bom-grid-lab-disabled">
         <h1 className="text-2xl font-black text-slate-900 dark:text-white">BOM Grid Lab 未启用</h1>
-        <p className="mt-3 text-sm text-slate-500">设置 VITE_BOM_GRID_LAB_ENABLED=true 后才能进入隔离实验页。正式 BOM 不受影响。</p>
+        <p className="mt-3 text-sm text-slate-500">实验页必须显式启用，且仅管理员或 VITE_BOM_GRID_LAB_USER_IDS 白名单用户可进入。正式 BOM 不受影响。</p>
       </div>
     );
   }
@@ -192,6 +197,10 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
   };
 
   const saveAndReadBack = async () => {
+    if (!canWriteProduction) {
+      setMessage('当前账号没有 production.write 权限，禁止执行保存回读。');
+      return;
+    }
     const currentValidation = adapter.validate();
     setValidation(currentValidation);
     if (!currentValidation.valid) {
@@ -208,6 +217,7 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
         status: 'draft',
         formulationMode: 'fixed',
         outputUnit: 'kg',
+        shelfLifeDays: 365,
         standardBatchSize: 1000,
         batchSizeUnit: 'kg',
         notes: `[BOM_GRID_LAB][${engine}] 可删除测试数据`,
@@ -215,6 +225,9 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
       });
       const readback = (await productionService.getBoms()).find((bom) => bom.id === created.id);
       if (!readback) throw new Error(`创建成功但回读列表中找不到 BOM id=${created.id}`);
+      if (readback.shelfLifeDays !== 365) {
+        throw new Error(`保存回读保质期不一致：actual=${readback.shelfLifeDays ?? '未配置'}, expected=365`);
+      }
       const mismatch = compareDrafts(fromApiItems(readback.items), adapter.exportDraft());
       if (mismatch) throw new Error(`保存回读逐字段比对失败：${mismatch}`);
       setMessage(`后端保存与回读逐字段一致：BOM ${readback.bomNo}，${readback.items.length} 行。`);
@@ -248,7 +261,7 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
           <button data-testid="bom-grid-redo" onClick={() => adapter.redo()} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black dark:border-slate-700"><Redo2 size={14} />恢复</button>
           <button data-testid="bom-grid-delete-selection" onClick={() => adapter.deleteRows([adapter.getSelection().startRowKey])} className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-xs font-black text-rose-600 dark:border-slate-700"><Trash2 size={14} />删除选中行</button>
           <button data-testid="bom-grid-validate" onClick={validate} className="rounded-xl bg-amber-500 px-4 py-2 text-xs font-black text-white">统一验证</button>
-          <button data-testid="bom-grid-save-readback" disabled={saving} onClick={saveAndReadBack} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"><Save size={14} />{saving ? '保存回读中' : '保存并逐字段回读'}</button>
+          <button data-testid="bom-grid-save-readback" disabled={saving || !canWriteProduction} onClick={saveAndReadBack} className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-black text-white disabled:opacity-50"><Save size={14} />{saving ? '保存回读中' : '保存并逐字段回读'}</button>
         </div>
         <div className={`mt-4 rounded-xl px-4 py-3 text-sm font-bold ${expectedComparison ? 'bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300' : 'bg-emerald-50 text-emerald-700 dark:bg-emerald-900/20 dark:text-emerald-200'}`} data-testid="bom-grid-lab-result">
           {message}

@@ -9,6 +9,31 @@ if (-not (Test-Path -LiteralPath $pidFile)) {
 }
 
 $runtimePids = Get-Content -Raw -LiteralPath $pidFile | ConvertFrom-Json
+if (-not $runtimePids.identities) {
+  throw 'Refuse to stop from a legacy pid file without process identity evidence.'
+}
+
+function Assert-ProcessIdentity {
+  param([int]$ProcessId)
+  $expected = @($runtimePids.identities | Where-Object { [int]$_.pid -eq $ProcessId }) | Select-Object -First 1
+  if (-not $expected) {
+    throw "Refuse to stop PID $ProcessId because it is absent from the ownership ledger."
+  }
+  $current = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
+  if (-not $current) {
+    return $false
+  }
+  $currentCreationDate = ([datetime]$current.CreationDate).ToUniversalTime().ToString('o')
+  if (
+    [string]$current.CommandLine -ne [string]$expected.commandLine `
+    -or [string]$current.ExecutablePath -ne [string]$expected.executablePath `
+    -or $currentCreationDate -ne [string]$expected.creationDate
+  ) {
+    throw "Refuse to stop PID $ProcessId because its command line, executable, or creation time no longer matches."
+  }
+  return $true
+}
+
 function Stop-ProcessTree {
   param([int]$RootProcessId)
 
@@ -27,7 +52,10 @@ function Stop-ProcessTree {
   $runtimePids.backendLauncherPid,
   $runtimePids.frontendLauncherPid
 ) | Where-Object { $_ } | Select-Object -Unique | ForEach-Object {
-  Stop-ProcessTree -RootProcessId ([int]$_)
+  $processId = [int]$_
+  if (Assert-ProcessIdentity -ProcessId $processId) {
+    Stop-ProcessTree -RootProcessId $processId
+  }
 }
 Remove-Item -LiteralPath $pidFile -Force
 Write-Output 'BOM Grid Lab runtime stopped.'

@@ -3,9 +3,10 @@ import express, { Application, NextFunction, Request, Response } from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
 import rateLimit from 'express-rate-limit';
-import type { Server } from 'http';
+import type { IncomingMessage, Server, ServerResponse } from 'http';
 import path from 'path';
 import fs from 'fs';
+import { randomBytes } from 'crypto';
 import { logger } from './utils/logger';
 import { auditMiddleware } from './middleware/auditMiddleware';
 import { errorHandler } from './middleware/errorHandler';
@@ -48,10 +49,19 @@ const cspConnectSources = Array.from(new Set([
 ]));
 const allowUnsafeInlineCsp = String(process.env.AILAODA_ALLOW_UNSAFE_INLINE_CSP || '').toLowerCase() === 'true';
 const cspScriptSources = allowUnsafeInlineCsp ? ["'self'", "'unsafe-inline'"] : ["'self'"];
-const cspStyleSources = allowUnsafeInlineCsp ? ["'self'", "'unsafe-inline'"] : ["'self'"];
+const cspStyleSources = allowUnsafeInlineCsp
+  ? ["'self'", "'unsafe-inline'"]
+  : ["'self'", (_req: IncomingMessage, res: ServerResponse) => (
+    `'nonce-${String((res as Response).locals.cspNonce || '')}'`
+  )];
 const cspStyleAttributeSources = ["'unsafe-inline'"];
 
 app.set('trust proxy', runtime.trustProxy);
+
+app.use((_req: Request, res: Response, next: NextFunction) => {
+  res.locals.cspNonce = randomBytes(18).toString('base64');
+  next();
+});
 
 app.use(helmet({
   contentSecurityPolicy: {
@@ -353,6 +363,16 @@ mountApiRoutes(app);
 const clientPath = getFrontendDistDir();
 const indexPath = path.join(clientPath, 'index.html');
 const serviceWorkerPath = path.join(clientPath, 'sw.js');
+const indexTemplate = fs.existsSync(indexPath) ? fs.readFileSync(indexPath, 'utf8') : null;
+const sendFrontendIndex = (res: Response) => {
+  if (!indexTemplate) return res.status(404).type('text/plain').send('frontend is not built');
+  const nonce = String(res.locals.cspNonce || '');
+  const html = indexTemplate.replace(
+    '<head>',
+    `<head>\n  <meta name="csp-nonce" content="${nonce}">`,
+  );
+  return res.type('html').send(html);
+};
 
 if (runtime.serveFrontend && fs.existsSync(indexPath)) {
   app.get('/sw.js', (_req: Request, res: Response) => {
@@ -363,19 +383,19 @@ if (runtime.serveFrontend && fs.existsSync(indexPath)) {
     return res.sendFile(serviceWorkerPath);
   });
 
-  app.use(express.static(clientPath));
+  app.use(express.static(clientPath, { index: false }));
 
   app.get('*', (req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith('/api')) {
       return next();
     }
-    return res.sendFile(indexPath);
+    return sendFrontendIndex(res);
   });
 }
 
 app.use((req: Request, res: Response) => {
   if (runtime.serveFrontend && !req.path.startsWith('/api') && fs.existsSync(indexPath)) {
-    return res.sendFile(indexPath);
+    return sendFrontendIndex(res);
   }
 
   return res.status(404).json({

@@ -6,6 +6,11 @@ const REPORT_DIR = path.join(__dirname, '../output/playwright');
 const REPORT_PATH = path.join(REPORT_DIR, 'production-api-audit-report-v1.json');
 
 const APP_URL = process.env.APP_URL || 'http://localhost:5001';
+const AUDIT_API_USERNAME = process.env.AUDIT_API_USERNAME;
+const AUDIT_API_PASSWORD = process.env.AUDIT_API_PASSWORD;
+if (!AUDIT_API_USERNAME || !AUDIT_API_PASSWORD) {
+  throw new Error('AUDIT_API_USERNAME and AUDIT_API_PASSWORD are required');
+}
 const chemicalAudit = createChemicalBomAuditContext({
   appUrl: APP_URL,
   reportDir: REPORT_DIR,
@@ -110,7 +115,7 @@ async function main() {
 
   try {
     // 1. Get identity
-    const adminToken = await login('admin', 'admin123');
+    const adminToken = await login(AUDIT_API_USERNAME, AUDIT_API_PASSWORD);
     const getSummary = await apiFetch('/api/production/summary', {
       headers: { 'Authorization': `Bearer ${adminToken}` }
     });
@@ -126,6 +131,7 @@ async function main() {
       bomType: "chemical_formula",
       formulationMode: "percentage",
       outputUnit: "kg",
+      shelfLifeDays: 365,
       items: [
         {
           materialName: "无效树脂-API",
@@ -161,6 +167,7 @@ async function main() {
       status: "active",
       formulationMode: "percentage",
       outputUnit: "kg",
+      shelfLifeDays: 365,
       standardBatchSize: 1000,
       batchSizeUnit: "kg",
       density: 1.12,
@@ -321,12 +328,19 @@ async function main() {
     recordStep('create_quality_check', 'passed');
 
     // 7. Complete Work Order
+    const previewConsumption = await chemicalAudit.getPreviewConsumption(adminToken, workOrderId);
     const completeWOPayload = {
       status: "completed",
-      consumptionRecords: seededBalances.map(balance => ({
-        stockBalanceId: balance.id,
-        quantity: 1,
-      })),
+      consumptionRecords: previewConsumption.map((row) => {
+        const pick = Array.isArray(row.pickList) ? row.pickList[0] : null;
+        if (!pick?.stockBalanceId) {
+          throw new Error(`Preview did not return a stock pick for ${row.materialName || 'unknown material'}`);
+        }
+        return {
+          stockBalanceId: pick.stockBalanceId,
+          quantity: Number(pick.deductQty || row.requiredQty || 0),
+        };
+      }),
     };
     await apiFetch(`/api/production/work-orders/${workOrderId}/status`, {
       method: 'PATCH',

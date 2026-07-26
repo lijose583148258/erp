@@ -5,6 +5,11 @@ const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001';
 const REPORT_DIR = path.join(__dirname, '../output/playwright');
 const REPORT_PATH = path.join(REPORT_DIR, 'chemical-bom-production-chain-audit-report-v1.json');
 const OVERALL_TIMEOUT_MS = 280_000;
+const AUDIT_API_USERNAME = process.env.AUDIT_API_USERNAME;
+const AUDIT_API_PASSWORD = process.env.AUDIT_API_PASSWORD;
+if (!AUDIT_API_USERNAME || !AUDIT_API_PASSWORD) {
+  throw new Error('AUDIT_API_USERNAME and AUDIT_API_PASSWORD are required');
+}
 
 const {
   report,
@@ -39,6 +44,7 @@ const createChemicalBomPayload = (materialCodes) => ({
   status: 'active',
   formulationMode: 'percentage',
   outputUnit: 'kg',
+  shelfLifeDays: 365,
   standardBatchSize: 100,
   batchSizeUnit: 'kg',
   density: 1.08,
@@ -102,6 +108,16 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
   if (!workOrderReadback.productBatch || !workOrderReadback.productBatch.id) {
     fail('Completed work order did not bind a product batch', { workOrderReadback });
   }
+  const productionAt = new Date(workOrderReadback.productBatch.productionDate).getTime();
+  const expiryAt = new Date(workOrderReadback.productBatch.expiryDate).getTime();
+  const shelfLifeDays = (expiryAt - productionAt) / (24 * 60 * 60 * 1000);
+  if (!Number.isFinite(shelfLifeDays) || shelfLifeDays !== 365) {
+    fail('Finished batch expiry did not match the BOM shelf-life policy', {
+      expectedShelfLifeDays: 365,
+      actualShelfLifeDays: shelfLifeDays,
+      productBatch: workOrderReadback.productBatch,
+    });
+  }
 };
 
 (async () => {
@@ -110,7 +126,7 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
   writeReport();
 
   try {
-    const adminToken = await login('admin', 'admin123');
+    const adminToken = await login(AUDIT_API_USERNAME, AUDIT_API_PASSWORD);
     recordStep('login_admin', 'passed', { appUrl: APP_URL });
 
     const bootstrap = await ensureWarehouseAndLocations(adminToken);
@@ -259,6 +275,9 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       workOrderId: workOrderReadback.id,
       batchId: workOrderReadback.productBatch.id,
       batchNo: workOrderReadback.productBatch.batchNo,
+      productionDate: workOrderReadback.productBatch.productionDate,
+      expiryDate: workOrderReadback.productBatch.expiryDate,
+      shelfLifeDays: 365,
     });
 
     const batchId = workOrderReadback.productBatch.id;
@@ -372,6 +391,9 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       workOrderNo: workOrderReadback.workOrderNo,
       batchId,
       batchNo,
+      batchProductionDate: workOrderReadback.productBatch.productionDate,
+      batchExpiryDate: workOrderReadback.productBatch.expiryDate,
+      verifiedShelfLifeDays: 365,
       incompleteBlocked,
       incompleteIssues,
       bomLineCount: bomItem.items.length,

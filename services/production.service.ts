@@ -44,6 +44,7 @@ export interface ProductionBom {
   status?: string;
   formulationMode?: string | null;
   outputUnit: string;
+  shelfLifeDays: number | null;
   standardBatchSize?: number | null;
   batchSizeUnit?: string | null;
   density?: number | null;
@@ -111,8 +112,16 @@ export interface ProductionWorkOrder {
   actualEndAt: string | null;
   note: string | null;
   createdBy: number;
-  bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string } | null;
-  productBatch?: { id: number; batchNo: string; productName: string; stockQuantity: number; unit: string } | null;
+  bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null } | null;
+  productBatch?: {
+    id: number;
+    batchNo: string;
+    productName: string;
+    productionDate: string | null;
+    expiryDate: string | null;
+    stockQuantity: number;
+    unit: string;
+  } | null;
   steps: ProductionStep[];
   qualityChecks: ProductionQualityCheck[];
   createdAt: string;
@@ -137,6 +146,7 @@ export const productionService = {
     status?: string | null;
     formulationMode?: string | null;
     outputUnit: string;
+    shelfLifeDays: number;
     standardBatchSize?: number | null;
     batchSizeUnit?: string | null;
     density?: number | null;

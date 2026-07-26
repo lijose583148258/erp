@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:4dce99ba-7587-4373-856f-b647f752322f",
+  "serialNumber": "urn:uuid:70f24cd8-146a-443b-89e9-54a377f8d76a",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-26T08:12:53.354Z",
+    "timestamp": "2026-07-26T08:43:09.944Z",
     "component": {
       "type": "application",
       "name": "chemerp-pro---chemical-trade-saas",

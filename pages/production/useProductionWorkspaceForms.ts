@@ -25,6 +25,7 @@ export const useProductionBomForm = () => {
   const [bomStatus, setBomStatus] = useState<BomLifecycleStatus>('draft');
   const [bomFormulationMode, setBomFormulationMode] = useState('fixed');
   const [bomOutputUnit, setBomOutputUnit] = useState('kg');
+  const [bomShelfLifeDays, setBomShelfLifeDays] = useState('');
   const [bomStandardBatchSize, setBomStandardBatchSize] = useState('');
   const [bomBatchSizeUnit, setBomBatchSizeUnit] = useState('kg');
   const [bomDensity, setBomDensity] = useState('');
@@ -43,6 +44,7 @@ export const useProductionBomForm = () => {
     setBomStatus('draft');
     setBomFormulationMode('fixed');
     setBomOutputUnit('kg');
+    setBomShelfLifeDays('');
     setBomStandardBatchSize('');
     setBomBatchSizeUnit('kg');
     setBomDensity('');
@@ -85,6 +87,11 @@ export const useProductionBomForm = () => {
     setBomOutputUnit: (value: string) => {
       touch.markTouched();
       setBomOutputUnit(value);
+    },
+    bomShelfLifeDays,
+    setBomShelfLifeDays: (value: string) => {
+      touch.markTouched();
+      setBomShelfLifeDays(value);
     },
     bomStandardBatchSize,
     setBomStandardBatchSize: (value: string) => {

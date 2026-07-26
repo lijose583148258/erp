@@ -146,6 +146,7 @@ async function setControlByTestId(page, testId, value) {
 async function fillBomHeaderFields(page, testData) {
   await page.getByTestId('production-bom-product-name').fill(testData.bomName);
   await page.getByTestId('production-bom-output-unit').fill(testData.outputUnit);
+  await page.getByTestId('production-bom-shelf-life-days').fill(testData.shelfLifeDays);
   await page.getByTestId('production-bom-standard-batch-size').fill(testData.standardBatchSize);
   const advancedToggle = page.getByTestId('production-bom-toggle-advanced');
   if (await advancedToggle.count()) {
