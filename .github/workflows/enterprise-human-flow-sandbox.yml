@@ -1,0 +1,202 @@
+name: Enterprise Human Flow Sandbox
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/enterprise-human-flow-sandbox.yml'
+      - 'scripts/browser-human-flow-audit-v1.cjs'
+      - 'scripts/lib/browser-human-flow-*.cjs'
+      - 'components/**'
+      - 'services/**'
+      - 'backend/**'
+      - 'package.json'
+      - 'package-lock.json'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: enterprise-human-flow-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-first-human-flow:
+    name: UI-first ERP human workflow audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    services:
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+
+    env:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      NODE_ENV: production
+      AILAODA_DEPLOYMENT_MODE: local
+      PORT: 5001
+      SERVE_FRONTEND: "true"
+      TRUST_PROXY: "false"
+      CORS_ORIGIN: http://127.0.0.1:5001
+      AILAODA_BLOCK_DEMO_CREDENTIALS: "1"
+      AI_GATEWAY_EXTERNAL_ENABLED: "false"
+      REDIS_URL: redis://127.0.0.1:6379
+      AILAODA_REDIS_URL: redis://127.0.0.1:6379
+      REDIS_REQUIRED: "true"
+      API_RATE_LIMIT_MAX: "10000"
+      API_RATE_LIMIT_WINDOW_MS: "600000"
+      APP_URL: http://127.0.0.1:5001/
+      AUDIT_TIMEOUT_MS: "900000"
+      BROWSER_AUDIT_VISIBLE: "0"
+      BROWSER_AUDIT_EXECUTABLE_PATH: /usr/bin/google-chrome
+
+    steps:
+      - name: Checkout isolated source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Setup Node
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Chinese fonts
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk
+          fc-cache -f
+          fc-match 'Noto Sans CJK SC'
+
+      - name: Create ephemeral secrets and runtime paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p output/human-flow-sandbox output/playwright
+          jwt_secret="$(openssl rand -hex 48)"
+          metrics_token="$(openssl rand -hex 32)"
+          admin_password="$(openssl rand -hex 24)Aa1!"
+          echo "::add-mask::$jwt_secret"
+          echo "::add-mask::$metrics_token"
+          echo "::add-mask::$admin_password"
+          {
+            printf 'JWT_SECRET=%s\n' "$jwt_secret"
+            printf 'AILAODA_METRICS_BEARER_TOKEN=%s\n' "$metrics_token"
+            printf 'AILAODA_ADMIN_USERNAME=%s\n' 'human-flow-admin'
+            printf 'AILAODA_ADMIN_PASSWORD=%s\n' "$admin_password"
+            printf 'AILAODA_ADMIN_EMAIL=%s\n' 'human-flow-admin@local.test'
+            printf 'DATABASE_URL=file:%s/ailaoda-human-flow/stable.db\n' "$RUNNER_TEMP"
+            printf 'AILAODA_RUNTIME_DB_PATH=%s/ailaoda-human-flow/stable.db\n' "$RUNNER_TEMP"
+            printf 'BACKUP_DIR=%s/ailaoda-human-flow/backups\n' "$RUNNER_TEMP"
+            printf 'UPLOAD_DIR=%s/ailaoda-human-flow/uploads\n' "$RUNNER_TEMP"
+            printf 'LOG_DIR=%s/ailaoda-human-flow/logs\n' "$RUNNER_TEMP"
+          } >> "$GITHUB_ENV"
+
+      - name: Install locked dependencies
+        run: |
+          npm ci --include=dev
+          npm --prefix backend ci --include=dev
+
+      - name: Build source
+        run: |
+          npm run prisma:validate
+          npm run typecheck
+          npm run build:backend
+          npm run build
+
+      - name: Prepare isolated database
+        run: |
+          npm --prefix backend run db:manage -- prepare
+          npm --prefix backend run db:manage -- prepare
+          npm --prefix backend run db:manage -- bootstrap-admin
+
+      - name: Verify runner browser
+        run: |
+          google-chrome --version
+          fc-match 'Noto Sans CJK SC'
+
+      - name: Start isolated ERP runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npm run start:backend > output/human-flow-sandbox/server.log 2>&1 &
+          echo $! > output/human-flow-sandbox/server.pid
+          for attempt in $(seq 1 90); do
+            if curl --silent --fail http://127.0.0.1:5001/livez > output/human-flow-sandbox/livez.json; then
+              break
+            fi
+            if ! kill -0 "$(cat output/human-flow-sandbox/server.pid)" 2>/dev/null; then
+              cat output/human-flow-sandbox/server.log
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent --show-error http://127.0.0.1:5001/health | tee output/human-flow-sandbox/health.json
+
+      - name: List UI human-flow modules
+        run: npm run audit:human-flow:list | tee output/human-flow-sandbox/module-list.json
+
+      - name: Run UI-first enterprise human flow
+        run: npm run audit:human-flow
+
+      - name: Enforce human-flow evidence contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('fs');
+          const reportPath = 'output/playwright/browser-human-flow-audit-report-v1.json';
+          const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
+          const expected = ['crm', 'orders', 'shipping', 'procurement-warehouse', 'collections-adjustment', 'production'];
+          const actual = (report.modules || []).map(item => item.name);
+          if (report.status !== 'passed') throw new Error(`human flow status=${report.status}: ${report.error || ''}`);
+          if (report.consoleErrors?.length) throw new Error(`browser console errors=${report.consoleErrors.length}`);
+          for (const name of expected) {
+            const module = (report.modules || []).find(item => item.name === name);
+            if (!module || module.status !== 'passed') throw new Error(`module not passed: ${name}`);
+          }
+          fs.writeFileSync('output/human-flow-sandbox/verdict.json', JSON.stringify({
+            status: 'passed',
+            expectedModules: expected,
+            actualModules: actual,
+            consoleErrors: report.consoleErrors?.length || 0,
+            runId: report.runId || null,
+            checkedAt: new Date().toISOString(),
+          }, null, 2) + '\n');
+          NODE
+
+      - name: Capture runtime diagnostics
+        if: always()
+        shell: bash
+        run: |
+          curl --silent --show-error http://127.0.0.1:5001/health > output/human-flow-sandbox/final-health.json || true
+          cp -r output/audit output/human-flow-sandbox/audit 2>/dev/null || true
+          tail -n 2000 output/human-flow-sandbox/server.log > output/human-flow-sandbox/server-tail.log 2>/dev/null || true
+
+      - name: Upload UI-first evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: enterprise-human-flow-evidence
+          path: |
+            output/playwright/
+            output/human-flow-sandbox/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Stop isolated runtime
+        if: always()
+        shell: bash
+        run: |
+          if [ -f output/human-flow-sandbox/server.pid ]; then
+            kill -TERM "$(cat output/human-flow-sandbox/server.pid)" 2>/dev/null || true
+            sleep 2
+          fi
