@@ -204,7 +204,7 @@ export function ProductionBomSection({
             <Field dataTestId="production-bom-version" label="版本" value={bomVersion} onChange={value => { onFormTouched(); setBomVersion(value); }} placeholder="v1" />
             <SelectField dataTestId="production-bom-type" label="配方类型" value={bomType} onChange={value => { onFormTouched(); setBomType(value); }} options={BOM_TYPE_OPTIONS} />
             <SelectField dataTestId="production-bom-status" label="配方状态" value={bomStatus} onChange={value => { onFormTouched(); setBomStatus(value); }} options={BOM_STATUS_OPTIONS} />
-            <SelectField dataTestId="production-bom-formulation-mode" label="配方模式" value={bomFormulationMode} onChange={value => { onFormTouched(); setBomFormulationMode(value); }} options={FORMULATION_MODE_OPTIONS} />
+            <SelectField dataTestId="production-bom-formulation-mode" label="配方整体核算模式" value={bomFormulationMode} onChange={value => { onFormTouched(); setBomFormulationMode(value); }} options={FORMULATION_MODE_OPTIONS} />
             <Field
               dataTestId="production-bom-output-unit"
               label="输出单位"
@@ -294,6 +294,11 @@ export function ProductionBomSection({
           {bomFormulationMode === 'percentage' ? (
             <div className="rounded-[24px] border border-amber-200 bg-amber-50/80 px-4 py-3 text-xs font-bold text-amber-700 dark:bg-amber-900/20 dark:border-amber-800 dark:text-amber-200">
               当前配方百分比合计：{bomPercentageSummary.toFixed(2)}%。百分比只代表配方占比；系统会换算为“每 1 {bomOutputUnit || '单位'} 成品的单位单耗”，标准批量只用于展示批量用量，避免完工扣料被重复放大。
+            </div>
+          ) : null}
+          {bomFormulationMode === 'fixed' && bomItems.some(item => item.dosageMode === 'percentage' && Number(item.percentage || 0) > 0) ? (
+            <div className="rounded-[24px] border border-blue-200 bg-blue-50/80 px-4 py-3 text-xs font-bold leading-6 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
+              当前整体按固定单耗核算，但部分原料行使用百分比录入。保存时这些行会换算成单位单耗；百分比行小计不要求等于 100%。如果整份配方都按比例组成，请把上方“配方整体核算模式”改为百分比配方。
             </div>
           ) : null}
           {bomFormErrors.percentage || bomFormErrors.items ? (
