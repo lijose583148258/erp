@@ -227,6 +227,83 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/materials`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'Search canonical material master data',
+        description: 'Exact-first relational search across code, Chinese/English/Vietnamese names, CAS, HS code, and governed aliases. Requires materials.read.',
+        security: secured(true),
+        parameters: [
+          queryParam('q', { type: 'string', maxLength: 160 }, 'Code, name, CAS number, HS code, or multilingual alias.'),
+          queryParam('status', { type: 'string', enum: ['draft', 'active', 'blocked', 'retired'] }, 'Lifecycle status.'),
+          queryParam('category', { type: 'string', enum: ['raw_material', 'finished_good', 'semi_finished', 'packaging', 'consumable', 'service'] }, 'Material category.'),
+          queryParam('limit', { type: 'integer', minimum: 1, maximum: 100, default: 30 }, 'Result limit.'),
+          queryParam('offset', { type: 'integer', minimum: 0, default: 0 }, 'Result offset.'),
+        ],
+        responses: jsonResponse,
+      },
+      post: {
+        tags: ['Materials'],
+        summary: 'Create canonical material master data',
+        description: 'Creates a draft or governed material and its multilingual aliases in one transaction. Requires materials.write.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MaterialWriteRequest' } } },
+        },
+        responses: { ...writeResponses, '201': { description: 'Material created.' } },
+      },
+    };
+
+    paths[`${prefix}/materials/{id}`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'Read canonical material master data',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: { ...jsonResponse, '404': { description: 'Material not found.' } },
+      },
+      patch: {
+        tags: ['Materials'],
+        summary: 'Update canonical material with optimistic concurrency',
+        description: 'The optional expectedUpdatedAt field rejects stale edits with 409. Active materials cannot remain temporary.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MaterialUpdateRequest' } } },
+        },
+        responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/materials/{id}/aliases`] = {
+      post: {
+        tags: ['Materials'],
+        summary: 'Add a governed multilingual alias',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['alias'],
+                properties: {
+                  alias: { type: 'string', minLength: 1, maxLength: 160 },
+                  language: { type: 'string', enum: ['zh', 'en', 'vi', 'und'] },
+                  aliasType: { type: 'string', enum: ['business', 'supplier', 'customer', 'legacy', 'translation'] },
+                },
+              },
+            },
+          },
+        },
+        responses: { ...writeResponses, '201': { description: 'Alias created.' } },
+      },
+    };
+
     paths[`${prefix}/production/boms`] = {
       post: {
         tags: ['Production'],

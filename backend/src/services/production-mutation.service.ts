@@ -102,16 +102,64 @@ const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.production
 export class ProductionMutationService {
   static async createBom(input: ProductionBomInput, createdBy: number) {
     const bomNo = buildNo('BOM');
-    const items = (input.items || [])
+    const draftItems = (input.items || [])
       .map(item => ({
         ...item,
         materialName: String(item.materialName || item.materialCode || '').trim(),
         materialCode: item.materialCode ? String(item.materialCode).trim() : null,
         quantityPerUnit: normalizeBomQuantityPerUnit(item),
       }))
-      .filter(item => item.materialName && Number(item.quantityPerUnit || 0) > 0);
+      .filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
 
     return prisma.$transaction(async tx => {
+      const materialIds = Array.from(new Set(
+        draftItems
+          .map(item => Number(item.materialId || 0))
+          .filter(id => Number.isInteger(id) && id > 0),
+      ));
+      const materials = materialIds.length > 0
+        ? await tx.material.findMany({
+          where: { id: { in: materialIds } },
+          select: {
+            id: true,
+            code: true,
+            nameZh: true,
+            baseUnit: true,
+            status: true,
+            isTemporary: true,
+          },
+        })
+        : [];
+      if (materials.length !== materialIds.length) {
+        throw new Error('BOM_MATERIAL_NOT_FOUND');
+      }
+      const materialById = new Map(materials.map(material => [material.id, material]));
+      const controlledBom = (input.status || 'draft') !== 'draft';
+      const items = draftItems.map((item, index) => {
+        const materialId = item.materialId ? Number(item.materialId) : null;
+        if (!materialId) {
+          if (controlledBom) throw new Error(`BOM_MATERIAL_MASTER_REQUIRED:${index + 1}`);
+          return { ...item, materialId: null };
+        }
+        const material = materialById.get(materialId);
+        if (!material) throw new Error('BOM_MATERIAL_NOT_FOUND');
+        if (material.status === 'blocked' || material.status === 'retired') {
+          throw new Error(`BOM_MATERIAL_UNAVAILABLE:${material.code}`);
+        }
+        if (controlledBom && (material.status !== 'active' || material.isTemporary)) {
+          throw new Error(`BOM_MATERIAL_NOT_RELEASED:${material.code}`);
+        }
+        if (item.unit.trim().toLocaleLowerCase() !== material.baseUnit.trim().toLocaleLowerCase()) {
+          throw new Error(`BOM_MATERIAL_UNIT_MISMATCH:${material.code}:${item.unit}:${material.baseUnit}`);
+        }
+        return {
+          ...item,
+          materialId,
+          materialCode: material.code,
+          materialName: material.nameZh,
+        };
+      });
+
       const created = await tx.productionBom.create({
         data: {
           bomNo,
@@ -134,6 +182,7 @@ export class ProductionMutationService {
           createdBy,
           items: {
             create: items.map(item => ({
+              materialId: item.materialId,
               materialName: item.materialName,
               materialCode: item.materialCode || null,
               ingredientRole: item.ingredientRole || null,

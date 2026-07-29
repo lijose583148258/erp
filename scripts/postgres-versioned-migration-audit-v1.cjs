@@ -39,6 +39,16 @@ requireTokens('backend/prisma/postgres-migrations/202607260001_production-bom-sh
   'production_boms_shelf_life_days_check',
   'BETWEEN 1 AND 3650',
 ]);
+requireTokens('backend/prisma/postgres-migrations/202607290001_material-master-foundation/migration.sql', [
+  'CREATE TABLE IF NOT EXISTS "materials"',
+  'CREATE TABLE IF NOT EXISTS "material_aliases"',
+  'materials_code_key',
+  'material_aliases_material_id_normalized_alias_language_key',
+  'material_aliases_normalized_alias_language_idx',
+  'ALTER TABLE "production_bom_items" ADD COLUMN IF NOT EXISTS "material_id"',
+  'production_bom_items_material_id_fkey',
+  'ON DELETE SET NULL',
+]);
 requireTokens('scripts/run-postgres-import-rehearsal-v1.cjs', [
   'apply-versioned-postgres-migrations',
   'verify-versioned-postgres-migrations',

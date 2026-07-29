@@ -24,7 +24,6 @@ export type ValidationLevel = 'normal' | 'warning' | 'blocking';
 export type BomGridRow = BomItemDraft & {
   rowKey: string;
   sequenceNo: number;
-  materialId?: number;
   validationLevel: ValidationLevel;
   validationMessages: string[];
   dirtyFields: string[];
@@ -85,6 +84,7 @@ type GridBridge = {
 const decimalText = z.union([z.string(), z.number()]).transform((value) => String(value).trim());
 
 export const bomGridDraftSchema = z.object({
+  materialId: z.number().int().positive().nullable().optional(),
   materialName: z.string().trim().max(160),
   materialCode: z.string().trim().max(80),
   ingredientRole: z.string().trim().max(64),
@@ -385,7 +385,6 @@ export class GovernedBomGridAdapter implements BomGridAdapter {
       validationLevel: _validationLevel,
       validationMessages: _validationMessages,
       dirtyFields: _dirtyFields,
-      materialId: _materialId,
       ...draft
     }) => ({ ...draft }));
   }

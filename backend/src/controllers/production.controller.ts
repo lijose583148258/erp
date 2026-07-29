@@ -110,7 +110,8 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to create production bom', error);
       const message = error instanceof Error ? error.message : 'Failed to create production bom';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      const status = message.startsWith('BOM_MATERIAL_') ? 409 : resolveProductionStatusCode(message);
+      res.status(status).json({ success: false, message } as ApiResponse);
     }
   }
 

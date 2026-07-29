@@ -3,6 +3,7 @@ import { ClipboardPaste, Columns3, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-
 import { ActionToolbar } from '../../components/ui';
 import { getBomOperatingMetrics, getBomOperatingSummary, ProductionBomOperatingFields } from './ProductionBomOperatingFields';
 import { ProductionBomMobileRows } from './ProductionBomMobileRows';
+import { MaterialLookupField } from './MaterialLookupField';
 import {
   CHEMICAL_ROLE_OPTIONS,
   DOSAGE_MODE_OPTIONS,
@@ -301,13 +302,12 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                     </span>
                   </td>
                   <td className="min-w-[150px] max-w-[190px] px-2 py-2.5 align-top">
-                    <input
-                      data-testid={`production-bom-row-${index}-material-code`}
-                      aria-label={`第 ${index + 1} 条原料的代号或编码`}
-                      title={`第 ${index + 1} 条原料：代号或编码（必填）`}
-                      value={item.materialCode}
-                      onChange={(e) => updateItem(index, { materialCode: e.target.value })}
-                      placeholder="例如 R-001"
+                    <MaterialLookupField
+                      rowNumber={index + 1}
+                      materialId={item.materialId ?? null}
+                      materialCode={item.materialCode}
+                      materialName={item.materialName}
+                      onChange={(patch) => updateItem(index, patch)}
                       className={`${commonInputClass} border-blue-200 focus:border-blue-500 dark:border-blue-900/50`}
                     />
                   </td>
@@ -317,7 +317,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       aria-label={`第 ${index + 1} 条原料的名称`}
                       title={`第 ${index + 1} 条原料：名称（保密配方可留空）`}
                       value={item.materialName}
-                      onChange={(e) => updateItem(index, { materialName: e.target.value })}
+                      onChange={(e) => updateItem(index, { materialId: null, materialName: e.target.value })}
                       placeholder="名称（可选）"
                       className={commonInputClass}
                     />

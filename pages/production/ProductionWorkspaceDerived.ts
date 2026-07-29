@@ -199,6 +199,7 @@ export const buildEffectiveBomItemsPayload = (bomItems: BomItemDraft[]) => {
     }
 
     items.push({
+      materialId: item.materialId,
       materialName: materialName || materialCode,
       materialCode: materialCode || null,
       ingredientRole: item.ingredientRole || null,

@@ -100,6 +100,7 @@ export const TEMPLATES: ProductionAdjustmentTemplate[] = [
 ];
 
 export const newBomItem = (): BomItemDraft => ({
+  materialId: null,
   materialName: '',
   materialCode: '',
   ingredientRole: 'main_resin',

@@ -34,6 +34,8 @@ model ProductionBomItem {
   id              Int           @id @default(autoincrement())
   bomId           Int           @map("bom_id")
   bom             ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  materialId      Int?          @map("material_id")
+  material        Material?     @relation(fields: [materialId], references: [id], onDelete: SetNull)
   materialName    String        @map("material_name")
   materialCode    String?       @map("material_code")
   ingredientRole  String?       @map("ingredient_role")
@@ -50,6 +52,7 @@ model ProductionBomItem {
   createdAt       DateTime      @default(now()) @map("created_at")
 
   @@index([bomId])
+  @@index([materialId])
   @@map("production_bom_items")
 }
 

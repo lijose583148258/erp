@@ -62,6 +62,7 @@ const KNOWN_TABLES = new Set([
   'receivable_adjustments',
   'workflow_definitions', 'workflow_instances', 'workflow_tasks', 'workflow_actions',
   'notifications', 'business_events', 'alert_rules', 'bi_sales_daily',
+  'materials', 'material_aliases',
 ]);
 
 export const columnExists = async (tableName: string, columnName: string) => {

@@ -20,6 +20,7 @@ export interface ProductionSummary {
 
 export interface ProductionBomItem {
   id?: number;
+  materialId?: number | null;
   materialName: string;
   materialCode?: string | null;
   ingredientRole?: string | null;

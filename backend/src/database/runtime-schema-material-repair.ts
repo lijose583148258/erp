@@ -1,0 +1,62 @@
+import {
+  addColumnIfMissing,
+  createIndexIfMissing,
+  createTableIfMissing,
+  type SchemaRepairReport,
+} from './runtime-schema-repair-utils';
+
+export const repairMaterialSchema = async (report: SchemaRepairReport) => {
+  await createTableIfMissing(report, 'materials', `
+    CREATE TABLE "materials" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "code" TEXT NOT NULL,
+      "name_zh" TEXT NOT NULL,
+      "name_en" TEXT,
+      "name_vi" TEXT,
+      "category" TEXT NOT NULL DEFAULT 'raw_material',
+      "base_unit" TEXT NOT NULL,
+      "specification" TEXT,
+      "status" TEXT NOT NULL DEFAULT 'draft',
+      "is_temporary" INTEGER NOT NULL DEFAULT 1,
+      "cas_number" TEXT,
+      "un_number" TEXT,
+      "hs_code" TEXT,
+      "shelf_life_days" INTEGER,
+      "compliance_notes" TEXT,
+      "created_by" INTEGER NOT NULL,
+      "updated_by" INTEGER NOT NULL,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+
+  await createTableIfMissing(report, 'material_aliases', `
+    CREATE TABLE "material_aliases" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "material_id" INTEGER NOT NULL,
+      "alias" TEXT NOT NULL,
+      "normalized_alias" TEXT NOT NULL,
+      "language" TEXT NOT NULL DEFAULT 'und',
+      "alias_type" TEXT NOT NULL DEFAULT 'business',
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "material_aliases_material_id_fkey"
+        FOREIGN KEY ("material_id") REFERENCES "materials" ("id")
+        ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `);
+
+  await createIndexIfMissing(report, 'materials_code_key', 'CREATE UNIQUE INDEX "materials_code_key" ON "materials"("code")');
+  await createIndexIfMissing(report, 'materials_name_zh_idx', 'CREATE INDEX "materials_name_zh_idx" ON "materials"("name_zh")');
+  await createIndexIfMissing(report, 'materials_name_en_idx', 'CREATE INDEX "materials_name_en_idx" ON "materials"("name_en")');
+  await createIndexIfMissing(report, 'materials_name_vi_idx', 'CREATE INDEX "materials_name_vi_idx" ON "materials"("name_vi")');
+  await createIndexIfMissing(report, 'materials_category_status_idx', 'CREATE INDEX "materials_category_status_idx" ON "materials"("category", "status")');
+  await createIndexIfMissing(report, 'materials_cas_number_idx', 'CREATE INDEX "materials_cas_number_idx" ON "materials"("cas_number")');
+  await createIndexIfMissing(report, 'materials_hs_code_idx', 'CREATE INDEX "materials_hs_code_idx" ON "materials"("hs_code")');
+  await createIndexIfMissing(report, 'material_aliases_material_id_normalized_alias_language_key', 'CREATE UNIQUE INDEX "material_aliases_material_id_normalized_alias_language_key" ON "material_aliases"("material_id", "normalized_alias", "language")');
+  await createIndexIfMissing(report, 'material_aliases_normalized_alias_language_idx', 'CREATE INDEX "material_aliases_normalized_alias_language_idx" ON "material_aliases"("normalized_alias", "language")');
+  await createIndexIfMissing(report, 'material_aliases_material_id_idx', 'CREATE INDEX "material_aliases_material_id_idx" ON "material_aliases"("material_id")');
+  await createIndexIfMissing(report, 'material_aliases_alias_idx', 'CREATE INDEX "material_aliases_alias_idx" ON "material_aliases"("alias")');
+
+  await addColumnIfMissing(report, 'production_bom_items', 'material_id', 'INTEGER');
+  await createIndexIfMissing(report, 'production_bom_items_material_id_idx', 'CREATE INDEX "production_bom_items_material_id_idx" ON "production_bom_items"("material_id")');
+};

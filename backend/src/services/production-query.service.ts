@@ -4,6 +4,7 @@ export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'q
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
 
 export interface ProductionBomItemInput {
+  materialId?: number | null;
   materialName?: string | null;
   materialCode?: string | null;
   ingredientRole?: string | null;

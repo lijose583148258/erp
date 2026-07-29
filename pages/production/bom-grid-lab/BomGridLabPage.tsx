@@ -32,6 +32,7 @@ type GoldenFixtures = {
 };
 
 const toApiItems = (drafts: BomItemDraft[]): ProductionBomItem[] => drafts.map((item) => ({
+  materialId: item.materialId,
   materialName: item.materialName,
   materialCode: item.materialCode || null,
   ingredientRole: item.ingredientRole || null,
@@ -48,6 +49,7 @@ const toApiItems = (drafts: BomItemDraft[]): ProductionBomItem[] => drafts.map((
 }));
 
 const fromApiItems = (items: ProductionBomItem[]): BomItemDraft[] => items.map((item) => ({
+  materialId: item.materialId ?? null,
   materialName: item.materialName,
   materialCode: item.materialCode || '',
   ingredientRole: item.ingredientRole || '',

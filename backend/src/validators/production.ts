@@ -41,6 +41,7 @@ export const createAdjustmentSchema = z.object({
 });
 
 const productionBomItemSchema = z.object({
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   materialName: z.string().trim().optional().nullable(),
   materialCode: z.string().trim().optional().nullable(),
   ingredientRole: z.string().trim().optional().nullable(),
@@ -55,11 +56,11 @@ const productionBomItemSchema = z.object({
   yieldContribution: z.coerce.number().nonnegative().max(100).optional().nullable(),
   notes: z.string().trim().optional().nullable(),
 }).strict().superRefine((value, ctx) => {
-  if (!value.materialName && !value.materialCode) {
+  if (!value.materialId && !value.materialName && !value.materialCode) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['materialCode'],
-      message: '物料名称或保密代号/编码至少填写一个',
+      message: '请选择统一物料，或至少填写物料名称/保密代号',
     });
   }
 

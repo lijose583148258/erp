@@ -10,6 +10,7 @@ import {
   toFiniteNumber,
   type BomItemDraft,
 } from './productionBomLineModel';
+import { MaterialLookupField } from './MaterialLookupField';
 
 type Props = {
   items: BomItemDraft[];
@@ -108,12 +109,14 @@ export function ProductionBomMobileRows({
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <MobileField label="原料代号 / 编码" required>
-                  <input
-                    aria-label={`移动端第 ${index + 1} 条原料的代号或编码`}
-                    value={item.materialCode}
-                    onChange={(event) => updateItem(index, { materialCode: event.target.value })}
-                    placeholder="例如 R-001"
+                  <MaterialLookupField
+                    rowNumber={index + 1}
+                    materialId={item.materialId ?? null}
+                    materialCode={item.materialCode}
+                    materialName={item.materialName}
+                    onChange={(patch) => updateItem(index, patch)}
                     className={`${inputClass} border-blue-200 dark:border-blue-900/60`}
+                    mobile
                   />
                 </MobileField>
               </div>
@@ -122,7 +125,7 @@ export function ProductionBomMobileRows({
                   <input
                     aria-label={`移动端第 ${index + 1} 条原料的名称`}
                     value={item.materialName}
-                    onChange={(event) => updateItem(index, { materialName: event.target.value })}
+                    onChange={(event) => updateItem(index, { materialId: null, materialName: event.target.value })}
                     placeholder="保密配方可只填代号"
                     className={inputClass}
                   />

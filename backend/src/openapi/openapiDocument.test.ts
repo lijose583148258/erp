@@ -155,6 +155,28 @@ describe('OpenAPI contract foundation', () => {
       .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, maximum: 3650 }));
   });
 
+  it('documents canonical material search, lifecycle writes, and BOM linkage', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const materials = document.paths[`${prefix}/materials`];
+      const material = document.paths[`${prefix}/materials/{id}`];
+      const aliases = document.paths[`${prefix}/materials/{id}/aliases`];
+      expect(materials?.get?.parameters?.map(parameter => parameter.name))
+        .toEqual(expect.arrayContaining(['q', 'status', 'category', 'limit', 'offset']));
+      expect((materials?.post?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/MaterialWriteRequest' });
+      expect((material?.patch?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/MaterialUpdateRequest' });
+      expect(aliases?.post?.responses['201']).toBeDefined();
+    }
+
+    expect(document.components.schemas.ProductionBomItemRequest.properties.materialId)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1 }));
+    expect(document.components.schemas.Material).toBeDefined();
+    expect(document.components.schemas.MaterialAlias).toBeDefined();
+  });
+
   it('resolves every local schema reference after composing the document', () => {
     const document = buildOpenApiDocument();
     const schemaNames = new Set(Object.keys(document.components.schemas));
