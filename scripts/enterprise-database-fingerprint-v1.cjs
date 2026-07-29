@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const LABEL = process.env.ENTERPRISE_FINGERPRINT_LABEL || 'database';
 const PROVIDER = String(process.env.AUDIT_PRISMA_PROVIDER || 'sqlite').toLowerCase();
 const OUT = path.join(process.cwd(), 'output', 'audit', `enterprise-database-fingerprint-${LABEL}-v1.json`);
+const FULL_CONTENT = String(process.env.ENTERPRISE_FINGERPRINT_FULL_CONTENT || '').toLowerCase() === 'true';
 let prisma = null;
 
 const q = (name) => `"${String(name).replace(/"/g, '""')}"`;
@@ -31,6 +32,23 @@ function resolveClientPath() {
   return path.resolve(process.cwd(), 'backend/node_modules/@prisma/client');
 }
 
+function canonicalForHash(value) {
+  const normalized = normalizeScalar(value);
+  if (Array.isArray(normalized)) return normalized.map(canonicalForHash);
+  if (normalized && typeof normalized === 'object') return Object.fromEntries(Object.keys(normalized).sort().map((key) => [key, canonicalForHash(normalized[key])]));
+  if (typeof normalized === 'string' && /^-?\d+(?:\.\d+)?$/.test(normalized)) return `numeric:${normalized.replace(/^(-?)0+(?=\d)/, '$1')}`;
+  if (typeof normalized === 'number') return `numeric:${String(normalized)}`;
+  return normalized;
+}
+
+async function tableContentHash(name) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT * FROM ${q(name)}`);
+  const canonicalRows = rows.map((row) => JSON.stringify(canonicalForHash(row))).sort();
+  const hash = crypto.createHash('sha256');
+  hash.update(`${name}\n${canonicalRows.length}\n`);
+  for (const row of canonicalRows) hash.update(`${row}\n`);
+  return hash.digest('hex');
+}
 function writeReport(report) {
   fs.mkdirSync(path.dirname(OUT), { recursive: true });
   fs.writeFileSync(OUT, JSON.stringify(report, null, 2) + '\n', 'utf8');
@@ -50,6 +68,11 @@ async function main() {
     counts[name] = Number(result[0].count);
   }
 
+  const tableContentHashes = {};
+  if (FULL_CONTENT) {
+    for (const name of Object.keys(counts)) tableContentHashes[name] = await tableContentHash(name);
+  }
+
   const critical = {};
   const candidates = [
     ['orders', 'SELECT COUNT(*) AS rows, COALESCE(SUM(final_amount),0) AS amount FROM orders'],
@@ -67,7 +90,7 @@ async function main() {
   }
 
   const totalRows = Object.values(counts).reduce((a, b) => a + b, 0);
-  const payload = normalizeScalar({ label: LABEL, provider: PROVIDER, totalRows, tableCount: Object.keys(counts).length, counts, critical });
+  const payload = normalizeScalar({ label: LABEL, provider: PROVIDER, totalRows, tableCount: Object.keys(counts).length, counts, critical, fullContent: FULL_CONTENT, tableContentHashes: FULL_CONTENT ? tableContentHashes : undefined });
   payload.fingerprintSha256 = crypto.createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   writeReport({ name: 'Enterprise database fingerprint', version: 1, status: 'passed', ...payload, checkedAt: new Date().toISOString() });
   console.log(JSON.stringify(payload));
