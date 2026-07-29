@@ -1,6 +1,7 @@
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig, loadEnv, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -39,7 +40,29 @@ const frontendBundleInventoryPlugin = (): Plugin => ({
   },
 });
 
-export default defineConfig(() => {
+const bomGridLabFixturePlugin = (): Plugin => ({
+  name: 'ailaoda-bom-grid-lab-fixtures',
+  apply: 'build',
+  generateBundle() {
+    const fixtureDir = path.resolve(__dirname, 'tests', 'fixtures', 'bom-grid');
+    for (const fileName of [
+      'acrylic-emulsion-100-rows.json',
+      'acrylic-emulsion-1000-rows.json',
+      'paste-300-rows.tsv',
+      'expected-save-payload.json',
+    ]) {
+      this.emitFile({
+        type: 'asset',
+        fileName: `bom-grid-lab-fixtures/${fileName}`,
+        source: fs.readFileSync(path.join(fixtureDir, fileName)),
+      });
+    }
+  },
+});
+
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, __dirname, '');
+  const bomGridLabEnabled = env.VITE_BOM_GRID_LAB_ENABLED === 'true';
   return {
     cacheDir: '.vite-cache',
     server: {
@@ -48,12 +71,15 @@ export default defineConfig(() => {
       strictPort: true,
       host: '0.0.0.0',
       watch: {
+        // Chokidar can miss atomic writes under non-ASCII Windows paths.
+        // Polling only affects the local development server.
+        usePolling: process.platform === 'win32',
+        interval: 300,
         ignored: [
           '**/.vite-cache/**',
           '**/backups/**',
           '**/dist/**',
           '**/logs/**',
-          '**/output/**',
           '**/runtime-db/**',
           '**/scratchdb/**',
           '**/temp*/**',
@@ -76,7 +102,11 @@ export default defineConfig(() => {
       // as dev-server entry points by Vite's dependency scanner.
       entries: ['index.html'],
     },
-    plugins: [react(), frontendBundleInventoryPlugin()],
+    plugins: [
+      react(),
+      frontendBundleInventoryPlugin(),
+      ...(bomGridLabEnabled ? [bomGridLabFixturePlugin()] : []),
+    ],
     build: {
       outDir: 'dist',
       emptyOutDir: true,

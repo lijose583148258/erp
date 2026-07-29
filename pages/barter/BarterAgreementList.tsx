@@ -34,9 +34,9 @@ export function BarterAgreementList({
               <StatusBadge status={agreement.status} label={barterStatusLabelMap[agreement.status] || agreement.status} className="shrink-0" />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3 text-sm font-bold text-slate-700">
-              <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">已抵</div><div>{formatPrice(agreement.executedOffsetAmount)}</div></div>
-              <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">待抵</div><div>{formatPrice(agreement.remainingOffsetAmount)}</div></div>
-              <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">批次</div><div>{agreement.batchCount || 0}</div></div>
+              <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">已抵</div><div>{formatPrice(agreement.executedOffsetAmount)}</div></div>
+              <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">待抵</div><div>{formatPrice(agreement.remainingOffsetAmount)}</div></div>
+              <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">批次</div><div>{agreement.batchCount || 0}</div></div>
             </div>
           </button>
         ))}

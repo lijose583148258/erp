@@ -150,7 +150,7 @@ export const PurchaseOrderWorkspace = ({
         <FormField dataTestId="purchase-eta-input" type="date" value={newOrder.eta} onChange={(value) => updateOrderField('eta', value)} label="预计到货" error={purchaseErrors.eta} />
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 dark:border-emerald-900/30 dark:bg-emerald-950/20">
           <div className="mb-3 flex items-center justify-between gap-3">
-            <p className="text-[10px] font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">到岸成本</p>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">到岸成本</p>
             <p className="text-[11px] font-bold text-emerald-700 dark:text-emerald-300">
               CNY {purchaseCostPreview.landedUnitCost.toLocaleString()} / {newOrder.unit || t.unit}
             </p>
@@ -172,7 +172,7 @@ export const PurchaseOrderWorkspace = ({
             <div className="flex items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
               <div className="flex items-center">
                 <ArrowRightLeft size={16} className="mr-2 text-indigo-600" />
-                <span className="text-[10px] font-black uppercase tracking-widest text-indigo-700">{t.backToBack}</span>
+                <span className="text-xs font-black uppercase tracking-widest text-indigo-700">{t.backToBack}</span>
               </div>
               <button
                 data-testid="b2b-toggle"
@@ -249,7 +249,7 @@ export const PurchaseOrderWorkspace = ({
           onClick={addOrder}
           disabled={!canWrite || isSubmitting}
           aria-busy={isSubmitting}
-          className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isSubmitting ? (t.saving || '保存中...') : t.savePurchase}
         </button>

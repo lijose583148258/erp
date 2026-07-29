@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import SpreadsheetWorkbook from '../infrastructure/spreadsheet-workbook';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import {
@@ -367,7 +367,7 @@ export const OrderWorkspaceService = {
             orderBy: { createdAt: 'desc' },
         });
 
-        const workbook = new ExcelJS.Workbook();
+        const workbook = new SpreadsheetWorkbook();
         const worksheet = workbook.addWorksheet('Orders');
 
         worksheet.columns = [

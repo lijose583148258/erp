@@ -63,7 +63,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
           <p className="text-xs text-slate-500 font-bold mt-1">{t.ocrShipmentHint}</p>
         </div>
         <div className="flex gap-2">
-          <span className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 dark:border-blue-800">
+          <span className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-black uppercase tracking-widest border border-blue-100 dark:border-blue-800">
             AI Powered
           </span>
         </div>
@@ -88,7 +88,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                       e.stopPropagation();
                       onClearAll();
                     }}
-                    className="mt-2 text-[10px] font-black text-rose-500 hover:underline"
+                    className="mt-2 text-xs font-black text-rose-500 hover:underline"
                   >
                     {t.clear || '清空'}
                   </button>
@@ -104,7 +104,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
 
           {ocrImages.length > 0 && (
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">
                 {ocrImages.length} {t.images || 'Images'}
               </span>
               <div className="flex items-center gap-2">
@@ -112,7 +112,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={onTogglePreview}
-                    className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                   >
                     {previewMode === 'single' ? (t.gallery || '画廊') : (t.single || '单张')}
                   </button>
@@ -120,7 +120,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={onClearAll}
-                  className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                  className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20"
                 >
                   {t.clear || '清空'}
                 </button>
@@ -191,9 +191,9 @@ const ShippingOcrPanel: React.FC<Props> = ({
 
         <div className="bg-slate-50 dark:bg-slate-800/30 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 flex flex-col">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.ocrResult || '识别预览'}</h3>
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.ocrResult || '识别预览'}</h3>
             {ocrResult && (
-              <div className="flex items-center text-emerald-600 text-[10px] font-black uppercase">
+              <div className="flex items-center text-emerald-600 text-xs font-black uppercase">
                 <CheckCircle size={12} className="mr-1" />
                 {t.ocrConfidence}: {Math.round(ocrResult.confidence * 100)}%
               </div>
@@ -245,7 +245,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center opacity-30">
               <Box size={40} className="text-slate-400 mb-4" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.awaitingOcr || '等待识别数据...'}</p>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.awaitingOcr || '等待识别数据...'}</p>
             </div>
           )}
         </div>

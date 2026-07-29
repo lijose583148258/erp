@@ -47,12 +47,12 @@ const AdjustmentDetail = ({
           <h3 className="text-xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white">
             {t.adjustmentDetailTitle || '单据详情'}
           </h3>
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-2">
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400 mt-2">
             {selected.adjustmentNo}
           </p>
         </div>
         <span
-          className={`inline-flex items-center px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${adjustmentStatusMeta[selected.status].className}`}
+          className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border ${adjustmentStatusMeta[selected.status].className}`}
         >
           {adjustmentStatusMeta[selected.status].label}
         </span>
@@ -60,21 +60,21 @@ const AdjustmentDetail = ({
 
       <div className="space-y-3 text-sm">
         <div className="flex items-center justify-between">
-          <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{t.adjustmentDomainLabel || '业务域'}</span>
+          <span className="text-slate-400 font-bold uppercase text-xs tracking-widest">{t.adjustmentDomainLabel || '业务域'}</span>
           <span className="font-black text-slate-900 dark:text-white">{adjustmentDomainMeta[selected.domain].label}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{t.adjustmentTargetLabel || '对象'}</span>
+          <span className="text-slate-400 font-bold uppercase text-xs tracking-widest">{t.adjustmentTargetLabel || '对象'}</span>
           <span className="font-black text-slate-900 dark:text-white">{getAdjustmentLabel(selected)}</span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{t.adjustmentTargetNoLabel || '对象编号'}</span>
+          <span className="text-slate-400 font-bold uppercase text-xs tracking-widest">{t.adjustmentTargetNoLabel || '对象编号'}</span>
           <span className="font-black text-slate-900 dark:text-white">
             {selected.targetRef || selected.orderNo || selected.batchNo || '-'}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{t.adjustmentDeltaLabel || '变动'}</span>
+          <span className="text-slate-400 font-bold uppercase text-xs tracking-widest">{t.adjustmentDeltaLabel || '变动'}</span>
           <span className="font-black text-slate-900 dark:text-white">
             {selected.domain === 'finance'
               ? formatPrice(Math.abs(Number(selected.amountDelta || 0)))
@@ -82,13 +82,13 @@ const AdjustmentDetail = ({
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{t.adjustmentReasonLabel || '原因'}</span>
+          <span className="text-slate-400 font-bold uppercase text-xs tracking-widest">{t.adjustmentReasonLabel || '原因'}</span>
           <span className="font-black text-slate-900 dark:text-white text-right max-w-[180px]">
             {selected.reason}
           </span>
         </div>
         <div className="flex items-center justify-between">
-          <span className="text-slate-400 font-bold uppercase text-[10px] tracking-widest">{t.adjustmentCategoryLabel || '分类'}</span>
+          <span className="text-slate-400 font-bold uppercase text-xs tracking-widest">{t.adjustmentCategoryLabel || '分类'}</span>
           <span className="font-black text-slate-900 dark:text-white">{selected.reasonCategory || '-'}</span>
         </div>
       </div>
@@ -98,7 +98,7 @@ const AdjustmentDetail = ({
           data-testid="adjustment-apply-button"
           onClick={() => onApply(selected.id)}
           disabled={selected.status === 'posted' || selected.status === 'reversed'}
-          className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-[0.25em] disabled:opacity-40"
+          className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-emerald-600 text-white text-xs font-black uppercase tracking-[0.25em] disabled:opacity-40"
         >
           <CornerDownLeft size={14} />
           {t.adjustmentApplyButton || '生效'}
@@ -107,7 +107,7 @@ const AdjustmentDetail = ({
           data-testid="adjustment-reverse-button"
           onClick={() => onReverse(selected.id)}
           disabled={selected.status === 'reversed'}
-          className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-rose-600 text-white text-[10px] font-black uppercase tracking-[0.25em] disabled:opacity-40"
+          className="inline-flex items-center justify-center gap-2 px-4 py-3 rounded-2xl bg-rose-600 text-white text-xs font-black uppercase tracking-[0.25em] disabled:opacity-40"
         >
           <CornerUpRight size={14} />
           {t.adjustmentReverseButton || '冲销'}
@@ -115,7 +115,7 @@ const AdjustmentDetail = ({
       </div>
 
       <div className="space-y-2">
-        <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t.adjustmentReverseNoteLabel || '冲销备注'}</label>
+        <label className="text-xs font-black uppercase tracking-widest text-slate-400">{t.adjustmentReverseNoteLabel || '冲销备注'}</label>
         <input
           data-testid="adjustment-reverse-note"
           value={reverseNote}
@@ -127,17 +127,17 @@ const AdjustmentDetail = ({
 
       <div className="space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">{t.adjustmentSnapshotTitle || '前后快照'}</span>
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-300">{t.adjustmentAuditTrail || '审计留痕'}</span>
+          <span className="text-xs font-black uppercase tracking-widest text-slate-400">{t.adjustmentSnapshotTitle || '前后快照'}</span>
+          <span className="text-xs font-black uppercase tracking-widest text-slate-300">{t.adjustmentAuditTrail || '审计留痕'}</span>
         </div>
         <div className="rounded-[24px] bg-slate-50 dark:bg-slate-800/60 p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t.adjustmentBefore || 'Before'}</p>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">{t.adjustmentBefore || 'Before'}</p>
           <pre className="text-[11px] leading-6 text-slate-600 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap">
             {JSON.stringify(selected.beforeSnapshot || {}, null, 2)}
           </pre>
         </div>
         <div className="rounded-[24px] bg-slate-50 dark:bg-slate-800/60 p-4">
-          <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t.adjustmentAfter || 'After'}</p>
+          <p className="text-xs font-black uppercase tracking-widest text-slate-400 mb-2">{t.adjustmentAfter || 'After'}</p>
           <pre className="text-[11px] leading-6 text-slate-600 dark:text-slate-300 overflow-x-auto whitespace-pre-wrap">
             {JSON.stringify(selected.afterSnapshot || {}, null, 2)}
           </pre>

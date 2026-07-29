@@ -239,7 +239,7 @@ function MetricCard({
         <div className={`flex h-12 w-12 items-center justify-center rounded-2xl ${toneClass} text-white shadow-lg shadow-slate-200/60 dark:shadow-none`}>
           <Icon size={20} />
         </div>
-        <span className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+        <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800 dark:text-slate-300">
           {status}
         </span>
       </div>

@@ -29,6 +29,22 @@ function Assert-ProcessIdentity {
     -or [string]$current.ExecutablePath -ne [string]$expected.executablePath `
     -or $currentCreationDate -ne [string]$expected.creationDate
   ) {
+    # A launcher can exit after its listener child is stopped but before this
+    # identity check finishes. Re-read once so a normal shutdown race is not
+    # misreported as PID reuse. A still-live mismatch remains a hard refusal.
+    Start-Sleep -Milliseconds 50
+    $current = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction SilentlyContinue
+    if (-not $current) {
+      return $false
+    }
+    $currentCreationDate = ([datetime]$current.CreationDate).ToUniversalTime().ToString('o')
+    if (
+      [string]$current.CommandLine -eq [string]$expected.commandLine `
+      -and [string]$current.ExecutablePath -eq [string]$expected.executablePath `
+      -and $currentCreationDate -eq [string]$expected.creationDate
+    ) {
+      return $true
+    }
     throw "Refuse to stop PID $ProcessId because its command line, executable, or creation time no longer matches."
   }
   return $true

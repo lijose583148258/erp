@@ -23,7 +23,7 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
           <h3 className="text-xl font-black italic uppercase tracking-tighter text-slate-900 dark:text-white">
             新建异常调账
           </h3>
-          <p className="mt-2 text-[10px] font-black uppercase tracking-widest text-slate-400">
+          <p className="mt-2 text-xs font-black uppercase tracking-widest text-slate-400">
             跨域补偿、冲销、历史修正
           </p>
         </div>
@@ -56,11 +56,11 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
               title={`套用模板：${tpl.label}`}
               className="min-h-20 rounded-[18px] border border-slate-100 bg-slate-50 p-3 text-left hover:border-blue-200 dark:border-slate-800 dark:bg-slate-800/60 dark:hover:border-blue-800"
             >
-              <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest text-slate-500">
+              <div className="flex items-center gap-2 text-xs font-black uppercase tracking-widest text-slate-500">
                 <Icon size={12} />
                 {tpl.label}
               </div>
-              <div className="mt-2 text-[10px] leading-5 text-slate-400">{tpl.helperText}</div>
+              <div className="mt-2 text-xs leading-5 text-slate-400">{tpl.helperText}</div>
             </button>
           );
         })}
@@ -219,7 +219,7 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
           type="button"
           data-testid="adjustment-create-submit"
           onClick={onCreate}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-white"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black uppercase tracking-[0.25em] text-white"
         >
           <Sparkles size={14} />
           创建单据
@@ -228,7 +228,7 @@ const AdjustmentFormClean = ({ form, setForm, templates, onCreate, onReset }: Ad
           type="button"
           data-testid="adjustment-create-reset"
           onClick={onReset}
-          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-[10px] font-black uppercase tracking-[0.25em] text-slate-600 dark:bg-slate-800 dark:text-slate-200"
+          className="inline-flex items-center justify-center gap-2 rounded-2xl bg-slate-100 px-4 py-3 text-xs font-black uppercase tracking-[0.25em] text-slate-600 dark:bg-slate-800 dark:text-slate-200"
         >
           <Layers3 size={14} />
           重置

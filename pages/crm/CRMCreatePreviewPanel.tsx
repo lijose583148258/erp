@@ -47,15 +47,15 @@ export function CRMCreatePreviewPanel({
             <div className="rounded-[22px] border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmBusinessProfile || 'Business Profile'}</div>
-                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${segmentMeta[segment].tone}`}>{segmentMeta[segment].label}</span>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-black uppercase ${segmentMeta[segment].tone}`}>{segmentMeta[segment].label}</span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 text-xs font-bold text-slate-500">
                 <div>
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">{t.crmCreditLimit || '信用额度'}</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{t.crmCreditLimit || '信用额度'}</div>
                   <div className="mt-1 text-sm text-slate-900 dark:text-white">{Number(newCustomer.creditLimit || 0).toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">{t.crmTerms || '账期'}</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{t.crmTerms || '账期'}</div>
                   <div className="mt-1 text-sm text-slate-900 dark:text-white">{newCustomer.termsDays || 30} 天</div>
                 </div>
               </div>

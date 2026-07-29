@@ -3,8 +3,10 @@ const path = require('node:path');
 const crypto = require('node:crypto');
 
 const root = path.resolve(__dirname, '..');
-const lock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+const rootLock = JSON.parse(fs.readFileSync(path.join(root, 'package-lock.json'), 'utf8'));
+const backendLock = JSON.parse(fs.readFileSync(path.join(root, 'backend', 'package-lock.json'), 'utf8'));
 const pkg = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const backendPkg = JSON.parse(fs.readFileSync(path.join(root, 'backend', 'package.json'), 'utf8'));
 const outputDir = path.join(root, 'artifacts', 'licenses');
 const licenseTextDir = path.join(outputDir, 'texts');
 fs.mkdirSync(licenseTextDir, { recursive: true });
@@ -13,8 +15,14 @@ const allowed = new Set(['MIT', 'Apache-2.0', 'BSD-2-Clause', 'BSD-3-Clause', 'I
 const manualTokens = ['LGPL', 'MPL', 'EPL', 'GPL', 'AGPL', 'DUAL', 'UNLICENSED'];
 const blockedTokens = ['BUSL', 'BSL', 'SSPL', 'COMMONS CLAUSE', 'COMMONS-CLAUSE', 'POLYFORM', 'NON-COMMERCIAL'];
 const introduced = new Set(['@revolist/revogrid', 'react-data-grid', 'zod', 'decimal.js']);
-const directProduction = new Set(Object.keys(pkg.dependencies || {}));
-const directDevelopment = new Set(Object.keys(pkg.devDependencies || {}));
+const directProduction = new Set([
+  ...Object.keys(pkg.dependencies || {}),
+  ...Object.keys(backendPkg.dependencies || {}),
+]);
+const directDevelopment = new Set([
+  ...Object.keys(pkg.devDependencies || {}),
+  ...Object.keys(backendPkg.devDependencies || {}),
+]);
 
 const packageNameFromPath = (packagePath, metadata) => {
   if (metadata?.name) return metadata.name;
@@ -36,8 +44,21 @@ const classify = (license) => {
   return 'manual-review';
 };
 
-const records = Object.entries(lock.packages || {})
-  .filter(([packagePath]) => packagePath.includes('node_modules/'))
+const scopePriority = {
+  'direct-production': 4,
+  'transitive-production': 3,
+  'direct-development': 2,
+  'transitive-development': 1,
+};
+const collectRecords = (lock, tree, installRoot) => Object.entries(lock.packages || {})
+  .filter(([packagePath, metadata]) => (
+    packagePath
+    && !metadata.link
+    && (
+      packagePath.includes('node_modules/')
+      || (metadata.name && fs.existsSync(path.join(installRoot, packagePath)))
+    )
+  ))
   .map(([packagePath, metadata]) => {
     const name = packageNameFromPath(packagePath, metadata);
     const scope = directProduction.has(name) ? 'direct-production'
@@ -53,16 +74,36 @@ const records = Object.entries(lock.packages || {})
       resolved: metadata.resolved || null,
       integrity: metadata.integrity || null,
       introducedByBomGridPoc: introduced.has(name),
+      sourceTrees: [tree],
+      installPaths: [path.join(installRoot, packagePath)],
     };
-  })
+  });
+const mergedRecords = new Map();
+for (const record of [
+  ...collectRecords(rootLock, 'frontend-root', root),
+  ...collectRecords(backendLock, 'backend', path.join(root, 'backend')),
+]) {
+  const key = `${record.name}@${record.version}`;
+  const existing = mergedRecords.get(key);
+  if (!existing) {
+    mergedRecords.set(key, record);
+    continue;
+  }
+  existing.sourceTrees = Array.from(new Set([...existing.sourceTrees, ...record.sourceTrees])).sort();
+  existing.installPaths = Array.from(new Set([...existing.installPaths, ...record.installPaths]));
+  existing.optional = existing.optional && record.optional;
+  existing.introducedByBomGridPoc ||= record.introducedByBomGridPoc;
+  if (scopePriority[record.scope] > scopePriority[existing.scope]) existing.scope = record.scope;
+}
+const records = Array.from(mergedRecords.values())
   .sort((left, right) => `${left.name}@${left.version}`.localeCompare(`${right.name}@${right.version}`));
 
 const copyLicense = (record) => {
-  const packageDir = path.join(root, 'node_modules', ...record.name.split('/'));
-  if (!fs.existsSync(packageDir)) return null;
-  const file = fs.readdirSync(packageDir).find((name) => /^licen[cs]e(?:\.|$)/i.test(name));
-  if (!file) return null;
-  const source = path.join(packageDir, file);
+  const packageDir = record.installPaths.find((candidate) => fs.existsSync(candidate));
+  if (!packageDir) return null;
+  const licenseFile = fs.readdirSync(packageDir).find((name) => /^licen[cs]e(?:\.|$)/i.test(name));
+  if (!licenseFile) return null;
+  const source = path.join(packageDir, licenseFile);
   const safeName = `${record.name.replace(/^@/, '').replace(/[\\/]/g, '__')}@${record.version}.LICENSE.txt`;
   const target = path.join(licenseTextDir, safeName);
   const normalizedLicenseText = `${fs.readFileSync(source, 'utf8')
@@ -74,6 +115,21 @@ const copyLicense = (record) => {
 };
 records.forEach((record) => {
   record.licenseText = copyLicense(record);
+  delete record.installPaths;
+  record.licenseSource = 'package-manifest';
+  if (record.classification === 'blocked' && record.license === 'Unknown' && record.licenseText) {
+    const licenseText = fs.readFileSync(path.join(root, record.licenseText), 'utf8');
+    const isMitText = (
+      licenseText.includes('Permission is hereby granted, free of charge, to any person obtaining a copy')
+      && licenseText.includes('THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND')
+    );
+    if (isMitText) {
+      record.declaredLicense = record.license;
+      record.license = 'MIT';
+      record.classification = 'allowed';
+      record.licenseSource = 'package-license-text';
+    }
+  }
 });
 
 let frontendInventory = { generated: false, packages: [], chunks: [] };

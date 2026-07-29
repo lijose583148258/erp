@@ -208,7 +208,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                             {assistBadges.length > 0 && (
                                                 <div className="mt-3 flex flex-wrap gap-2">
                                                     {assistBadges.map((badge) => (
-                                                        <span key={badge} className="rounded-full bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                                                        <span key={badge} className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
                                                             {badge}
                                                         </span>
                                                     ))}

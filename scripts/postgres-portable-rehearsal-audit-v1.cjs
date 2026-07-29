@@ -8,10 +8,6 @@ function read(relativePath) {
   return fs.readFileSync(path.join(ROOT, relativePath), 'utf8').replace(/^\uFEFF/, '');
 }
 
-function exists(relativePath) {
-  return fs.existsSync(path.join(ROOT, relativePath));
-}
-
 function add(severity, file, message) {
   findings.push({ severity, file, message });
 }

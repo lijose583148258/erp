@@ -30,6 +30,7 @@ const SOURCE_POSTGRES_PRISMA = path.join(ROOT, 'output', 'postgres-prisma-artifa
 const SOURCE_POSTGRES_MIGRATIONS = path.join(ROOT, 'backend', 'prisma', 'postgres-migrations');
 const SOURCE_BACKEND_PACKAGE_JSON = path.join(ROOT, 'backend', 'package.json');
 const SOURCE_BACKEND_PACKAGE_LOCK_JSON = path.join(ROOT, 'backend', 'package-lock.json');
+const SOURCE_BACKEND_PACKAGES = path.join(ROOT, 'backend', 'packages');
 const SOURCE_FRONTEND_DIST = path.join(ROOT, 'dist');
 const REPORT_PATH = path.join(ROOT, 'output', 'audit', 'postgres-server-artifact-v1.json');
 const TIMEOUT_MS = Number(process.env.POSTGRES_SERVER_ARTIFACT_TIMEOUT_MS || 180000);
@@ -266,6 +267,7 @@ function main() {
       path.join(ARTIFACT_PRISMA, 'postgres-migrations'),
     );
     copyStep('copy-postgres-generated-client', SOURCE_POSTGRES_CLIENT, ARTIFACT_CLIENT);
+    copyStep('copy-backend-local-packages', SOURCE_BACKEND_PACKAGES, path.join(ARTIFACT_BACKEND, 'packages'));
     copyStep(
       'copy-postgres-versioned-migrator',
       path.join(ROOT, 'scripts', 'postgres-schema-migrate-v1.cjs'),

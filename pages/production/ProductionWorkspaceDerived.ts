@@ -186,7 +186,10 @@ export const buildEffectiveBomItemsPayload = (bomItems: BomItemDraft[]) => {
     const materialCode = item.materialCode.trim();
     const quantityPerUnit = getEffectiveBomQuantityPerUnit(item);
     const hasIdentity = Boolean(materialName || materialCode);
-    if (!hasIdentity || quantityPerUnit <= 0 || !isEffectiveBomItemDraft(item)) {
+    // Empty template rows are available input capacity, not rejected business
+    // records. Only partially filled rows should interrupt the operator.
+    if (!hasIdentity) return;
+    if (quantityPerUnit <= 0 || !isEffectiveBomItemDraft(item)) {
       rejectedRows.push({
         index: index + 1,
         materialCode: materialCode || materialName,

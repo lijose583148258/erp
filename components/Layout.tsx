@@ -1,7 +1,7 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import {
   Settings, Search, Command, Languages, Sun, Moon,
-  DollarSign, Menu, X, UserCircle, LogOut, Briefcase, Network, Type,
+  Bot, DollarSign, Menu, X, UserCircle, LogOut, Briefcase, Network, Type,
 } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { canOpenModule } from '../app/permissions';
@@ -97,6 +97,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
   const [showPicker, setShowPicker] = useState<'lang' | 'curr' | 'role' | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showAISettings, setShowAISettings] = useState(false);
+  const contentScrollRef = useRef<HTMLDivElement>(null);
   const [compactMode, setCompactMode] = useState(() => {
     try {
       return window.localStorage.getItem('ailao.compactMode') === 'on';
@@ -168,8 +169,17 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
     }
   }, [textScale]);
 
+  useEffect(() => {
+    contentScrollRef.current?.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [activeTab]);
+
   const cycleTextScale = () => {
     setTextScale(current => (current === 100 ? 110 : current === 110 ? 120 : 100));
+  };
+
+  const openMobileAIAssistant = () => {
+    setMobileMenuOpen(false);
+    window.dispatchEvent(new Event('ailaoda:open-ai-assistant'));
   };
 
   return (
@@ -192,7 +202,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           {groupedMenuItems.map(section => (
             <section key={section.group} className="space-y-2">
               <div className="px-3 flex items-center justify-between">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">{section.label}</p>
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-slate-400 dark:text-slate-500">{section.label}</p>
                 {activeModule.group === section.group && <span className="h-1.5 w-1.5 rounded-full bg-blue-500 shadow-[0_0_0_4px_rgba(37,99,235,0.12)]" />}
               </div>
               {section.items.map((item) => (
@@ -335,7 +345,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
             <div className="hidden xl:flex items-center min-w-[300px] max-w-[360px] mr-5">
               <ModuleBadge id={activeTab} active size="sm" />
               <div className="ml-3 min-w-0">
-                <p className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-500">
+                <p className="text-xs font-black uppercase tracking-[0.22em] text-blue-500">
                   {MODULE_GROUP_LABELS[activeModule.group][language] || MODULE_GROUP_LABELS[activeModule.group].zh}
                 </p>
                 <h2 className="truncate text-lg font-black tracking-tight text-slate-900 dark:text-white">{activeModuleTitle}</h2>
@@ -380,7 +390,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               className="flex min-w-16 items-center justify-center gap-1 p-4 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[22px] text-slate-500 hover:bg-blue-100 hover:text-blue-600 dark:hover:bg-blue-900/30 dark:hover:text-blue-400 transition-all shadow-sm border border-white/40 dark:border-slate-800 active-shrink"
             >
               <Type size={21} />
-              <span className="text-[10px] font-black tabular-nums">{textScale}%</span>
+              <span className="text-xs font-black tabular-nums">{textScale}%</span>
             </button>
 
             <button
@@ -450,19 +460,34 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           </div>
         </header>
 
-        <div className="flex-1 overflow-y-auto px-6 pt-4 pb-32 lg:px-12 lg:py-8 no-scrollbar transition-all duration-300">
+        <div
+          ref={contentScrollRef}
+          data-testid="app-content-scroll"
+          className="flex-1 overflow-y-auto px-6 pt-4 pb-32 lg:px-12 lg:py-8 no-scrollbar transition-all duration-300"
+        >
           <div className="max-w-[1400px] mx-auto">
             {children}
           </div>
         </div>
 
         <div className="lg:hidden fixed bottom-[calc(1rem+env(safe-area-inset-bottom))] left-4 right-4 h-[88px] bg-white/86 dark:bg-slate-950/86 backdrop-blur-2xl rounded-2xl shadow-[0_30px_60px_-15px_rgba(0,0,0,0.25)] border border-white/50 dark:border-slate-800/50 flex items-center justify-evenly px-3 z-[90] animate-in slide-in-from-bottom-12 duration-700">
-          {menuItems.slice(0, 4).map(item => (
+          {menuItems.slice(0, 3).map(item => (
             <button key={item.id} aria-label={item.label} title={item.label} onClick={() => setActiveTab(item.id)} className={`relative flex h-14 min-w-14 flex-col items-center justify-center px-3 py-2 rounded-[18px] transition-all duration-300 active-shrink ${activeTab === item.id ? 'bg-blue-600 text-white shadow-xl shadow-blue-500/40 -translate-y-2 border-2 border-slate-50 dark:border-slate-950' : 'text-slate-500'}`}>
               <ModuleBadge id={item.id} active={activeTab === item.id} size="sm" />
               {activeTab === item.id && <span className="absolute -bottom-5 max-w-[72px] truncate text-xs font-black text-blue-600">{item.label}</span>}
             </button>
           ))}
+          <button
+            type="button"
+            data-testid="mobile-ai-assistant-open"
+            aria-label={t.aiAssistantTitle || '打开 AI 助手'}
+            title={t.aiAssistantTitle || '打开 AI 助手'}
+            className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] bg-blue-50 text-blue-700 active-shrink dark:bg-blue-950/70 dark:text-blue-200"
+            onClick={openMobileAIAssistant}
+          >
+            <Bot size={24} />
+            <span className="mt-1 text-xs font-black">AI</span>
+          </button>
           <button data-testid="mobile-menu-open" aria-label={t.navQuickJump || '打开导航菜单'} title={t.navQuickJump || '打开导航菜单'} className="flex h-14 min-w-14 flex-col items-center justify-center rounded-[18px] text-slate-600 bg-slate-100/90 dark:bg-slate-800/90 dark:text-slate-200 active-shrink" onClick={() => setMobileMenuOpen(true)}>
             <Menu size={26} />
           </button>

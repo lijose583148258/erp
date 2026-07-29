@@ -244,7 +244,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             />
                                         )}
                                         {item.isDimensional && (
-                                            <div className="mt-2 flex gap-3 text-[10px] font-bold text-slate-400">
+                                            <div className="mt-2 flex gap-3 text-xs font-bold text-slate-400">
                                                 <span>{t.totalVol || '总体积'} {item.totalVolume || 0}</span>
                                                 <span>{t.totalWeight || '总重量'} {item.totalWeight || 0}</span>
                                             </div>
@@ -318,7 +318,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                         <button
                                             type="button"
                                             onClick={() => updateOrderItem(index, { isDimensional: !item.isDimensional })}
-                                            className={`rounded-[16px] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${
+                                            className={`rounded-[16px] px-3 py-2 text-xs font-black uppercase tracking-[0.16em] ${
                                                 item.isDimensional
                                                     ? 'bg-indigo-600 text-white'
                                                     : 'border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
@@ -387,7 +387,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
             <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                 {summaryItems.map((item) => (
                     <div key={item.label} className="rounded-[22px] border border-slate-100 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/60">
-                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
+                        <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
                         <div className="mt-2 text-sm font-black text-slate-800 dark:text-slate-100">{item.value}</div>
                     </div>
                 ))}

@@ -43,6 +43,7 @@ export const ProductionWorkspaceShellHeader = ({
         if (id === 'bom' || id === 'workOrders' || id === 'batches') onTabChange(id);
       }}
       variant="blue"
+      compact
     />
   </>
 );

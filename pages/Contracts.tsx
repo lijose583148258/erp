@@ -120,7 +120,7 @@ const Contracts = () => {
             header: t.contractStatus || '状态',
             key: 'status',
             accessor: (row) => (
-                <span className={`px-2 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${row.status === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
+                <span className={`px-2 py-1 rounded-full text-xs font-black uppercase tracking-widest border ${row.status === 'active' ? 'bg-emerald-50 text-emerald-600 border-emerald-100' :
                     row.status === 'draft' ? 'bg-slate-50 text-slate-600 border-slate-200' :
                         row.status === 'completed' ? 'bg-blue-50 text-blue-600 border-blue-100' :
                             'bg-rose-50 text-rose-600 border-rose-100'
@@ -135,7 +135,7 @@ const Contracts = () => {
             accessor: (row) => (
                 <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 px-2 py-1 rounded-lg border border-slate-100">
                     <LinkIcon size={12} className="text-slate-400" />
-                    <span className="text-[10px] font-bold">{row.linkedOrdersCount || 0}</span>
+                    <span className="text-xs font-bold">{row.linkedOrdersCount || 0}</span>
                 </div>
             )
         },
@@ -227,7 +227,7 @@ const Contracts = () => {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 <div className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm">
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-4">{t.activeContracts || '生效中合同'}</p>
+                    <p className="text-xs text-slate-400 font-black uppercase tracking-widest mb-4">{t.activeContracts || '生效中合同'}</p>
                     <div className="flex items-center justify-between">
                         <span className="text-4xl font-black text-slate-800 dark:text-white tracking-widest">{stats.active}</span>
                         <div className="p-4 rounded-3xl bg-emerald-50 text-emerald-500">
@@ -236,7 +236,7 @@ const Contracts = () => {
                     </div>
                 </div>
                 <div className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm">
-                    <p className="text-[10px] text-slate-400 font-black uppercase tracking-widest mb-4">{t.totalContractValue || '合同总价'} (CNY)</p>
+                    <p className="text-xs text-slate-400 font-black uppercase tracking-widest mb-4">{t.totalContractValue || '合同总价'} (CNY)</p>
                     <div className="flex items-center justify-between">
                         <span className="text-2xl font-black text-slate-800 dark:text-white truncate max-w-[180px]">
                             {formatPrice(stats.totalVal)}
@@ -247,7 +247,7 @@ const Contracts = () => {
                     </div>
                 </div>
                 <div className="bg-white dark:bg-slate-900 p-6 rounded-[32px] border border-slate-100 dark:border-slate-800 shadow-sm">
-                    <p className="text-[10px] text-rose-400 font-black uppercase tracking-widest mb-4">{t.nearExpiryTitle || '即将到期 (30天内)'}</p>
+                    <p className="text-xs text-rose-400 font-black uppercase tracking-widest mb-4">{t.nearExpiryTitle || '即将到期 (30天内)'}</p>
                     <div className="flex items-center justify-between">
                         <span className="text-4xl font-black text-rose-500 tracking-widest">{stats.nearExpiry}</span>
                         <div className="p-4 rounded-3xl bg-rose-50 text-rose-500">
@@ -315,9 +315,9 @@ const Contracts = () => {
                                 <div className="space-y-6">
                                     <div className="bg-slate-50 dark:bg-slate-800/50 rounded-[32px] p-8 border border-slate-100 dark:border-slate-800">
                                         <div className="flex items-center justify-between mb-8">
-                                            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">提取结果</h4>
+                                            <h4 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">提取结果</h4>
                                             {ocrResult && (
-                                                <span className="flex items-center text-emerald-600 text-[10px] font-black uppercase bg-emerald-50 px-3 py-1 rounded-full">
+                                                <span className="flex items-center text-emerald-600 text-xs font-black uppercase bg-emerald-50 px-3 py-1 rounded-full">
                                                     匹配度 {Math.round(ocrResult.confidence * 100)}%
                                                 </span>
                                             )}
@@ -344,7 +344,7 @@ const Contracts = () => {
                                                                 onChange={e => setOcrResult({ ...ocrResult, totalAmount: Number(e.target.value) })}
                                                                 className="w-full bg-white dark:bg-slate-900 p-4 rounded-xl border-none font-black outline-none focus:ring-2 ring-indigo-500/20"
                                                             />
-                                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-[10px] font-black text-slate-400">CNY</span>
+                                                            <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400">CNY</span>
                                                         </div>
                                                     </div>
                                                     <div>
@@ -372,7 +372,7 @@ const Contracts = () => {
                                         ) : (
                                             <div className="h-[200px] flex flex-col items-center justify-center opacity-30 text-center">
                                                 <Search size={48} className="text-slate-300 mb-4" />
-                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest leading-relaxed">
+                                                <p className="text-xs font-black text-slate-400 uppercase tracking-widest leading-relaxed">
                                                 等待上传文件并识别数据...
                                                 </p>
                                             </div>
@@ -383,13 +383,13 @@ const Contracts = () => {
                                         <div className="flex gap-4">
                                             <button
                                                 onClick={() => { setOcrImage(null); setOcrResult(null); }}
-                                                className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] text-slate-500 hover:bg-slate-200 transition-all"
+                                                className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-xs uppercase tracking-[0.2em] text-slate-500 hover:bg-slate-200 transition-all"
                                             >
                                                 {t.clear || '清除'}
                                             </button>
                                             <button
                                                 onClick={handleOcrCreate}
-                                                className="flex-[2] py-4 bg-emerald-500 text-white rounded-2xl font-black text-[10px] uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 hover:bg-emerald-600 transition-all"
+                                                className="flex-[2] py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 hover:bg-emerald-600 transition-all"
                                             >
                                                 保存为合同草稿
                                             </button>

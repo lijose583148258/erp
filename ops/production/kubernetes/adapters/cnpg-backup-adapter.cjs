@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 const fs = require('fs');
 const path = require('path');
-const { execFileSync, spawnSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const operation = String(process.argv[2] || '').trim();
 const operationArgs = process.argv.slice(3).map(value => String(value).trim());

@@ -27,6 +27,29 @@ type CompletionIssue = {
   message?: string;
 };
 
+const formatCompletionIssue = (issue: CompletionIssue) => {
+  const unit = issue.unit ? ` ${issue.unit}` : '';
+  const expected = typeof issue.expected === 'number' ? issue.expected.toFixed(3) : null;
+  const actual = typeof issue.actual === 'number' ? issue.actual.toFixed(3) : null;
+  const tolerance = typeof issue.toleranceRate === 'number'
+    ? `${(issue.toleranceRate * 100).toFixed(0)}%`
+    : null;
+
+  if (issue.type === 'missing_material') {
+    return '未录入已确认耗料，请补录实际扣料批次和数量。';
+  }
+  if (issue.type === 'unit_mismatch') {
+    return '库存单位与 BOM 单位不一致，请核对物料批次和计量单位。';
+  }
+  if (issue.type === 'quantity_under' && expected && actual) {
+    return `实耗 ${actual}${unit} 低于理论 ${expected}${unit}${tolerance ? `（允许偏差 ${tolerance}）` : ''}。`;
+  }
+  if (issue.type === 'quantity_over' && expected && actual) {
+    return `实耗 ${actual}${unit} 高于理论 ${expected}${unit}${tolerance ? `（允许偏差 ${tolerance}）` : ''}。`;
+  }
+  return issue.message || '完工校验未通过，请核对耗料记录。';
+};
+
 type Props = {
   workOrderId: number;
   productName: string;
@@ -133,22 +156,21 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
         {error && (
           <div className="mb-6 p-4 rounded-2xl bg-rose-50 dark:bg-rose-900/10 border border-rose-100 dark:border-rose-900/40 flex items-start gap-3">
             <AlertCircle size={18} className="text-rose-500 shrink-0 mt-0.5" />
-            <div className="space-y-3">
-              <div className="text-sm font-bold text-rose-700 dark:text-rose-400">{error}</div>
+            <div className="min-w-0 flex-1 space-y-3">
+              <div className="text-sm font-bold text-rose-700 dark:text-rose-400">
+                {issues.length > 0
+                  ? `完工校验未通过，共 ${issues.length} 项。请修正下列耗料后重试。`
+                  : error}
+              </div>
               {issues.length > 0 && (
-                <div className="space-y-2">
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
                   {issues.map((issue, index) => (
                     <div
                       key={`${issue.type || 'issue'}-${index}`}
                       data-testid="production-complete-issue"
                       className="rounded-xl bg-white/70 dark:bg-slate-950/40 px-3 py-2 text-xs font-bold text-rose-700 dark:text-rose-300"
                     >
-                      <div>{issue.material || 'BOM 原料'}：{issue.message || '完工校验未通过'}</div>
-                      {typeof issue.expected === 'number' && typeof issue.actual === 'number' && (
-                        <div className="mt-1 text-rose-500/80">
-                          理论 {issue.expected.toFixed(3)} {issue.unit || ''} / 实耗 {issue.actual.toFixed(3)} {issue.unit || ''}
-                        </div>
-                      )}
+                      <div>{issue.material || 'BOM 原料'}：{formatCompletionIssue(issue)}</div>
                     </div>
                   ))}
                 </div>
@@ -203,10 +225,10 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                         <table className="w-full text-left max-w-full">
                           <thead>
                             <tr>
-                              <th className="px-3 py-2 text-[10px] font-black uppercase text-slate-400">库位存放点</th>
-                              <th className="px-3 py-2 text-[10px] font-black uppercase text-slate-400">原始批号</th>
-                              <th className="px-3 py-2 text-[10px] font-black uppercase text-slate-400 text-right">可用库存</th>
-                              <th className="px-3 py-2 text-[10px] font-black uppercase text-slate-400 text-right">确认扣减量</th>
+                              <th className="px-3 py-2 text-xs font-black uppercase text-slate-400">库位存放点</th>
+                              <th className="px-3 py-2 text-xs font-black uppercase text-slate-400">原始批号</th>
+                              <th className="px-3 py-2 text-xs font-black uppercase text-slate-400 text-right">可用库存</th>
+                              <th className="px-3 py-2 text-xs font-black uppercase text-slate-400 text-right">确认扣减量</th>
                             </tr>
                           </thead>
                           <tbody>

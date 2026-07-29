@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
-import { productionService, ProductionBom, ProductionSummary, ProductionWorkOrder, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
+import { productionService, ProductionBom, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
@@ -278,17 +278,14 @@ const ProductionWorkspaceV2 = () => {
 
   const handleCompleteWorkOrder = async (consumptionRecords: { stockBalanceId: number; quantity: number }[]) => {
     if (!completingWorkOrderId) return;
-    try {
-      setSelectedWorkOrderId(completingWorkOrderId);
-      await productionService.updateWorkOrderStatus(completingWorkOrderId, 'completed', consumptionRecords);
-      notify('success', '工单已完成并完成扣料');
-      setShowCompleteModal(false);
-      setCompletingWorkOrderId(null);
-      await loadData();
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : '工单完工失败');
-      throw error;
-    }
+    setSelectedWorkOrderId(completingWorkOrderId);
+    // Validation errors intentionally propagate to CompleteWorkOrderModal,
+    // which renders structured material issues beside the fields to correct.
+    await productionService.updateWorkOrderStatus(completingWorkOrderId, 'completed', consumptionRecords);
+    notify('success', '工单已完成并完成扣料');
+    setShowCompleteModal(false);
+    setCompletingWorkOrderId(null);
+    await loadData();
   };
 
   const handleCreateQc = async () => {

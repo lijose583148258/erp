@@ -92,14 +92,14 @@ export function CRMWorkbenchStats({ scopeSegment = null, stats, segmentBreakdown
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <div className="text-[10px] font-black uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
+          <div className="text-xs font-black uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
             工作台快照
           </div>
           <div className="mt-1 text-sm font-black uppercase tracking-[0.2em] text-slate-900 dark:text-white">
             {scopeSegment ? `${scopeSegment === 'direct' ? '直销' : scopeSegment === 'channel' ? '渠道' : '混合'}范围` : '全部范围'}
           </div>
         </div>
-        <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
+        <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400 dark:text-slate-500">
           授信 {stats.creditHoldCount} · 发货 {stats.shipmentHoldCount}
         </div>
       </div>
@@ -115,7 +115,7 @@ export function CRMWorkbenchStats({ scopeSegment = null, stats, segmentBreakdown
             >
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <div className="text-[10px] font-black uppercase tracking-[0.24em] opacity-70">
+                  <div className="text-xs font-black uppercase tracking-[0.24em] opacity-70">
                     {card.label}
                   </div>
                   <div className="mt-2 text-2xl font-black tracking-tight leading-none">
@@ -132,7 +132,7 @@ export function CRMWorkbenchStats({ scopeSegment = null, stats, segmentBreakdown
       </div>
 
       <div className="space-y-3 pt-1">
-        <div className="text-[10px] font-black uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
+        <div className="text-xs font-black uppercase tracking-[0.28em] text-slate-400 dark:text-slate-500">
           业务线分布
         </div>
         <div className="grid grid-cols-1 xl:grid-cols-3 gap-3">
@@ -142,20 +142,20 @@ export function CRMWorkbenchStats({ scopeSegment = null, stats, segmentBreakdown
               <div key={segment.segment} className={`rounded-[24px] border p-4 shadow-sm backdrop-blur-sm ${meta.tone}`}>
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.24em] opacity-70">
+                    <div className="text-xs font-black uppercase tracking-[0.24em] opacity-70">
                       {meta.label}
                     </div>
                     <div className="mt-2 text-xl font-black tracking-tight leading-none">
                       {segment.total}
                     </div>
                   </div>
-                  <div className="text-right text-[10px] font-black uppercase tracking-[0.2em] opacity-70">
+                  <div className="text-right text-xs font-black uppercase tracking-[0.2em] opacity-70">
                     授信 {segment.creditHoldCount}<br />
                     发货 {segment.shipmentHoldCount}
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-3 gap-2 text-[10px] font-black uppercase tracking-[0.18em]">
+                <div className="mt-4 grid grid-cols-3 gap-2 text-xs font-black uppercase tracking-[0.18em]">
                   <div className="rounded-2xl bg-white/70 dark:bg-black/20 p-3">
                     <div className="opacity-60">公海</div>
                     <div className="mt-2 text-sm">{segment.publicPool}</div>
@@ -170,7 +170,7 @@ export function CRMWorkbenchStats({ scopeSegment = null, stats, segmentBreakdown
                   </div>
                 </div>
 
-                <div className="mt-4 flex items-center justify-between text-[10px] font-black uppercase tracking-[0.18em] opacity-80">
+                <div className="mt-4 flex items-center justify-between text-xs font-black uppercase tracking-[0.18em] opacity-80">
                   <span>逾期</span>
                   <span>{formatPrice(segment.overdueAmount || 0)}</span>
                 </div>

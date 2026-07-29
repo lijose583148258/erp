@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Decimal from 'decimal.js';
 import { ArrowLeft, ClipboardPaste, FlaskConical, Redo2, Save, Trash2, Undo2 } from 'lucide-react';
 import { useAppContext } from '../../../app/AppContext';
@@ -6,16 +6,20 @@ import { canUseBomGridLab } from '../../../app/bomGridFeatureFlags';
 import { can } from '../../../app/permissions';
 import { productionService, type ProductionBomItem } from '../../../services/production.service';
 import { createEmptyItem, type BomItemDraft } from '../productionBomLineModel';
-import fixture100Url from '../../../tests/fixtures/bom-grid/acrylic-emulsion-100-rows.json?url';
-import fixture1000Url from '../../../tests/fixtures/bom-grid/acrylic-emulsion-1000-rows.json?url';
-import paste300Url from '../../../tests/fixtures/bom-grid/paste-300-rows.tsv?url';
-import expectedPayloadUrl from '../../../tests/fixtures/bom-grid/expected-save-payload.json?url';
 import {
   GovernedBomGridAdapter,
   toBomGridRow,
   type BomGridRow,
   type BomValidationResult,
 } from './bomGridContract';
+
+const fixtureRoot = import.meta.env.DEV
+  ? '/tests/fixtures/bom-grid'
+  : '/bom-grid-lab-fixtures';
+const fixture100Url = `${fixtureRoot}/acrylic-emulsion-100-rows.json`;
+const fixture1000Url = `${fixtureRoot}/acrylic-emulsion-1000-rows.json`;
+const paste300Url = `${fixtureRoot}/paste-300-rows.tsv`;
+const expectedPayloadUrl = `${fixtureRoot}/expected-save-payload.json`;
 
 export type BomGridLabEngine = 'revogrid' | 'react-data-grid';
 type GridRenderer = React.ComponentType<{ rows: BomGridRow[]; adapter: GovernedBomGridAdapter }>;
@@ -106,9 +110,9 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
   }
   const adapter = adapterRef.current;
   const title = engine === 'revogrid' ? 'RevoGrid Core' : 'react-data-grid';
-  const expectedComparison = useMemo(() => (
-    fixtures ? compareDrafts(adapter.exportDraft(), fixtures.expectedPayload) : '黄金数据加载中'
-  ), [fixtures, rows]);
+  const expectedComparison = fixtures
+    ? compareDrafts(adapter.exportDraft(), fixtures.expectedPayload)
+    : '黄金数据加载中';
 
   useEffect(() => {
     let cancelled = false;

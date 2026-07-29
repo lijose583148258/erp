@@ -77,7 +77,7 @@ async function safeScreenshot(page, outputDir, screenshotsDir, fileName, timeout
       await page.screenshot({ path: screenshotPath, fullPage: true });
     });
     return toRelative(outputDir, screenshotPath);
-  } catch (error) {
+  } catch {
     return null;
   }
 }

@@ -33,6 +33,12 @@ const AIAssistant = ({ context }: { context: any }) => {
     }
   }, [messages]);
 
+  useEffect(() => {
+    const openAssistant = () => setIsOpen(true);
+    window.addEventListener('ailaoda:open-ai-assistant', openAssistant);
+    return () => window.removeEventListener('ailaoda:open-ai-assistant', openAssistant);
+  }, []);
+
   const sendMessage = async (message: string) => {
     if (!message.trim() || isLoading) return;
 
@@ -163,12 +169,12 @@ const AIAssistant = ({ context }: { context: any }) => {
 
   return (
     <>
-      {/* FAB 按钮：移动端上移，避免与底部 Dock 重叠 */}
+      {/* Desktop FAB. Mobile uses the bottom dock to avoid covering business content. */}
       <button
         onClick={() => setIsOpen(true)}
         data-testid="ai-assistant-open"
         aria-label={t.aiAssistantTitle || 'AI Assistant'}
-        className="fixed bottom-28 right-4 lg:bottom-6 lg:right-6 w-14 h-14 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[24px] shadow-2xl shadow-blue-500/40 flex items-center justify-center text-white z-40 hover:scale-110 transition-all active:scale-95 duration-300 bouncy"
+        className="fixed bottom-6 right-6 hidden lg:flex w-14 h-14 bg-gradient-to-tr from-blue-500 to-indigo-500 rounded-[24px] shadow-2xl shadow-blue-500/40 items-center justify-center text-white z-40 hover:scale-110 transition-all active:scale-95 duration-300 bouncy"
       >
         <Bot size={28} />
         <span className="absolute -top-1 -right-1 flex h-4 w-4">

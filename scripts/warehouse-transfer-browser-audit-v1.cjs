@@ -78,16 +78,6 @@ async function expectOk(label, promise) {
   return response;
 }
 
-async function loginApi(username, password) {
-  const response = await expectOk(`login ${username}`, apiFetch('/auth/login', {
-    method: 'POST',
-    data: { username, password },
-  }));
-  const data = unwrapData(response);
-  if (!data?.token) throw new Error(`login ${username} returned no token`);
-  return data;
-}
-
 async function ensureWarehouseAuditUser() {
   await ensureUiAuditUser({
     username: AUDIT_USER.username,

@@ -154,7 +154,7 @@ const RMA: React.FC = () => {
     },
     {
       header: t.rmaType || '业务类型', key: 'type', accessor: (row: RmaRecord) => (
-        <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${row.type === 'refund' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
+        <span className={`px-2 py-0.5 rounded-lg text-xs font-black uppercase tracking-widest ${row.type === 'refund' ? 'bg-rose-50 text-rose-600 border border-rose-100' :
           row.type === 'exchange' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
             'bg-slate-50 text-slate-600 border border-slate-100'
           }`}>
@@ -179,7 +179,7 @@ const RMA: React.FC = () => {
               data-testid={`rma-approve-${row.id}`}
               onClick={() => void handleResolve(row, RmaStatus.APPROVED)}
               disabled={resolvingId === row.id}
-              className="min-w-[48px] whitespace-nowrap rounded-xl bg-emerald-50 px-3 py-1.5 text-[10px] font-black tracking-widest text-emerald-700 border border-emerald-100 hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/40"
+              className="min-w-[48px] whitespace-nowrap rounded-xl bg-emerald-50 px-3 py-1.5 text-xs font-black tracking-widest text-emerald-700 border border-emerald-100 hover:bg-emerald-100 disabled:opacity-50 dark:bg-emerald-950/30 dark:text-emerald-300 dark:border-emerald-900/40"
             >
               {t.approve || '通过'}
             </button>
@@ -187,7 +187,7 @@ const RMA: React.FC = () => {
               data-testid={`rma-reject-${row.id}`}
               onClick={() => void handleResolve(row, RmaStatus.REJECTED)}
               disabled={resolvingId === row.id}
-              className="min-w-[48px] whitespace-nowrap rounded-xl bg-rose-50 px-3 py-1.5 text-[10px] font-black tracking-widest text-rose-700 border border-rose-100 hover:bg-rose-100 disabled:opacity-50 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-900/40"
+              className="min-w-[48px] whitespace-nowrap rounded-xl bg-rose-50 px-3 py-1.5 text-xs font-black tracking-widest text-rose-700 border border-rose-100 hover:bg-rose-100 disabled:opacity-50 dark:bg-rose-950/30 dark:text-rose-300 dark:border-rose-900/40"
             >
               {t.reject || '拒绝'}
             </button>
@@ -204,7 +204,7 @@ const RMA: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
         <div>
           <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic uppercase bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.rma || '售后系统'}</h1>
-          <p className="text-rose-600 dark:text-rose-400 font-black text-[10px] uppercase tracking-[0.3em] mt-3 opacity-70 px-1">{t.rmaSub || 'RMA & RETURNS MANAGEMENT'}</p>
+          <p className="text-rose-600 dark:text-rose-400 font-black text-xs uppercase tracking-[0.3em] mt-3 opacity-70 px-1">{t.rmaSub || 'RMA & RETURNS MANAGEMENT'}</p>
         </div>
         <button
           data-testid="rma-open-create"
@@ -332,7 +332,7 @@ const RMA: React.FC = () => {
             <div className="p-4 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-[22px] shadow-xl group-hover:rotate-6 transition-transform"><TrendingDown size={28} /></div>
             <div>
               <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter italic">待处理占比</h3>
-              <p className="text-[10px] text-slate-400 font-bold uppercase tracking-widest mt-1.5 flex items-center">
+              <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1.5 flex items-center">
                 真实售后队列: <span className="text-indigo-600 dark:text-indigo-400 ml-1.5 italic">{pendingRows.length}/{data.length || 0}，{pendingRate}%</span>
               </p>
             </div>
@@ -355,7 +355,7 @@ const RMA: React.FC = () => {
           <button
             data-testid="rma-filter-pending"
             onClick={() => setShowOnlyPending(current => !current)}
-            className="w-full md:w-auto px-8 py-4 text-emerald-700 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-950/30 rounded-[22px] hover:bg-emerald-100 transition-all text-[10px] uppercase tracking-widest active-shrink"
+            className="w-full md:w-auto px-8 py-4 text-emerald-700 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-950/30 rounded-[22px] hover:bg-emerald-100 transition-all text-xs uppercase tracking-widest active-shrink"
           >
             {showOnlyPending ? (t.viewAll || '查看全部') : (t.auditNow || '立即审批')}
           </button>

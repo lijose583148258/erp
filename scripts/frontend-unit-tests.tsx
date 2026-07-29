@@ -39,6 +39,7 @@ import {
 } from '../pages/production/productionWorkspaceSave';
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
+import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
 
 type FrontendUnitTest = {
   name: string;
@@ -46,6 +47,25 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'notification queue deduplicates messages and limits viewport obstruction',
+    run: () => {
+      const first = enqueueNotification([], { id: '1', type: 'success', message: '已保存' });
+      const replaced = enqueueNotification(first, { id: '2', type: 'success', message: '已保存' });
+      assert.deepEqual(replaced.map((item) => item.id), ['2']);
+
+      const bounded = ['A', 'B', 'C', 'D'].reduce(
+        (state, message, index) => enqueueNotification(state, {
+          id: String(index),
+          type: 'info',
+          message,
+        }),
+        [] as ReturnType<typeof enqueueNotification>,
+      );
+      assert.equal(bounded.length, MAX_VISIBLE_NOTIFICATIONS);
+      assert.deepEqual(bounded.map((item) => item.message), ['B', 'C', 'D']);
+    },
+  },
   {
     name: 'sales order update payload maps payment terms to the backend contract',
     run: () => {

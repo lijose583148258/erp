@@ -44,7 +44,6 @@ export const useAppShell = (): AppShellResult => {
     const language = useClientStateStore(state => state.language);
     const setLanguage = useClientStateStore(state => state.setLanguage);
     const theme = useClientStateStore(state => state.theme);
-    const setTheme = useClientStateStore(state => state.setTheme);
     const toggleTheme = useClientStateStore(state => state.toggleTheme);
     const currency = useClientStateStore(state => state.currency);
     const setCurrency = useClientStateStore(state => state.setCurrency);
@@ -72,7 +71,9 @@ export const useAppShell = (): AppShellResult => {
     const [activeTab, setActiveTabState] = useState(readTabFromLocation);
     const [unsavedChanges, setUnsavedChanges] = useState<Record<string, string>>({});
     const notify = useCallback((type: 'success' | 'error' | 'info' | 'warning', message: string) => {
-        const id = Date.now().toString();
+        const id = typeof globalThis.crypto?.randomUUID === 'function'
+            ? globalThis.crypto.randomUUID()
+            : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
         addNotification({ id, type, message });
         window.setTimeout(() => {
             dismissNotification(id);
@@ -151,7 +152,7 @@ export const useAppShell = (): AppShellResult => {
         return () => {
             cancelled = true;
         };
-    }, []);
+    }, [setCurrentUser, setIsBootstrappingSession, setIsLoggedIn]);
 
     useEffect(() => {
         const handleAuthExpired = (event: Event) => {
@@ -172,7 +173,7 @@ export const useAppShell = (): AppShellResult => {
 
         window.addEventListener('ailaoda:auth-expired', handleAuthExpired);
         return () => window.removeEventListener('ailaoda:auth-expired', handleAuthExpired);
-    }, [notify]);
+    }, [notify, setCurrentUser, setIsLoggedIn]);
 
     useEffect(() => {
         try {
@@ -236,7 +237,7 @@ export const useAppShell = (): AppShellResult => {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
+    }, [setIsCommandPaletteOpen]);
 
     const t = useMemo(() => ({
         ...(translations['zh'] || {}),
@@ -310,7 +311,7 @@ export const useAppShell = (): AppShellResult => {
         };
         const segmentLabel = segment === 'direct' ? '直营' : segment === 'channel' ? '渠道' : '';
         notify('info', `已切换到${roleLabel[role]}${segmentLabel ? `（${segmentLabel}）` : ''}`);
-    }, [notify]);
+    }, [notify, setCurrentUser]);
 
     const formatPrice = useCallback((amount: number, fromCurrency: Currency = 'CNY'): string => {
         const amountInCNY = fromCurrency === 'CNY' ? amount : amount / rates[fromCurrency];
@@ -381,7 +382,7 @@ export const useAppShell = (): AppShellResult => {
         setIsCommandPaletteOpen,
         registerUnsavedChanges,
         confirmDiscardChanges,
-    }), [language, setLanguage, theme, toggleTheme, currency, setCurrency, currentUser, switchUser, formatPrice, notify, t, registerUnsavedChanges, confirmDiscardChanges]);
+    }), [language, setLanguage, theme, toggleTheme, currency, setCurrency, currentUser, switchUser, formatPrice, notify, t, setIsCommandPaletteOpen, registerUnsavedChanges, confirmDiscardChanges]);
 
     const content = useMemo(() => renderAppContent(activeTab), [activeTab]);
 

@@ -75,7 +75,7 @@ const renderAxisBadge = (value?: string | null) => {
 
   return (
     <span
-      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.16em] ${
+      className={`inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-black uppercase tracking-[0.16em] ${
         AXIS_STYLE[key] || 'bg-slate-100 text-slate-600 border-slate-200'
       }`}
     >
@@ -106,7 +106,7 @@ const renderMultiCurrencyAmount = ({
       <div className="font-mono text-sm font-black text-slate-900 dark:text-slate-100">
         {symbol}
         {formatNumber(amount, cur)}
-        {cur !== 'CNY' && <span className="ml-1 text-[10px] font-bold text-slate-400">{cur}</span>}
+        {cur !== 'CNY' && <span className="ml-1 text-xs font-bold text-slate-400">{cur}</span>}
       </div>
       {showBase && (
         <div className="mt-0.5 text-[11px] font-mono text-slate-400">≈ ¥{formatNumber(baseAmount!, 'CNY')}</div>
@@ -128,7 +128,7 @@ export const buildSalesOrderColumns = ({
     accessor: (row) => (
       <div>
         <span className="block font-mono text-sm font-black text-slate-900 dark:text-white">#{row.id}</span>
-        <span className="mt-1 flex items-center text-[10px] font-bold text-slate-400">
+        <span className="mt-1 flex items-center text-xs font-bold text-slate-400">
           <Calendar size={10} className="mr-1" />
           {row.orderDate}
         </span>
@@ -152,7 +152,7 @@ export const buildSalesOrderColumns = ({
             language,
           )}
         </div>
-        <div className="text-[10px] font-bold uppercase tracking-[0.16em] text-slate-400">订单 {row.orderNo || '--'}</div>
+        <div className="text-xs font-bold uppercase tracking-[0.16em] text-slate-400">订单 {row.orderNo || '--'}</div>
       </div>
     ),
   },
@@ -194,11 +194,11 @@ export const buildSalesOrderColumns = ({
           }}
         >
           {renderMultiCurrencyAmount({ amount: Number(row.paidAmount || 0), currency: row.currency, baseAmount: paidBaseAmount })}
-          <div className="mt-1 text-[10px] font-bold text-slate-400">
+          <div className="mt-1 text-xs font-bold text-slate-400">
             未收 {formatPrice(outstandingAmount)}
           </div>
           {receivableAdjustmentAmount > 0 ? (
-            <div className="mt-1 text-[10px] font-bold text-amber-600">
+            <div className="mt-1 text-xs font-bold text-amber-600">
               应收调整 -{formatPrice(receivableAdjustmentAmount)}
             </div>
           ) : null}
@@ -209,17 +209,17 @@ export const buildSalesOrderColumns = ({
             />
           </div>
           {isOverdue ? (
-            <div className="flex items-center justify-end text-[10px] font-black text-rose-500">
+            <div className="flex items-center justify-end text-xs font-black text-rose-500">
               <AlertTriangle size={10} className="mr-1" />
               逾期 {collectionView.overdueDays} 天
             </div>
           ) : row.financialStatus === 'paid' || row.paymentStatus === 'paid' ? (
-            <div className="flex items-center justify-end text-[10px] font-black text-emerald-600">
+            <div className="flex items-center justify-end text-xs font-black text-emerald-600">
               <CheckCircle2 size={10} className="mr-1" />
               已结清
             </div>
           ) : (
-            <div className="text-[10px] font-medium text-slate-400">到期 {row.dueDate || '--'}</div>
+            <div className="text-xs font-medium text-slate-400">到期 {row.dueDate || '--'}</div>
           )}
           <div className="mt-1.5 flex justify-end">
             <span

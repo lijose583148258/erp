@@ -26,6 +26,7 @@ interface WorkspaceTaskNavigatorProps<T extends string> {
   variant?: NavigatorVariant;
   columns?: NavigatorColumns;
   className?: string;
+  compact?: boolean;
 }
 
 const variantStyles: Record<NavigatorVariant, {
@@ -67,16 +68,17 @@ export function WorkspaceTaskNavigator<T extends string>({
   variant = 'blue',
   columns = 'three',
   className = '',
+  compact = false,
 }: WorkspaceTaskNavigatorProps<T>) {
   const styles = variantStyles[variant];
 
   return (
-    <section className={`rounded-[40px] border border-white/60 bg-white/70 p-4 shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/55 ${className}`}>
-      <div className={`flex flex-col gap-4 ${columns === 'three' ? 'xl:flex-row xl:items-center xl:justify-between' : ''}`}>
-        <div className="px-2">
+    <section className={`${compact ? 'rounded-[28px] p-3' : 'rounded-[40px] p-4'} border border-white/60 bg-white/70 shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-950/55 ${className}`}>
+      <div className={`flex flex-col ${compact ? 'gap-3' : 'gap-4'} ${columns === 'three' ? 'xl:flex-row xl:items-center xl:justify-between' : ''}`}>
+        <div className={compact ? 'px-1' : 'px-2'}>
           <div className={`text-[11px] font-black uppercase tracking-[0.28em] ${styles.eyebrow}`}>{eyebrow}</div>
-          <h2 className="mt-2 text-2xl font-black tracking-tighter text-slate-950 dark:text-white">{title}</h2>
-          <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-slate-500 dark:text-slate-400">{description}</p>
+          <h2 className={`${compact ? 'mt-1 text-lg' : 'mt-2 text-2xl'} font-black tracking-tighter text-slate-950 dark:text-white`}>{title}</h2>
+          <p className={`${compact ? 'sr-only' : 'mt-2 max-w-3xl text-sm font-bold leading-6 text-slate-500 dark:text-slate-400'}`}>{description}</p>
         </div>
         <div className={`grid gap-3 ${columnStyles[columns]}`}>
           {items.map(item => {
@@ -88,7 +90,8 @@ export function WorkspaceTaskNavigator<T extends string>({
                 data-testid={item.testId}
                 type="button"
                 onClick={() => onChange(item.id)}
-                className={`rounded-[28px] border p-4 text-left transition-all ${active ? styles.active : styles.inactive}`}
+                title={`${item.subtitle}：${item.purpose}`}
+                className={`${compact ? 'rounded-[20px] p-3' : 'rounded-[28px] p-4'} border text-left transition-all ${active ? styles.active : styles.inactive}`}
               >
                 <div className="flex items-center justify-between gap-3">
                   <span className="flex items-center gap-2 text-sm font-black">
@@ -96,13 +99,13 @@ export function WorkspaceTaskNavigator<T extends string>({
                     {item.title}
                   </span>
                   {item.count !== undefined ? (
-                    <span className={`rounded-full px-2.5 py-1 text-[10px] font-black ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>
+                    <span className={`rounded-full px-2.5 py-1 text-xs font-black ${active ? 'bg-white/20 text-white' : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-300'}`}>
                       {item.count}
                     </span>
                   ) : null}
                 </div>
-                <div className={`mt-2 text-xs font-bold leading-5 ${active ? styles.activeSubtitle : 'text-slate-400'}`}>{item.subtitle}</div>
-                <div className={`mt-3 text-[11px] font-bold leading-5 ${active ? styles.activePurpose : 'text-slate-400'}`}>{item.purpose}</div>
+                <div className={`${compact ? 'mt-1' : 'mt-2'} text-xs font-bold leading-5 ${active ? styles.activeSubtitle : 'text-slate-400'}`}>{item.subtitle}</div>
+                <div className={`${compact ? 'sr-only' : 'mt-3'} text-[11px] font-bold leading-5 ${active ? styles.activePurpose : 'text-slate-400'}`}>{item.purpose}</div>
               </button>
             );
           })}

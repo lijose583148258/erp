@@ -49,27 +49,27 @@ const Assets = () => {
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
                 <div>
                     <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic uppercase bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.assets}</h1>
-                    <p className="text-blue-600 dark:text-blue-400 font-black text-[10px] uppercase tracking-[0.3em] mt-3 opacity-70 px-1">{t.assetHubSub}</p>
+                    <p className="text-blue-600 dark:text-blue-400 font-black text-xs uppercase tracking-[0.3em] mt-3 opacity-70 px-1">{t.assetHubSub}</p>
                 </div>
                 <div className="flex flex-wrap gap-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl p-2 rounded-[28px] border border-white/50 dark:border-slate-800 shadow-[0_8px_30px_rgb(0,0,0,0.04)]">
                     <button
                         data-testid="assets-tab-balance"
                         onClick={() => setActiveTab('balance')}
-                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-[10px] font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'balance' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'balance' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                     >
                         <Boxes size={16} className="mr-2.5" /> {t.assetBalance}
                     </button>
                     <button
                         data-testid="assets-tab-history"
                         onClick={() => setActiveTab('history')}
-                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-[10px] font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'history' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'history' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                     >
                         <History size={16} className="mr-2.5" /> {t.assetHistory}
                     </button>
                     <button
                         data-testid="assets-tab-batch"
                         onClick={() => setActiveTab('batch')}
-                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-[10px] font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'batch' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'batch' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                     >
                         <PackageCheck size={16} className="mr-2.5" /> {t.batchTracking}
                     </button>
@@ -98,26 +98,26 @@ const Assets = () => {
                         <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 dark:bg-blue-900/10 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-[1.8] duration-1000"></div>
                         <div className="relative z-10">
                             <div className="p-4 bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-[22px] shadow-xl shadow-blue-500/20 w-fit mb-8 group-hover:rotate-6 transition-transform"><Briefcase size={24} /></div>
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.owed}</p>
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.owed}</p>
                             <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{stats.totalItems} <span className="text-sm font-bold text-slate-300 dark:text-slate-600 uppercase ml-1">件</span></p>
                         </div>
                     </div>
 
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-emerald-500 text-white rounded-[22px] shadow-xl shadow-emerald-500/20 w-fit mb-8"><ArrowDownLeft size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.assetIn}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.assetIn}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{stats.itemsIn} <span className="text-sm font-bold text-slate-300 dark:text-slate-600 ml-1">回合</span></p>
                     </div>
 
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-orange-500 text-white rounded-[22px] shadow-xl shadow-orange-500/20 w-fit mb-8"><ArrowUpRight size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.assetOut}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.assetOut}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{stats.itemsOut} <span className="text-sm font-bold text-slate-300 dark:text-slate-600 ml-1">发出</span></p>
                     </div>
 
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-purple-500 text-white rounded-[22px] shadow-xl shadow-purple-500/20 w-fit mb-8"><ClipboardList size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.assetCustomer}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.assetCustomer}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{stats.uniqueCustomers} <span className="text-sm font-bold text-slate-300 dark:text-slate-600 ml-1">客户</span></p>
                     </div>
                 </div>
@@ -126,22 +126,22 @@ const Assets = () => {
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-blue-600 text-white rounded-[22px] shadow-xl shadow-blue-500/20 w-fit mb-8"><PackageCheck size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchTotal}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchTotal}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{batchStats.total}</p>
                     </div>
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-amber-500 text-white rounded-[22px] shadow-xl shadow-amber-500/20 w-fit mb-8"><AlertTriangle size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchExpiring}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchExpiring}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{batchStats.expiring}</p>
                     </div>
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-rose-500 text-white rounded-[22px] shadow-xl shadow-rose-500/20 w-fit mb-8"><CalendarClock size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchExpired}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchExpired}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{batchStats.expired}</p>
                     </div>
                     <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
                         <div className="p-4 bg-cyan-500 text-white rounded-[22px] shadow-xl shadow-cyan-500/20 w-fit mb-8"><ThermometerSnowflake size={24} /></div>
-                        <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchColdChain}</p>
+                        <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.batchColdChain}</p>
                         <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{batchStats.coldChain}</p>
                     </div>
                 </div>
@@ -153,7 +153,7 @@ const Assets = () => {
                         <div className="w-2 h-8 bg-blue-600 rounded-full mr-4"></div>
                         {activeTab === 'balance' ? t.assetBalance : activeTab === 'history' ? t.assetHistory : t.batchTracking}
                     </h2>
-                    <div className="flex items-center text-[10px] font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-full tracking-widest uppercase">
+                    <div className="flex items-center text-xs font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-4 py-2 rounded-full tracking-widest uppercase">
                         {activeVisible < activeTotal ? `${activeVisible}/${activeTotal}` : activeTotal} {t.records}
                     </div>
                 </div>
@@ -172,7 +172,7 @@ const Assets = () => {
                                 data-testid="assets-batch-prev-page"
                                 onClick={() => setBatchPage(Math.max(1, batchPage - 1))}
                                 disabled={!batchMeta.hasPrevPage}
-                                className="rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-blue-800 dark:bg-slate-900/70 dark:text-blue-200"
+                                className="rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-xs font-black uppercase tracking-widest text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-blue-800 dark:bg-slate-900/70 dark:text-blue-200"
                             >
                                 上一页
                             </button>
@@ -180,7 +180,7 @@ const Assets = () => {
                                 data-testid="assets-batch-next-page"
                                 onClick={() => setBatchPage(batchPage + 1)}
                                 disabled={!batchMeta.hasNextPage}
-                                className="rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-[10px] font-black uppercase tracking-widest text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-blue-800 dark:bg-slate-900/70 dark:text-blue-200"
+                                className="rounded-xl border border-blue-200 bg-white/80 px-3 py-2 text-xs font-black uppercase tracking-widest text-blue-700 disabled:cursor-not-allowed disabled:opacity-40 dark:border-blue-800 dark:bg-slate-900/70 dark:text-blue-200"
                             >
                                 下一页
                             </button>
@@ -325,25 +325,25 @@ const Assets = () => {
                             <tr className="border-b border-slate-100/50 dark:border-slate-800">
                                 {activeTab !== 'batch' && (
                                     <>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetCustomer : t.status}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetType : t.assetCustomer}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetQuantity : t.assetType}</th>
-                                        {activeTab === 'history' && <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.assetQuantity}</th>}
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetTime : t.assetNote}</th>
-                                        {activeTab === 'history' && <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.assetTime}</th>}
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetCustomer : t.status}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetType : t.assetCustomer}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetQuantity : t.assetType}</th>
+                                        {activeTab === 'history' && <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.assetQuantity}</th>}
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{activeTab === 'balance' ? t.assetTime : t.assetNote}</th>
+                                        {activeTab === 'history' && <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.assetTime}</th>}
                                     </>
                                 )}
                                 {activeTab === 'batch' && (
                                     <>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchNo}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.productName}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchProduction}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchExpiry}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchRemaining}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchStock}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchColdChain}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchStatus}</th>
-                                        <th className="px-6 py-6 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{t.action}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchNo}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.productName}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchProduction}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchExpiry}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchRemaining}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchStock}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchColdChain}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.batchStatus}</th>
+                                        <th className="px-6 py-6 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{t.action}</th>
                                     </>
                                 )}
                             </tr>
@@ -356,7 +356,7 @@ const Assets = () => {
                                         <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl text-[11px] font-black uppercase tracking-widest">{row.assetType}</span>
                                     </td>
                                     <td className="px-6 py-7 font-black text-2xl text-blue-600 dark:text-blue-400 italic tracking-tighter">{row.balance}</td>
-                                    <td className="px-6 py-7 text-[10px] text-slate-400 font-black uppercase tracking-tight">{new Date(row.updatedAt).toLocaleString()}</td>
+                                    <td className="px-6 py-7 text-xs text-slate-400 font-black uppercase tracking-tight">{new Date(row.updatedAt).toLocaleString()}</td>
                                 </tr>
                             ))}
                             {activeTab === 'history' && visibleHistory.map((row, i) => (
@@ -368,28 +368,28 @@ const Assets = () => {
                                         </div>
                                     </td>
                                     <td className="px-6 py-7 font-bold text-slate-900 dark:text-white text-sm">{row.customerDisplayName || row.customerName || `ID: ${row.customerId}`}</td>
-                                    <td className="px-6 py-7 text-[10px] font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{row.assetType}</td>
+                                    <td className="px-6 py-7 text-xs font-black text-slate-500 dark:text-slate-400 uppercase tracking-widest">{row.assetType}</td>
                                     <td className={`px-6 py-7 font-black italic text-xl ${row.action === 'inbound' ? 'text-emerald-500' : 'text-blue-500'}`}>{row.quantity}</td>
                                     <td className="px-6 py-7 text-[11px] text-slate-400 font-bold max-w-[200px] truncate italic">{row.note || '---'}</td>
-                                    <td className="px-6 py-7 text-[10px] text-slate-400 font-black uppercase tracking-tight">{new Date(row.createdAt).toLocaleString()}</td>
+                                    <td className="px-6 py-7 text-xs text-slate-400 font-black uppercase tracking-tight">{new Date(row.createdAt).toLocaleString()}</td>
                                 </tr>
                             ))}
                             {activeTab === 'batch' && visibleBatches.map(row => (
                                 <tr key={row.id} data-testid={`assets-batch-row-${row.id}`} onClick={() => setSelectedBatchId(row.id)} className={`hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all duration-300 ${selectedBatchId === row.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}>
                                     <td className="px-6 py-7 font-mono font-bold text-slate-600 dark:text-slate-300">{row.batchNo}</td>
                                     <td className="px-6 py-7 font-bold text-slate-900 dark:text-white text-sm">{row.productName}</td>
-                                    <td className="px-6 py-7 text-[10px] text-slate-400 font-black uppercase tracking-tight">{new Date(row.productionDate).toLocaleDateString()}</td>
-                                    <td className="px-6 py-7 text-[10px] text-slate-400 font-black uppercase tracking-tight">{new Date(row.expiryDate).toLocaleDateString()}</td>
+                                    <td className="px-6 py-7 text-xs text-slate-400 font-black uppercase tracking-tight">{new Date(row.productionDate).toLocaleDateString()}</td>
+                                    <td className="px-6 py-7 text-xs text-slate-400 font-black uppercase tracking-tight">{new Date(row.expiryDate).toLocaleDateString()}</td>
                                     <td className="px-6 py-7 font-black text-slate-700 dark:text-slate-200 text-sm">
                                         {row.remainingDays !== undefined ? `${row.remainingDays} ${t.days}` : '-'}
                                     </td>
                                     <td className="px-6 py-7">
                                         <div className="flex flex-col gap-1">
                                             <span className="font-black text-slate-700 dark:text-slate-200 text-sm">{row.stockQuantity} {row.unit}</span>
-                                            <span className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">凭证同步</span>
+                                            <span className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">凭证同步</span>
                                         </div>
                                     </td>
-                                    <td className="px-6 py-7 text-[10px] font-black uppercase tracking-widest text-slate-500 dark:text-slate-300">
+                                    <td className="px-6 py-7 text-xs font-black uppercase tracking-widest text-slate-500 dark:text-slate-300">
                                         {row.isColdChain ? t.yes : t.no}
                                     </td>
                                     <td className="px-6 py-7">
@@ -403,7 +403,7 @@ const Assets = () => {
                                                 e.stopPropagation();
                                                 handleDeleteBatch(row.id);
                                             }}
-                                            className="px-3 py-2 rounded-xl bg-rose-500 text-white text-[10px] font-black uppercase tracking-widest"
+                                            className="px-3 py-2 rounded-xl bg-rose-500 text-white text-xs font-black uppercase tracking-widest"
                                         >
                                             <Trash2 size={12} />
                                         </button>
@@ -416,7 +416,7 @@ const Assets = () => {
                 {activeTab === 'batch' && selectedBatch && (
                     <div className="mt-10 grid grid-cols-1 lg:grid-cols-12 gap-6">
                         <div className="lg:col-span-4 bg-slate-50 dark:bg-slate-900/60 rounded-3xl p-6 border border-slate-100 dark:border-slate-800">
-                            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.batchTrace}</p>
+                            <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.batchTrace}</p>
                             <h3 className="text-xl font-black text-slate-900 dark:text-white mt-3">{selectedBatch.batchNo}</h3>
                             <p className="text-sm text-slate-500 mt-2">{selectedBatch.productName}</p>
                             <div className="mt-6 space-y-3">
@@ -441,7 +441,7 @@ const Assets = () => {
                         <div className="lg:col-span-8 bg-white/80 dark:bg-slate-900/80 rounded-3xl p-6 border border-slate-100 dark:border-slate-800">
                             <div className="flex items-center justify-between mb-6">
                                 <h4 className="text-sm font-black text-slate-800 dark:text-white uppercase tracking-widest">{t.batchTraceTimeline}</h4>
-                                <div className="text-[10px] text-slate-400 font-black uppercase tracking-widest">{t.batchTraceNodes}: {traceNodes.length}</div>
+                                <div className="text-xs text-slate-400 font-black uppercase tracking-widest">{t.batchTraceNodes}: {traceNodes.length}</div>
                             </div>
                             <div className="space-y-4">
                                 {traceNodes.map((node, index) => (
@@ -456,7 +456,7 @@ const Assets = () => {
                                                     {node.status}
                                                 </span>
                                             </div>
-                                            <div className="flex items-center justify-between text-[10px] text-slate-400 font-bold uppercase mt-1">
+                                            <div className="flex items-center justify-between text-xs text-slate-400 font-bold uppercase mt-1">
                                                 <span>{node.location}</span>
                                                 <span>{node.time.toLocaleDateString()}</span>
                                             </div>
@@ -486,7 +486,7 @@ const Assets = () => {
                                 <button onClick={handleScanApply} className="flex-1 px-4 py-3 bg-emerald-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest">{t.scanApply}</button>
                                 <button onClick={() => scanFileRef.current?.click()} className="flex-1 px-4 py-3 bg-slate-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest">{t.scanUpload}</button>
                             </div>
-                            <p className="text-[10px] text-slate-400 font-bold uppercase">{t.scanHint}</p>
+                            <p className="text-xs text-slate-400 font-bold uppercase">{t.scanHint}</p>
                         </div>
                     </div>
                 </div>

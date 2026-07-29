@@ -106,7 +106,7 @@ export function CRMCustomerDrawer({
               <button onClick={onClose} className="mb-4 flex items-center text-sm font-bold text-slate-500 lg:hidden">
                 <ArrowLeft size={18} className="mr-2" />返回
               </button>
-              <div className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-500">{t.crmCustomer360 || 'Customer 360'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.28em] text-blue-500">{t.crmCustomer360 || 'Customer 360'}</div>
               <h4 className="mt-2 text-2xl font-black italic tracking-tight text-slate-900 dark:text-white">
                 {selectedCustomer.displayName || selectedCustomer.name}
               </h4>
@@ -137,7 +137,7 @@ export function CRMCustomerDrawer({
                   }`}
                 >
                   <div className="text-xs font-black tracking-tight">{section.label}</div>
-                  <div className={`mt-1 text-[10px] font-black uppercase tracking-[0.16em] ${active ? 'text-blue-100' : 'text-slate-400'}`}>{section.hint}</div>
+                  <div className={`mt-1 text-xs font-black uppercase tracking-[0.16em] ${active ? 'text-blue-100' : 'text-slate-400'}`}>{section.hint}</div>
                 </button>
               );
             })}

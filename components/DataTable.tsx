@@ -341,7 +341,7 @@ const DataTableInner = <T extends Record<string, any>>({
                       onChange={(event) => setColumnVisibility(column.key, event.target.checked)}
                       aria-label={`显示列：${column.header}`}
                       title={`显示列：${column.header}`}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                     />
                     <span className="truncate">{column.header}</span>
                   </label>

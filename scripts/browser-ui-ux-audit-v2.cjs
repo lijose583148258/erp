@@ -2,7 +2,12 @@ const path = require('path');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
 const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const { findMojibake } = require('./lib/audit-utils.cjs');
-const { FALLBACK_ROUTES, VIEWPORTS, parseConfig } = require('./lib/browser-ui-ux-audit-config.cjs');
+const {
+  FALLBACK_ROUTES,
+  VIEWPORTS,
+  normalizeRoute,
+  parseConfig,
+} = require('./lib/browser-ui-ux-audit-config.cjs');
 const {
   addFinding,
   atomicWrite,
@@ -235,19 +240,36 @@ async function auditState(page, run, route, viewport, state, collectors) {
       if ((rect.right > window.innerWidth + 4 || rect.left < -4) && !hasScrollableAncestor(element)) {
         add('error', 'layout', 'ELEMENT_OUTSIDE_VIEWPORT', 'Visible control extends outside viewport', element);
       }
-      if ((element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) && name.length > 0 && !element.getAttribute('title')) {
+      const visibleText = (element.innerText || '').trim();
+      if ((element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) && visibleText.length > 1 && !element.getAttribute('title')) {
         add('warning', 'visual', 'TEXT_CLIPPED_WITHOUT_FULL_TEXT', 'Text appears clipped without title/full-text fallback', element);
       }
     }
 
+    const previouslyFocused = document.activeElement;
     for (const field of Array.from(document.querySelectorAll('input,select,textarea'))) {
       if (!visible(field)) continue;
       const hasLabel = (field.id && document.querySelector(`label[for="${CSS.escape(field.id)}"]`)) || field.closest('label');
       const hasName = hasLabel || field.getAttribute('aria-label') || field.getAttribute('aria-labelledby') || field.getAttribute('placeholder') || field.getAttribute('title');
       if (!hasName) add('error', 'accessibility', 'FIELD_MISSING_NAME', 'Form field has no accessible name', field);
-      const focusStyle = window.getComputedStyle(field, ':focus');
-      if (!focusStyle.outlineStyle && !focusStyle.boxShadow) add('warning', 'interaction', 'FIELD_FOCUS_STYLE_WEAK', 'Field may lack a visible focus style', field);
+      if (!field.disabled) {
+        const before = window.getComputedStyle(field);
+        const beforeBorderColor = before.borderColor;
+        field.focus({ preventScroll: true });
+        const focused = window.getComputedStyle(field);
+        const hasOutline = focused.outlineStyle !== 'none' && Number.parseFloat(focused.outlineWidth || '0') >= 1;
+        const hasShadow = focused.boxShadow !== 'none';
+        const hasBorderChange = focused.borderColor !== beforeBorderColor && Number.parseFloat(focused.borderWidth || '0') >= 1;
+        const focusClassContext = [field, field.parentElement, field.parentElement?.parentElement]
+          .map((element) => element?.getAttribute?.('class') || '')
+          .join(' ');
+        const hasDeclaredFocusStyle = /(?:^|\s)(?:focus|focus-visible|focus-within):(?:ring|outline|border|shadow)[^\s]*/.test(focusClassContext);
+        if (!hasOutline && !hasShadow && !hasBorderChange && !hasDeclaredFocusStyle) {
+          add('warning', 'interaction', 'FIELD_FOCUS_STYLE_WEAK', 'Field lacks a visible focus style', field);
+        }
+      }
     }
+    if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus({ preventScroll: true });
 
     const textNodes = Array.from(document.body.querySelectorAll('body *')).filter((element) => visible(element) && (element.textContent || '').trim().length > 0);
     for (const element of textNodes.slice(0, 350)) {
@@ -267,10 +289,25 @@ async function auditState(page, run, route, viewport, state, collectors) {
       if (rect.right > window.innerWidth + 4 && !hasScrollableAncestor(table)) add('error', 'responsive', 'TABLE_OVERFLOWS_PAGE', 'Table overflows page instead of internal scroll container', table);
     }
 
-    const stickyHeight = Array.from(document.querySelectorAll('header,[class*="sticky"],[class*="fixed"]'))
-      .filter(visible)
-      .reduce((sum, element) => sum + Math.min(element.getBoundingClientRect().height, window.innerHeight), 0);
-    if (isMobile && stickyHeight > window.innerHeight * 0.45) add('warning', 'responsive', 'MOBILE_STICKY_TOO_TALL', 'Sticky elements consume more than 45% of mobile height', document.body, { stickyHeight });
+    const persistentElements = Array.from(document.body.querySelectorAll('*')).filter((element) => {
+      if (!visible(element)) return false;
+      const style = window.getComputedStyle(element);
+      if (style.pointerEvents === 'none') return false;
+      return style.position === 'fixed' || style.position === 'sticky';
+    });
+    let topOccupied = 0;
+    let bottomOccupied = 0;
+    for (const element of persistentElements) {
+      const rect = element.getBoundingClientRect();
+      const spansMostOfViewport = rect.width >= window.innerWidth * 0.6;
+      if (!spansMostOfViewport) continue;
+      if (rect.top <= 8) topOccupied = Math.max(topOccupied, Math.min(window.innerHeight, rect.bottom));
+      if (rect.bottom >= window.innerHeight - 8) bottomOccupied = Math.max(bottomOccupied, Math.min(window.innerHeight, window.innerHeight - rect.top));
+    }
+    const stickyHeight = Math.min(window.innerHeight, topOccupied + bottomOccupied);
+    if (isMobile && state === 'initial' && stickyHeight > window.innerHeight * 0.45) {
+      add('warning', 'responsive', 'MOBILE_STICKY_TOO_TALL', 'Persistent top and bottom controls consume more than 45% of mobile height', document.body, { stickyHeight, topOccupied, bottomOccupied });
+    }
 
     return result;
   }, { route, viewportId: viewport.id, state, isMobile: viewport.isMobile });
@@ -407,9 +444,28 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   });
   await waitForAppSettled(page, run.config.pageTimeoutMs);
   await waitForRouteReady(page, route, run.config.pageTimeoutMs);
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const appScroller = document.querySelector('[data-testid="app-content-scroll"]');
+    if (appScroller instanceof HTMLElement) appScroller.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
 
   const bodyText = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
-  if (!bodyText.trim() || /login|登录|sign in/i.test(bodyText.slice(0, 600))) {
+  const loginFormVisible = await page.evaluate(() => {
+    const visible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+    };
+    const password = Array.from(document.querySelectorAll('input[type="password"]')).find(visible);
+    if (!password) return false;
+    const scope = password.closest('form') || document.body;
+    const username = Array.from(scope.querySelectorAll('input[type="email"],input[autocomplete="username"],input[name*="user" i],input[type="text"]')).find(visible);
+    const submit = Array.from(scope.querySelectorAll('button[type="submit"],input[type="submit"],button')).find(visible);
+    return Boolean(username && submit);
+  });
+  if (!bodyText.trim() || loginFormVisible) {
     run.report.skippedRoutes.push({ route, viewport: viewport.id, reason: 'route did not render an authenticated app page' });
     return;
   }
@@ -456,6 +512,7 @@ async function run() {
       deviceScaleFactor: 1,
       colorScheme: config.colorScheme === 'dark' ? 'dark' : 'light',
       reducedMotion: config.reducedMotion ? 'reduce' : 'no-preference',
+      serviceWorkers: 'block',
     });
     page = await context.newPage();
     const collectors = installPageCollectors(page, run);

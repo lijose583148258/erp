@@ -421,7 +421,7 @@ const Shipping = () => {
                     <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
                         <div className="flex items-start justify-between gap-4">
                             <div>
-                                <p className="text-[10px] font-black uppercase tracking-[0.18em] text-indigo-500">POD Ledger</p>
+                                <p className="text-xs font-black uppercase tracking-[0.18em] text-indigo-500">POD Ledger</p>
                                 <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">签收批次</h3>
                                 <p className="mt-1 text-sm font-bold text-slate-500">{state.receiptDrawerShipment.productName} · #{state.receiptDrawerShipment.id}</p>
                             </div>
@@ -442,7 +442,7 @@ const Shipping = () => {
                                 ['剩余', state.receiptBundle?.receiptSummary.remainingQuantity ?? state.receiptDrawerShipment.quantity ?? 0],
                             ].map(([label, value]) => (
                                 <div key={String(label)} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+                                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">{label}</p>
                                     <p className="mt-2 font-data text-xl font-black text-slate-900 dark:text-white">{String(value)}</p>
                                 </div>
                             ))}
@@ -451,7 +451,7 @@ const Shipping = () => {
                         <div data-testid="shipping-receipt-readback-evidence" className="mt-6 rounded-[28px] border border-emerald-100 bg-emerald-50/70 p-4 dark:border-emerald-900/40 dark:bg-emerald-950/20">
                             <div className="flex items-start justify-between gap-4">
                                 <div>
-                                    <p className="text-[10px] font-black uppercase tracking-[0.2em] text-emerald-600">{shippingDeskCopy.receiptEvidenceTitle}</p>
+                                    <p className="text-xs font-black uppercase tracking-[0.2em] text-emerald-600">{shippingDeskCopy.receiptEvidenceTitle}</p>
                                     <p className="mt-2 text-xs font-bold leading-5 text-emerald-800/80 dark:text-emerald-100/80">
                                         {state.receiptBundle ? '保存或打开后，请用以下返回数据确认签收、库存扣减和差异入口已经连上。' : shippingDeskCopy.receiptEvidenceEmpty}
                                     </p>
@@ -468,19 +468,19 @@ const Shipping = () => {
                             {state.receiptBundle && (
                                 <div className="mt-4 grid gap-3 md:grid-cols-3">
                                     <div className="rounded-2xl bg-white/80 p-3 dark:bg-slate-950/50">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Summary</p>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-400">Summary</p>
                                         <p className="mt-2 text-xs font-bold text-slate-600 dark:text-slate-300">
                                             {state.receiptBundle.receiptSummary.processedQuantity}/{state.receiptBundle.receiptSummary.shipmentQuantity} processed, {state.receiptBundle.receiptSummary.remainingQuantity} remaining
                                         </p>
                                     </div>
                                     <div className="rounded-2xl bg-white/80 p-3 dark:bg-slate-950/50">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Latest POD</p>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-400">Latest POD</p>
                                         <p className="mt-2 text-xs font-bold text-slate-600 dark:text-slate-300">
                                             {latestReceipt ? `${latestReceipt.receiptNo} · ${latestReceipt.quantity}${latestReceipt.unit}` : 'No receipt batch yet'}
                                         </p>
                                     </div>
                                     <div className="rounded-2xl bg-white/80 p-3 dark:bg-slate-950/50">
-                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Discrepancy</p>
+                                        <p className="text-xs font-black uppercase tracking-widest text-slate-400">Discrepancy</p>
                                         <p className="mt-2 text-xs font-bold text-slate-600 dark:text-slate-300">
                                             {primaryDiscrepancyCase ? `${primaryDiscrepancyCase.caseNo || primaryDiscrepancyCase.id} · ${primaryDiscrepancyCase.status}` : 'No discrepancy case returned'}
                                         </p>
@@ -527,7 +527,7 @@ const Shipping = () => {
                                 data-testid="shipping-receipt-save-button"
                                 onClick={state.handleSubmitReceiptEvent}
                                 disabled={state.isReceiptLoading || !state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'}
-                                className="mt-4 w-full rounded-2xl bg-indigo-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
+                                className="mt-4 w-full rounded-2xl bg-indigo-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
                                 {state.isReceiptLoading ? '保存中...' : '保存签收批次'}
                             </button>

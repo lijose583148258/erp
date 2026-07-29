@@ -115,7 +115,7 @@ export const newBomItem = (): BomItemDraft => ({
   notes: '',
 });
 
-export const newBomItems = (count = 10): BomItemDraft[] =>
+export const newBomItems = (count = 3): BomItemDraft[] =>
   Array.from({ length: count }, () => newBomItem());
 
 export const newStep = (title = ''): StepDraft => ({ title, operatorName: '', note: '' });

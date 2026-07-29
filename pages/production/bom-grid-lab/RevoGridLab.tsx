@@ -52,6 +52,7 @@ export function RevoGridLab({ rows, adapter }: Props) {
   const hostRef = useRef<HTMLDivElement>(null);
   const gridRef = useRef<RevoGridElement | null>(null);
   const selectionRef = useRef<GridSelection | null>(null);
+  const rowsRef = useRef(rows);
   const columns = useMemo<ColumnRegular[]>(() => (
     BOM_GRID_COLUMN_KEYS.map((key) => ({
       prop: key,
@@ -71,7 +72,7 @@ export function RevoGridLab({ rows, adapter }: Props) {
     grid.style.height = '620px';
     grid.style.width = '100%';
     grid.columns = columns;
-    grid.source = rows;
+    grid.source = rowsRef.current;
     grid.range = true;
     grid.resize = true;
     grid.readonly = false;
@@ -97,10 +98,10 @@ export function RevoGridLab({ rows, adapter }: Props) {
       if (!focused) return;
       const rowIndex = Number(focused.rowIndex);
       const columnKey = String(focused.column?.prop ?? '') as BomGridColumnKey;
-      if (!rows[rowIndex] || !BOM_GRID_COLUMN_KEYS.includes(columnKey)) return;
+      if (!rowsRef.current[rowIndex] || !BOM_GRID_COLUMN_KEYS.includes(columnKey)) return;
       selectionRef.current = {
-        startRowKey: rows[rowIndex].rowKey,
-        endRowKey: rows[rowIndex].rowKey,
+        startRowKey: rowsRef.current[rowIndex].rowKey,
+        endRowKey: rowsRef.current[rowIndex].rowKey,
         startColumnKey: columnKey,
         endColumnKey: columnKey,
       };
@@ -115,7 +116,7 @@ export function RevoGridLab({ rows, adapter }: Props) {
     adapter.bindBridge({
       getSelection: () => selectionRef.current,
       focusCell: (rowKey, columnKey) => {
-        const rowIndex = rows.findIndex((row) => row.rowKey === rowKey);
+        const rowIndex = rowsRef.current.findIndex((row) => row.rowKey === rowKey);
         if (rowIndex >= 0) void grid.setCellEdit(rowIndex, columnKey);
       },
     });
@@ -129,6 +130,7 @@ export function RevoGridLab({ rows, adapter }: Props) {
   }, [adapter, columns]);
 
   useEffect(() => {
+    rowsRef.current = rows;
     if (gridRef.current) gridRef.current.source = rows;
   }, [rows]);
 

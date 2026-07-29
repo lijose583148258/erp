@@ -42,6 +42,22 @@ const AUDIT_ACCOUNT = {
   role: 'admin',
 };
 
+const fillBomHeaderFields = (page) => fillBomHeaderFieldsWithData(page, TEST_DATA);
+const switchProductionDesk = (page, options) => runSwitchProductionDesk(
+  page,
+  options,
+  waitForBodyText,
+  STEP_TIMEOUT_MS.route,
+);
+const loginViaUi = (page, recordStep) => runLoginViaUi(page, {
+  appUrl: APP_URL,
+  recordStep,
+  withTimebox,
+  timeout: STEP_TIMEOUT_MS.route,
+  shotDir: SHOT_DIR,
+  account: AUDIT_ACCOUNT,
+});
+
 const report = {
   name: 'Production Browser Audit',
   version: '1.2-ascii-source',
@@ -543,6 +559,7 @@ async function main() {
   recordFinal();
   const recordStep = createStepRecorder(report, REPORT_PATH);
   const stallGuard = createStallGuard(report, STUCK_MS);
+  let browser = null;
   try {
     const launched = await launchBrowserWithGuard({ recordStep, retryLimit: 1, waitMs: 800 });
     browser = launched.browser;

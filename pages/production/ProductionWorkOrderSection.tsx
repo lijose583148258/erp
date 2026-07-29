@@ -155,8 +155,8 @@ export function ProductionWorkOrderSection({
         <TextareaField label="工单备注" value={woNote} onChange={setWoNote} placeholder="工单说明、特殊工艺、异常提醒" />
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">工序步骤</div>
-            <button onClick={() => setWoSteps(prev => [...prev, newStep(`工序 ${prev.length + 1}`)])} className="text-[10px] font-black uppercase tracking-widest text-blue-600 flex items-center gap-1">
+            <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">工序步骤</div>
+            <button onClick={() => setWoSteps(prev => [...prev, newStep(`工序 ${prev.length + 1}`)])} className="text-xs font-black uppercase tracking-widest text-blue-600 flex items-center gap-1">
               <Plus size={12} /> 添加步骤
             </button>
           </div>
@@ -166,8 +166,8 @@ export function ProductionWorkOrderSection({
               <Field label="负责人" value={step.operatorName} onChange={value => setWoSteps(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, operatorName: value } : row))} placeholder="操作员" />
               <Field label="备注" value={step.note} onChange={value => setWoSteps(prev => prev.map((row, rowIndex) => rowIndex === index ? { ...row, note: value } : row))} placeholder="工序说明" />
               <div className="flex items-end justify-between gap-2">
-                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">序号 {index + 1}</div>
-                {woSteps.length > 1 && <button onClick={() => setWoSteps(prev => prev.filter((_, rowIndex) => rowIndex !== index))} className="text-[10px] font-black uppercase tracking-widest text-rose-500">删除</button>}
+                <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">序号 {index + 1}</div>
+                {woSteps.length > 1 && <button onClick={() => setWoSteps(prev => prev.filter((_, rowIndex) => rowIndex !== index))} className="text-xs font-black uppercase tracking-widest text-rose-500">删除</button>}
               </div>
             </div>
           ))}
@@ -229,7 +229,7 @@ export function ProductionWorkOrderSection({
           {selectedWorkOrder ? (
             <>
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-3">
-                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">工单信息</div>
+                <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">工单信息</div>
                 <div className="text-lg font-black text-slate-900 dark:text-white">{selectedWorkOrder.productName}</div>
                 <div className="text-sm font-bold text-slate-600 dark:text-slate-300">{selectedWorkOrder.workOrderNo}</div>
                 <div className="text-xs text-slate-400">
@@ -243,7 +243,7 @@ export function ProductionWorkOrderSection({
 
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5">
                 <div className="flex items-center justify-between mb-4">
-                  <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">工序步骤</div>
+                  <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">工序步骤</div>
                   <div className="text-[11px] font-black text-slate-500">{selectedWorkOrder.steps?.length || 0} 步</div>
                 </div>
                 <div className="space-y-3">
@@ -262,10 +262,10 @@ export function ProductionWorkOrderSection({
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {step.status !== 'in_progress' && (
-                          <button onClick={() => void handleStepAction(step, 'in_progress')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">开始</button>
+                          <button onClick={() => void handleStepAction(step, 'in_progress')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest">开始</button>
                         )}
                         {step.status !== 'completed' && (
-                          <button onClick={() => void handleStepAction(step, 'completed')} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">完成</button>
+                          <button onClick={() => void handleStepAction(step, 'completed')} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest">完成</button>
                         )}
                       </div>
                     </div>
@@ -274,7 +274,7 @@ export function ProductionWorkOrderSection({
               </div>
 
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-3">
-                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">质检登记</div>
+                <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">质检登记</div>
                 <div className="grid grid-cols-2 gap-3">
                   <select value={qcResult} onChange={e => setQcResult(e.target.value as 'pass' | 'fail')} className="w-full px-4 py-3 rounded-2xl bg-white dark:bg-slate-900/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700">
                     <option value="pass">{QC_RESULT_LABELS.pass}</option>
@@ -305,14 +305,14 @@ export function ProductionWorkOrderSection({
                 />
                 <TextareaField dataTestId="production-quality-note" label="" value={qcNote} onChange={setQcNote} placeholder="质检备注" />
                 <div className="flex flex-wrap gap-3">
-                  <button data-testid="production-qc-save" onClick={handleCreateQc} disabled={qualitySaving} aria-busy={qualitySaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest disabled:opacity-60">{qualitySaving ? '保存中...' : '保存质检'}</button>
-                  <button onClick={() => void handleWorkOrderStatus('qc_pending')} className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest">标记待质检</button>
-                  <button onClick={() => void handleWorkOrderStatus('completed')} className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest">直接完工</button>
+                  <button data-testid="production-qc-save" onClick={handleCreateQc} disabled={qualitySaving} aria-busy={qualitySaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest disabled:opacity-60">{qualitySaving ? '保存中...' : '保存质检'}</button>
+                  <button onClick={() => void handleWorkOrderStatus('qc_pending')} className="px-5 py-3 rounded-2xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest">标记待质检</button>
+                  <button onClick={() => void handleWorkOrderStatus('completed')} className="px-5 py-3 rounded-2xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest">直接完工</button>
                 </div>
               </div>
 
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5">
-                <div className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-3">最近质检</div>
+                <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400 mb-3">最近质检</div>
                 <div className="space-y-3">
                   {selectedChecks.length === 0 && <div className="text-sm font-bold text-slate-400">暂无质检记录</div>}
                   {selectedChecks.map(check => (

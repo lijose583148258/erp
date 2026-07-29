@@ -89,7 +89,7 @@ export const DocumentInputGuide: React.FC<DocumentInputGuideProps> = ({
                 {index + 1}
               </span>
               {step.badge ? (
-                <span className={`rounded-full border px-3 py-1 text-[10px] font-black tracking-[0.16em] ${toneClass.chip}`}>
+                <span className={`rounded-full border px-3 py-1 text-xs font-black tracking-[0.16em] ${toneClass.chip}`}>
                   {step.badge}
                 </span>
               ) : null}
