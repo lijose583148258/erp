@@ -52,9 +52,14 @@ export class MaterialController {
     } catch (error) {
       logger.error('Material create failed', error);
       const status = errorStatus(error);
+      const message = error instanceof Error ? error.message : '';
       return res.status(status).json({
         success: false,
-        message: status === 409 ? '物料编码或别名已存在，请选择现有物料或更换唯一编码' : '物料主数据创建失败',
+        message: message === 'MATERIAL_ACTIVE_TEMPORARY'
+          ? '临时物料必须先完成审核并转为正式物料，才能启用'
+          : status === 409
+            ? '物料编码已存在，请选择现有物料或更换唯一编码'
+            : '物料主数据创建失败',
       });
     }
   }
@@ -73,6 +78,8 @@ export class MaterialController {
           ? '物料不存在'
           : message === 'MATERIAL_CONCURRENT_UPDATE'
             ? '物料已被其他用户修改，请刷新后重新提交'
+            : message === 'MATERIAL_RETIRED'
+              ? '已停用物料不可再修改，请新建替代物料并保留历史追溯'
             : status === 409
               ? '物料状态不允许当前修改'
               : '物料主数据更新失败',
@@ -87,12 +94,15 @@ export class MaterialController {
     } catch (error) {
       logger.error('Material alias create failed', error);
       const status = errorStatus(error);
+      const message = error instanceof Error ? error.message : '';
       return res.status(status).json({
         success: false,
         message: status === 404
           ? '物料不存在'
+          : message === 'MATERIAL_RETIRED'
+            ? '已停用物料不可再新增别名'
           : status === 409
-            ? '该别名已归属其他物料，不能重复建立'
+            ? '该物料在相同语言下已存在这一别名'
             : '物料别名创建失败',
       });
     }

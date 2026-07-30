@@ -91,6 +91,7 @@ export const MENU_PERMISSION_BY_MODULE: Record<string, FrontendPermission> = {
   rma: 'rma.read',
   team: 'team.read',
   assets: 'assets.read',
+  materials: 'materials.read',
   production: 'production.read',
   warehouse: 'warehouse.read',
   procurement: 'procurement.read',

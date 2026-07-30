@@ -201,6 +201,7 @@ export class MaterialMasterService {
     return prisma.$transaction(async tx => {
       const current = await tx.material.findUnique({ where: { id } });
       if (!current) throw new Error('MATERIAL_NOT_FOUND');
+      if (current.status === 'retired') throw new Error('MATERIAL_RETIRED');
       if (input.expectedUpdatedAt && current.updatedAt.toISOString() !== input.expectedUpdatedAt) {
         throw new Error('MATERIAL_CONCURRENT_UPDATE');
       }

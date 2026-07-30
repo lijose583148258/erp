@@ -40,6 +40,8 @@ import {
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
 import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
+import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
+import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
 
 type FrontendUnitTest = {
   name: string;
@@ -47,6 +49,15 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'canonical material master is a lazy, permission-scoped production module',
+    run: () => {
+      assert.ok(MODULE_ORDER.includes('materials'));
+      assert.equal(moduleRegistry.materials.group, 'production');
+      assert.equal(MENU_PERMISSION_BY_MODULE.materials, 'materials.read');
+      assert.deepEqual(moduleRegistry.materials.roles, ['admin', 'manager']);
+    },
+  },
   {
     name: 'notification queue deduplicates messages and limits viewport obstruction',
     run: () => {

@@ -13,6 +13,7 @@ const stablePageImports = {
   audit: () => import('../pages/AuditLogs'),
   settings: () => import('../pages/Settings'),
   assets: () => import('../pages/Assets'),
+  materials: () => import('../pages/MaterialMaster'),
   production: () => import('../pages/ProductionWorkspace'),
   dealerAnalytics: () => import('../pages/DealerAnalytics'),
   procurement: () => import('../pages/Procurement'),
