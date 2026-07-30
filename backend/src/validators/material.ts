@@ -60,3 +60,27 @@ export const listMaterialsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(30),
   offset: z.coerce.number().int().min(0).default(0),
 }).strict();
+
+export const materialGovernanceListQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(50).default(30),
+  offset: z.coerce.number().int().min(0).default(0),
+}).strict();
+
+const bomBackfillSourceSchema = z.object({
+  materialName: z.string().min(1).max(160),
+  materialCode: z.string().max(64).nullable(),
+  unit: z.string().min(1).max(24),
+}).strict();
+
+export const applyBomBackfillSchema = z.object({
+  mappings: z.array(z.object({
+    source: bomBackfillSourceSchema,
+    materialId: z.coerce.number().int().positive(),
+    expectedCount: z.coerce.number().int().min(1).max(500),
+    expectedFingerprint: z.string().regex(/^[a-f0-9]{64}$/),
+  }).strict()).min(1).max(50),
+}).strict();
+
+export const materialGovernanceRunIdParamSchema = z.object({
+  runId: z.coerce.number().int().positive(),
+}).strict();

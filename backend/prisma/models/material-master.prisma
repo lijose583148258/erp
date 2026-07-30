@@ -47,3 +47,40 @@ model MaterialAlias {
   @@index([alias])
   @@map("material_aliases")
 }
+
+model MaterialGovernanceRun {
+  id           Int       @id @default(autoincrement())
+  runNo        String    @unique @map("run_no")
+  runType      String    @map("run_type")
+  status       String    @default("applied")
+  inputDigest  String    @map("input_digest")
+  summaryJson  String?   @map("summary_json")
+  createdBy    Int       @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  appliedAt    DateTime? @map("applied_at")
+  rolledBackAt DateTime? @map("rolled_back_at")
+
+  changes MaterialGovernanceChange[]
+
+  @@index([runType, status])
+  @@index([createdBy, createdAt])
+  @@map("material_governance_runs")
+}
+
+model MaterialGovernanceChange {
+  id                 Int                   @id @default(autoincrement())
+  runId              Int                   @map("run_id")
+  run                MaterialGovernanceRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  entityType         String                @map("entity_type")
+  entityId           Int                   @map("entity_id")
+  fieldName          String                @map("field_name")
+  beforeValue        String?               @map("before_value")
+  afterValue         String?               @map("after_value")
+  beforeSnapshotJson String?               @map("before_snapshot_json")
+  afterSnapshotJson  String?               @map("after_snapshot_json")
+  createdAt          DateTime              @default(now()) @map("created_at")
+
+  @@unique([runId, entityType, entityId, fieldName])
+  @@index([entityType, entityId])
+  @@map("material_governance_changes")
+}

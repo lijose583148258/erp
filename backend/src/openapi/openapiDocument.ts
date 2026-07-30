@@ -304,6 +304,59 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/materials/governance/backfill-candidates`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'Preview controlled historical BOM material backfill',
+        description: 'Returns exact-only suggestions without writing data. Every candidate includes an item-ID fingerprint so stale previews are rejected. Requires materials.govern.',
+        security: secured(true),
+        parameters: [
+          queryParam('limit', { type: 'integer', minimum: 1, maximum: 50, default: 30 }, 'Source groups per page.'),
+          queryParam('offset', { type: 'integer', minimum: 0, default: 0 }, 'Source-group offset.'),
+        ],
+        responses: jsonResponse,
+      },
+    };
+
+    paths[`${prefix}/materials/governance/backfill`] = {
+      post: {
+        tags: ['Materials'],
+        summary: 'Apply an audited historical BOM material backfill',
+        description: 'Links at most 500 unchanged BOM rows to active, non-temporary, unit-compatible materials in one transaction. Requires materials.govern.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MaterialBomBackfillRequest' } } },
+        },
+        responses: { ...writeResponses, '201': { description: 'Governance run applied and audited.' } },
+      },
+    };
+
+    paths[`${prefix}/materials/governance/runs`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'List historical material governance runs',
+        description: 'Lists applied and rolled-back BOM material governance runs. Requires materials.govern.',
+        security: secured(true),
+        parameters: [
+          queryParam('limit', { type: 'integer', minimum: 1, maximum: 50, default: 30 }, 'Run limit.'),
+          queryParam('offset', { type: 'integer', minimum: 0, default: 0 }, 'Run offset.'),
+        ],
+        responses: jsonResponse,
+      },
+    };
+
+    paths[`${prefix}/materials/governance/runs/{runId}/rollback`] = {
+      post: {
+        tags: ['Materials'],
+        summary: 'Rollback a historical BOM material governance run',
+        description: 'Clears only links that still match the applied target. Any downstream conflict blocks the entire rollback. Requires materials.govern.',
+        security: secured(true),
+        parameters: [{ name: 'runId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: writeResponses,
+      },
+    };
+
     paths[`${prefix}/production/boms`] = {
       post: {
         tags: ['Production'],

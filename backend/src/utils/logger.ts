@@ -92,7 +92,8 @@ const originalLoggerWarn = logger.warn.bind(logger) as (...args: unknown[]) => u
 
 logger.error = ((...args: unknown[]) => {
   if (isExpectedBusinessRejection(...args)) {
-    return originalLoggerWarn('[business-rejection]', ...args);
+    const reason = args.map(stringifyLogArg).filter(Boolean).join(' | ');
+    return originalLoggerWarn(`[business-rejection] ${reason || 'request rejected by business rule'}`);
   }
   return originalLoggerError(...args);
 }) as typeof logger.error;

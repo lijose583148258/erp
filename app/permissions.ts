@@ -67,6 +67,7 @@ export type FrontendPermission =
   | 'procurement.b2b.read'
   | 'materials.read'
   | 'materials.write'
+  | 'materials.govern'
   | 'commercial.read'
   | 'commercial.workflow.manage'
   | 'commercial.notification.write'
@@ -167,6 +168,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.b2b.read',
     'materials.read',
     'materials.write',
+    'materials.govern',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',

@@ -28,6 +28,8 @@ import {
   type MaterialWriteInput,
 } from '../services/material.service';
 
+const MaterialGovernancePanel = React.lazy(() => import('./materials/MaterialGovernancePanel'));
+
 const PAGE_SIZE = 30;
 const MATERIAL_CODE_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]*$/;
 
@@ -345,6 +347,7 @@ const MaterialEditor = ({
 const MaterialMaster: React.FC = () => {
   const { currentUser, notify } = useAppContext();
   const writable = can(currentUser, 'materials.write');
+  const governable = can(currentUser, 'materials.govern');
   const [query, setQuery] = useState('');
   const [status, setStatus] = useState<MaterialStatus | ''>('');
   const [category, setCategory] = useState<MaterialCategory | ''>('');
@@ -353,6 +356,7 @@ const MaterialMaster: React.FC = () => {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [editor, setEditor] = useState<MaterialMaster | 'new' | null>(null);
+  const [governanceOpen, setGovernanceOpen] = useState(false);
 
   const load = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -398,8 +402,15 @@ const MaterialMaster: React.FC = () => {
       eyebrow="CANONICAL MATERIAL MASTER"
       title="统一物料主数据"
       subtitle="一个物料只保留一个身份；中文、英文、越南文、客户叫法和供应商牌号都通过别名找到同一条记录。"
-      actions={writable ? (
-        <button type="button" data-testid="material-create-button" onClick={() => setEditor('new')} className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20"><Plus size={17} />新建物料草稿</button>
+      actions={writable || governable ? (
+        <div className="flex flex-wrap gap-2">
+          {governable ? (
+            <button type="button" data-testid="material-governance-button" onClick={() => setGovernanceOpen(true)} className="inline-flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-5 py-3 text-sm font-black text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"><Database size={17} />历史数据治理</button>
+          ) : null}
+          {writable ? (
+            <button type="button" data-testid="material-create-button" onClick={() => setEditor('new')} className="inline-flex items-center gap-2 rounded-2xl bg-blue-600 px-5 py-3 text-sm font-black text-white shadow-lg shadow-blue-600/20"><Plus size={17} />新建物料草稿</button>
+          ) : null}
+        </div>
       ) : null}
     >
       <section className="rounded-3xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
@@ -485,6 +496,16 @@ const MaterialMaster: React.FC = () => {
             onClose={() => setEditor(null)}
             onSaved={handleSaved}
           />
+        ) : null}
+      </AnimatePresence>
+      <AnimatePresence>
+        {governanceOpen ? (
+          <React.Suspense fallback={<div className="fixed inset-0 z-[130] grid place-items-center bg-slate-950/40 text-sm font-black text-white">正在加载历史数据治理……</div>}>
+            <MaterialGovernancePanel
+              onClose={() => setGovernanceOpen(false)}
+              onApplied={() => void load()}
+            />
+          </React.Suspense>
         ) : null}
       </AnimatePresence>
     </PageShell>

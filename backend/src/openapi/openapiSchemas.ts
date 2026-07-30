@@ -294,6 +294,40 @@ export const openApiSchemas = {
       expectedUpdatedAt: { type: 'string', format: 'date-time' },
     },
   },
+  MaterialBomBackfillSource: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['materialName', 'materialCode', 'unit'],
+    properties: {
+      materialName: { type: 'string', minLength: 1, maxLength: 160 },
+      materialCode: { type: 'string', nullable: true, maxLength: 64 },
+      unit: { type: 'string', minLength: 1, maxLength: 24 },
+    },
+  },
+  MaterialBomBackfillMapping: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['source', 'materialId', 'expectedCount', 'expectedFingerprint'],
+    properties: {
+      source: { $ref: '#/components/schemas/MaterialBomBackfillSource' },
+      materialId: { type: 'integer', minimum: 1 },
+      expectedCount: { type: 'integer', minimum: 1, maximum: 500 },
+      expectedFingerprint: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+    },
+  },
+  MaterialBomBackfillRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['mappings'],
+    properties: {
+      mappings: {
+        type: 'array',
+        minItems: 1,
+        maxItems: 50,
+        items: { $ref: '#/components/schemas/MaterialBomBackfillMapping' },
+      },
+    },
+  },
   ProductionBomCreateRequest: {
     type: 'object',
     additionalProperties: false,

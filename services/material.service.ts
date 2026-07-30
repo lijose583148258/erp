@@ -71,6 +71,69 @@ export type MaterialWriteInput = {
   complianceNotes?: string | null;
 };
 
+export type BomBackfillSource = {
+  materialName: string;
+  materialCode: string | null;
+  unit: string;
+};
+
+export type BomBackfillCandidate = {
+  source: BomBackfillSource;
+  sourceKey: string;
+  occurrenceCount: number;
+  expectedFingerprint: string | null;
+  overLimit: boolean;
+  matchState: 'exact_unique' | 'exact_ambiguous' | 'unit_or_lifecycle_blocked' | 'no_exact_match';
+  recommendedMaterialId: number | null;
+  suggestions: Array<{
+    materialId: number;
+    code: string;
+    nameZh: string;
+    baseUnit: string;
+    status: MaterialStatus;
+    isTemporary: boolean;
+    reason: 'code' | 'name_zh' | 'name_en' | 'name_vi' | 'alias';
+    confidence: number;
+    unitCompatible: boolean;
+    eligible: boolean;
+  }>;
+  sampleBoms: Array<{ bomNo: string; productName: string; version: string }>;
+};
+
+export type BomBackfillCandidateResult = {
+  items: BomBackfillCandidate[];
+  limit: number;
+  offset: number;
+  totalUnlinkedItems: number;
+  hasMoreGroups: boolean;
+  policy: {
+    automaticWrite: false;
+    exactMatchOnly: true;
+    requiresActiveNonTemporaryMaterial: true;
+    requiresUnitMatch: true;
+    maxChangesPerRun: number;
+  };
+};
+
+export type MaterialGovernanceRun = {
+  id: number;
+  runNo: string;
+  runType: 'bom_backfill';
+  status: 'applied' | 'rolled_back' | 'rollback_blocked';
+  summaryJson: string | null;
+  createdAt: string;
+  appliedAt: string | null;
+  rolledBackAt: string | null;
+  _count: { changes: number };
+};
+
+export type MaterialGovernanceRunResult = {
+  items: MaterialGovernanceRun[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
 type MaterialResponse<T> = { success: boolean; data: T; message?: string };
 
 export const materialService = {
@@ -111,6 +174,48 @@ export const materialService = {
     input: { alias: string; language: MaterialAlias['language']; aliasType: MaterialAlias['aliasType'] },
   ): Promise<MaterialAlias> {
     const response = await api.post<typeof input, MaterialResponse<MaterialAlias>>(`/materials/${id}/aliases`, input);
+    return response.data;
+  },
+
+  async listBackfillCandidates(
+    query: { limit?: number; offset?: number } = {},
+    options: ApiRequestOptions = {},
+  ): Promise<BomBackfillCandidateResult> {
+    const response = await api.get<never, MaterialResponse<BomBackfillCandidateResult>>(
+      '/materials/governance/backfill-candidates',
+      { params: query, signal: options.signal },
+    );
+    return response.data;
+  },
+
+  async applyBomBackfill(mappings: Array<{
+    source: BomBackfillSource;
+    materialId: number;
+    expectedCount: number;
+    expectedFingerprint: string;
+  }>): Promise<{ run: MaterialGovernanceRun; idempotent: boolean }> {
+    const response = await api.post<
+      { mappings: typeof mappings },
+      MaterialResponse<{ run: MaterialGovernanceRun; idempotent: boolean }>
+    >('/materials/governance/backfill', { mappings });
+    return response.data;
+  },
+
+  async listGovernanceRuns(
+    query: { limit?: number; offset?: number } = {},
+    options: ApiRequestOptions = {},
+  ): Promise<MaterialGovernanceRunResult> {
+    const response = await api.get<never, MaterialResponse<MaterialGovernanceRunResult>>(
+      '/materials/governance/runs',
+      { params: query, signal: options.signal },
+    );
+    return response.data;
+  },
+
+  async rollbackGovernanceRun(runId: number): Promise<{ run: MaterialGovernanceRun; idempotent: boolean }> {
+    const response = await api.post<never, MaterialResponse<{ run: MaterialGovernanceRun; idempotent: boolean }>>(
+      `/materials/governance/runs/${runId}/rollback`,
+    );
     return response.data;
   },
 };
