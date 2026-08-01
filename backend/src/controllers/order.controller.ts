@@ -7,10 +7,14 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { OrderUpdateRejectedError, OrderUpdateService } from '../services/order-update.service';
-import { buildOrderItemsAndTotals } from '../services/order-item-normalization';
+import {
+    buildOrderItemsAndTotals,
+    calculateOrderFinalAmount,
+} from '../services/order-item-normalization';
 import { resolveOrderItemMaterialIdentities } from '../services/order-item-material-identity';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { compareMoney } from '../utils/money';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
@@ -108,8 +112,8 @@ export class OrderController {
             const orderNo = buildBusinessNo('ORD');
             const { orderItems, totalAmount } = buildOrderItemsAndTotals(items);
 
-            const finalAmount = totalAmount - Number(discountAmount);
-            if (finalAmount < 0) {
+            const finalAmount = calculateOrderFinalAmount(totalAmount, Number(discountAmount));
+            if (compareMoney(finalAmount, 0) < 0) {
                 return res.status(400).json({
                     success: false,
                     message: '折扣金额不能超过订单总额。',

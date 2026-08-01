@@ -12,6 +12,24 @@ This runbook governs the first commercial Decimal slice:
 
 The legacy fields remain the application read contract during the expand phase.
 
+## Application calculation boundary
+
+Before a database read cutover, every newly governed sales-order write must already
+produce the same two-decimal value:
+
+- interactive create and edit;
+- bulk import;
+- line amount (`quantity * unit price`);
+- order total (sum of rounded line amounts);
+- discount subtraction;
+- paid/outstanding comparison.
+
+These paths use `backend/src/utils/money.ts` and round each monetary line with
+`ROUND_HALF_UP` before summing. Validation must run before Decimal conversion so
+an invalid import remains a row-level rejection instead of aborting the whole
+batch. `audit:db:decimal-shadow-contract` rejects a return to native JavaScript
+money multiplication or accumulation in these governed write paths.
+
 ## Release phases
 
 ### 1. Expand

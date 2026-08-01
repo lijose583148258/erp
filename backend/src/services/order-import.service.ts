@@ -11,6 +11,7 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { CreditEngine } from '../utils/CreditEngine';
 import { withDbRetry } from '../utils/dbRetry';
 import { logger } from '../utils/logger';
+import { addMoney, multiplyMoney } from '../utils/money';
 import { canUseCustomerForBusinessWrite } from '../utils/recordAccess';
 import {
   buildOrderImportFingerprint,
@@ -86,7 +87,6 @@ function buildImportItems(items: Record<string, unknown>[]) {
     const productName = String(item.productName || '').trim();
     const quantity = Number(item.quantity);
     const unitPrice = Number(item.unitPrice);
-    const totalPrice = quantity * unitPrice;
 
     if (!productName) throw new OrderImportRowError('Product name is required.');
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -95,9 +95,10 @@ function buildImportItems(items: Record<string, unknown>[]) {
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw new OrderImportRowError('Item unit price must be a non-negative number.');
     }
+    const totalPrice = multiplyMoney(quantity, unitPrice);
     if (!Number.isFinite(totalPrice)) throw new OrderImportRowError('Item total is outside the supported range.');
 
-    totalAmount += totalPrice;
+    totalAmount = addMoney(totalAmount, totalPrice);
     return {
       materialId: item.materialId ? Number(item.materialId) : null,
       productName,

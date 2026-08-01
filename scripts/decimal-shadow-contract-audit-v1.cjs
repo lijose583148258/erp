@@ -14,6 +14,10 @@ const releaseGate = read('scripts/run-release-verification-v1.cjs');
 const enterpriseVerdict = read('scripts/enterprise-release-verdict-v1.cjs');
 const enterpriseReleaseWorkflow = read('.github/workflows/enterprise-release-certification.yml');
 const enterpriseCloudWorkflow = read('.github/workflows/enterprise-cloud-sandbox.yml');
+const orderItemNormalization = read('backend/src/services/order-item-normalization.ts');
+const orderImportService = read('backend/src/services/order-import.service.ts');
+const orderUpdateService = read('backend/src/services/order-update.service.ts');
+const orderController = read('backend/src/controllers/order.controller.ts');
 
 assert.equal(contract.version, '2026-08-01-receivables-decimal-shadow-v1');
 assert.deepEqual(contract.tables.map(table => table.table), [
@@ -75,7 +79,17 @@ assert.match(
   enterpriseCloudWorkflow,
   /DATABASE_URL="\$\{sqlite_url\}" AUDIT_DATABASE_URL="\$\{sqlite_url\}" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback/,
 );
+assert.match(orderItemNormalization, /multiplyMoney\(quantity, unitPrice\)/);
+assert.match(orderItemNormalization, /totalAmount = addMoney\(totalAmount, totalPrice\)/);
+assert.match(orderImportService, /multiplyMoney\(quantity, unitPrice\)/);
+assert.match(orderImportService, /totalAmount = addMoney\(totalAmount, totalPrice\)/);
+assert.match(orderUpdateService, /calculateOrderFinalAmount/);
+assert.match(orderUpdateService, /calculateOrderOutstanding/);
+assert.match(orderController, /calculateOrderFinalAmount/);
+assert.doesNotMatch(orderItemNormalization, /quantity\s*\*\s*unitPrice|totalAmount\s*\+=/);
+assert.doesNotMatch(orderImportService, /quantity\s*\*\s*unitPrice|totalAmount\s*\+=/);
 
 console.log('Decimal Shadow Contract Audit: PASS');
 console.log('- 7 money and 2 exchange-rate shadow fields have additive SQLite/PostgreSQL migration contracts.');
 console.log('- Backfill, write synchronization, precision metadata, provider-isolated reconciliation, and non-cutover claims are gated.');
+console.log('- Sales order create, import, and edit paths share decimal line, discount, and outstanding calculations.');
