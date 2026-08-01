@@ -1,7 +1,14 @@
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
-
 const fs = require('fs');
 const path = require('path');
+const ORIGIN_REPORT = path.join(process.cwd(), 'output', 'audit', 'stable-runtime-origin-v1.json');
+if (!process.env.DATABASE_URL && fs.existsSync(ORIGIN_REPORT)) {
+  const origin = JSON.parse(fs.readFileSync(ORIGIN_REPORT, 'utf8').replace(/^\uFEFF/, ''));
+  if (origin?.runtimeDbPath) process.env.DATABASE_URL = `file:${String(origin.runtimeDbPath).replace(/\\/g, '/')}`;
+}
+if (!process.env.DATABASE_URL) {
+  throw new Error('DATABASE_URL is required; start the stable runtime or provide an isolated audit database explicitly.');
+}
+
 const prisma = require('../backend/dist/config/database').default;
 const { BarterService } = require('../backend/dist/services/barter.service');
 const { StockMovementService } = require('../backend/dist/services/stock-movement.service');

@@ -5,6 +5,7 @@ import {
     buildPaymentDataScopeWhere,
     mergeWhereAnd,
 } from '../../utils/recordAccess';
+import { compareMoney, maxMoney, subtractMoney } from '../../utils/money';
 
 export const COLLECTION_DAY_MS = 24 * 60 * 60 * 1000;
 export const COLLECTION_DEFAULT_PAGE_SIZE = 20;
@@ -22,10 +23,10 @@ export interface CollectionActionPlan {
 }
 
 export const getEffectiveReceivableAmount = (finalAmount: number, receivableAdjustmentAmount = 0) =>
-    Math.max(0, Number(finalAmount) - Number(receivableAdjustmentAmount || 0));
+    maxMoney(0, subtractMoney(finalAmount, receivableAdjustmentAmount));
 
 export const getOutstandingAmount = (finalAmount: number, paidAmount: number, receivableAdjustmentAmount = 0) =>
-    Math.max(0, getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount) - Number(paidAmount));
+    maxMoney(0, subtractMoney(getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount), paidAmount));
 
 export const determineReceivablePaymentStatus = (
     paidAmount: number,
@@ -33,8 +34,8 @@ export const determineReceivablePaymentStatus = (
     receivableAdjustmentAmount = 0,
 ) => {
     const effectiveReceivable = getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount);
-    if (Math.round(Number(paidAmount || 0) * 100) >= Math.round(effectiveReceivable * 100)) return 'paid';
-    if (Number(paidAmount || 0) > 0) return 'partial';
+    if (compareMoney(paidAmount, effectiveReceivable) >= 0) return 'paid';
+    if (compareMoney(paidAmount, 0) > 0) return 'partial';
     return 'unpaid';
 };
 
