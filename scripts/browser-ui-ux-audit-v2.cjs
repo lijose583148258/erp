@@ -319,7 +319,8 @@ async function auditState(page, run, route, viewport, state, collectors) {
         add('error', 'layout', 'ELEMENT_OUTSIDE_VIEWPORT', 'Visible control extends outside viewport', element);
       }
       const visibleText = (element.innerText || '').trim();
-      if ((element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) && visibleText.length > 1 && !element.getAttribute('title')) {
+      const structuralPopup = element.matches('[role="dialog"],[role="menu"]');
+      if (!structuralPopup && (element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) && visibleText.length > 1 && !element.getAttribute('title')) {
         add('warning', 'visual', 'TEXT_CLIPPED_WITHOUT_FULL_TEXT', 'Text appears clipped without title/full-text fallback', element);
       }
     }
