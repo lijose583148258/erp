@@ -53,7 +53,7 @@ const RUNTIME_SCRIPT_OWNERSHIP_CONTRACTS = new Map([
     'Assert-PortAvailable',
     'Get-ProcessIdentity',
     'creationDate',
-    'identities = $identities',
+    'identities = $ownedIdentities',
   ]],
   ['scripts/stop-bom-grid-lab-runtime.ps1', [
     'Assert-ProcessIdentity',
