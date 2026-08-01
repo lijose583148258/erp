@@ -114,11 +114,22 @@ export const hashFile = (filePath: string) => {
 
 export const quoteIdentifier = (value: string) => `"${value.replace(/"/g, '""')}"`;
 
+/**
+ * SQLite integer/NUMERIC values can be returned as bigint by Prisma on Linux.
+ * Snapshot values must remain lossless because PostgreSQL accepts decimal
+ * strings for bigint and numeric parameters, while Number(value) could round.
+ */
+export const stringifyMigrationJson = (value: unknown, space?: number) => JSON.stringify(
+  value,
+  (_key, item: unknown) => typeof item === 'bigint' ? item.toString(10) : item,
+  space,
+);
+
 export const writeAuditReport = (baseName: string, report: Record<string, unknown>, mdLines: string[]) => {
   const outputDir = ensureAuditDir();
   const jsonPath = path.join(outputDir, `${baseName}.json`);
   const markdownPath = path.join(outputDir, `${baseName}.md`);
-  fs.writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  fs.writeFileSync(jsonPath, `${stringifyMigrationJson(report, 2)}\n`, 'utf8');
   fs.writeFileSync(markdownPath, `${mdLines.join('\n')}\n`, 'utf8');
   return { jsonPath, markdownPath };
 };

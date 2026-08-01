@@ -3,6 +3,7 @@ import {
   IMPORT_PHASES,
   buildTableRowCountMap,
   quoteIdentifier,
+  stringifyMigrationJson,
 } from './postgres-migration-contract';
 
 describe('PostgreSQL migration contract', () => {
@@ -34,5 +35,20 @@ describe('PostgreSQL migration contract', () => {
       ['orders', 2],
       ['order_items', 5],
     ]));
+  });
+
+  it('serializes SQLite bigint snapshot values as lossless decimal strings', () => {
+    const unsafeInteger = 9_007_199_254_740_993n;
+    const serialized = stringifyMigrationJson({
+      id: unsafeInteger,
+      nested: [{ amount_decimal: 1_000n }],
+      ordinaryNumber: 12.5,
+    });
+
+    expect(JSON.parse(serialized)).toEqual({
+      id: '9007199254740993',
+      nested: [{ amount_decimal: '1000' }],
+      ordinaryNumber: 12.5,
+    });
   });
 });
