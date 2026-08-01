@@ -192,7 +192,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               <Command size={24} />
             </div>
             <div>
-              <h1 className="text-2xl font-black tracking-tighter italic bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{APP_BRAND}</h1>
+              <p className="text-2xl font-black tracking-tighter italic bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{APP_BRAND}</p>
               <span className="text-xs font-black uppercase text-blue-600 dark:text-blue-400 opacity-60">{t.brandEdition}</span>
             </div>
           </div>
@@ -363,7 +363,7 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
               <div className="w-12 h-12 bg-blue-600 rounded-[22px] flex items-center justify-center text-white shadow-xl shadow-blue-500/30">
                 <Command size={22} />
               </div>
-              <h1 className="text-2xl font-black tracking-tighter italic text-slate-900 dark:text-white">{APP_BRAND}</h1>
+              <p className="text-2xl font-black tracking-tighter italic text-slate-900 dark:text-white">{APP_BRAND}</p>
             </div>
           </div>
 

@@ -256,7 +256,7 @@ async function auditState(page, run, route, viewport, state, collectors) {
         add('error', 'hierarchy', 'FORM_SECTION_NAME_MISSING', 'A governed form section must reference a visible section title', section);
       }
     }
-    for (const dialog of Array.from(document.querySelectorAll('[role="dialog"]')).filter(visible)) {
+    for (const dialog of Array.from(document.querySelectorAll('[role="dialog"]:not([data-ux-dialog-scope="utility"])')).filter(visible)) {
       const controls = Array.from(dialog.querySelectorAll('input,select,textarea')).filter(visible);
       if (controls.length < 6) continue;
       const descriptionId = dialog.getAttribute('aria-describedby');

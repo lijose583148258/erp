@@ -200,7 +200,7 @@ const RMA: React.FC = () => {
   ];
 
   return (
-    <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+    <div className="space-y-10 pb-16 ">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
         <div>
           <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic uppercase bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.rma || '售后系统'}</h1>
@@ -209,7 +209,7 @@ const RMA: React.FC = () => {
         <button
           data-testid="rma-open-create"
           onClick={() => setShowCreateForm(current => !current)}
-          className="flex items-center px-8 py-4 bg-slate-900 dark:bg-slate-100 dark:text-slate-900 text-white rounded-[26px] font-black text-xs uppercase tracking-widest shadow-2xl hover:scale-105 transition-all"
+          className="flex items-center px-8 py-4 bg-slate-900 dark:bg-slate-100 dark:text-slate-900 text-white rounded-[26px] font-black text-xs uppercase tracking-widest shadow-2xl transition-colors"
         >
           <RotateCcw size={18} className="mr-3" />
           {t.rmaClaim || '提交申请'}
@@ -327,9 +327,9 @@ const RMA: React.FC = () => {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_15px_50px_rgba(0,0,0,0.03)] relative overflow-hidden group">
-          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 dark:bg-indigo-900/10 rounded-full -mr-16 -mt-16 group-hover:scale-[1.8] transition-transform duration-1000"></div>
+          <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50 dark:bg-indigo-900/10 rounded-full -mr-16 -mt-16 "></div>
           <div className="relative z-10 flex items-center space-x-6 mb-8">
-            <div className="p-4 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-[22px] shadow-xl group-hover:rotate-6 transition-transform"><TrendingDown size={28} /></div>
+            <div className="p-4 bg-gradient-to-br from-indigo-600 to-indigo-700 text-white rounded-[22px] shadow-xl "><TrendingDown size={28} /></div>
             <div>
               <h3 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tighter italic">待处理占比</h3>
               <p className="text-xs text-slate-400 font-bold uppercase tracking-widest mt-1.5 flex items-center">
@@ -338,13 +338,13 @@ const RMA: React.FC = () => {
             </div>
           </div>
           <div className="relative h-2 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
-            <div className="h-full bg-indigo-500 transition-all duration-1000" style={{ width: `${pendingRate}%` }} />
+            <div className="h-full bg-indigo-500 transition-colors " style={{ width: `${pendingRate}%` }} />
           </div>
         </div>
 
         <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_15px_50px_rgba(0,0,0,0.03)] flex flex-col md:flex-row items-center justify-between group gap-6">
           <div className="flex items-center space-x-6 w-full md:w-auto">
-            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-[22px] group-hover:scale-110 transition-transform"><ClipboardList size={28} /></div>
+            <div className="p-4 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded-[22px] "><ClipboardList size={28} /></div>
             <div>
               <h3 className="text-xl font-black text-slate-800 dark:text-white tracking-tight uppercase italic">{t.pendingActions || '待审批'}</h3>
               <p className="text-sm text-slate-400 font-bold uppercase tracking-widest mt-1">
@@ -355,7 +355,7 @@ const RMA: React.FC = () => {
           <button
             data-testid="rma-filter-pending"
             onClick={() => setShowOnlyPending(current => !current)}
-            className="w-full md:w-auto px-8 py-4 text-emerald-700 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-950/30 rounded-[22px] hover:bg-emerald-100 transition-all text-xs uppercase tracking-widest active-shrink"
+            className="w-full md:w-auto px-8 py-4 text-emerald-700 dark:text-emerald-400 font-black bg-emerald-50 dark:bg-emerald-950/30 rounded-[22px] hover:bg-emerald-100 transition-colors text-xs uppercase tracking-widest "
           >
             {showOnlyPending ? (t.viewAll || '查看全部') : (t.auditNow || '立即审批')}
           </button>

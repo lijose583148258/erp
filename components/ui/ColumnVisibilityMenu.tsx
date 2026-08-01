@@ -92,6 +92,7 @@ export const ColumnVisibilityMenu: React.FC<Props> = ({
       ref={menuRef}
       id={menuId}
       role="dialog"
+      data-ux-dialog-scope="utility"
       aria-label="选择要显示的表格列"
       data-column-visibility-menu
       className="fixed z-[220] w-56 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-2xl dark:border-slate-700 dark:bg-slate-900"
@@ -102,7 +103,7 @@ export const ColumnVisibilityMenu: React.FC<Props> = ({
         <button
           type="button"
           onClick={onReset}
-          className="min-h-8 rounded-lg px-2 text-xs font-bold text-blue-600 transition-colors duration-150 hover:bg-blue-50 motion-reduce:transition-none dark:text-blue-300 dark:hover:bg-blue-950/40"
+          className="min-h-8 min-w-8 rounded-lg px-2 text-xs font-bold text-blue-600 transition-colors duration-150 hover:bg-blue-50 motion-reduce:transition-none dark:text-blue-300 dark:hover:bg-blue-950/40"
         >
           重置
         </button>

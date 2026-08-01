@@ -154,7 +154,7 @@ const Contracts = () => {
                         </div>
                         <div className="h-1.5 w-full bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
                             <div
-                                className={`h-full rounded-full transition-all duration-1000 ${percent > 90 ? 'bg-rose-500' : percent > 50 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                className={`h-full rounded-full transition-colors ${percent > 90 ? 'bg-rose-500' : percent > 50 ? 'bg-amber-500' : 'bg-blue-500'}`}
                                 style={{ width: `${percent}%` }}
                             />
                         </div>
@@ -196,7 +196,7 @@ const Contracts = () => {
                     <button
                         data-testid="contracts-open-ocr"
                         onClick={() => setIsOcrModalOpen(true)}
-                        className="flex items-center px-6 py-3 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-100 transition-all"
+                        className="flex items-center px-6 py-3 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-indigo-100 transition-colors"
                     >
                         <Zap size={16} className="mr-2" />
                         AI 快速录入
@@ -286,14 +286,14 @@ const Contracts = () => {
                                 {/* Upload Box */}
                                 <div
                                     onClick={() => fileInputRef.current?.click()}
-                                    className={`relative group h-[400px] rounded-3xl border-4 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden ${ocrImage ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:bg-slate-50'}`}
+                                    className={`relative group h-[400px] rounded-3xl border-4 border-dashed transition-colors flex flex-col items-center justify-center cursor-pointer overflow-hidden ${ocrImage ? 'border-indigo-500 bg-indigo-50/10' : 'border-slate-200 dark:border-slate-800 hover:border-indigo-400 hover:bg-slate-50'}`}
                                 >
                                     <input type="file" ref={fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={handleOcrUpload} />
                                     {ocrImage ? (
                                         <img src={ocrImage} alt="Contract Preview" className="w-full h-full object-contain" />
                                     ) : (
                                         <div className="flex flex-col items-center p-8 text-center">
-                                            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
+                                            <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mb-6 ">
                                                 <FileUp size={40} className="text-slate-300 group-hover:text-indigo-500 transition-colors" />
                                             </div>
                                             <p className="text-sm font-black text-slate-500 leading-relaxed max-w-[200px]">
@@ -383,13 +383,13 @@ const Contracts = () => {
                                         <div className="flex gap-4">
                                             <button
                                                 onClick={() => { setOcrImage(null); setOcrResult(null); }}
-                                                className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-xs uppercase tracking-[0.2em] text-slate-500 hover:bg-slate-200 transition-all"
+                                                className="flex-1 py-4 bg-slate-100 rounded-2xl font-black text-xs uppercase tracking-[0.2em] text-slate-500 hover:bg-slate-200 transition-colors"
                                             >
                                                 {t.clear || '清除'}
                                             </button>
                                             <button
                                                 onClick={handleOcrCreate}
-                                                className="flex-[2] py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 hover:bg-emerald-600 transition-all"
+                                                className="flex-[2] py-4 bg-emerald-500 text-white rounded-2xl font-black text-xs uppercase tracking-[0.2em] shadow-xl shadow-emerald-100 hover:bg-emerald-600 transition-colors"
                                             >
                                                 保存为合同草稿
                                             </button>

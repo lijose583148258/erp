@@ -46,7 +46,7 @@ const Assets = () => {
     const activeVisible = activeTab === 'batch' ? batches.length : Math.min(activeTotal, rowRenderLimit);
 
     return (
-        <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+        <div className="space-y-10 pb-16 ">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
                 <div>
                     <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic uppercase bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.assets}</h1>
@@ -56,21 +56,21 @@ const Assets = () => {
                     <button
                         data-testid="assets-tab-balance"
                         onClick={() => setActiveTab('balance')}
-                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'balance' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-colors ${activeTab === 'balance' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                     >
                         <Boxes size={16} className="mr-2.5" /> {t.assetBalance}
                     </button>
                     <button
                         data-testid="assets-tab-history"
                         onClick={() => setActiveTab('history')}
-                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'history' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-colors ${activeTab === 'history' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                     >
                         <History size={16} className="mr-2.5" /> {t.assetHistory}
                     </button>
                     <button
                         data-testid="assets-tab-batch"
                         onClick={() => setActiveTab('batch')}
-                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-all duration-500 active-shrink ${activeTab === 'batch' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
+                        className={`flex items-center px-8 py-3.5 rounded-[22px] text-xs font-black uppercase tracking-widest transition-colors ${activeTab === 'batch' ? 'bg-gradient-to-br from-blue-600 to-blue-700 text-white shadow-xl shadow-blue-500/30' : 'text-slate-400 hover:text-slate-600 dark:hover:text-slate-200'}`}
                     >
                         <PackageCheck size={16} className="mr-2.5" /> {t.batchTracking}
                     </button>
@@ -95,10 +95,10 @@ const Assets = () => {
             </section>
             {activeTab !== 'batch' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-                    <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)] relative overflow-hidden group hover:shadow-blue-500/5 transition-all duration-700">
-                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 dark:bg-blue-900/10 rounded-full -mr-16 -mt-16 transition-transform group-hover:scale-[1.8] duration-1000"></div>
+                    <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)] relative overflow-hidden group hover:shadow-blue-500/5 transition-colors ">
+                        <div className="absolute top-0 right-0 w-32 h-32 bg-blue-50 dark:bg-blue-900/10 rounded-full -mr-16 -mt-16 "></div>
                         <div className="relative z-10">
-                            <div className="p-4 bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-[22px] shadow-xl shadow-blue-500/20 w-fit mb-8 group-hover:rotate-6 transition-transform"><Briefcase size={24} /></div>
+                            <div className="p-4 bg-gradient-to-br from-blue-600 to-blue-700 text-white rounded-[22px] shadow-xl shadow-blue-500/20 w-fit mb-8 "><Briefcase size={24} /></div>
                             <p className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">{t.owed}</p>
                             <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{stats.totalItems} <span className="text-sm font-bold text-slate-300 dark:text-slate-600 uppercase ml-1">件</span></p>
                         </div>
@@ -289,13 +289,13 @@ const Assets = () => {
                             <button
                                 data-testid="assets-batch-create-button"
                                 onClick={handleCreateBatch}
-                                className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-105 transition-all active-shrink"
+                                className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 transition-colors "
                             >
                                 {t.batchCreate}
                             </button>
                             <button
                                 onClick={() => setScanOpen(true)}
-                                className="px-6 py-4 bg-emerald-500 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/30 hover:scale-105 transition-all active-shrink flex items-center justify-center gap-2"
+                                className="px-6 py-4 bg-emerald-500 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-emerald-500/30 transition-colors flex items-center justify-center gap-2"
                             >
                                 <QrCode size={16} /> {t.scanBatch}
                             </button>
@@ -358,7 +358,7 @@ const Assets = () => {
                         </thead>
                         <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                             {activeTab === 'balance' && visibleBalances.map((row, i) => (
-                                <tr key={i} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all duration-300 group cursor-pointer">
+                                <tr key={i} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-colors group cursor-pointer">
                                     <td className="px-6 py-7 font-black text-slate-900 dark:text-white text-sm">{row.customerDisplayName || row.customerName || `ID: ${row.customerId}`}</td>
                                     <td className="px-6 py-7">
                                         <span className="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 rounded-xl text-[11px] font-black uppercase tracking-widest">{row.assetType}</span>
@@ -368,7 +368,7 @@ const Assets = () => {
                                 </tr>
                             ))}
                             {activeTab === 'history' && visibleHistory.map((row, i) => (
-                                <tr key={i} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all duration-300 group cursor-pointer">
+                                <tr key={i} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-colors group cursor-pointer">
                                     <td className="px-6 py-7">
                                         <div className={`inline-flex items-center px-3 py-1.5 rounded-xl text-[11px] font-black uppercase tracking-[0.15em] border ${row.action === 'inbound' ? 'bg-emerald-50 text-emerald-600 border-emerald-100 dark:bg-emerald-900/20 dark:border-emerald-800' : 'bg-blue-50 text-blue-600 border-blue-100 dark:bg-blue-900/20 dark:border-blue-800'}`}>
                                             {row.action === 'inbound' ? <ArrowDownLeft size={10} className="mr-1.5" /> : <ArrowUpRight size={10} className="mr-1.5" />}
@@ -383,7 +383,7 @@ const Assets = () => {
                                 </tr>
                             ))}
                             {activeTab === 'batch' && visibleBatches.map(row => (
-                                <tr key={row.id} data-testid={`assets-batch-row-${row.id}`} onClick={() => setSelectedBatchId(row.id)} className={`hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all duration-300 ${selectedBatchId === row.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}>
+                                <tr key={row.id} data-testid={`assets-batch-row-${row.id}`} onClick={() => setSelectedBatchId(row.id)} className={`hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-colors ${selectedBatchId === row.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : ''}`}>
                                     <td className="px-6 py-7 font-mono font-bold text-slate-600 dark:text-slate-300">{row.batchNo}</td>
                                     <td className="px-6 py-7 font-bold text-slate-900 dark:text-white text-sm">{row.productName}</td>
                                     <td className="px-6 py-7 text-xs text-slate-400 font-black uppercase tracking-tight">{new Date(row.productionDate).toLocaleDateString()}</td>

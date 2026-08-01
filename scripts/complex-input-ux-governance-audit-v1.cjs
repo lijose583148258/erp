@@ -234,7 +234,7 @@ function inspectModule(module) {
   if (['P0', 'P1'].includes(module.priority) && module.requiresFieldContext !== false && !hasVisibleFieldContext && !module.inputModel.includes('read-only')) {
     risks.push('field meaning relies on layout or placeholder');
   }
-  if (['P0', 'P1'].includes(module.priority) && (broadMotionCount || slowMotionCount || unguardedEntranceMotionCount || decorativeTransformCount)) {
+  if (broadMotionCount || slowMotionCount || unguardedEntranceMotionCount || decorativeTransformCount) {
     risks.push(`motion debt: broad=${broadMotionCount}, slow=${slowMotionCount}, unguarded=${unguardedEntranceMotionCount}, decorative=${decorativeTransformCount}`);
   }
 
@@ -316,3 +316,7 @@ const md = [
 
 fs.writeFileSync(mdPath, `${md}\n`, 'utf8');
 console.log(JSON.stringify(report.summary, null, 2));
+
+if (needsReviewCount > 0) {
+  process.exitCode = 1;
+}
