@@ -1,6 +1,7 @@
 import React, { type Dispatch, type ReactNode, type SetStateAction } from 'react';
-import { ArrowRightLeft, CheckCircle, Link, Plus, ShieldCheck } from 'lucide-react';
+import { ArrowRightLeft, CheckCircle, ChevronDown, Link, Plus, ShieldCheck } from 'lucide-react';
 import { EnterpriseDataGrid, FormField, type EnterpriseColumn } from '../../components/ui';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 import type { PurchaseOrder, Supplier } from '../../services/procurement.service';
 import type { SalesOrder } from '../../types';
 import type { NewPurchaseOrderForm, ProcurementFormErrors, PurchaseCostPreview } from './procurementForms';
@@ -109,7 +110,7 @@ export const PurchaseOrderWorkspace = ({
     </div>
 
     {!isReceiptMode ? (
-    <div className="lg:col-span-4 app-card flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 lg:sticky lg:top-6">
+    <div className="lg:col-span-4 app-card mb-28 flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 lg:sticky lg:top-6 lg:mb-0">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
         <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">{t.addPurchase}</h3>
         <Plus size={16} className="text-slate-400" />
@@ -129,25 +130,55 @@ export const PurchaseOrderWorkspace = ({
             还有 {purchaseErrorCount} 项采购单信息需要修正：{Object.values(purchaseErrors)[0]}
           </div>
         )}
-        <FormField
-          dataTestId="purchase-supplier-select"
-          as="select"
-          value={newOrder.supplierId}
-          onChange={(value) => updateOrderField('supplierId', value)}
-          options={[
-            { value: '', label: t.selectSupplier },
-            ...suppliers.map(supplier => ({ value: supplier.id, label: getSupplierLabel(supplier) || supplier.name })),
-          ]}
-          required
-          error={purchaseErrors.supplierId}
-        />
-        <FormField dataTestId="purchase-item-input" value={newOrder.item} onChange={(value) => updateOrderField('item', value)} placeholder={t.productName} required error={purchaseErrors.item} maxLength={120} />
-        <div className="grid grid-cols-3 gap-3">
-          <FormField dataTestId="purchase-quantity-input" value={newOrder.quantity} onChange={(value) => updateOrderField('quantity', value)} placeholder={t.quantity} error={purchaseErrors.quantity} />
-          <FormField dataTestId="purchase-unit-input" value={newOrder.unit} onChange={(value) => updateOrderField('unit', value)} placeholder={t.unit} error={purchaseErrors.unit} maxLength={20} />
-          <FormField dataTestId="purchase-price-input" value={newOrder.price} onChange={(value) => updateOrderField('price', value)} placeholder={t.price} error={purchaseErrors.price} />
-        </div>
-        <FormField dataTestId="purchase-eta-input" type="date" value={newOrder.eta} onChange={(value) => updateOrderField('eta', value)} label="预计到货" error={purchaseErrors.eta} />
+        <fieldset className="space-y-3 rounded-3xl border border-slate-200/80 p-4 dark:border-slate-700">
+          <legend className="px-2 text-xs font-black tracking-wide text-slate-800 dark:text-slate-100">
+            1. 采购对象
+          </legend>
+          <p className="text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400">
+            先选供应商，再从统一物料中查找本次采购品。选中物料后，名称和基础单位会随主数据锁定。
+          </p>
+          <FormField
+            dataTestId="purchase-supplier-select"
+            label="供应商"
+            as="select"
+            value={newOrder.supplierId}
+            onChange={(value) => updateOrderField('supplierId', value)}
+            options={[
+              { value: '', label: t.selectSupplier },
+              ...suppliers.map(supplier => ({ value: supplier.id, label: getSupplierLabel(supplier) || supplier.name })),
+            ]}
+            required
+            error={purchaseErrors.supplierId}
+          />
+          <MaterialMasterCombobox
+            dataTestId="purchase-item-input"
+            value={newOrder.item}
+            selectedMaterialId={newOrder.materialId ? Number(newOrder.materialId) : null}
+            error={purchaseErrors.item}
+            onTextChange={(value) => updateOrderField('item', value)}
+            onClearSelection={() => setNewOrder(prev => ({ ...prev, materialId: '' }))}
+            onSelect={(material) => {
+              clearPurchaseError('item');
+              setNewOrder(prev => ({
+                ...prev,
+                materialId: String(material.id),
+                item: material.nameZh,
+                unit: material.baseUnit,
+              }));
+            }}
+          />
+        </fieldset>
+        <fieldset className="space-y-3 rounded-3xl border border-slate-200/80 p-4 dark:border-slate-700">
+          <legend className="px-2 text-xs font-black tracking-wide text-slate-800 dark:text-slate-100">
+            2. 数量、价格与到货
+          </legend>
+          <div className="grid grid-cols-2 gap-3">
+            <FormField dataTestId="purchase-quantity-input" type="number" label="采购数量" value={newOrder.quantity} onChange={(value) => updateOrderField('quantity', value)} placeholder="0" error={purchaseErrors.quantity} required />
+            <FormField dataTestId="purchase-unit-input" label="计量单位" value={newOrder.unit} onChange={(value) => updateOrderField('unit', value)} placeholder={t.unit} error={purchaseErrors.unit} maxLength={20} readOnly={Boolean(newOrder.materialId)} hint={newOrder.materialId ? '来自统一物料主数据' : '未关联物料时需人工确认'} required />
+            <FormField className="col-span-2" dataTestId="purchase-price-input" type="number" label={`采购单价（${newOrder.currency || 'CNY'}）`} value={newOrder.price} onChange={(value) => updateOrderField('price', value)} placeholder="0.00" error={purchaseErrors.price} required />
+          </div>
+          <FormField dataTestId="purchase-eta-input" type="date" value={newOrder.eta} onChange={(value) => updateOrderField('eta', value)} label="预计到货日期" error={purchaseErrors.eta} required />
+        </fieldset>
         <div className="rounded-2xl border border-emerald-100 bg-emerald-50/60 p-4 dark:border-emerald-900/30 dark:bg-emerald-950/20">
           <div className="mb-3 flex items-center justify-between gap-3">
             <p className="text-xs font-black uppercase tracking-widest text-emerald-700 dark:text-emerald-300">到岸成本</p>
@@ -163,23 +194,30 @@ export const PurchaseOrderWorkspace = ({
           type="button"
           data-testid="purchase-toggle-advanced"
           onClick={() => setShowAdvancedOrderFields(prev => !prev)}
-          className="w-full rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-xs font-black text-slate-600 transition hover:border-blue-200 hover:bg-blue-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-blue-950/30"
+          aria-expanded={showAdvancedOrderFields}
+          aria-controls="purchase-advanced-fields"
+          className="flex w-full items-center justify-between gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left text-xs font-black text-slate-600 transition-colors hover:border-blue-200 hover:bg-blue-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300 dark:hover:bg-blue-950/30"
         >
-          {showAdvancedOrderFields ? '收起高级采购信息' : '展开高级采购信息'} · {advancedSummary}
+          <span>{showAdvancedOrderFields ? '收起高级采购信息' : '展开高级采购信息'} · {advancedSummary}</span>
+          <ChevronDown size={16} aria-hidden="true" className={`shrink-0 transition-transform duration-200 motion-reduce:transition-none ${showAdvancedOrderFields ? 'rotate-180' : ''}`} />
         </button>
         {showAdvancedOrderFields ? (
-          <div className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
+          <div id="purchase-advanced-fields" className="space-y-3 rounded-3xl border border-slate-200 bg-slate-50 p-4 dark:border-slate-700 dark:bg-slate-800/60">
             <div className="flex items-center justify-between rounded-2xl border border-indigo-100 bg-indigo-50 p-3 dark:border-indigo-800 dark:bg-indigo-900/20">
               <div className="flex items-center">
                 <ArrowRightLeft size={16} className="mr-2 text-indigo-600" />
                 <span className="text-xs font-black uppercase tracking-widest text-indigo-700">{t.backToBack}</span>
               </div>
               <button
+                type="button"
                 data-testid="b2b-toggle"
                 onClick={() => setIsB2B(!isB2B)}
-                className={`relative h-5 w-10 rounded-full transition-all ${isB2B ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                role="switch"
+                aria-checked={isB2B}
+                aria-label="启用背靠背销售单关联"
+                className={`relative h-6 w-11 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500 motion-reduce:transition-none ${isB2B ? 'bg-indigo-600' : 'bg-slate-300'}`}
               >
-                <div className={`absolute top-1 h-3 w-3 rounded-full bg-white transition-all ${isB2B ? 'left-6' : 'left-1'}`} />
+                <span className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-sm transition-transform duration-200 motion-reduce:transition-none ${isB2B ? 'translate-x-6' : 'translate-x-1'}`} />
               </button>
             </div>
 
@@ -244,14 +282,18 @@ export const PurchaseOrderWorkspace = ({
         ) : null}
       </div>
       <div className="border-t border-slate-100 bg-white/95 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <p className="mb-2 text-[11px] font-semibold leading-5 text-slate-500 dark:text-slate-400">
+          保存后生成采购承诺；不会立即增加库存。实际库存只在后续收货批次确认后写入。
+        </p>
         <button
+          type="button"
           data-testid="save-purchase-button"
           onClick={addOrder}
           disabled={!canWrite || isSubmitting}
           aria-busy={isSubmitting}
-          className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="w-full scroll-mb-28 rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition-colors hover:bg-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 lg:scroll-mb-0"
         >
-          {isSubmitting ? (t.saving || '保存中...') : t.savePurchase}
+          {isSubmitting ? (t.saving || '保存中...') : '保存采购承诺'}
         </button>
       </div>
       </>

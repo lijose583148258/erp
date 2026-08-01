@@ -388,6 +388,7 @@ const Procurement = () => {
       setIsPurchaseSubmitting(true);
       const createdOrder = await procurementService.createOrder({
         supplierId: supplier.id,
+        materialId: newOrder.materialId || undefined,
         supplierName: getSupplierLabel(supplier) || supplier.supplierDisplayName || supplier.name,
         supplierNameZh: supplier.nameZh,
         supplierNameEn: supplier.nameEn,

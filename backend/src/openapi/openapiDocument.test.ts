@@ -177,6 +177,22 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.MaterialAlias).toBeDefined();
   });
 
+  it('documents canonical material identity on purchase-order creation', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const createOrder = document.paths[`${prefix}/procurement/orders`]?.post;
+      expect((createOrder?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/ProcurementPurchaseOrderCreateRequest' });
+      expect(createOrder?.responses['201']).toBeDefined();
+    }
+
+    expect(document.components.schemas.ProcurementPurchaseOrderCreateRequest.required)
+      .toEqual(['supplierId', 'item', 'quantity', 'unit', 'price', 'eta']);
+    expect(document.components.schemas.ProcurementPurchaseOrderCreateRequest.properties.materialId)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, nullable: true }));
+  });
+
   it('resolves every local schema reference after composing the document', () => {
     const document = buildOpenApiDocument();
     const schemaNames = new Set(Object.keys(document.components.schemas));

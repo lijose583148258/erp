@@ -64,6 +64,7 @@ const mapMovementRecord = (movement: Record<string, unknown>) => ({
   entryId: normalizeDbNumber(movement.entryId),
   stockBalanceId: movement.stockBalanceId == null ? null : normalizeDbNumber(movement.stockBalanceId),
   locationId: normalizeDbNumber(movement.locationId),
+  materialId: movement.materialId == null ? null : normalizeDbNumber(movement.materialId),
   quantityBefore: Number(movement.quantityBefore || 0),
   quantityDelta: Number(movement.quantityDelta || 0),
   quantityAfter: Number(movement.quantityAfter || 0),
@@ -123,6 +124,7 @@ export const findPostedEntryResult = async (
 
 const movementSignature = (movement: Record<string, unknown>) => [
   normalizeDbNumber(movement.locationId),
+  movement.materialId == null ? '' : normalizeDbNumber(movement.materialId),
   normalizeText(movement.productName),
   normalizeText(movement.batchNo),
   normalizeText(movement.unit || 'kg') || 'kg',

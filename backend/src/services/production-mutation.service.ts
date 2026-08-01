@@ -86,6 +86,7 @@ const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.production
     productBatch: {
       select: {
         id: true,
+        materialId: true,
         batchNo: true,
         productName: true,
         productionDate: true,
@@ -403,7 +404,7 @@ export class ProductionMutationService {
           if (workOrder.batchId) {
             const currentBatch = await tx.productBatch.findUnique({
               where: { id: workOrder.batchId },
-              select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true },
+              select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, unit: true },
             });
             if (!currentBatch) {
               throw new Error(`Product batch not found: ${workOrder.batchId}`);
@@ -423,6 +424,7 @@ export class ProductionMutationService {
               createdBy: workOrder.createdBy,
               lines: [{
                 locationId: outputLocationId,
+                materialId: currentBatch.materialId,
                 productName: currentBatch.productName,
                 batchNo: currentBatch.batchNo,
                 quantityDelta: netOutput,
@@ -488,6 +490,7 @@ export class ProductionMutationService {
             createdBy: workOrder.createdBy,
             lines: validatedConsumptionRecords.map(record => ({
               locationId: record.stock?.locationId || 0,
+              materialId: record.stock?.materialId || null,
               productName: record.stock?.productName || '',
               batchNo: record.stock?.batchNo || '',
               quantityDelta: -record.quantity,
@@ -505,10 +508,9 @@ export class ProductionMutationService {
               // exist as StockBalance rows. ProductBatch is optional here; the
               // stock voucher above is the authoritative inventory deduction.
               const matchBatch = await tx.productBatch.findFirst({
-                where: {
-                  productName: currentStock.productName,
-                  batchNo: currentStock.batchNo,
-                },
+                where: currentStock.materialId
+                  ? { materialId: currentStock.materialId, batchNo: currentStock.batchNo }
+                  : { productName: currentStock.productName, batchNo: currentStock.batchNo },
                 select: { id: true, stockQuantity: true },
               });
 

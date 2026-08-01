@@ -38,6 +38,22 @@ describe('stock movement concurrency and idempotency', () => {
     }])).toThrow(StockMovementConflictError);
   });
 
+  it('treats material identity as part of the idempotency signature', () => {
+    const governedResult = {
+      ...existingResult,
+      movements: [{ ...existingResult.movements[0], materialId: 7 }],
+    };
+
+    expect(() => assertIdempotentReplayMatches(governedResult, [{
+      locationId: 1,
+      materialId: 8,
+      productName: 'Resin A',
+      batchNo: 'B-1',
+      unit: 'kg',
+      quantityDelta: -20,
+    }])).toThrow(StockMovementConflictError);
+  });
+
   it('returns an exact replay without creating another voucher', async () => {
     const tx = {
       stockEntry: {

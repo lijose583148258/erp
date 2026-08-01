@@ -21,6 +21,10 @@ model Material {
 
   aliases         MaterialAlias[]
   bomItems        ProductionBomItem[]
+  purchaseOrders  PurchaseOrder[]
+  productBatches  ProductBatch[]
+  stockBalances   StockBalance[]
+  stockMovements  StockMovement[]
 
   @@index([nameZh])
   @@index([nameEn])

@@ -29,6 +29,7 @@ model Supplier {
 model PurchaseOrder {
   id            Int      @id @default(autoincrement())
   supplierId    Int      @map("supplier_id")
+  materialId    Int?     @map("material_id")
   item          String
   quantity      Float
   unit          String
@@ -52,10 +53,12 @@ model PurchaseOrder {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   supplier      Supplier @relation(fields: [supplierId], references: [id])
+  material      Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   salesOrder    Order?   @relation(fields: [salesOrderId], references: [id])
   receipts      PurchaseReceipt[]
 
   @@index([supplierId])
+  @@index([materialId])
   @@index([status])
   @@index([salesOrderId])
   @@map("purchase_orders")

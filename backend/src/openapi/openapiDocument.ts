@@ -216,6 +216,34 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/procurement/orders`] = {
+      get: {
+        tags: ['Procurement'],
+        summary: 'List purchase orders',
+        description: 'Returns purchase orders visible to the authenticated procurement scope.',
+        security: secured(true),
+        responses: jsonResponse,
+      },
+      post: {
+        tags: ['Procurement'],
+        summary: 'Create a purchase order commitment',
+        description: 'Creates a procurement commitment. Inventory is not increased until a later receipt is posted. Canonical material identity is propagated when materialId is supplied.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ProcurementPurchaseOrderCreateRequest' },
+            },
+          },
+        },
+        responses: {
+          ...writeResponses,
+          '201': { description: 'Purchase order commitment created.' },
+        },
+      },
+    };
+
     paths[`${prefix}/collections/overdue`] = {
       get: {
         tags: ['Collections'],

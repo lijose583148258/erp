@@ -21,6 +21,7 @@ export type NewSupplierForm = {
 
 export type NewPurchaseOrderForm = {
   supplierId: string;
+  materialId: string;
   item: string;
   quantity: string;
   unit: string;
@@ -74,6 +75,7 @@ export const createEmptySupplierForm = (): NewSupplierForm => ({
 
 export const createEmptyPurchaseOrderForm = (): NewPurchaseOrderForm => ({
   supplierId: '',
+  materialId: '',
   item: '',
   quantity: '10',
   unit: '件',

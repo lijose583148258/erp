@@ -97,4 +97,21 @@ export const repairMaterialSchema = async (report: SchemaRepairReport) => {
 
   await addColumnIfMissing(report, 'production_bom_items', 'material_id', 'INTEGER');
   await createIndexIfMissing(report, 'production_bom_items_material_id_idx', 'CREATE INDEX "production_bom_items_material_id_idx" ON "production_bom_items"("material_id")');
+
+  await addColumnIfMissing(report, 'purchase_orders', 'material_id', 'INTEGER');
+  await createIndexIfMissing(report, 'purchase_orders_material_id_idx', 'CREATE INDEX "purchase_orders_material_id_idx" ON "purchase_orders"("material_id")');
+
+  await addColumnIfMissing(report, 'product_batches', 'material_id', 'INTEGER');
+  await createIndexIfMissing(report, 'product_batches_material_id_idx', 'CREATE INDEX "product_batches_material_id_idx" ON "product_batches"("material_id")');
+
+  await addColumnIfMissing(report, 'stock_balances', 'material_id', 'INTEGER');
+  await createIndexIfMissing(report, 'stock_balances_material_id_idx', 'CREATE INDEX "stock_balances_material_id_idx" ON "stock_balances"("material_id")');
+  await createIndexIfMissing(
+    report,
+    'stock_balances_location_id_material_id_batch_no_key',
+    'CREATE UNIQUE INDEX "stock_balances_location_id_material_id_batch_no_key" ON "stock_balances"("location_id", "material_id", "batch_no")',
+  );
+
+  await addColumnIfMissing(report, 'stock_movements', 'material_id', 'INTEGER');
+  await createIndexIfMissing(report, 'stock_movements_material_id_idx', 'CREATE INDEX "stock_movements_material_id_idx" ON "stock_movements"("material_id")');
 };
