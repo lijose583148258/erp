@@ -27,6 +27,9 @@ const barterCalculations = read('backend/src/services/barter/barter.calculations
 const barterAgreementService = read('backend/src/services/barter/barter-agreement.service.ts');
 const barterQueryService = read('backend/src/services/barter/barter-query.service.ts');
 const barterService = read('backend/src/services/barter.service.ts');
+const procurementDomainService = read('backend/src/services/procurement-domain.service.ts');
+const stockMovementService = read('backend/src/services/stock-movement.service.ts');
+const productionCostLedgerService = read('backend/src/services/production-cost-ledger.service.ts');
 
 assert.equal(contract.version, '2026-08-01-receivables-decimal-shadow-v1');
 assert.deepEqual(contract.tables.map(table => table.table), [
@@ -122,6 +125,19 @@ assert.match(barterService, /getOutstandingAmount\(\s*linkedOrder\.finalAmount/)
 assert.doesNotMatch(barterAgreementService, /postingTotal \+ Number\(posting\.offsetAmount\)|agreedOffsetAmount - executedOffsetAmount/);
 assert.doesNotMatch(barterQueryService, /postingTotal \+ Number\(posting\.offsetAmount\)|sum \+ Number\(settlement\.cashDifference\)/);
 assert.doesNotMatch(barterService, /postingTotal \+ Number\(posting\.offsetAmount\)|offsetAmount > liveRemainingAmount/);
+assert.match(procurementDomainService, /multiplyMoney\(price, quantity\)/);
+assert.match(procurementDomainService, /prorateMoney\(landedCostAmount, 1, quantity\)/);
+assert.match(procurementDomainService, /subtractMoney\(landedCostAmount, multiplyMoney\(unitCost, acceptedQuantityBefore\)\)/);
+assert.doesNotMatch(procurementDomainService, /price\s*\*\s*quantity|landedCostAmount\s*\/\s*quantity/);
+assert.match(stockMovementService, /multiplyMoney\(line\.quantityDelta, line\.unitCost\)/);
+assert.doesNotMatch(stockMovementService, /line\.quantityDelta\s*\*\s*line\.unitCost/);
+assert.match(productionCostLedgerService, /calculateInventoryCostDelta/);
+assert.match(productionCostLedgerService, /calculateInventoryUnitCost/);
+assert.match(productionCostLedgerService, /addMoney\(costBefore, costAmountDelta\)/);
+assert.doesNotMatch(
+  productionCostLedgerService,
+  /quantityDelta\s*\*\s*currentUnitCost|costBefore\s*\+\s*costAmountDelta|costAmountDelta\s*\/\s*quantityDelta/,
+);
 
 console.log('Decimal Shadow Contract Audit: PASS');
 console.log('- 7 money and 2 exchange-rate shadow fields have additive SQLite/PostgreSQL migration contracts.');
@@ -130,3 +146,4 @@ console.log('- Sales order create, import, and edit paths share decimal line, di
 console.log('- Finance summaries and collection milestones use decimal exchange, proration, aggregation, and ratio boundaries.');
 console.log('- Payment verification, order-state recalculation, overdue aggregation, and milestone settlement share the decimal boundary.');
 console.log('- Barter preview, posted-only summaries, agreement progress, order offsets, and reversal-aware totals share the decimal boundary.');
+console.log('- Procurement valuation, split-receipt residuals, stock movements, and inventory cost ledgers share the decimal boundary.');

@@ -157,3 +157,17 @@ Generated evidence:
 - full release verification report under `output/audit/`
 
 These reports prove only the provider and dataset named inside each report. SQLite evidence must never be presented as PostgreSQL production evidence.
+
+## Application calculation boundaries already governed
+
+The application now uses the shared Decimal calculation boundary for:
+
+- sales order lines, discounts and outstanding amounts;
+- finance summaries, exchange conversion and collection milestones;
+- verified payments, receivable adjustments and overdue aggregation;
+- barter valuation, posted-only totals, reversals and agreement progress;
+- purchase item valuation, tax, freight, duty, insurance and landed cost;
+- split purchase receipts, including assigning the rounding residual to the final receipt;
+- stock-movement cost deltas and inventory cost-ledger unit-cost calculations.
+
+These controls prevent native JavaScript floating-point arithmetic from creating application-level drift. They do **not** mean that the database read cutover is complete. Legacy Prisma fields remain the read source until the separate expand/observe/switch/contract sequence above is completed and verified against PostgreSQL.
