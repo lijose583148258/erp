@@ -145,7 +145,7 @@ jobs:
           fi
 
           DATABASE_URL="$sqlite_url" AUDIT_DATABASE_URL="$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=source ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
-          DATABASE_URL="$sqlite_url" DECIMAL_SHADOW_AUDIT_LABEL=sqlite-source npm run audit:db:decimal-shadow
+          DATABASE_URL="$sqlite_url" AUDIT_DATABASE_URL="$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=sqlite-source npm run audit:db:decimal-shadow
 
       - name: Import into PostgreSQL and compare every table
         shell: bash
@@ -178,7 +178,7 @@ jobs:
             DATABASE_URL="$ENTERPRISE_SQLITE_URL" node scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
           fi
           DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=rollback ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
-          DATABASE_URL="$ENTERPRISE_SQLITE_URL" DECIMAL_SHADOW_AUDIT_LABEL=sqlite-rollback npm run audit:db:decimal-shadow
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=sqlite-rollback npm run audit:db:decimal-shadow
           ENTERPRISE_EVIDENCE_CLASS="$ENTERPRISE_EVIDENCE_CLASS" ENTERPRISE_TARGET_ROWS="$ENTERPRISE_TARGET_ROWS" node scripts/enterprise-release-verdict-v1.cjs
 
       - name: Verify rollback SQLite remains writable

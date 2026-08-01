@@ -301,7 +301,7 @@ jobs:
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs mutate
           DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
-          DATABASE_URL="${sqlite_url}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback npm run audit:db:decimal-shadow
+          DATABASE_URL="${sqlite_url}" AUDIT_DATABASE_URL="${sqlite_url}" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback npm run audit:db:decimal-shadow
 
       - name: Build PostgreSQL application image
         run: |

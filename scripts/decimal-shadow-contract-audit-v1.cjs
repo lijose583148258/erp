@@ -12,6 +12,8 @@ const reconcileAudit = read('scripts/decimal-shadow-reconcile-audit-v1.cjs');
 const writePathAudit = read('scripts/decimal-shadow-write-path-audit-v1.cjs');
 const releaseGate = read('scripts/run-release-verification-v1.cjs');
 const enterpriseVerdict = read('scripts/enterprise-release-verdict-v1.cjs');
+const enterpriseReleaseWorkflow = read('.github/workflows/enterprise-release-certification.yml');
+const enterpriseCloudWorkflow = read('.github/workflows/enterprise-cloud-sandbox.yml');
 
 assert.equal(contract.version, '2026-08-01-receivables-decimal-shadow-v1');
 assert.deepEqual(contract.tables.map(table => table.table), [
@@ -61,7 +63,19 @@ assert.match(enterpriseVerdict, /decimal-shadow-reconcile-v1-sqlite-source\.json
 assert.match(enterpriseVerdict, /decimal-shadow-reconcile-v1-postgres-import\.json/);
 assert.match(enterpriseVerdict, /decimal-shadow-reconcile-v1-sqlite-rollback\.json/);
 assert.match(enterpriseVerdict, /decimal-shadow-contract-version/);
+assert.match(
+  enterpriseReleaseWorkflow,
+  /DATABASE_URL="\$sqlite_url" AUDIT_DATABASE_URL="\$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=sqlite-source/,
+);
+assert.match(
+  enterpriseReleaseWorkflow,
+  /DATABASE_URL="\$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="\$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=sqlite-rollback/,
+);
+assert.match(
+  enterpriseCloudWorkflow,
+  /DATABASE_URL="\$\{sqlite_url\}" AUDIT_DATABASE_URL="\$\{sqlite_url\}" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback/,
+);
 
 console.log('Decimal Shadow Contract Audit: PASS');
 console.log('- 7 money and 2 exchange-rate shadow fields have additive SQLite/PostgreSQL migration contracts.');
-console.log('- Backfill, write synchronization, precision metadata, reconciliation, and non-cutover claims are gated.');
+console.log('- Backfill, write synchronization, precision metadata, provider-isolated reconciliation, and non-cutover claims are gated.');
