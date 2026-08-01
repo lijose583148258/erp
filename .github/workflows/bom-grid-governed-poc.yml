@@ -46,6 +46,7 @@ jobs:
           node-version: "22"
           cache: npm
       - run: npm ci
+      - run: npm --prefix backend ci
       - run: npm run build
       - name: Reject unknown or prohibited production licenses
         run: npm run audit:licenses
