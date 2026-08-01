@@ -13,6 +13,7 @@ const {
   atomicWrite,
   createRun,
   ensureDir,
+  pruneAuditRuns,
   safeName,
   writeReports,
 } = require('./lib/browser-ui-ux-audit-report.cjs');
@@ -283,8 +284,17 @@ async function auditState(page, run, route, viewport, state, collectors) {
     const tables = Array.from(document.querySelectorAll('table'));
     for (const table of tables) {
       if (!visible(table)) continue;
-      const cols = table.querySelectorAll('thead th, tbody tr:first-child td').length;
+      const headerColumns = table.querySelectorAll('thead th').length;
+      const bodyColumns = table.querySelectorAll('tbody tr:first-child td').length;
+      const cols = Math.max(headerColumns, bodyColumns);
       if (isMobile && cols > 12 && !hasScrollableAncestor(table)) add('warning', 'responsive', 'MOBILE_WIDE_TABLE_WITHOUT_SCROLL', 'Wide table on mobile has no obvious scroll container', table, { columns: cols });
+      if (isMobile && state === 'initial' && cols >= 5) {
+        const scope = table.closest('section, [data-testid$="-panel"], [data-workspace-section]') || table.parentElement?.parentElement || table.parentElement;
+        const mobileAlternative = scope?.querySelector('[data-mobile-card-list]');
+        if (!mobileAlternative || !visible(mobileAlternative)) {
+          add('warning', 'responsive', 'MOBILE_COMPLEX_TABLE_WITHOUT_CARD_ALTERNATIVE', 'Complex table has no visible task-card alternative on mobile', table, { columns: cols });
+        }
+      }
       const rect = table.getBoundingClientRect();
       if (rect.right > window.innerWidth + 4 && !hasScrollableAncestor(table)) add('error', 'responsive', 'TABLE_OVERFLOWS_PAGE', 'Table overflows page instead of internal scroll container', table);
     }
@@ -415,7 +425,7 @@ async function safeOpenMenuState(page, run, route, viewport, collectors) {
 }
 
 async function safeSearchEmptyState(page, run, route, viewport, collectors) {
-  const search = page.locator('input[type="search"], input[placeholder*="Search"], input[placeholder*="搜索"], input[aria-label*="Search"], input[aria-label*="搜索"]').first();
+  const search = page.locator('input[type="search"]:visible, input[data-testid*="search"]:visible:not([role="combobox"]), input[placeholder*="Search"]:visible:not([role="combobox"]), input[placeholder*="搜索"]:visible:not([role="combobox"]), input[aria-label*="Search"]:visible:not([role="combobox"]), input[aria-label*="搜索"]:visible:not([role="combobox"])').first();
   if (!(await search.count())) return;
   try {
     const previousValue = await search.inputValue().catch(() => '');
@@ -493,8 +503,11 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
 
 async function run() {
   const config = parseConfig();
+  const auditOutputRoot = path.join(process.cwd(), 'output', 'ui-ux-audit');
+  const removedRuns = pruneAuditRuns(auditOutputRoot, Math.max(0, config.keepRuns - 1));
   const run = createRun(config, { fallbackRoutes: FALLBACK_ROUTES, viewports: VIEWPORTS });
   run.config = config;
+  run.report.evidenceCleanup = { keepRuns: config.keepRuns, removedRuns };
   ensureDir(run.root);
 
   let browser;
@@ -524,12 +537,6 @@ async function run() {
     });
     await page.reload({ waitUntil: 'domcontentloaded', timeout: config.pageTimeoutMs });
     await waitForAppSettled(page, config.pageTimeoutMs);
-
-    if (config.reducedMotion) {
-      await page.addStyleTag({
-        content: '*,*::before,*::after{transition-duration:0.01ms!important;animation-duration:0.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;}',
-      }).catch(() => {});
-    }
 
     const routes = await discoverRoutes(page, config, run.report);
     run.report.routes = routes;

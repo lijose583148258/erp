@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, BarChart3, Database, Link2, PackageCheck, ShieldAlert, Users } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
+import { MobileRecordCard, MobileRecordState } from '../components/ui/MobileRecordCard';
 import type { Language } from '../types';
 import { dealerAnalyticsService, DealerAnalyticsSnapshot, SalesSegment } from '../services/dealerAnalyticsService';
 
@@ -100,6 +101,11 @@ export default function DealerAnalytics() {
   };
   const segmentRows = snapshot?.segments || [];
   const totals = snapshot?.totals || { members: 0, customers: 0, orders: 0, revenue: 0 };
+  const comparisonLabels = {
+    zh: { segment: '业务线', members: '成员', customers: '客户', orders: '订单', completed: '完成', revenue: '订单金额', loading: '正在加载经营数据…', empty: '暂无可展示的业务线数据' },
+    en: { segment: 'Business line', members: 'Members', customers: 'Customers', orders: 'Orders', completed: 'Completed', revenue: 'Order value', loading: 'Loading operating data…', empty: 'No business-line data available' },
+    vi: { segment: 'Nhóm kinh doanh', members: 'Nhân sự', customers: 'Khách hàng', orders: 'Đơn hàng', completed: 'Hoàn tất', revenue: 'Giá trị đơn', loading: 'Đang tải dữ liệu kinh doanh…', empty: 'Chưa có dữ liệu nhóm kinh doanh' },
+  }[language];
   const requiredFeeds = [
     copy.feedCustomer,
     copy.feedOrder,
@@ -136,11 +142,27 @@ export default function DealerAnalytics() {
           <h2 className="text-base font-black text-slate-900 dark:text-white">内销 / 分销基础经营对比</h2>
           <p className="mt-1 text-xs font-bold text-slate-600 dark:text-slate-300">数据来自真实员工归属、客户和销售订单；回款、逾期与渠道库存尚未计入。</p>
         </div>
-        <div className="overflow-x-auto">
+        <div data-mobile-card-list className="space-y-3 p-4 md:hidden">
+          {loading ? <MobileRecordState text={comparisonLabels.loading} /> : segmentRows.length ? segmentRows.map(row => (
+            <MobileRecordCard
+              key={`${row.key}-mobile`}
+              title={labels[row.key][language]}
+              status={`${row.completed}/${row.orders} ${comparisonLabels.completed}`}
+              fields={[
+                { label: comparisonLabels.members, value: row.members },
+                { label: comparisonLabels.customers, value: row.customers },
+                { label: comparisonLabels.orders, value: row.orders },
+                { label: comparisonLabels.completed, value: row.completed },
+                { label: comparisonLabels.revenue, value: formatPrice(row.revenue), fullWidth: true },
+              ]}
+            />
+          )) : <MobileRecordState text={comparisonLabels.empty} />}
+        </div>
+        <div className="hidden overflow-x-auto md:block">
           <table className="min-w-[760px] w-full text-left">
             <thead className="bg-slate-50 dark:bg-slate-800/60">
               <tr>
-                {['业务线', '成员', '客户', '订单', '完成', '订单金额'].map(label => (
+                {[comparisonLabels.segment, comparisonLabels.members, comparisonLabels.customers, comparisonLabels.orders, comparisonLabels.completed, comparisonLabels.revenue].map(label => (
                   <th key={label} className="px-4 py-2.5 text-xs font-black text-slate-600 dark:text-slate-300">{label}</th>
                 ))}
               </tr>

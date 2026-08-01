@@ -3,6 +3,7 @@ import { Download, TrendingUp, WalletCards, CircleDollarSign, Clock3 } from 'luc
 import { useAppContext } from '../../app/AppContext';
 import { FinanceCashflowSummary } from '../../services/financeAnalytics.service';
 import { exportFinanceCsv } from './finance.helpers';
+import { MobileRecordCard, MobileRecordState } from '../../components/ui/MobileRecordCard';
 
 interface FinanceCashflowPanelProps {
   data: FinanceCashflowSummary | null | undefined;
@@ -67,7 +68,24 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
         ))}
       </div>
 
-      <div className="overflow-x-auto no-scrollbar">
+      <div data-mobile-card-list className="space-y-3 md:hidden">
+        {isLoading ? <MobileRecordState text={t.loading || '正在加载...'} /> : rows.length ? rows.map(row => (
+          <MobileRecordCard
+            key={`${row.period}-mobile`}
+            title={row.period}
+            status={`${row.receiptCount} ${t.cashflowReceiptCount || '回款笔数'}`}
+            fields={[
+              { label: t.cashflowInflow || '流入', value: formatPrice(row.inflow), tone: 'positive' },
+              { label: t.cashflowOutflow || '流出', value: formatPrice(row.outflow), tone: 'negative' },
+              { label: t.cashflowNet || '净额', value: formatPrice(row.net), tone: row.net >= 0 ? 'positive' : 'negative' },
+              { label: t.cashflowPending || '待确认', value: formatPrice(row.pendingReceiptAmount) },
+              { label: t.cashflowAdjCount || '调整笔数', value: row.adjustmentCount },
+            ]}
+          />
+        )) : <MobileRecordState text={t.emptyState || '暂无记录'} />}
+      </div>
+
+      <div className="hidden overflow-x-auto no-scrollbar md:block">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-slate-100/50 dark:border-slate-800">
@@ -87,7 +105,7 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
               </tr>
             ) : rows.length ? (
               rows.map((row) => (
-                <tr key={row.period} className="hover:bg-emerald-50/20 dark:hover:bg-emerald-900/5 transition-all">
+                <tr key={row.period} className="transition-colors duration-150 hover:bg-emerald-50/20 motion-reduce:transition-none dark:hover:bg-emerald-900/5">
                   <Td mono>{row.period}</Td>
                   <Td>{formatPrice(row.inflow)}</Td>
                   <Td>{formatPrice(row.outflow)}</Td>

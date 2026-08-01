@@ -4,6 +4,7 @@ import { useAppContext } from '../../app/AppContext';
 import { FinanceLedgerSummary } from '../../services/financeAnalytics.service';
 import { getCustomerDisplayName } from '../../utils/customerName';
 import { exportFinanceCsv } from './finance.helpers';
+import { MobileRecordCard, MobileRecordState } from '../../components/ui/MobileRecordCard';
 
 interface FinanceLedgerPanelProps {
   data: FinanceLedgerSummary | null | undefined;
@@ -99,7 +100,26 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
         ))}
       </div>
 
-      <div className="overflow-x-auto no-scrollbar">
+      <div data-mobile-card-list className="space-y-3 md:hidden">
+        {isLoading ? <MobileRecordState text={t.loading || '正在加载...'} /> : rows.length ? rows.map(row => (
+          <MobileRecordCard
+            key={`${row.sourceType}-${row.entryNo}-${row.createdAt}-mobile`}
+            title={row.entryNo}
+            subtitle={`${row.voucherType} · ${sourceTypeLabel(row.sourceType)}`}
+            status={sourceStatusLabel(row.sourceStatus)}
+            fields={[
+              { label: t.customer || '往来方', value: customerLabel(row) || '--', fullWidth: true },
+              { label: t.amount || '金额', value: formatPrice(row.amount) },
+              { label: t.ledgerImpact || '影响', value: `${row.impactAmount >= 0 ? '+' : '-'}${formatPrice(Math.abs(row.impactAmount))}`, tone: row.impactAmount >= 0 ? 'positive' : 'negative' },
+              { label: t.ledgerBalance || '余额', value: formatPrice(row.balanceAfter) },
+              { label: t.assetDate || '日期', value: row.postingDate.slice(0, 10), mono: true },
+              { label: '关联单据', value: row.orderNo || row.batchNo || row.sourceRef || '--', fullWidth: true, mono: true },
+            ]}
+          />
+        )) : <MobileRecordState text={t.emptyState || '暂无记录'} />}
+      </div>
+
+      <div className="hidden overflow-x-auto no-scrollbar md:block">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-slate-100/50 dark:border-slate-800">
@@ -120,7 +140,7 @@ const FinanceLedgerPanel = ({ data }: FinanceLedgerPanelProps) => {
               </tr>
             ) : rows.length ? (
               rows.map(row => (
-                <tr key={`${row.sourceType}-${row.entryNo}-${row.createdAt}`} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all">
+                <tr key={`${row.sourceType}-${row.entryNo}-${row.createdAt}`} className="transition-colors duration-150 hover:bg-blue-50/20 motion-reduce:transition-none dark:hover:bg-blue-900/5">
                   <Td mono>{row.entryNo}</Td>
                   <Td>
                     <div className="font-black text-slate-900 dark:text-white text-sm">{row.voucherType}</div>

@@ -1,5 +1,6 @@
 import React, { Dispatch, SetStateAction } from 'react';
 import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
+import { MobileRecordCard, MobileRecordState } from '../../components/ui/MobileRecordCard';
 import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 import { ProductionBom } from '../../services/production.service';
 import { ProductionBomLineGrid } from './ProductionBomLineGrid';
@@ -368,7 +369,34 @@ export function ProductionBomSection({
           <h3 className="text-lg font-black tracking-tighter uppercase">已保存配方</h3>
           <div className="text-xs font-black text-slate-400 bg-slate-100 dark:bg-slate-800 px-3 py-1 rounded-full">{displayedBoms.length} 条</div>
         </div>
-        <div className="overflow-x-auto no-scrollbar">
+        <div data-mobile-card-list className="space-y-3 md:hidden">
+          {displayedBoms.length ? displayedBoms.map(bom => (
+            <MobileRecordCard
+              key={`${bom.id}-mobile`}
+              title={bom.productName}
+              subtitle={bom.bomNo}
+              status={BOM_STATUS_LABELS[(bom.status as BomLifecycleStatus) || 'draft'] || '草稿'}
+              fields={[
+                { label: '类型', value: BOM_TYPE_LABELS[(bom.bomType as BomType) || 'standard'] || '标准BOM' },
+                { label: '版本', value: bom.version || '--' },
+                { label: '核算模式', value: FORMULATION_MODE_LABELS[bom.formulationMode || 'fixed'] || '--' },
+                { label: '原料 / 工单', value: `${bom.items?.length || 0} / ${bom.workOrders?.length || 0}` },
+                { label: '标准批量', value: bom.standardBatchSize ? `${bom.standardBatchSize} ${bom.batchSizeUnit || bom.outputUnit}` : '--', fullWidth: true },
+                { label: '产品保质期', value: bom.shelfLifeDays ? `${bom.shelfLifeDays} 天` : '未配置', fullWidth: true },
+              ]}
+              action={(
+                <button
+                  type="button"
+                  onClick={() => { setSelectedBomId(bom.id); setWoProductName(bom.productName); }}
+                  className="min-h-11 w-full rounded-xl bg-slate-900 px-4 py-3 text-sm font-black text-white transition-colors duration-150 hover:bg-slate-700 motion-reduce:transition-none dark:bg-blue-600 dark:hover:bg-blue-700"
+                >
+                  选中回读并带入工单
+                </button>
+              )}
+            />
+          )) : <MobileRecordState text="没有符合当前搜索条件的配方" />}
+        </div>
+        <div className="hidden overflow-x-auto no-scrollbar md:block">
           <table className="w-full text-left">
             <thead>
               <tr className="border-b border-slate-100/50 dark:border-slate-800">
@@ -376,7 +404,7 @@ export function ProductionBomSection({
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
-              {displayedBoms.map(bom => (
+              {displayedBoms.length ? displayedBoms.map(bom => (
                 <tr key={bom.id} className={`transition-colors duration-150 motion-reduce:transition-none ${selectedBomId === bom.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}>
                   <Td mono>{bom.bomNo}</Td>
                   <Td>
@@ -394,7 +422,9 @@ export function ProductionBomSection({
                     <button onClick={() => { setSelectedBomId(bom.id); setWoProductName(bom.productName); }} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest">选中回读/带入工单</button>
                   </Td>
                 </tr>
-              ))}
+              )) : (
+                <tr><td colSpan={7} className="py-10 text-center text-sm font-bold text-slate-500 dark:text-slate-400">没有符合当前搜索条件的配方</td></tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -75,6 +75,7 @@ function parseConfig(env = process.env) {
     traceOnFailure: boolEnv(env, 'UI_UX_AUDIT_TRACE_ON_FAILURE', false),
     reducedMotion: boolEnv(env, 'UI_UX_AUDIT_REDUCED_MOTION', true),
     colorScheme: enumEnv(env, 'UI_UX_AUDIT_COLOR_SCHEME', 'light', ['light', 'dark', 'both']),
+    keepRuns: intEnv(env, 'UI_UX_AUDIT_KEEP_RUNS', 2, 1),
   };
 }
 
