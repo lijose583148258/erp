@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useId } from 'react';
 
 export type DocumentGuideStep = {
   title: string;
@@ -51,10 +51,16 @@ export const DocumentInputGuide: React.FC<DocumentInputGuideProps> = ({
   testId,
 }) => {
   const toneClass = toneClassMap[tone];
+  const generatedId = useId();
+  const titleId = `document-guide-title-${generatedId}`;
+  const descriptionId = `document-guide-description-${generatedId}`;
 
   return (
     <section
       data-testid={testId}
+      data-document-input-guide
+      aria-labelledby={titleId}
+      aria-describedby={descriptionId}
       className="rounded-[40px] border border-white/70 bg-white/75 p-6 shadow-[0_18px_50px_rgba(15,23,42,0.05)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/75"
     >
       <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
@@ -63,8 +69,8 @@ export const DocumentInputGuide: React.FC<DocumentInputGuideProps> = ({
             <span className={`h-8 w-2 rounded-full ${toneClass.bar}`} />
             <p className="text-[11px] font-black tracking-[0.22em] text-slate-400">{eyebrow}</p>
           </div>
-          <h2 className="mt-3 text-2xl font-black tracking-tight text-slate-950 dark:text-white">{title}</h2>
-          <p className="mt-3 text-sm font-bold leading-7 text-slate-500 dark:text-slate-300">{description}</p>
+          <h2 id={titleId} className="mt-3 text-2xl font-black tracking-tight text-slate-950 dark:text-white">{title}</h2>
+          <p id={descriptionId} className="mt-3 text-sm font-bold leading-7 text-slate-500 dark:text-slate-300">{description}</p>
         </div>
 
         {evidence.length ? (
@@ -81,9 +87,9 @@ export const DocumentInputGuide: React.FC<DocumentInputGuideProps> = ({
         ) : null}
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+      <ol aria-label="填写步骤" className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         {steps.map((step, index) => (
-          <div key={`${step.title}-${index}`} className="rounded-[28px] border border-slate-100 bg-slate-50/75 p-4 dark:border-slate-800 dark:bg-slate-950/35">
+          <li key={`${step.title}-${index}`} className="rounded-[28px] border border-slate-100 bg-slate-50/75 p-4 dark:border-slate-800 dark:bg-slate-950/35">
             <div className="flex items-center justify-between gap-3">
               <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-slate-950 text-sm font-black text-white dark:bg-white dark:text-slate-950">
                 {index + 1}
@@ -96,9 +102,9 @@ export const DocumentInputGuide: React.FC<DocumentInputGuideProps> = ({
             </div>
             <h3 className="mt-4 text-base font-black text-slate-950 dark:text-white">{step.title}</h3>
             <p className="mt-2 text-sm font-bold leading-6 text-slate-500 dark:text-slate-300">{step.description}</p>
-          </div>
+          </li>
         ))}
-      </div>
+      </ol>
 
       {boundaries.length ? (
         <div className="mt-5 grid gap-3 lg:grid-cols-2">

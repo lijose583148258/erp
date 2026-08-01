@@ -78,6 +78,13 @@ const financeLedgerSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages
 const financeCashflowSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'finance', 'FinanceCashflowPanel.tsx'), 'utf8');
 const adjustmentRecordSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'adjustment', 'AdjustmentRecordTable.tsx'), 'utf8');
 const dealerAnalyticsSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'DealerAnalytics.tsx'), 'utf8');
+const pageShellSource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'PageShell.tsx'), 'utf8');
+const documentGuideSource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'DocumentInputGuide.tsx'), 'utf8');
+const taskNavigatorSource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'WorkspaceTaskNavigator.tsx'), 'utf8');
+const dataTableSource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'DataTable.tsx'), 'utf8');
+const enterpriseGridSource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'EnterpriseDataGrid.tsx'), 'utf8');
+const columnVisibilitySource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'ColumnVisibilityMenu.tsx'), 'utf8');
+const productionAuditHelpersSource = fs.readFileSync(path.resolve(__dirname, 'lib', 'production-browser-audit-helpers.cjs'), 'utf8');
 assert.match(productionBomSource, /relative z-10[\s\S]*md:sticky md:bottom-4/, 'mobile BOM save panel must remain in document flow and only become sticky from desktop width');
 assert.match(productionBomSource, /motion-reduce:transition-none/, 'BOM primary action must respect reduced-motion preference');
 assert.match(productionBomSource, /data-mobile-card-list/, 'saved BOM versions need task-oriented mobile cards');
@@ -104,6 +111,37 @@ assert.doesNotMatch(productionWorkspaceSource, /duration-1000|slide-in-from-bott
 assert.doesNotMatch(uiAuditSource, /page\.addStyleTag/, 'reduced-motion emulation must not inject CSP-blocked style elements');
 assert.match(uiAuditSource, /MOBILE_COMPLEX_TABLE_WITHOUT_CARD_ALTERNATIVE/, 'generic audit must detect complex mobile tables without task cards');
 assert.match(uiAuditSource, /:visible:not\(\[role="combobox"\]\)/, 'safe search audit must not mutate hidden or business combobox fields');
+assert.match(uiAuditSource, /PAGE_SHELL_H1_COUNT_INVALID/, 'generic audit must reject ambiguous governed page-title hierarchy');
+assert.match(uiAuditSource, /ENTERPRISE_TABLE_NAME_MISSING/, 'generic audit must reject unnamed governed business tables');
+assert.match(uiAuditSource, /REDUCED_MOTION_NOT_HONORED/, 'generic audit must measure reduced-motion behavior instead of trusting source classes');
+assert.match(uiAuditSource, /GOVERNED_TAB_ARROW_KEY_FAILED/, 'generic audit must operate governed task tabs with a real arrow key');
+assert.match(uiAuditSource, /GRID_COLUMN_MENU_CLIPPED/, 'generic audit must open and measure governed table column menus');
+assert.match(pageShellSource, /data-page-shell/);
+assert.match(pageShellSource, /role="tab"/);
+assert.match(pageShellSource, /event\.key === 'ArrowRight'/);
+assert.match(pageShellSource, /motion-reduce:transition-none/);
+assert.doesNotMatch(pageShellSource, /transition-all|uppercase italic/, 'page hierarchy must not use broad motion or decorative all-uppercase italic titles');
+assert.match(documentGuideSource, /data-document-input-guide/);
+assert.match(documentGuideSource, /<ol aria-label="填写步骤"/);
+assert.match(taskNavigatorSource, /data-workspace-task-navigator/);
+assert.match(taskNavigatorSource, /role="tablist"/);
+assert.match(taskNavigatorSource, /aria-selected=/);
+assert.match(taskNavigatorSource, /event\.key === 'ArrowDown'/);
+assert.doesNotMatch(taskNavigatorSource, /transition-all|hover:-translate/, 'frequent task navigation must not move or animate every property');
+for (const [name, source] of [['legacy data table', dataTableSource], ['enterprise grid', enterpriseGridSource]]) {
+  assert.match(source, /data-enterprise-grid/, `${name} must opt into governed table self-checks`);
+  assert.match(source, /data-grid-state=/, `${name} must distinguish loading, empty, and ready states`);
+  assert.match(source, /aria-(?:label|labelledby)=/, `${name} must expose its business object name`);
+}
+assert.doesNotMatch(dataTableSource, /shadow-sm overflow-hidden/, 'legacy table column menu must not be clipped by the table surface');
+assert.match(dataTableSource, /ColumnVisibilityMenu/, 'legacy table must use the shared viewport-aware column menu');
+assert.match(enterpriseGridSource, /ColumnVisibilityMenu/, 'enterprise grid must use the shared viewport-aware column menu');
+assert.match(columnVisibilitySource, /createPortal\(menu, document\.body\)/, 'column menu must escape scroll-container clipping through a portal');
+assert.match(columnVisibilitySource, /position: position|style=\{\{ left: position\.left, top: position\.top \}\}/, 'column menu must use measured viewport coordinates');
+assert.match(columnVisibilitySource, /availableBelow[\s\S]*availableAbove[\s\S]*openAbove/, 'column menu must flip above when the lower viewport has insufficient room');
+assert.match(productionAuditHelpersSource, /\[data-testid="\$\{testId\}"\]:visible/, 'production desk audit must target the visible task tab');
+assert.match(productionAuditHelpersSource, /desk\.click\(\{ timeout: Math\.min\(timeout, 5000\) \}\)/, 'production desk click must fail before the enclosing audit timebox');
+assert.match(productionAuditHelpersSource, /aria-selected[\s\S]*=== 'true'/, 'production desk audit must verify the task tab became active');
 for (const [name, source] of [['workspace', financeWorkspaceSource], ['ledger', financeLedgerSource], ['cashflow', financeCashflowSource]]) {
   assert.match(source, /data-mobile-card-list/, `finance ${name} needs a visible mobile task-card alternative`);
   assert.match(source, /hidden overflow-x-auto[^"\n]*md:block/, `finance ${name} tables must stay desktop/tablet only`);

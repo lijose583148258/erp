@@ -20,6 +20,7 @@ export const repairProductionSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'production_boms', 'effective_to', 'DATETIME');
   await addColumnIfMissing(report, 'production_boms', 'process_json', 'TEXT');
   await addColumnIfMissing(report, 'production_boms', 'quality_spec_json', 'TEXT');
+  await addColumnIfMissing(report, 'production_boms', 'shelf_life_days', 'INTEGER');
 
   await addColumnIfMissing(report, 'production_bom_items', 'material_code', 'TEXT');
   await addColumnIfMissing(report, 'production_bom_items', 'ingredient_role', 'TEXT');

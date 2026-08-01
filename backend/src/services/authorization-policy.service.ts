@@ -54,6 +54,20 @@ const ROLE_CODE_PATTERN = /^[a-z][a-z0-9_:-]{1,49}$/;
 let authorizationSeeded = false;
 let authorizationSeedPromise: Promise<void> | null = null;
 
+export const MATERIAL_MASTER_PERMISSION_BACKFILL = {
+  code: '2026-08-01-material-master-permissions-v1',
+  grants: {
+    admin: ['materials.read', 'materials.write', 'materials.govern'],
+    manager: ['materials.read', 'materials.write'],
+    sales: ['materials.read'],
+    warehouse: ['materials.read'],
+    finance: ['materials.read'],
+  },
+} as const satisfies {
+  code: string;
+  grants: Record<BuiltInRole, readonly Permission[]>;
+};
+
 const toBool = (value: number | boolean) => value === true || value === 1;
 
 function parseDataScopes(value: string | null): DataScope[] {
@@ -296,6 +310,16 @@ async function applyAuthorizationPolicyMigrations() {
     await markPolicyMigration(
       productionQualitySeparationCode,
       'Separate production inspection entry from quality release; inspectors cannot review their own inspection record.',
+    );
+  }
+
+  if (!(await hasPolicyMigration(MATERIAL_MASTER_PERMISSION_BACKFILL.code))) {
+    for (const [role, permissions] of Object.entries(MATERIAL_MASTER_PERMISSION_BACKFILL.grants) as Array<[BuiltInRole, readonly Permission[]]>) {
+      await grantMissingRolePermissions(role, [...permissions]);
+    }
+    await markPolicyMigration(
+      MATERIAL_MASTER_PERMISSION_BACKFILL.code,
+      'Backfill canonical material-master access for existing built-in roles without replacing user-managed role policies.',
     );
   }
 }

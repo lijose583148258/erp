@@ -15,6 +15,7 @@ output/
 runtime-db/
 runtime-logs/
 runtime-data/
+runtime-uploads/
 scratchdb/
 tempdb/
 *.db

@@ -1,10 +1,11 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useId, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, SlidersHorizontal, Upload } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, FileSpreadsheet, Upload } from 'lucide-react';
 import { ActionToolbar } from './ActionToolbar';
 import { EmptyState } from './EmptyState';
 import { LoadingSkeleton } from './LoadingSkeleton';
 import { StatusBadge } from './StatusBadge';
+import { ColumnVisibilityMenu } from './ColumnVisibilityMenu';
 import { assertSafeSpreadsheetFile } from '../../utils/spreadsheetSecurity';
 import { exportRowsToXlsx, parseSpreadsheetFileAsObjects } from '../../utils/spreadsheetIO';
 import { readNumberPreference, readStringArrayPreference, writeNumberPreference, writeStringArrayPreference } from './tablePreferences';
@@ -144,6 +145,10 @@ function EnterpriseDataGridInner<T>({
   virtualViewportHeight = 560,
   className = '',
 }: Props<T>) {
+  const generatedId = useId();
+  const gridLabel = stringifyCell(title) || '业务数据表';
+  const gridDescription = stringifyCell(description);
+  const tableDescriptionId = `enterprise-grid-description-${generatedId}`;
   const tablePreferenceKey = preferenceKey || paginationTestIdPrefix || searchInputTestId || exportFileName || stringifyCell(title) || 'enterprise-grid';
   const pageSizeStorageKey = `ailao.grid.${tablePreferenceKey}.pageSize`;
   const columnStorageKey = `ailao.grid.${tablePreferenceKey}.columns`;
@@ -291,7 +296,18 @@ function EnterpriseDataGridInner<T>({
   };
 
   return (
-    <div className={`space-y-4 ${className}`}>
+    <div
+      data-enterprise-grid
+      data-grid-state={loading ? 'loading' : pageData.length === 0 ? 'empty' : 'ready'}
+      role="region"
+      aria-label={gridLabel}
+      aria-describedby={gridDescription ? tableDescriptionId : undefined}
+      className={`space-y-4 ${className}`}
+    >
+      {gridDescription ? <p id={tableDescriptionId} className="sr-only">{gridDescription}</p> : null}
+      <span className="sr-only" role="status" aria-live="polite">
+        {loading ? `${gridLabel}正在加载` : `${gridLabel}显示第 ${firstRowIndex} 至 ${lastRowIndex} 条，共 ${totalRows} 条`}
+      </span>
       <ActionToolbar
         title={title}
         description={description}
@@ -335,31 +351,12 @@ function EnterpriseDataGridInner<T>({
             {effectiveExportLabel}
           </button>
         ) : null}
-        <details className="relative">
-          <summary aria-label="显示或隐藏表格列" className="inline-flex min-h-9 cursor-pointer list-none items-center justify-center rounded-[18px] border border-slate-200 bg-white px-4 py-2.5 text-xs font-black tracking-[0.14em] text-slate-600 transition hover:bg-slate-50 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200 dark:hover:bg-slate-700">
-            <SlidersHorizontal size={14} className="mr-2" />
-            列
-          </summary>
-          <div className="absolute right-0 top-11 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 text-left shadow-xl dark:border-slate-700 dark:bg-slate-900">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
-              <button type="button" onClick={resetColumnVisibility} className="min-h-8 rounded-lg px-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/40">重置</button>
-            </div>
-            <div className="max-h-64 space-y-1 overflow-y-auto">
-              {columns.map((column) => (
-                <label key={column.key} className="flex min-h-9 items-center gap-2 rounded-xl px-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800">
-                  <input
-                    type="checkbox"
-                    checked={visibleColumnKeySet.has(column.key)}
-                    onChange={(event) => setColumnVisibility(column.key, event.target.checked)}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
-                  />
-                  <span className="truncate">{stringifyCell(column.header) || column.key}</span>
-                </label>
-              ))}
-            </div>
-          </div>
-        </details>
+        <ColumnVisibilityMenu
+          columns={columns.map(column => ({ key: column.key, label: stringifyCell(column.header) || column.key }))}
+          visibleColumnKeys={visibleColumnKeySet}
+          onVisibilityChange={setColumnVisibility}
+          onReset={resetColumnVisibility}
+        />
         {toolbarActions}
       </ActionToolbar>
 
@@ -384,7 +381,7 @@ function EnterpriseDataGridInner<T>({
             data-virtual-visible-count={shouldVirtualizeRows ? virtualRows.length : undefined}
             style={shouldVirtualizeRows ? { maxHeight: virtualViewportHeight } : undefined}
           >
-            <table className="app-density-table w-full min-w-[980px] table-fixed border-collapse">
+            <table aria-label={gridLabel} aria-describedby={gridDescription ? tableDescriptionId : undefined} className="app-density-table w-full min-w-[980px] table-fixed border-collapse">
               <thead>
                 <tr className="bg-slate-50/95 dark:bg-slate-800/95 shadow-sm">
                   {visibleColumns.map((column, columnIndex) => {
@@ -392,6 +389,7 @@ function EnterpriseDataGridInner<T>({
                     return (
                       <th
                         key={column.key}
+                        aria-sort={canSort ? (sortState?.key === column.key ? (sortState.direction === 'asc' ? 'ascending' : 'descending') : 'none') : undefined}
                         style={column.width ? { width: column.width } : undefined}
                         className={`sticky top-0 z-20 border-b border-slate-100 bg-slate-50/95 px-3 py-2.5 text-left text-xs font-black uppercase tracking-[0.12em] text-slate-600 dark:border-slate-700 dark:bg-slate-800/95 dark:text-slate-300 ${columnIndex === 0 ? 'left-0 z-30' : ''} ${column.isNumeric ? 'text-right' : ''}`}
                       >

@@ -158,7 +158,7 @@ async function auditState(page, run, route, viewport, state, collectors) {
     screenshot: screenshot ? path.join(run.root, screenshot) : null,
   });
 
-  const findings = await page.evaluate(({ route, viewportId, state, isMobile }) => {
+  const findings = await page.evaluate(({ route, viewportId, state, isMobile, reducedMotion }) => {
     const result = [];
     const visible = (element) => {
       if (element.closest('[aria-hidden="true"]')) return false;
@@ -215,6 +215,35 @@ async function auditState(page, run, route, viewport, state, collectors) {
     if (!document.querySelector('main, [role="main"]')) add('warning', 'accessibility', 'MISSING_MAIN_LANDMARK', 'Page lacks a main landmark', document.body);
     if (!document.querySelector('nav, [role="navigation"], aside, header')) add('error', 'interaction', 'MISSING_NAVIGATION', 'No stable navigation landmark was found', document.body);
     if (!document.querySelector('h1,h2,[data-page-title]')) add('error', 'accessibility', 'MISSING_VISIBLE_PAGE_TITLE', 'No visible page title or heading was found', document.body);
+    for (const pageShell of Array.from(document.querySelectorAll('[data-page-shell]')).filter(visible)) {
+      const h1s = Array.from(pageShell.querySelectorAll('h1')).filter(visible);
+      if (h1s.length !== 1) {
+        add('error', 'hierarchy', 'PAGE_SHELL_H1_COUNT_INVALID', 'A governed page shell must expose exactly one visible h1', pageShell, { h1Count: h1s.length });
+      }
+      const labelledBy = pageShell.getAttribute('aria-labelledby');
+      if (!labelledBy || !document.getElementById(labelledBy)) {
+        add('error', 'hierarchy', 'PAGE_SHELL_NAME_MISSING', 'A governed page shell must reference its visible page title', pageShell);
+      }
+    }
+    for (const guide of Array.from(document.querySelectorAll('[data-document-input-guide]')).filter(visible)) {
+      const labelledBy = guide.getAttribute('aria-labelledby');
+      const descriptionId = guide.getAttribute('aria-describedby');
+      if (!labelledBy || !document.getElementById(labelledBy) || !descriptionId || !document.getElementById(descriptionId)) {
+        add('error', 'hierarchy', 'DOCUMENT_GUIDE_RELATION_MISSING', 'An input guide must connect its title and explanation to the guide region', guide);
+      }
+      if (!guide.querySelector('ol > li')) {
+        add('error', 'hierarchy', 'DOCUMENT_GUIDE_STEPS_NOT_ORDERED', 'Input-guide steps must use an ordered sequence', guide);
+      }
+    }
+    for (const navigator of Array.from(document.querySelectorAll('[data-workspace-task-navigator]')).filter(visible)) {
+      const selectedTabs = navigator.querySelectorAll('[role="tab"][aria-selected="true"]');
+      if (selectedTabs.length !== 1) {
+        add('error', 'hierarchy', 'TASK_NAVIGATOR_SELECTION_INVALID', 'A task navigator must expose exactly one selected task', navigator, { selectedCount: selectedTabs.length });
+      }
+      if (!navigator.querySelector('[role="tablist"]')) {
+        add('error', 'hierarchy', 'TASK_NAVIGATOR_TABLIST_MISSING', 'Task choices must be grouped as one keyboard-navigable tab list', navigator);
+      }
+    }
     const blockingLoading = Array.from(document.body.querySelectorAll('*')).some((node) => {
       const nodeText = (node.textContent || '').trim();
       return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
@@ -298,6 +327,36 @@ async function auditState(page, run, route, viewport, state, collectors) {
       const rect = table.getBoundingClientRect();
       if (rect.right > window.innerWidth + 4 && !hasScrollableAncestor(table)) add('error', 'responsive', 'TABLE_OVERFLOWS_PAGE', 'Table overflows page instead of internal scroll container', table);
     }
+    for (const grid of Array.from(document.querySelectorAll('[data-enterprise-grid]')).filter(visible)) {
+      const table = grid.querySelector('table');
+      if (table && !table.getAttribute('aria-label') && !table.getAttribute('aria-labelledby') && !table.querySelector('caption')) {
+        add('error', 'table', 'ENTERPRISE_TABLE_NAME_MISSING', 'A governed business table must expose its business object name', table);
+      }
+      if (!grid.getAttribute('data-grid-state')) {
+        add('error', 'table', 'ENTERPRISE_GRID_STATE_MISSING', 'A governed business table must distinguish loading, empty, and ready states', grid);
+      }
+    }
+
+    if (reducedMotion) {
+      const durationMs = (value) => String(value || '').split(',').reduce((max, part) => {
+        const token = part.trim();
+        if (!token) return max;
+        const numeric = Number.parseFloat(token);
+        if (!Number.isFinite(numeric)) return max;
+        return Math.max(max, token.endsWith('ms') ? numeric : numeric * 1000);
+      }, 0);
+      let motionFindingCount = 0;
+      for (const element of Array.from(document.body.querySelectorAll('*'))) {
+        if (motionFindingCount >= 8 || !visible(element)) continue;
+        const style = window.getComputedStyle(element);
+        const animationMs = durationMs(style.animationDuration);
+        const transitionMs = durationMs(style.transitionDuration);
+        if (animationMs > 20 || transitionMs > 20) {
+          add('error', 'motion', 'REDUCED_MOTION_NOT_HONORED', 'Visible motion exceeds 20ms while reduced motion is requested', element, { animationMs, transitionMs });
+          motionFindingCount += 1;
+        }
+      }
+    }
 
     const persistentElements = Array.from(document.body.querySelectorAll('*')).filter((element) => {
       if (!visible(element)) return false;
@@ -320,7 +379,7 @@ async function auditState(page, run, route, viewport, state, collectors) {
     }
 
     return result;
-  }, { route, viewportId: viewport.id, state, isMobile: viewport.isMobile });
+  }, { route, viewportId: viewport.id, state, isMobile: viewport.isMobile, reducedMotion: run.config.reducedMotion });
 
   for (const finding of findings) {
     addFinding(run.report, { ...finding, screenshot });
@@ -401,6 +460,85 @@ async function auditKeyboard(page, run, route, viewport) {
       state: 'keyboard',
     });
   }
+
+  const governedTabList = page.locator('[data-page-shell] [role="tablist"]:visible, [data-workspace-task-navigator] [role="tablist"]:visible').first();
+  if (await governedTabList.count()) {
+    const tabs = governedTabList.locator('[role="tab"]:visible');
+    const tabCount = await tabs.count();
+    if (tabCount > 1) {
+      const startTab = governedTabList.locator('[role="tab"][aria-selected="true"]:visible').first();
+      const focusTarget = await startTab.count() ? startTab : tabs.first();
+      await focusTarget.focus();
+      const before = await page.evaluate(() => document.activeElement?.textContent?.trim() || '');
+      await page.keyboard.press('ArrowRight');
+      const after = await page.evaluate(() => ({
+        text: document.activeElement?.textContent?.trim() || '',
+        role: document.activeElement?.getAttribute('role') || '',
+      }));
+      if (after.role !== 'tab' || after.text === before) {
+        addFinding(run.report, {
+          severity: 'error',
+          category: 'interaction',
+          code: 'GOVERNED_TAB_ARROW_KEY_FAILED',
+          message: 'ArrowRight did not move focus between governed page/task tabs',
+          route,
+          viewport: viewport.id,
+          state: 'keyboard',
+          details: { before, after, tabCount },
+        });
+      }
+      await page.keyboard.press('Home').catch(() => {});
+    }
+  }
+}
+
+async function auditGovernedGridMenu(page, run, route, viewport) {
+  const trigger = page.locator('[data-enterprise-grid] button[aria-label*="表格列"]:visible').first();
+  if (!(await trigger.count())) return;
+  await trigger.click();
+  await page.waitForTimeout(50);
+  const result = await trigger.evaluate((node) => {
+    const controlledId = node.getAttribute('aria-controls');
+    const panel = controlledId ? document.getElementById(controlledId) : null;
+    if (!(panel instanceof HTMLElement)) return { visible: false, clipped: true, reason: 'panel-missing' };
+    const panelRect = panel.getBoundingClientRect();
+    const panelStyle = window.getComputedStyle(panel);
+    let ancestor = panel.parentElement;
+    let clippedBy = '';
+    while (ancestor && ancestor !== document.body) {
+      const style = window.getComputedStyle(ancestor);
+      if (/(hidden|clip)/.test(`${style.overflow}${style.overflowX}${style.overflowY}`)) {
+        const rect = ancestor.getBoundingClientRect();
+        if (panelRect.left < rect.left - 1 || panelRect.right > rect.right + 1 || panelRect.top < rect.top - 1 || panelRect.bottom > rect.bottom + 1) {
+          clippedBy = ancestor.tagName.toLowerCase();
+          break;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return {
+      visible: panelStyle.display !== 'none' && panelStyle.visibility !== 'hidden' && panelRect.width > 0 && panelRect.height > 0,
+      clipped: Boolean(clippedBy) || panelRect.left < -1 || panelRect.right > window.innerWidth + 1 || panelRect.top < -1 || panelRect.bottom > window.innerHeight + 1,
+      clippedBy,
+      panelRect: { left: panelRect.left, right: panelRect.right, top: panelRect.top, bottom: panelRect.bottom },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+  if (!result.visible || result.clipped) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'interaction',
+      code: 'GRID_COLUMN_MENU_CLIPPED',
+      message: 'The governed table column menu is hidden, clipped, or outside the viewport',
+      route,
+      viewport: viewport.id,
+      state: 'grid-column-menu',
+      details: result,
+    });
+  }
+  await page.keyboard.press('Escape').catch(() => {});
+  const remainsOpen = await trigger.getAttribute('aria-expanded').catch(() => 'false');
+  if (remainsOpen === 'true') await trigger.click().catch(() => {});
 }
 
 async function safeOpenMenuState(page, run, route, viewport, collectors) {
@@ -497,6 +635,7 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   run.report.summary.viewportRuns += 1;
   await auditState(page, run, route, viewport, 'initial', collectors);
   await auditKeyboard(page, run, route, viewport);
+  await auditGovernedGridMenu(page, run, route, viewport);
   await safeOpenMenuState(page, run, route, viewport, collectors);
   await safeSearchEmptyState(page, run, route, viewport, collectors);
 }

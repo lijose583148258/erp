@@ -67,3 +67,8 @@
 - 审计证据默认只保留最近 2 轮，并在删除后验证目录确实不存在，防止 Windows 下测试产物无限累积。
 - 财务流水/现金流、近期回款/调整、生产 BOM 版本、调整记录和经销经营对比已采用“移动任务卡 + 桌面高密度表”的同源双视图；两种视图读取同一数据，不形成第二套业务逻辑。
 - 高频行反馈只使用 150–200ms 的颜色变化，并提供 `motion-reduce:transition-none`；禁止 `transition-all`、500ms 以上入场和逐行动画。
+- `PageShell`、`DocumentInputGuide`、`WorkspaceTaskNavigator` 已成为受治理层级原语：页面只保留一个可引用的 `h1`，填写步骤使用有序列表，任务切换使用单选中 `tablist`，并支持方向键、Home 和 End。
+- `DataTable` 与 `EnterpriseDataGrid` 统一暴露业务对象名称及 `loading / empty / ready` 状态；浏览器审计会拒绝无名称、无状态的受治理表格。
+- 列显示菜单统一改为 `ColumnVisibilityMenu` Portal：按触发按钮实时测量，使用 viewport 固定定位、边缘钳制和上下自动翻转，不再依赖提高 `z-index` 掩盖滚动容器裁切。
+- 自检不再只搜索 CSS 类名：真实浏览器会操作任务导航方向键、打开并测量列菜单，同时在 `prefers-reduced-motion` 下检查可见元素的计算后动画与过渡时长。
+- 本轮自检同时发现 SQLite 运行库缺少 `production_boms.shelf_life_days`；运行时修复链已补列，并在修复后强制执行完整 Prisma/SQLite schema audit，残留漂移会阻断启动而不是等到页面接口返回 500。
