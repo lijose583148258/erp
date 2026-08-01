@@ -36,7 +36,10 @@ assert.doesNotThrow(() => assertBrowserRuntimeClean({ consoleErrors: [], pageErr
 assert.throws(() => assertBrowserRuntimeClean({ consoleErrors: ['boom'] }), /runtime errors/);
 assert.equal(isIgnorableRequestFailure('http://app/api/rum/vitals', 'net::ERR_ABORTED'), true);
 assert.equal(isIgnorableRequestFailure('http://app/api/v1/rum/vitals', 'net::ERR_ABORTED'), true);
+assert.equal(isIgnorableRequestFailure('http://app/api/materials?q=resin', 'net::ERR_ABORTED'), true);
+assert.equal(isIgnorableRequestFailure('http://app/api/v1/materials?q=resin', 'net::ERR_ABORTED'), true);
 assert.equal(isIgnorableRequestFailure('http://app/api/orders', 'net::ERR_ABORTED'), false);
+assert.equal(isIgnorableRequestFailure('http://app/api/materials?q=resin', 'net::ERR_CONNECTION_RESET'), false);
 assert.equal(isIgnorableRequestFailure('http://app/api/rum/vitals', 'net::ERR_CONNECTION_RESET'), false);
 assert.deepEqual(
   buildEditedOrderExpectation({ ...expected, updatedPackaging: 'EDIT-BOX', updatedQuantity: 7 }),

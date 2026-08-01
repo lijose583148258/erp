@@ -126,6 +126,7 @@ assert.match(uiAuditSource, /COMPLEX_ROUTE_GUIDANCE_MISSING/, 'high-risk routes 
 assert.match(uiAuditSource, /COMPLEX_DIALOG_SAVE_IMPACT_MISSING/, 'complex dialogs must explain their save boundary');
 assert.match(uiAuditSource, /COMPLEX_FIELD_PLACEHOLDER_ONLY/, 'placeholder-only complex inputs must be detected');
 assert.match(uiAuditSource, /data-ux-dialog-scope="utility"/, 'utility popovers must be classified separately from business-entry dialogs');
+assert.match(uiAuditSource, /Math\.min\(timeoutMs, 20000\)/, 'cold cloud routes must receive a bounded readiness window before visual assertions');
 assert.match(uiAuditSource, /auditComplexEntryDialog/, 'generic UI audit must open a real complex entry dialog');
 assert.match(uiAuditSource, /complex-entry-advanced/, 'generic UI audit must inspect low-frequency advanced fields separately');
 assert.match(pageShellSource, /data-page-shell/);

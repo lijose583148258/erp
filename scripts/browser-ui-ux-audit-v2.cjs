@@ -144,7 +144,7 @@ async function waitForRouteReady(page, route, timeoutMs) {
     if (window.location.hash !== expectedRoute) return false;
     if (blockingLoading) return false;
     return text.trim().length > 100;
-  }, route, { timeout: Math.min(timeoutMs, 10000) }).catch(() => {});
+  }, route, { timeout: Math.min(timeoutMs, 20000) }).catch(() => {});
 }
 
 async function auditState(page, run, route, viewport, state, collectors) {
