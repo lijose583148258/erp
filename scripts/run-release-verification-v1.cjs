@@ -193,10 +193,12 @@ function getTasks(profile) {
     task('stable-entrypoint-policy', 'node', ['scripts/stable-entrypoint-policy-audit-v1.cjs']),
     task('legacy-interface-disconnect', 'node', ['scripts/legacy-interface-disconnect-audit-v1.cjs']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
+    task('decimal-shadow-contract', 'node', ['scripts/decimal-shadow-contract-audit-v1.cjs']),
     npmTask('pilot-stability', ['run', 'test:pilot-stability']),
     npxTask('business-rejection-log-classification', ['tsx', 'scripts/business-rejection-log-classification-audit-v1.ts']),
     task('runtime-resource-check', 'powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', 'scripts/check-runtime.ps1']),
     npxTask('runtime-db-integrity', ['tsx', 'scripts/runtime-db-integrity-audit-v1.ts']),
+    task('decimal-shadow-reconcile', 'node', ['scripts/decimal-shadow-reconcile-audit-v1.cjs']),
     task('runtime-db-shadow-inventory', 'node', ['scripts/runtime-db-shadow-inventory-audit-v1.cjs']),
     npxTask('runtime-restart-persistence', ['tsx', 'scripts/runtime-restart-persistence-audit-v1.ts']),
     npxTask('runtime-write-read-restart', ['tsx', 'scripts/runtime-write-read-restart-audit-v1.ts']),
@@ -218,6 +220,7 @@ function getTasks(profile) {
     task('procurement-api-chain', 'node', ['scripts/procurement-api-audit-v1.cjs']),
     task('partial-receipt-chain', 'node', ['scripts/partial-receipt-api-audit-v1.cjs']),
     task('money-goods-chain', 'node', ['scripts/money-goods-chain-api-audit-v1.cjs']),
+    task('decimal-shadow-write-path', 'node', ['scripts/decimal-shadow-write-path-audit-v1.cjs']),
     task('chemical-bom-production-chain', 'node', ['scripts/chemical-bom-production-chain-audit-v1.cjs']),
     task('backup-restore-chain', 'node', ['scripts/backup-restore-api-audit-v1.cjs']),
     npxTask('backup-restore-data-fingerprint', ['tsx', 'scripts/backup-restore-data-fingerprint-audit-v1.ts']),
@@ -227,6 +230,7 @@ function getTasks(profile) {
     task('collection-performance-serial', 'node', ['scripts/collection-performance-audit-v1.cjs']),
     task('concurrency-reconcile-serial', 'node', ['scripts/concurrency-reconcile-deep-audit-v1.cjs']),
     task('concurrency-consistency-serial', 'node', ['scripts/concurrency-consistency-audit-v1.cjs']),
+    task('decimal-shadow-final-reconcile', 'node', ['scripts/decimal-shadow-reconcile-audit-v1.cjs']),
     task('stock-ledger-reconcile', 'node', ['scripts/stock-ledger-reconcile-audit-v1.cjs']),
   ];
 }

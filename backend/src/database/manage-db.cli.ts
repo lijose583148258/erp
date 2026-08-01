@@ -223,8 +223,9 @@ const run = async () => {
       }
       const created = report.entries.filter(entry => entry.action === 'created').length;
       const added = report.entries.filter(entry => entry.action === 'added').length;
+      const repairUpdated = report.entries.filter(entry => entry.action === 'updated').length;
       const repaired = dataReport.entries.filter(entry => entry.action === 'updated').length;
-      console.log(`Database schema prepared | base=${baseSchema.action} tables=${baseSchema.tableCount} created=${created} added=${added} dataRepaired=${repaired} schemaIssues=${schemaAudit.issueCount}`);
+      console.log(`Database schema prepared | base=${baseSchema.action} tables=${baseSchema.tableCount} created=${created} added=${added} repairUpdated=${repairUpdated} dataRepaired=${repaired} schemaIssues=${schemaAudit.issueCount}`);
       printStatus();
       return;
     }

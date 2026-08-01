@@ -1,6 +1,6 @@
 # ADR 0039：金额精度先统一计算边界，再分阶段迁移持久化类型
 
-- 状态：Accepted（阶段 1 已执行）
+- 状态：Accepted（阶段 1、阶段 2A 已执行）
 - 日期：2026-08-01
 - 范围：销售应收、回款、应收调整、货抵估值、采购成本、库存成本
 
@@ -43,6 +43,42 @@
 
 每批必须采用 expand → backfill → 双读核对 → 切换写入 → contract，验证 PostgreSQL 精度、SQLite 最终备份回滚、序列、外键、并发核销和 API 回读后再进入下一批。
 
+#### 阶段 2A 已执行：首批影子列
+
+首批已经以**纯加法迁移**落地以下影子列，正式 API 读取仍保持旧字段：
+
+- `orders`: `final_amount_decimal / paid_amount_decimal / receivable_adjustment_amount_decimal`；
+- `payment_records`: `amount_decimal / exchange_rate_decimal / base_amount_decimal`；
+- `receivable_adjustments`: `amount_decimal / exchange_rate_decimal / base_amount_decimal`。
+
+SQLite 运行时修复链负责：
+
+- 幂等增加 `NUMERIC(18,2)` 与 `NUMERIC(18,8)` 影子列；
+- 对历史数据按字段精度回填；
+- 使用插入、更新触发器同步旧写路径；
+- 启动后运行逐字段空值、差异行数和汇总值核对。
+
+PostgreSQL 版本化迁移 `202608010004_receivables-decimal-shadow` 负责：
+
+- 在单个迁移事务中增加、回填影子列；
+- 使用 `BEFORE INSERT OR UPDATE` 触发器覆盖旧版本应用写入；
+- 回填完成后将影子列设置为 `NOT NULL`；
+- 保留全部旧列，不执行删除或原地类型替换。
+
+本轮本地发布门禁的最终 SQLite 证据验证了 3 张表、9 个字段、6,676 行，空影子值和精度差异均为 0；强制回滚写探针同时验证了插入与更新触发器，未留下审计业务行。该结果**不替代真实 PostgreSQL 证据**。
+
+#### 阶段 2B 尚未执行：切读与收缩
+
+只有满足以下条件后，才允许把应用读取切到 Decimal：
+
+1. 170,911 行 PostgreSQL 认证环境的 9 字段差异为 0；
+2. 新旧应用并行写入观察窗内差异持续为 0；
+3. 核销、冲正、货抵、应收调整和报表 API 的新旧读结果逐字段一致；
+4. PostgreSQL 备份恢复和 SQLite 最终备份回滚后仍可读写；
+5. Prisma Decimal 返回值经过明确 API 序列化，客户端数字契约没有被暗中改变。
+
+旧列删除属于单独的 contract 迁移；不得和切读放在同一发布窗口。
+
 ### 阶段 3：数量、汇率和成本
 
 - 金额建议 `Decimal(18, 2)`；
@@ -53,6 +89,7 @@
 ## 非目标
 
 - 本阶段不宣称数据库已完成 Decimal 化；
+- 阶段 2A 不宣称应用已经从 Decimal 读取；
 - 不把数量、百分比、温度和质量检测值错误套用金额两位小数；
 - 不改变现有 API 的 JSON 数字类型；
 - 不通过前端格式化掩盖存储精度问题。

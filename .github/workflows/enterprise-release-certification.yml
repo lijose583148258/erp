@@ -21,6 +21,7 @@ on:
       - '.github/workflows/enterprise-release-certification.yml'
       - 'scripts/enterprise-*.cjs'
       - 'scripts/postgres-*.cjs'
+      - 'scripts/decimal-shadow-*.cjs'
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
       - 'backend/prisma/**'
       - 'backend/src/database/**'
@@ -144,6 +145,7 @@ jobs:
           fi
 
           DATABASE_URL="$sqlite_url" AUDIT_DATABASE_URL="$sqlite_url" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=source ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
+          DATABASE_URL="$sqlite_url" DECIMAL_SHADOW_AUDIT_LABEL=sqlite-source npm run audit:db:decimal-shadow
 
       - name: Import into PostgreSQL and compare every table
         shell: bash
@@ -155,6 +157,7 @@ jobs:
             node scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
           fi
           AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" AUDIT_PRISMA_PROVIDER=postgresql AUDIT_PRISMA_CLIENT_PATH=output/postgres-prisma-artifact/generated-client ENTERPRISE_FINGERPRINT_LABEL=postgres ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
+          AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" DECIMAL_SHADOW_AUDIT_LABEL=postgres-import npm run audit:db:decimal-shadow
 
       - name: Verify PostgreSQL business write and rollback
         shell: bash
@@ -175,6 +178,7 @@ jobs:
             DATABASE_URL="$ENTERPRISE_SQLITE_URL" node scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
           fi
           DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_DATABASE_URL="$ENTERPRISE_SQLITE_URL" AUDIT_PRISMA_PROVIDER=sqlite ENTERPRISE_FINGERPRINT_LABEL=rollback ENTERPRISE_FINGERPRINT_FULL_CONTENT=true node scripts/enterprise-database-fingerprint-v1.cjs
+          DATABASE_URL="$ENTERPRISE_SQLITE_URL" DECIMAL_SHADOW_AUDIT_LABEL=sqlite-rollback npm run audit:db:decimal-shadow
           ENTERPRISE_EVIDENCE_CLASS="$ENTERPRISE_EVIDENCE_CLASS" ENTERPRISE_TARGET_ROWS="$ENTERPRISE_TARGET_ROWS" node scripts/enterprise-release-verdict-v1.cjs
 
       - name: Verify rollback SQLite remains writable
@@ -216,6 +220,7 @@ jobs:
           npm run audit:warehouse:transfer:browser
           npm run audit:shipping:browser
           npm run audit:collection:human-flow
+          AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" DECIMAL_SHADOW_AUDIT_LABEL=postgres-human-flows npm run audit:db:decimal-shadow
       - name: Upload certification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

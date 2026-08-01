@@ -7,7 +7,7 @@ The current system has connected sales, procurement, batch stock, production con
 Verified structural gaps:
 
 - business documents identify materials mainly by free-text names;
-- 105 Prisma `Float` fields and zero `Decimal` fields;
+- 107 Prisma `Float` fields remain; 5 existing `Decimal` fields are confined to structured production-quality measurements and do not yet make commercial ledgers Decimal-native;
 - legacy BOM rows may still lack a reviewed shelf-life policy; new BOM creation and automatic batch creation now fail closed instead of silently defaulting to 365 days;
 - quality checks do not persist individual specifications and results;
 - batch genealogy and recall are reconstructed indirectly rather than persisted;
@@ -31,6 +31,8 @@ Verified structural gaps:
    - Quantity/percentage/density `NUMERIC(18,6)`.
    - Exchange rate and unit cost `NUMERIC(18,8)`.
    - Dual-write, reconcile, switch-read, rollback; no in-place blind conversion.
+   - **Expand/backfill implemented for the first receivables slice:** 9 shadow fields across orders, payment records, and receivable adjustments, with SQLite/PostgreSQL write triggers and reconciliation evidence.
+   - **Still blocked from read cutover:** real 170,911-row PostgreSQL reconciliation, same-window business/API proof, backup rollback, and Decimal API serialization remain required.
 
 Exit gates:
 

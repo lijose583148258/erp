@@ -49,6 +49,17 @@ requireTokens('backend/prisma/postgres-migrations/202607290001_material-master-f
   'production_bom_items_material_id_fkey',
   'ON DELETE SET NULL',
 ]);
+requireTokens('backend/prisma/postgres-migrations/202608010004_receivables-decimal-shadow/migration.sql', [
+  '"final_amount_decimal" NUMERIC(18,2)',
+  '"paid_amount_decimal" NUMERIC(18,2)',
+  '"receivable_adjustment_amount_decimal" NUMERIC(18,2)',
+  '"amount_decimal" NUMERIC(18,2)',
+  '"exchange_rate_decimal" NUMERIC(18,8)',
+  '"base_amount_decimal" NUMERIC(18,2)',
+  'BEFORE INSERT OR UPDATE OF',
+  'IS DISTINCT FROM',
+  'SET NOT NULL',
+]);
 requireTokens('scripts/run-postgres-import-rehearsal-v1.cjs', [
   'apply-versioned-postgres-migrations',
   'verify-versioned-postgres-migrations',

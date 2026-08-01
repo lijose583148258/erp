@@ -14,6 +14,7 @@ on:
       - 'backend/src/routes/warehouse.routes.ts'
       - 'scripts/cloud-postgres-*.cjs'
       - 'scripts/postgres-*.cjs'
+      - 'scripts/decimal-shadow-*.cjs'
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
       - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
       - 'ops/cloud-sandbox/**'
@@ -295,10 +296,12 @@ jobs:
           DATABASE_URL="${sqlite_url}" POSTGRES_URL="${postgres_url}" POSTGRES_IMPORT_MODE=empty-only \
             npm run run:db:postgres-import-rehearsal
           node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
+          AUDIT_DATABASE_URL="${postgres_url}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-import npm run audit:db:decimal-shadow
 
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs mutate
           DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
+          DATABASE_URL="${sqlite_url}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback npm run audit:db:decimal-shadow
 
       - name: Build PostgreSQL application image
         run: |
@@ -327,6 +330,7 @@ jobs:
           npm run audit:warehouse:transfer:browser
           npm run audit:shipping:browser
           npm run audit:collection:human-flow
+          AUDIT_DATABASE_URL="${DATABASE_URL}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-human-flows npm run audit:db:decimal-shadow
 
       - name: Verify shared session across app instances
         run: |

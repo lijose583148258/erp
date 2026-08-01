@@ -3,7 +3,7 @@ import prisma from '../config/database';
 export type RepairAction = 'created' | 'exists' | 'added' | 'skipped' | 'dropped' | 'updated';
 
 export interface SchemaRepairEntry {
-  kind: 'table' | 'column' | 'index' | 'seed';
+  kind: 'table' | 'column' | 'index' | 'trigger' | 'seed';
   target: string;
   action: RepairAction;
 }
@@ -43,6 +43,15 @@ export const indexExists = async (indexName: string) => {
     'SELECT name FROM sqlite_master WHERE type = ? AND name = ?',
     'index',
     indexName,
+  );
+  return rows.length > 0;
+};
+
+export const triggerExists = async (triggerName: string) => {
+  const rows = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+    'SELECT name FROM sqlite_master WHERE type = ? AND name = ?',
+    'trigger',
+    triggerName,
   );
   return rows.length > 0;
 };
@@ -115,6 +124,38 @@ export const createIndexIfMissing = async (
 
   await prisma.$executeRawUnsafe(createSql);
   report.entries.push({ kind: 'index', target: indexName, action: 'created' });
+};
+
+const normalizeSchemaSql = (value: string) =>
+  value.trim().replace(/;\s*$/, '').replace(/\s+/g, ' ').toLowerCase();
+
+export const ensureTriggerDefinition = async (
+  report: SchemaRepairReport,
+  triggerName: string,
+  createSql: string,
+) => {
+  if (!/^[a-z][a-z0-9_]{2,127}$/.test(triggerName)) {
+    throw new Error(`Schema repair rejected unsafe trigger name '${triggerName}'`);
+  }
+  const rows = await prisma.$queryRawUnsafe<Array<{ sql: string | null }>>(
+    'SELECT sql FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1',
+    'trigger',
+    triggerName,
+  );
+  const currentSql = rows[0]?.sql || '';
+  if (!currentSql) {
+    await prisma.$executeRawUnsafe(createSql);
+    report.entries.push({ kind: 'trigger', target: triggerName, action: 'created' });
+    return;
+  }
+  if (normalizeSchemaSql(currentSql) === normalizeSchemaSql(createSql)) {
+    report.entries.push({ kind: 'trigger', target: triggerName, action: 'exists' });
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(`DROP TRIGGER "${triggerName}"`);
+  await prisma.$executeRawUnsafe(createSql);
+  report.entries.push({ kind: 'trigger', target: triggerName, action: 'updated' });
 };
 
 export const dropIndexIfExists = async (
