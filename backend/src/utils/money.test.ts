@@ -1,9 +1,11 @@
 import {
   addMoney,
+  calculateRatio,
   compareMoney,
   maxMoney,
   minMoney,
   multiplyMoney,
+  prorateMoney,
   roundMoney,
   subtractMoney,
 } from './money';
@@ -25,6 +27,14 @@ describe('money precision boundary', () => {
     expect(compareMoney('10.005', '10.00')).toBe(1);
     expect(minMoney('9.999', '10.01')).toBe(10);
     expect(maxMoney('9.999', '10.01')).toBe(10.01);
+  });
+
+  it('prorates money and calculates stable non-money ratios without binary float drift', () => {
+    expect(prorateMoney('100.01', '1', '3')).toBe(33.34);
+    expect(prorateMoney('0.3', '1', '3')).toBe(0.1);
+    expect(calculateRatio('1', '3')).toBe(0.333333);
+    expect(calculateRatio('10', '0')).toBe(0);
+    expect(() => prorateMoney('100', '1', '0')).toThrow(/denominator/);
   });
 
   it('rejects non-finite values instead of persisting an invalid amount', () => {

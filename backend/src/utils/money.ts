@@ -27,6 +27,31 @@ export const multiplyMoney = (...values: DecimalInput[]): number => roundMoney(
   values.reduce<Prisma.Decimal>((product, value) => product.times(toDecimal(value)), new Prisma.Decimal(1)),
 );
 
+export const prorateMoney = (
+  totalValue: DecimalInput,
+  portionValue: DecimalInput,
+  totalPortionValue: DecimalInput,
+): number => {
+  const denominator = toDecimal(totalPortionValue);
+  if (denominator.isZero()) {
+    throw new Error('Money proration denominator must not be zero');
+  }
+  return roundMoney(toDecimal(totalValue).times(toDecimal(portionValue)).dividedBy(denominator));
+};
+
+export const calculateRatio = (
+  numerator: DecimalInput,
+  denominator: DecimalInput,
+  decimalPlaces = 6,
+): number => {
+  const normalizedDenominator = toDecimal(denominator);
+  if (normalizedDenominator.isZero()) return 0;
+  return toDecimal(numerator)
+    .dividedBy(normalizedDenominator)
+    .toDecimalPlaces(decimalPlaces, Prisma.Decimal.ROUND_HALF_UP)
+    .toNumber();
+};
+
 export const compareMoney = (left: DecimalInput, right: DecimalInput): number =>
   moneyDecimal(left).comparedTo(moneyDecimal(right));
 

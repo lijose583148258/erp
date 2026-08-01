@@ -30,6 +30,19 @@ an invalid import remains a row-level rejection instead of aborting the whole
 batch. `audit:db:decimal-shadow-contract` rejects a return to native JavaScript
 money multiplication or accumulation in these governed write paths.
 
+The same calculation boundary now governs legacy-field read models without
+claiming a database read cutover:
+
+- finance summary exchange-rate conversion and base-currency proration;
+- finance totals, aging buckets, customer totals and monthly trends;
+- deterministic collection and customer payment-rate ratios;
+- collection milestone target, verified-payment sum and remaining amount.
+
+These read models still receive legacy Prisma fields during the expand/observe
+phase. Decimal calculation removes JavaScript binary-float drift from the API
+result, but it does not prove that Prisma or the database is reading the shadow
+`NUMERIC` columns.
+
 ## Release phases
 
 ### 1. Expand

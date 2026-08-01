@@ -11,6 +11,15 @@ import {
   getDueDate,
   getOutstandingAmount,
 } from './collection/collection.helpers';
+import {
+  addMoney,
+  compareMoney,
+  maxMoney,
+  prorateMoney,
+  roundMoney,
+  subtractMoney,
+  type DecimalInput,
+} from '../utils/money';
 
 export interface CollectionLedgerRecord {
   id: number;
@@ -145,6 +154,23 @@ const getOverdueSearchHaystack = (order: {
   order.contractNo,
   order.contractTitle,
 ].map(normalizeSearchText).join(' ');
+
+export const calculateMilestoneAmounts = (input: {
+  explicitAmount: DecimalInput;
+  contractTotalAmount: DecimalInput;
+  percentage: DecimalInput;
+  verifiedPayments: Array<{ amount: DecimalInput }>;
+}) => {
+  const targetAmount = input.explicitAmount !== null && input.explicitAmount !== undefined
+    ? roundMoney(input.explicitAmount)
+    : prorateMoney(input.contractTotalAmount, input.percentage, 100);
+  const paidAmount = addMoney(...input.verifiedPayments.map(payment => payment.amount));
+  return {
+    targetAmount,
+    paidAmount,
+    remainingAmount: maxMoney(0, subtractMoney(targetAmount, paidAmount)),
+  };
+};
 
 export class CollectionQueryService {
   static async getLedger(req: AuthRequest, options: { page?: number; pageSize?: number; status?: string; method?: string; customerId?: number }) {
@@ -351,7 +377,7 @@ export class CollectionQueryService {
           contractTitle: order.contract?.title || null,
         };
       })
-      .filter(order => order.outstanding > 0 && order.daysOverdue > 0)
+      .filter(order => compareMoney(order.outstanding, 0) > 0 && order.daysOverdue > 0)
       .filter(order => {
         if (searchTerms.length === 0) return true;
         const haystack = getOverdueSearchHaystack(order);
@@ -359,7 +385,9 @@ export class CollectionQueryService {
       })
       .sort((a, b) => {
         if (b.daysOverdue !== a.daysOverdue) return b.daysOverdue - a.daysOverdue;
-        if (b.outstanding !== a.outstanding) return b.outstanding - a.outstanding;
+        if (compareMoney(b.outstanding, a.outstanding) !== 0) {
+          return compareMoney(b.outstanding, a.outstanding);
+        }
         return b.orderId - a.orderId;
       });
 
@@ -491,10 +519,12 @@ export class CollectionQueryService {
     });
 
     return milestones.map(milestone => {
-      const targetAmount = milestone.amount !== null
-        ? Number(milestone.amount)
-        : Number(milestone.contract.totalAmount) * Number(milestone.percentage) / 100;
-      const paidAmount = milestone.paymentRecords.reduce((sum, payment) => sum + Number(payment.amount), 0);
+      const { targetAmount, paidAmount, remainingAmount } = calculateMilestoneAmounts({
+        explicitAmount: milestone.amount,
+        contractTotalAmount: milestone.contract.totalAmount,
+        percentage: milestone.percentage,
+        verifiedPayments: milestone.paymentRecords,
+      });
 
       return {
         id: milestone.id,
@@ -502,7 +532,7 @@ export class CollectionQueryService {
         percentage: Number(milestone.percentage),
         targetAmount,
         paidAmount,
-        remainingAmount: Math.max(0, targetAmount - paidAmount),
+        remainingAmount,
         dueDate: milestone.dueDate,
         status: milestone.status,
         notes: milestone.notes,
