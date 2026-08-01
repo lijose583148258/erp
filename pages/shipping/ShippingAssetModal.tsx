@@ -49,7 +49,7 @@ const ShippingAssetModal: React.FC<Props> = ({ t, isOpen, customers, assetForm, 
                         </select>
                         <input type="number" className="p-4 bg-slate-100 dark:bg-slate-900 rounded-2xl font-black text-center" value={assetForm.quantity} onChange={(e) => setAssetForm({ ...assetForm, quantity: Number(e.target.value) })} />
                     </div>
-                    <button onClick={onSubmit} className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black shadow-xl hover:scale-105 active:scale-95 transition-all text-xs uppercase tracking-[0.2em] mt-2">
+ <button onClick={onSubmit} className="w-full py-5 bg-blue-600 text-white rounded-[24px] font-black shadow-xl transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none text-xs uppercase tracking-[0.2em] mt-2">
                         {t.confirmRecord || '确认并提交'}
                     </button>
                 </div>

@@ -87,6 +87,12 @@ select {
   min-width: 0;
 }
 
+input[type="checkbox"]:focus-visible,
+input[type="radio"]:focus-visible {
+  outline: 3px solid rgba(37, 99, 235, 0.45);
+  outline-offset: 2px;
+}
+
 textarea {
   overflow-wrap: anywhere;
   resize: vertical;

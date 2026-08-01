@@ -1,7 +1,8 @@
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
-
 const fs = require('fs');
 const path = require('path');
+const { applyAuditDatabaseContext } = require('./lib/audit-runtime-context.cjs');
+applyAuditDatabaseContext(process.env);
+
 const prisma = require('../backend/dist/config/database').default;
 const { BarterService } = require('../backend/dist/services/barter.service');
 const { StockMovementService } = require('../backend/dist/services/stock-movement.service');

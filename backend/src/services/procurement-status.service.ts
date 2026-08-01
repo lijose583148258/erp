@@ -7,6 +7,7 @@ import {
   postProcurementReceiptIfMissing,
 } from './procurement-receipt.service';
 import type { TransactionClient } from './stock-movement.service';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 
 type PurchaseOrderWithRelations = Prisma.PurchaseOrderGetPayload<{
   include: { supplier: true; salesOrder: true };
@@ -100,6 +101,21 @@ export async function changePurchaseOrderStatus(
 
   if (!updated) {
     throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND, { purchaseOrderId });
+  }
+
+  if (!['pending', 'cancelled'].includes(nextStatus)) {
+    await assertMaterialReleaseReadiness(tx, {
+      entityType: 'purchase_order',
+      entityId: updated.id,
+      action: nextStatus === 'received' ? 'receive' : 'approve',
+      lines: [{
+        lineKey: updated.id,
+        rowNumber: 1,
+        materialId: updated.materialId,
+        displayName: updated.item,
+        unit: updated.unit,
+      }],
+    });
   }
 
   if (shouldPostReceipt) {

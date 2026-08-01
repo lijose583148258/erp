@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { StockMovementService } from '../services/stock-movement.service';
 import { StockMovementConflictError } from '../services/stock-movement.errors';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereAnd } from '../utils/recordAccess';
 
 const WAREHOUSE_DATA_SCOPE = 'warehouse_visible' as const;
@@ -18,6 +19,15 @@ const normalizeWarehouseRequestId = (value: unknown): string | null => {
 };
 
 function respondStockConflict(res: Response, error: unknown) {
+  if (isMaterialReleaseReadinessError(error)) {
+    return res.status(error.statusCode).json({
+      success: false,
+      message: '库存过账必须使用已发布的统一物料；请先完成物料关联后重试。',
+      errorCode: error.message,
+      details: error.details,
+      timestamp: new Date().toISOString(),
+    } as ApiResponse);
+  }
   if (!(error instanceof StockMovementConflictError)) return null;
   return res.status(409).json({
     success: false,
@@ -174,11 +184,12 @@ export class WarehouseController {
   async listStockBalances(req: AuthRequest, res: Response) {
     try {
       const prisma = (await import('../config/database')).default;
-      const { productName, batchNo, warehouseId, locationId, page = '1', pageSize = '50' } = req.query;
+      const { materialId, productName, batchNo, warehouseId, locationId, page = '1', pageSize = '50' } = req.query;
       const pageNum = Math.max(1, Number(page));
       const size = Math.min(100, Math.max(1, Number(pageSize)));
 
       const where: Record<string, any> = {};
+      if (materialId) where.materialId = Number(materialId);
       if (productName) where.productName = { contains: String(productName) };
       if (batchNo) where.batchNo = { contains: String(batchNo) };
       if (locationId) where.locationId = Number(locationId);
@@ -255,7 +266,7 @@ export class WarehouseController {
       }
 
       const prisma = (await import('../config/database')).default;
-      const { locationId, productName, batchNo, quantity, unit = 'kg', sourceRef, reason, note, unitCost, costAmountDelta } = req.body;
+      const { locationId, materialId, productName, batchNo, quantity, unit = 'kg', sourceRef, reason, note, unitCost, costAmountDelta } = req.body;
 
       if (!locationId || !productName || !batchNo) {
         return res.status(400).json({ success: false, message: '库位、产品名称、批次号不能为空' } as ApiResponse);
@@ -289,6 +300,7 @@ export class WarehouseController {
         createdBy: req.user?.userId || null,
         lines: [{
           locationId: Number(locationId),
+          materialId: materialId ? Number(materialId) : null,
           productName: String(productName),
           batchNo: String(batchNo),
           quantityDelta,
@@ -369,6 +381,7 @@ export class WarehouseController {
         createdBy: req.user?.userId || null,
         lines: [{
           locationId: stock.locationId,
+          materialId: stock.materialId,
           productName: stock.productName,
           batchNo: stock.batchNo,
           quantityDelta,
@@ -447,6 +460,7 @@ export class WarehouseController {
         lines: [
           {
             locationId: stock.locationId,
+            materialId: stock.materialId,
             productName: stock.productName,
             batchNo: stock.batchNo,
             quantityDelta: -quantity,
@@ -454,6 +468,7 @@ export class WarehouseController {
           },
           {
             locationId: toLocationId,
+            materialId: stock.materialId,
             productName: stock.productName,
             batchNo: stock.batchNo,
             quantityDelta: quantity,

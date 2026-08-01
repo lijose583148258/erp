@@ -17,6 +17,7 @@ export type BarterAgreementStatus = 'draft' | 'active' | 'partial' | 'completed'
 
 export interface BarterItem {
   id?: number;
+  materialId?: number | null;
   side: BarterSide;
   itemName: string;
   specification?: string | null;
@@ -202,6 +203,7 @@ const mapBarterItem = (value: unknown): BarterItem => {
   return {
     ...item,
     id: item.id == null ? undefined : toNumberValue(item.id),
+    materialId: item.materialId == null ? null : toNumberValue(item.materialId),
     side: toBarterSide(item.side),
     itemName: toStringValue(item.itemName || item.name),
     specification: toNullableString(item.specification),

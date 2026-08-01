@@ -9,6 +9,7 @@ import {
   type CreateBarterBatchInput,
   type CreateBarterSettlementInput,
 } from '../services/barter.service';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import {
   buildBarterDataScopeWhere,
   canUseAnyOperationalDataScope,
@@ -346,6 +347,14 @@ export class BarterController {
       res.json({ success: true, data } as ApiResponse);
     } catch (error) {
       logger.error('审批货抵单失败', error);
+      if (isMaterialReleaseReadinessError(error)) {
+        return res.status(error.statusCode).json({
+          success: false,
+          message: '货抵批次可保留为待审核；审批前必须为双方标的关联已发布的统一物料。',
+          errorCode: error.message,
+          details: error.details,
+        });
+      }
       const message = error instanceof Error ? error.message : '审批货抵单失败';
       res.status(resolveBarterStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
@@ -373,6 +382,14 @@ export class BarterController {
       res.json({ success: true, data } as ApiResponse);
     } catch (error) {
       logger.error('过账货抵单失败', error);
+      if (isMaterialReleaseReadinessError(error)) {
+        return res.status(error.statusCode).json({
+          success: false,
+          message: '货抵过账会同时形成应收与库存事实；请先为双方标的关联已发布的统一物料。',
+          errorCode: error.message,
+          details: error.details,
+        });
+      }
       const message = error instanceof Error ? error.message : '过账货抵单失败';
       res.status(resolveBarterStatusCode(message)).json({ success: false, message } as ApiResponse);
     }

@@ -158,14 +158,14 @@ const SalesOrderEditorModal: React.FC<Props> = ({
         offlineScanCount > 0 ? `${t.offlineScans || '离线扫描'} ${offlineScanCount}` : null,
     ].filter((badge): badge is string => Boolean(badge));
     return (
-        <div data-testid="sales-order-editor-modal" className="fixed inset-0 z-[120] flex justify-end bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
+ <div data-testid="sales-order-editor-modal" className="fixed inset-0 z-[120] flex justify-end bg-slate-950/60 backdrop-blur-md motion-safe:animate-in fade-in duration-150">
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sales-order-editor-title"
                 tabIndex={-1}
-                className="flex h-full w-full max-w-[98vw] flex-col bg-slate-50 shadow-2xl animate-in slide-in-from-right duration-500 dark:bg-slate-950"
+ className="flex h-full w-full max-w-[98vw] flex-col bg-slate-50 shadow-2xl motion-safe:animate-in slide-in-from-right duration-150 dark:bg-slate-950"
             >
                 <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/95">
                     <div>
@@ -200,7 +200,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                         type="button"
                                         onClick={() => setIsAssistOpen((value) => !value)}
                                         aria-expanded={isAssistOpen}
-                                        className="flex w-full items-center justify-between gap-4 rounded-[28px] px-6 py-5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                                        className="flex w-full items-center justify-between gap-4 rounded-[28px] px-6 py-5 text-left transition-colors hover:bg-slate-50 motion-reduce:transition-none dark:hover:bg-slate-800/40"
                                     >
                                         <div className="min-w-0">
                                             <div className="text-sm font-black uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">{t.assistiveEntryTitle || '辅助录入'}</div>
@@ -208,14 +208,14 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                             {assistBadges.length > 0 && (
                                                 <div className="mt-3 flex flex-wrap gap-2">
                                                     {assistBadges.map((badge) => (
-                                                        <span key={badge} className="rounded-full bg-amber-50 px-3 py-1 text-[10px] font-black uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
+                                                        <span key={badge} className="rounded-full bg-amber-50 px-3 py-1 text-xs font-black uppercase tracking-[0.14em] text-amber-700 dark:bg-amber-950/30 dark:text-amber-200">
                                                             {badge}
                                                         </span>
                                                     ))}
                                                 </div>
                                             )}
                                         </div>
-                                        <ChevronDown size={20} className={`shrink-0 text-slate-400 transition-transform ${isAssistOpen ? 'rotate-180' : ''}`} />
+                                        <ChevronDown size={20} className={`shrink-0 text-slate-400 transition-transform duration-150 motion-reduce:transition-none ${isAssistOpen ? 'rotate-180' : ''}`} />
                                     </button>
 
                                     <div className={isAssistOpen ? 'space-y-4 border-t border-slate-100 p-6 dark:border-slate-800' : 'hidden'}>

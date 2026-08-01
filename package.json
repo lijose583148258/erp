@@ -16,12 +16,14 @@
         "build": "node ./scripts/clean-dist-v1.cjs && vite build --configLoader native",
         "typecheck": "tsc --noEmit --pretty false",
         "typecheck:strict": "tsc -p tsconfig.strict.json --pretty false",
-        "test:unit:frontend": "tsx ./scripts/frontend-unit-tests.tsx && npm run test:contract:browser-ui-ux && npm run test:contract:commercial-ui-ux && npm run test:contract:sales-orders-browser && npm run test:contract:human-flow && npm run test:contract:procurement-browser",
+        "test:unit:frontend": "tsx ./scripts/frontend-unit-tests.tsx && npm run audit:browser:test-selectors && npm run test:contract:browser-ui-ux && npm run test:contract:commercial-ui-ux && npm run test:contract:sales-orders-browser && npm run test:contract:human-flow && npm run test:contract:procurement-browser",
+        "audit:browser:test-selectors": "node ./scripts/no-dom-index-browser-test-gate-v1.cjs",
         "test:contract:browser-ui-ux": "node ./scripts/browser-ui-ux-audit-contract-v1.cjs",
         "test:contract:commercial-ui-ux": "node ./scripts/commercial-ui-ux-scoring-contract-v1.cjs && node ./scripts/commercial-erp-crm-ui-ux-routes-contract-v1.cjs",
         "test:contract:sales-orders-browser": "node ./scripts/sales-orders-browser-audit-contract-v1.cjs",
         "test:contract:human-flow": "node ./scripts/browser-human-flow-modules-contract-v1.cjs",
         "test:contract:procurement-browser": "node ./scripts/procurement-browser-audit-contract-v1.cjs",
+        "test:contract:cloud-topology": "node ./scripts/enterprise-cloud-topology-contract-v1.cjs",
         "generate:api:sdk": "node ./scripts/generate-api-sdk-v1.cjs",
         "prisma:validate": "npm --prefix backend run prisma:validate",
         "test": "npm run audit:auth:default-credentials && npm run audit:refactor:freeze && npm run test:pilot-stability",
@@ -83,6 +85,7 @@
         "audit:package:freshness": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-stable.ps1 -CheckOnly",
         "audit:package:origin": "node ./scripts/stable-package-origin-audit-v1.cjs",
         "audit:active-source": "node ./scripts/active-source-inventory-v1.cjs",
+        "audit:scripts:hardcode-ratchet": "node ./scripts/active-audit-hardcode-ratchet-v1.cjs",
         "audit:source:mojibake": "node ./scripts/effective-source-mojibake-gate-v1.cjs && node ./scripts/mojibake-detector-contract-v1.cjs",
         "audit:runtime:ownership": "node ./scripts/runtime-script-ownership-audit-v1.cjs",
         "audit:refactor:freeze": "node ./scripts/refactor-freeze-gate-v1.cjs",
@@ -109,6 +112,9 @@
         "run:db:postgres-import-rehearsal": "node ./scripts/run-postgres-import-rehearsal-v1.cjs",
         "db:pg:migrate": "node ./scripts/postgres-schema-migrate-v1.cjs",
         "audit:db:postgres-versioned-migrations": "node ./scripts/postgres-versioned-migration-audit-v1.cjs",
+        "audit:db:decimal-shadow-contract": "node ./scripts/decimal-shadow-contract-audit-v1.cjs",
+        "audit:db:decimal-shadow": "node ./scripts/decimal-shadow-reconcile-audit-v1.cjs",
+        "audit:db:decimal-shadow-write": "node ./scripts/decimal-shadow-write-path-audit-v1.cjs",
         "audit:db:postgres-cutover-window": "node ./scripts/cloud-postgres-cutover-window-verdict-v1.cjs",
         "fixture:db:postgres-cutover": "node ./scripts/cloud-postgres-migration-fixture-v1.cjs",
         "db:pg:start-rehearsal": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/start-postgres-rehearsal-v1.ps1",
@@ -232,28 +238,42 @@
         "db:seed": "npm run db:manage -- seed",
         "db:restore": "npm run db:manage -- restore",
         "repair:db:reindex": "npx tsx ./scripts/runtime-db-reindex-repair-v1.ts",
-        "db:pg": "npm run build:backend && node backend/dist/database/postgres-migration.js"
+        "db:pg": "npm run build:backend && node backend/dist/database/postgres-migration.js",
+        "generate:fixtures:bom-grid": "node ./scripts/generate-bom-grid-fixtures-v1.cjs",
+        "test:contract:bom-grid": "tsx ./scripts/bom-grid-adapter-contract-v1.ts",
+        "test:browser:bom-grid": "node ./scripts/bom-grid-browser-poc-audit-v1.cjs",
+        "audit:licenses:bom-grid-candidates": "node ./scripts/license-allowlist-audit-v1.cjs --candidate-only",
+        "audit:licenses": "node ./scripts/license-allowlist-audit-v1.cjs",
+        "audit:bom-grid:poc": "npm run generate:fixtures:bom-grid && npm run test:contract:bom-grid && npm run typecheck && npm run build && npm run audit:licenses:bom-grid-candidates"
     },
     "dependencies": {
-        "@google/genai": "^2.10.0",
         "@prisma/client": "^5.22.0",
+        "@revolist/revogrid": "4.23.22",
         "@tanstack/react-virtual": "^3.14.5",
+        "archiver": "file:./backend/packages/archiver-exceljs-compat",
         "axios": "^1.18.1",
-        "exceljs": "^4.4.0",
+        "decimal.js": "10.6.0",
+        "exceljs": "4.4.0",
         "framer-motion": "^12.34.2",
         "lucide-react": "^0.563.0",
         "react": "^19.2.4",
+        "react-data-grid": "7.0.0-beta.61",
         "react-dom": "^19.2.4",
         "recharts": "^3.7.0",
+        "zod": "4.4.3",
         "zustand": "^5.0.14"
     },
     "overrides": {
-        "brace-expansion": "2.1.2",
+        "brace-expansion": "5.0.8",
         "form-data": "4.0.6",
-        "minimatch": "9.0.7",
+        "minimatch": "10.2.5",
         "protobufjs": "7.6.5",
         "uuid": "11.1.1",
-        "ws": "8.21.0"
+        "ws": "8.21.0",
+        "exceljs": {
+            "archiver": "$archiver",
+            "unzipper": "0.12.5"
+        }
     },
     "devDependencies": {
         "@eslint/js": "^8.57.0",
@@ -280,5 +300,8 @@
         "typescript-eslint": "^8.36.0",
         "vite": "^6.2.0",
         "vitest": "^4.1.10"
+    },
+    "engines": {
+        "node": ">=20.19.0"
     }
 }

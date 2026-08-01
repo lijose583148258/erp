@@ -1,0 +1,98 @@
+model Material {
+  id              Int       @id @default(autoincrement())
+  code            String    @unique
+  nameZh          String    @map("name_zh")
+  nameEn          String?   @map("name_en")
+  nameVi          String?   @map("name_vi")
+  category        String    @default("raw_material")
+  baseUnit        String    @map("base_unit")
+  specification   String?
+  status          String    @default("draft")
+  isTemporary     Boolean   @default(true) @map("is_temporary")
+  casNumber       String?   @map("cas_number")
+  unNumber        String?   @map("un_number")
+  hsCode          String?   @map("hs_code")
+  shelfLifeDays   Int?      @map("shelf_life_days")
+  complianceNotes String?   @map("compliance_notes")
+  createdBy       Int       @map("created_by")
+  updatedBy       Int       @map("updated_by")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  aliases         MaterialAlias[]
+  bomItems        ProductionBomItem[]
+  productionBoms  ProductionBom[] @relation("ProductionBomOutputMaterial")
+  productionWorkOrders ProductionWorkOrder[] @relation("ProductionWorkOrderOutputMaterial")
+  salesOrderItems OrderItem[]
+  purchaseOrders  PurchaseOrder[]
+  shipments       Shipment[]
+  productBatches  ProductBatch[]
+  stockBalances   StockBalance[]
+  stockMovements  StockMovement[]
+  genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputMaterial")
+  genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputMaterial")
+  barterAgreementItems BarterAgreementItem[]
+  barterItems       BarterItem[]
+
+  @@index([nameZh])
+  @@index([nameEn])
+  @@index([nameVi])
+  @@index([category, status])
+  @@index([casNumber])
+  @@index([hsCode])
+  @@map("materials")
+}
+
+model MaterialAlias {
+  id              Int       @id @default(autoincrement())
+  materialId      Int       @map("material_id")
+  material        Material  @relation(fields: [materialId], references: [id], onDelete: Cascade)
+  alias           String
+  normalizedAlias String    @map("normalized_alias")
+  language        String    @default("und")
+  aliasType       String    @default("business") @map("alias_type")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@unique([materialId, normalizedAlias, language])
+  @@index([normalizedAlias, language])
+  @@index([materialId])
+  @@index([alias])
+  @@map("material_aliases")
+}
+
+model MaterialGovernanceRun {
+  id           Int       @id @default(autoincrement())
+  runNo        String    @unique @map("run_no")
+  runType      String    @map("run_type")
+  status       String    @default("applied")
+  inputDigest  String    @map("input_digest")
+  summaryJson  String?   @map("summary_json")
+  createdBy    Int       @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  appliedAt    DateTime? @map("applied_at")
+  rolledBackAt DateTime? @map("rolled_back_at")
+
+  changes MaterialGovernanceChange[]
+
+  @@index([runType, status])
+  @@index([createdBy, createdAt])
+  @@map("material_governance_runs")
+}
+
+model MaterialGovernanceChange {
+  id                 Int                   @id @default(autoincrement())
+  runId              Int                   @map("run_id")
+  run                MaterialGovernanceRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  entityType         String                @map("entity_type")
+  entityId           Int                   @map("entity_id")
+  fieldName          String                @map("field_name")
+  beforeValue        String?               @map("before_value")
+  afterValue         String?               @map("after_value")
+  beforeSnapshotJson String?               @map("before_snapshot_json")
+  afterSnapshotJson  String?               @map("after_snapshot_json")
+  createdAt          DateTime              @default(now()) @map("created_at")
+
+  @@unique([runId, entityType, entityId, fieldName])
+  @@index([entityType, entityId])
+  @@map("material_governance_changes")
+}

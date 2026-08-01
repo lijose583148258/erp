@@ -14,6 +14,9 @@ import {
 } from './stock-movement.helpers';
 import { StockMovementConflictError } from './stock-movement.errors';
 import { syncProductBatchForOperationalStock } from './stock-movement.product-batch-sync';
+import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
+import { multiplyMoney } from '../utils/money';
 import type {
   PostStockEntryInput,
   StockEntryListFilters,
@@ -38,16 +41,52 @@ export class StockMovementService {
       const sourceRef = normalizeText(input.sourceRef) || null;
       const reason = normalizeText(input.reason) || null;
       const note = normalizeText(input.note) || null;
-      const normalizedLines = input.lines.map(line => ({
-        locationId: normalizeId(line.locationId, 'locationId'),
-        productName: normalizeText(line.productName),
-        batchNo: normalizeText(line.batchNo),
-        quantityDelta: roundQuantity(normalizeNumber(line.quantityDelta, 'quantityDelta')),
-        unit: normalizeText(line.unit || 'kg') || 'kg',
-        unitCost: normalizeOptionalNumber(line.unitCost, 'unitCost'),
-        costAmountDelta: normalizeOptionalNumber(line.costAmountDelta, 'costAmountDelta'),
-        expectedQuantityBefore: normalizeOptionalNumber(line.expectedQuantityBefore, 'expectedQuantityBefore'),
+      const allowInactiveMaterial = new Set<StockSourceType>([
+        'warehouse_adjustment',
+        'warehouse_transfer',
+        'barter_receipt_reversal',
+        'barter_issue_reversal',
+      ]).has(input.sourceType);
+      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, sourceRef);
+      const normalizedLines = await Promise.all(input.lines.map(async line => {
+        // A byte-for-byte idempotent replay must remain readable after a
+        // material is archived. This does not authorize a new posting: the
+        // release gate below still fails closed when no posted entry exists.
+        const identity = await resolveStockMaterialIdentity(tx, line, {
+          allowInactive: allowInactiveMaterial || Boolean(existingPostedEntry),
+        });
+        return {
+          locationId: normalizeId(line.locationId, 'locationId'),
+          materialId: identity.materialId,
+          shelfLifeDays: identity.shelfLifeDays,
+          productName: identity.productName,
+          batchNo: normalizeText(line.batchNo),
+          quantityDelta: roundQuantity(normalizeNumber(line.quantityDelta, 'quantityDelta')),
+          unit: identity.unit,
+          unitCost: normalizeOptionalNumber(line.unitCost, 'unitCost'),
+          costAmountDelta: normalizeOptionalNumber(line.costAmountDelta, 'costAmountDelta'),
+          expectedQuantityBefore: normalizeOptionalNumber(line.expectedQuantityBefore, 'expectedQuantityBefore'),
+        };
       }));
+
+      if (existingPostedEntry) {
+        assertIdempotentReplayMatches(existingPostedEntry, normalizedLines);
+        return existingPostedEntry;
+      }
+
+      await assertMaterialReleaseReadiness(tx, {
+        entityType: 'stock_entry',
+        entityId: sourceRef,
+        action: 'post',
+        allowInactive: allowInactiveMaterial,
+        lines: normalizedLines.map((line, index) => ({
+          lineKey: index + 1,
+          rowNumber: index + 1,
+          materialId: line.materialId,
+          displayName: line.productName,
+          unit: line.unit,
+        })),
+      });
 
       if (input.sourceType === 'warehouse_manual_inbound' && (!sourceRef || !reason)) {
         throw new Error('应急补录必须填写来源单号和补录原因。');
@@ -64,12 +103,6 @@ export class StockMovementService {
         if (line.quantityDelta === 0) {
           throw new Error('Stock movement quantity delta cannot be zero');
         }
-      }
-
-      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, sourceRef);
-      if (existingPostedEntry) {
-        assertIdempotentReplayMatches(existingPostedEntry, normalizedLines);
-        return existingPostedEntry;
       }
 
       const firstLocation = await tx.location.findUnique({
@@ -135,15 +168,25 @@ export class StockMovementService {
           throw new Error(`Location not found: ${line.locationId}`);
         }
 
-        const existing = await tx.stockBalance.findUnique({
-          where: {
-            locationId_productName_batchNo: {
-              locationId: line.locationId,
-              productName: line.productName,
-              batchNo: line.batchNo,
+        const existing = line.materialId
+          ? await tx.stockBalance.findUnique({
+            where: {
+              locationId_materialId_batchNo: {
+                locationId: line.locationId,
+                materialId: line.materialId,
+                batchNo: line.batchNo,
+              },
             },
-          },
-        });
+          })
+          : await tx.stockBalance.findUnique({
+            where: {
+              locationId_productName_batchNo: {
+                locationId: line.locationId,
+                productName: line.productName,
+                batchNo: line.batchNo,
+              },
+            },
+          });
 
         let balance;
         if (existing) {
@@ -165,6 +208,7 @@ export class StockMovementService {
               data: {
                 quantity: { increment: line.quantityDelta },
                 unit: line.unit,
+                materialId: line.materialId,
                 lastMoveAt: new Date(),
               },
             });
@@ -187,6 +231,7 @@ export class StockMovementService {
               data: {
                 quantity: { decrement: safeDecrease },
                 unit: line.unit,
+                materialId: line.materialId,
                 lastMoveAt: new Date(),
               },
             });
@@ -200,6 +245,7 @@ export class StockMovementService {
               data: {
                 quantity: { increment: line.quantityDelta },
                 unit: line.unit,
+                materialId: line.materialId,
                 lastMoveAt: new Date(),
               },
             });
@@ -215,6 +261,7 @@ export class StockMovementService {
             balance = await tx.stockBalance.create({
               data: {
                 locationId: line.locationId,
+                materialId: line.materialId,
                 productName: line.productName,
                 batchNo: line.batchNo,
                 quantity: line.quantityDelta,
@@ -222,21 +269,49 @@ export class StockMovementService {
                 lastMoveAt: new Date(),
               },
             });
-          } catch {
-            balance = await tx.stockBalance.update({
-              where: {
-                locationId_productName_batchNo: {
-                  locationId: line.locationId,
-                  productName: line.productName,
-                  batchNo: line.batchNo,
+          } catch (error) {
+            if ((error as { code?: string })?.code !== 'P2002') {
+              throw error;
+            }
+            if (line.materialId) {
+              const concurrent = await tx.stockBalance.findUnique({
+                where: {
+                  locationId_materialId_batchNo: {
+                    locationId: line.locationId,
+                    materialId: line.materialId,
+                    batchNo: line.batchNo,
+                  },
                 },
-              },
-              data: {
-                quantity: { increment: line.quantityDelta },
-                unit: line.unit,
-                lastMoveAt: new Date(),
-              },
-            });
+              });
+              if (!concurrent) {
+                throw new StockMovementConflictError(
+                  `Legacy stock identity conflicts with material master: ${line.productName} / ${line.batchNo}`,
+                );
+              }
+              balance = await tx.stockBalance.update({
+                where: { id: concurrent.id },
+                data: {
+                  quantity: { increment: line.quantityDelta },
+                  unit: line.unit,
+                  lastMoveAt: new Date(),
+                },
+              });
+            } else {
+              balance = await tx.stockBalance.update({
+                where: {
+                  locationId_productName_batchNo: {
+                    locationId: line.locationId,
+                    productName: line.productName,
+                    batchNo: line.batchNo,
+                  },
+                },
+                data: {
+                  quantity: { increment: line.quantityDelta },
+                  unit: line.unit,
+                  lastMoveAt: new Date(),
+                },
+              });
+            }
           }
         }
 
@@ -246,7 +321,7 @@ export class StockMovementService {
 
         const batchSync = await syncProductBatchForOperationalStock(tx, input.sourceType, line);
         const explicitCostAmountDelta = line.costAmountDelta ?? (
-          line.unitCost === null ? null : line.quantityDelta * line.unitCost
+          line.unitCost === null ? null : multiplyMoney(line.quantityDelta, line.unitCost)
         );
 
         if (batchSync && explicitCostAmountDelta !== null && input.createdBy) {
@@ -270,6 +345,7 @@ export class StockMovementService {
             entryId,
             stockBalanceId: balance.id,
             locationId: line.locationId,
+            materialId: line.materialId,
             productName: line.productName,
             batchNo: line.batchNo,
             unit: line.unit,
@@ -361,6 +437,7 @@ export class StockMovementService {
           entryId,
           stockBalanceId: movement.stockBalanceId == null ? null : normalizeDbNumber(movement.stockBalanceId),
           locationId: normalizeDbNumber(movement.locationId),
+          materialId: movement.materialId == null ? null : normalizeDbNumber(movement.materialId),
           quantityBefore: Number(movement.quantityBefore || 0),
           quantityDelta: Number(movement.quantityDelta || 0),
           quantityAfter: Number(movement.quantityAfter || 0),

@@ -1,0 +1,23 @@
+{
+  "cases": [
+    {
+      "locale": "zh-CN",
+      "input": "水性丙烯酸乳液（测试）",
+      "expected": "水性丙烯酸乳液（测试）"
+    },
+    {
+      "locale": "vi-VN",
+      "input": "Nhựa acrylic gốc nước thử nghiệm",
+      "expected": "Nhựa acrylic gốc nước thử nghiệm"
+    },
+    {
+      "locale": "mixed",
+      "input": "丙烯酸 nhựa acrylic A-01",
+      "expected": "丙烯酸 nhựa acrylic A-01"
+    }
+  ],
+  "compositionRules": {
+    "enterDuringCompositionMustNotCommit": true,
+    "compositionEndMustPreserveText": true
+  }
+}

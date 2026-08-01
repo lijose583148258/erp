@@ -7,6 +7,7 @@ export type ShippingIssueShipment = {
   quantity: number;
   unit: string;
   batchNo?: string | null;
+  materialId?: number | null;
 };
 
 async function hasShippingIssuePosted(tx: TransactionClient, shipmentNo: string) {
@@ -33,9 +34,10 @@ async function resolveShippingIssueStock(tx: TransactionClient, shipment: Shippi
 
   const where: Prisma.StockBalanceWhereInput = {
     locationId: finishedGoodsLocation.id,
-    productName: shipment.productName,
     quantity: { gte: quantity },
   };
+  if (shipment.materialId) where.materialId = shipment.materialId;
+  else where.productName = shipment.productName;
   if (shipment.batchNo) where.batchNo = shipment.batchNo;
 
   const stock = await tx.stockBalance.findFirst({
@@ -45,6 +47,16 @@ async function resolveShippingIssueStock(tx: TransactionClient, shipment: Shippi
   });
   if (!stock) {
     throw new Error(`No available stock for shipment ${shipment.shipmentNo}: ${shipment.productName}${shipment.batchNo ? ` / ${shipment.batchNo}` : ''}`);
+  }
+
+  const productBatch = await tx.productBatch.findFirst({
+    where: stock.materialId
+      ? { materialId: stock.materialId, batchNo: stock.batchNo }
+      : { productName: stock.productName, batchNo: stock.batchNo },
+    select: { qualityStatus: true },
+  });
+  if (productBatch && ['hold', 'quarantine', 'pending_qc'].includes(productBatch.qualityStatus)) {
+    throw new Error(`STOCK_MATERIAL_BATCH_NOT_RELEASED:${stock.batchNo}:${productBatch.qualityStatus}`);
   }
 
   return stock;
@@ -68,6 +80,7 @@ export async function postShippingIssueIfMissing(
     createdBy: createdBy || null,
     lines: [{
       locationId: issueStock.locationId,
+      materialId: issueStock.materialId,
       productName: issueStock.productName,
       batchNo: issueStock.batchNo,
       quantityDelta: -Number(shipment.quantity || 0),

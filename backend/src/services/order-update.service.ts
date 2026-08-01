@@ -1,10 +1,16 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
-import { buildOrderItemsAndTotals } from './order-item-normalization';
+import {
+    buildOrderItemsAndTotals,
+    calculateOrderFinalAmount,
+    calculateOrderOutstanding,
+} from './order-item-normalization';
+import { resolveOrderItemMaterialIdentities } from './order-item-material-identity';
 import { canUseOrderForBusinessWrite } from '../utils/recordAccess';
 import { CreditEngine } from '../utils/CreditEngine';
 import { withDbRetry } from '../utils/dbRetry';
+import { compareMoney } from '../utils/money';
 
 export class OrderUpdateRejectedError extends Error {
     constructor(
@@ -66,14 +72,17 @@ export const OrderUpdateService = {
             if (!canUseOrderForBusinessWrite(req, existing)) {
                 throw new OrderUpdateRejectedError(403, '无权编辑该订单。');
             }
+            const governedReplacementItems = itemReplacement
+                ? await resolveOrderItemMaterialIdentities(tx, itemReplacement.orderItems)
+                : null;
 
             const replacementFinalAmount = itemReplacement
-                ? itemReplacement.totalAmount - Number(existing.discountAmount)
+                ? calculateOrderFinalAmount(itemReplacement.totalAmount, Number(existing.discountAmount))
                 : null;
-            if (replacementFinalAmount !== null && replacementFinalAmount < 0) {
+            if (replacementFinalAmount !== null && compareMoney(replacementFinalAmount, 0) < 0) {
                 throw new OrderUpdateRejectedError(400, '折扣金额不能超过订单总额。');
             }
-            if (replacementFinalAmount !== null && replacementFinalAmount < Number(existing.paidAmount)) {
+            if (replacementFinalAmount !== null && compareMoney(replacementFinalAmount, existing.paidAmount) < 0) {
                 throw new OrderUpdateRejectedError(400, '订单金额不能低于已核销金额。');
             }
 
@@ -83,7 +92,10 @@ export const OrderUpdateService = {
                     data: { updatedAt: new Date() },
                     select: { id: true },
                 });
-                const replacementOutstanding = Math.max(0, replacementFinalAmount - Number(existing.paidAmount));
+                const replacementOutstanding = calculateOrderOutstanding(
+                    replacementFinalAmount,
+                    Number(existing.paidAmount),
+                );
                 const creditCheck = await CreditEngine.checkOrder(
                     existing.customerId,
                     replacementOutstanding,
@@ -114,7 +126,7 @@ export const OrderUpdateService = {
                         finalAmount: replacementFinalAmount,
                         items: {
                             deleteMany: {},
-                            create: itemReplacement.orderItems,
+                            create: governedReplacementItems || [],
                         },
                     } : {}),
                 },

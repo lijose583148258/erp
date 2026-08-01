@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -473,8 +474,9 @@ async function runShippingFlow(manager, sales) {
 
 async function run() {
   try {
-    const manager = await login('manager', 'manager123');
-    const sales = await login('sales', 'sales123');
+    const accounts = await ensureUiAuditAccounts('partial_receipt', ['manager', 'sales']);
+    const manager = await login(accounts.manager.username, accounts.manager.password);
+    const sales = await login(accounts.sales.username, accounts.sales.password);
     recordStep({ step: 'login-users', result: 'passed', managerId: manager.user.id, salesId: sales.user.id });
 
     report.procurement = await runProcurementFlow(manager);

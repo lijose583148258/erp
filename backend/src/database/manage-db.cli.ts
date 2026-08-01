@@ -213,10 +213,19 @@ const run = async () => {
       const baseSchema = await prepareBaseSchema();
       const report = await repairRuntimeSchema();
       const dataReport = await repairRuntimeData();
+      const schemaAudit = await auditRuntimeSchema();
+      if (schemaAudit.issueCount > 0) {
+        const sample = schemaAudit.issues
+          .slice(0, 8)
+          .map(issue => `${issue.tableName}${issue.columnName ? `.${issue.columnName}` : ''}`)
+          .join(', ');
+        throw new Error(`Runtime schema repair incomplete: ${schemaAudit.issueCount} issue(s) remain${sample ? ` (${sample})` : ''}`);
+      }
       const created = report.entries.filter(entry => entry.action === 'created').length;
       const added = report.entries.filter(entry => entry.action === 'added').length;
+      const repairUpdated = report.entries.filter(entry => entry.action === 'updated').length;
       const repaired = dataReport.entries.filter(entry => entry.action === 'updated').length;
-      console.log(`Database schema prepared | base=${baseSchema.action} tables=${baseSchema.tableCount} created=${created} added=${added} dataRepaired=${repaired}`);
+      console.log(`Database schema prepared | base=${baseSchema.action} tables=${baseSchema.tableCount} created=${created} added=${added} repairUpdated=${repairUpdated} dataRepaired=${repaired} schemaIssues=${schemaAudit.issueCount}`);
       printStatus();
       return;
     }

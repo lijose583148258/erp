@@ -27,12 +27,16 @@ export function CRMCreatePreviewPanel({
   onCreate: () => void;
 }) {
   return (
-    <aside className="border-l border-slate-100 bg-slate-50/70 px-8 py-8 dark:border-slate-800 dark:bg-slate-900/60">
+ <aside
+ data-save-impact
+ aria-labelledby="crm-create-preview-title"
+ className="border-l border-slate-100 bg-slate-50/70 px-5 py-6 sm:px-8 sm:py-8 dark:border-slate-800 dark:bg-slate-900/60"
+ >
       <div className="sticky top-0 space-y-6">
         <div className="rounded-[28px] bg-white p-6 shadow-sm dark:bg-slate-950">
           <div className="flex items-center gap-3">
             <Globe2 className="text-blue-500" />
-            <div className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">{t.crmCommercialPreview || 'Commercial Preview'}</div>
+ <h3 id="crm-create-preview-title" className="text-[11px] font-black uppercase tracking-[0.24em] text-slate-400">{t.crmCommercialPreview || '保存结果预览'}</h3>
           </div>
           <div className="mt-4 space-y-4">
             <div>
@@ -47,15 +51,15 @@ export function CRMCreatePreviewPanel({
             <div className="rounded-[22px] border border-slate-100 bg-slate-50 p-4 dark:border-slate-800 dark:bg-slate-900">
               <div className="flex items-center justify-between gap-3">
                 <div className="text-[11px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmBusinessProfile || 'Business Profile'}</div>
-                <span className={`rounded-full border px-2.5 py-1 text-[10px] font-black uppercase ${segmentMeta[segment].tone}`}>{segmentMeta[segment].label}</span>
+                <span className={`rounded-full border px-2.5 py-1 text-xs font-black uppercase ${segmentMeta[segment].tone}`}>{segmentMeta[segment].label}</span>
               </div>
               <div className="mt-3 grid grid-cols-2 gap-3 text-xs font-bold text-slate-500">
                 <div>
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">{t.crmCreditLimit || '信用额度'}</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{t.crmCreditLimit || '信用额度'}</div>
                   <div className="mt-1 text-sm text-slate-900 dark:text-white">{Number(newCustomer.creditLimit || 0).toLocaleString()}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">{t.crmTerms || '账期'}</div>
+                  <div className="text-xs uppercase tracking-[0.18em] text-slate-400">{t.crmTerms || '账期'}</div>
                   <div className="mt-1 text-sm text-slate-900 dark:text-white">{newCustomer.termsDays || 30} 天</div>
                 </div>
               </div>
@@ -84,13 +88,19 @@ export function CRMCreatePreviewPanel({
           </div>
         </div>
 
+ <div className="rounded-[22px] border border-blue-100 bg-blue-50 px-4 py-3 text-xs font-bold leading-6 text-blue-800 dark:border-blue-900/50 dark:bg-blue-950/30 dark:text-blue-200">
+ 保存后生成一条客户主档，并写入当前主地址和主联系人；不会自动创建订单、授信审批或发货任务。高级信息可在客户详情中继续补充。
+ </div>
+
         <button
           data-testid="crm-create-submit"
+ type="button"
           onClick={onCreate}
           disabled={isSubmitting}
-          className="flex w-full items-center justify-center rounded-[24px] bg-slate-900 px-6 py-4 text-sm font-black uppercase tracking-[0.24em] text-white shadow-2xl transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60 dark:bg-white dark:text-slate-900"
+ aria-busy={isSubmitting}
+ className="flex min-h-12 w-full items-center justify-center rounded-[24px] bg-slate-900 px-6 py-4 text-sm font-black uppercase tracking-[0.18em] text-white shadow-2xl transition-[background-color,box-shadow,opacity] duration-150 hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none dark:bg-white dark:text-slate-900 dark:hover:bg-slate-100"
         >
-          {isSubmitting ? <Loader2 className="animate-spin" /> : (t.crmCreateCustomerMaster || '创建客户主档')}
+ {isSubmitting ? <Loader2 aria-hidden="true" className="animate-spin motion-reduce:animate-none" /> : (t.crmCreateCustomerMaster || '保存客户主档')}
         </button>
       </div>
     </aside>

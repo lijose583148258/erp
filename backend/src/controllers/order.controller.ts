@@ -7,14 +7,20 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { OrderUpdateRejectedError, OrderUpdateService } from '../services/order-update.service';
-import { buildOrderItemsAndTotals } from '../services/order-item-normalization';
+import {
+    buildOrderItemsAndTotals,
+    calculateOrderFinalAmount,
+} from '../services/order-item-normalization';
+import { resolveOrderItemMaterialIdentities } from '../services/order-item-material-identity';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { compareMoney } from '../utils/money';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
@@ -106,8 +112,8 @@ export class OrderController {
             const orderNo = buildBusinessNo('ORD');
             const { orderItems, totalAmount } = buildOrderItemsAndTotals(items);
 
-            const finalAmount = totalAmount - Number(discountAmount);
-            if (finalAmount < 0) {
+            const finalAmount = calculateOrderFinalAmount(totalAmount, Number(discountAmount));
+            if (compareMoney(finalAmount, 0) < 0) {
                 return res.status(400).json({
                     success: false,
                     message: '折扣金额不能超过订单总额。',
@@ -115,6 +121,7 @@ export class OrderController {
             }
 
             const createdOrder = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                const governedOrderItems = await resolveOrderItemMaterialIdentities(tx, orderItems);
                 // Serialize credit decisions for one customer before reading exposure.
                 // Rejections throw so this row touch is rolled back with the attempt.
                 const customer = await tx.customer.update({
@@ -166,7 +173,7 @@ export class OrderController {
                         status: 'pending',
                         contractId: contractId ? Number(contractId) : null,
                         createdBy: req.user!.userId,
-                        items: { create: orderItems },
+                        items: { create: governedOrderItems },
                     },
                     include: {
                         items: true,
@@ -344,11 +351,11 @@ export class OrderController {
                 }
             }
 
-            const transitioned = await compareAndSetOrderStatus(prisma, {
+            const transitioned = await prisma.$transaction(tx => compareAndSetOrderStatus(tx, {
                 orderId: Number(id),
                 expectedStatus: existing.status,
                 targetStatus,
-            });
+            }));
             if (!transitioned) {
                 return res.status(409).json({
                     success: false,
@@ -387,6 +394,15 @@ export class OrderController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Update order status error:', error);
+            if (isMaterialReleaseReadinessError(error)) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: '订单仍可继续保存为草稿；确认前请先修复未关联、未发布或单位不一致的物料行。',
+                    errorCode: error.message,
+                    details: error.details,
+                    timestamp: new Date().toISOString(),
+                } as ApiResponse);
+            }
             return res.status(500).json({
                 success: false,
                 message: '服务器内部错误',

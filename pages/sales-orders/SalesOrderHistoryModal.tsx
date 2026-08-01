@@ -72,14 +72,14 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
     );
 
     return (
-        <div data-testid="sales-order-history-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+ <div data-testid="sales-order-history-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm motion-safe:animate-in fade-in">
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sales-order-history-title"
                 tabIndex={-1}
-                className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95 border border-slate-100 dark:border-slate-800"
+ className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl motion-safe:animate-in zoom-in-95 border border-slate-100 dark:border-slate-800"
             >
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -96,8 +96,8 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                 </div>
 
                 <div className="flex mb-4 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                    <button data-autofocus onClick={() => setHistoryTab('payments')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'payments' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.historyTab}</button>
-                    <button onClick={() => setHistoryTab('audit')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'audit' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.auditTab}</button>
+ <button data-autofocus onClick={() => setHistoryTab('payments')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${historyTab === 'payments' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.historyTab}</button>
+ <button onClick={() => setHistoryTab('audit')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${historyTab === 'audit' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.auditTab}</button>
                 </div>
 
                 {getOutstandingAmount(selectedOrder) > 0 && (
@@ -105,9 +105,9 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                         <div className="rounded-[20px] border border-slate-100 bg-slate-50/80 p-4 dark:border-slate-800 dark:bg-slate-800/40">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div>
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">追款摘要</p>
+                                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">追款摘要</p>
                                     <div className="mt-2 flex items-center gap-2">
-                                        <span className={`px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest ${
+                                        <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-widest ${
                                             getCollectionView(selectedOrder).tone === 'amber' ? 'bg-amber-50 text-amber-700 border border-amber-100' :
                                             getCollectionView(selectedOrder).tone === 'orange' ? 'bg-orange-50 text-orange-700 border border-orange-100' :
                                             getCollectionView(selectedOrder).tone === 'rose' ? 'bg-rose-50 text-rose-700 border border-rose-100' :
@@ -115,11 +115,11 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                                         }`}>
                                             {getCollectionView(selectedOrder).label}
                                         </span>
-                                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">未收 {formatPrice(getOutstandingAmount(selectedOrder))}</span>
+                                        <span className="text-xs font-black uppercase tracking-widest text-slate-400">未收 {formatPrice(getOutstandingAmount(selectedOrder))}</span>
                                     </div>
                                 </div>
                                 <div className="text-right">
-                                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">建议动作</p>
+                                    <p className="text-xs font-black uppercase tracking-widest text-slate-400">建议动作</p>
                                     <p className="mt-2 text-xs font-bold text-slate-600 dark:text-slate-300">{getCollectionView(selectedOrder).nextAction}</p>
                                 </div>
                             </div>
@@ -157,11 +157,11 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                             selectedOrder.paymentRecords
                                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                                 .map((rec, idx) => (
-                                    <div key={idx} className={`p-4 rounded-2xl border relative transition-all ${rec.status === 'verified' ? 'bg-emerald-50/50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-700'}`}>
+ <div key={idx} className={`p-4 rounded-2xl border relative transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${rec.status === 'verified' ? 'bg-emerald-50/50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-700'}`}>
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <p className={`text-lg font-black tracking-tight ${rec.status === 'verified' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>{formatPrice(rec.amount)}</p>
-                                                <div className="flex items-center text-[10px] font-bold text-slate-400 uppercase mt-1">
+                                                <div className="flex items-center text-xs font-bold text-slate-400 uppercase mt-1">
                                                     <Calendar size={10} className="mr-1" /> {rec.date}
                                                     <span className="mx-2">/</span>
                                                     {['cash', 'Cash'].includes(rec.method) ? <Wallet size={10} className="mr-1" /> : <CreditCard size={10} className="mr-1" />} {paymentMethodLabel(rec.method)}
@@ -181,7 +181,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                                         {rec.note && <p className="text-xs text-slate-500 mt-2 italic border-t border-slate-200 dark:border-slate-700 pt-2">"{rec.note}"</p>}
                                         {rec.status === 'pending' && canVerifyPayment && (
                                             <div className="mt-3 flex justify-end">
-                                                <button onClick={() => onVerifyPayment(rec.id)} className="px-4 py-2 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg">
+ <button onClick={() => onVerifyPayment(rec.id)} className="px-4 py-2 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-xl text-xs font-black uppercase tracking-widest transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none shadow-lg">
                                                     {t.verify}
                                                 </button>
                                             </div>
@@ -204,7 +204,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                                             {idx !== selectedOrder.historyLogs!.length - 1 && <div className="w-0.5 flex-1 bg-slate-100 dark:bg-slate-800 my-1"></div>}
                                         </div>
                                         <div className="pb-4">
-                                            <p className="text-[10px] font-black uppercase text-slate-400">{new Date(log.date).toLocaleString()}</p>
+                                            <p className="text-xs font-black uppercase text-slate-400">{new Date(log.date).toLocaleString()}</p>
                                             <p className="text-sm font-bold text-slate-800 dark:text-slate-200">
                                                 <span className="text-blue-600 dark:text-blue-400 mr-2">[{log.user}]</span>
                                                 {log.action}
@@ -217,7 +217,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                     )}
                     {historyTab === 'payments' && promiseRecords.length > 0 && (
                         <div data-testid="sales-order-promise-readback" className="rounded-2xl border border-amber-100 bg-amber-50/70 p-4 dark:border-amber-900/40 dark:bg-amber-900/10">
-                            <p className="text-[10px] font-black uppercase tracking-widest text-amber-600">承诺付款记录</p>
+                            <p className="text-xs font-black uppercase tracking-widest text-amber-600">承诺付款记录</p>
                             <div className="mt-3 space-y-3">
                                 {promiseRecords.map((promise) => (
                                     <div key={promise.id} className="rounded-xl bg-white/80 p-3 text-xs font-bold text-slate-600 dark:bg-slate-900/60 dark:text-slate-300">

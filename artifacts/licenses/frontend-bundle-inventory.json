@@ -1,0 +1,735 @@
+{
+  "schemaVersion": 1,
+  "generated": true,
+  "packages": [
+    "@reduxjs/toolkit",
+    "@tanstack/react-virtual",
+    "@tanstack/virtual-core",
+    "axios",
+    "clsx",
+    "d3-array",
+    "d3-color",
+    "d3-format",
+    "d3-interpolate",
+    "d3-path",
+    "d3-scale",
+    "d3-shape",
+    "d3-time",
+    "d3-time-format",
+    "decimal.js-light",
+    "es-toolkit",
+    "eventemitter3",
+    "exceljs",
+    "framer-motion",
+    "immer",
+    "internmap",
+    "lucide-react",
+    "motion-dom",
+    "motion-utils",
+    "react",
+    "react-dom",
+    "react-is",
+    "react-redux",
+    "recharts",
+    "redux",
+    "redux-thunk",
+    "reselect",
+    "scheduler",
+    "tiny-invariant",
+    "use-sync-external-store",
+    "victory-vendor",
+    "zustand"
+  ],
+  "chunks": [
+    {
+      "fileName": "assets/icons-CjEAFD3u.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "lucide-react",
+        "react"
+      ]
+    },
+    {
+      "fileName": "assets/motion-D9EjDc5S.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "framer-motion",
+        "motion-dom",
+        "motion-utils",
+        "react"
+      ]
+    },
+    {
+      "fileName": "assets/http-DhXgJQ-f.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "axios"
+      ]
+    },
+    {
+      "fileName": "assets/charts-Cznaxl4x.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "@reduxjs/toolkit",
+        "clsx",
+        "d3-array",
+        "d3-color",
+        "d3-format",
+        "d3-interpolate",
+        "d3-path",
+        "d3-scale",
+        "d3-shape",
+        "d3-time",
+        "d3-time-format",
+        "decimal.js-light",
+        "es-toolkit",
+        "eventemitter3",
+        "immer",
+        "internmap",
+        "react-dom",
+        "react-is",
+        "react-redux",
+        "recharts",
+        "redux",
+        "redux-thunk",
+        "reselect",
+        "tiny-invariant",
+        "use-sync-external-store",
+        "victory-vendor"
+      ]
+    },
+    {
+      "fileName": "assets/spreadsheet-BuxPIMRj.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "exceljs"
+      ]
+    },
+    {
+      "fileName": "assets/index-B77udzQI.js",
+      "isEntry": true,
+      "dynamicImports": [
+        "assets/AIAssistant-BH2MwJ0a.js",
+        "assets/AISettings-CqlQIwGq.js",
+        "assets/Dashboard-SAGpfHXd.js",
+        "assets/CRM-Da0h_MPo.js",
+        "assets/RiskControl-DiVYP2bY.js",
+        "assets/Shipping-dLpLRIFD.js",
+        "assets/RMA-EfyRGvH6.js",
+        "assets/Samples-BticNLRU.js",
+        "assets/SalesOrders-DjAZ-ARy.js",
+        "assets/TeamManagement-Cl04WOHd.js",
+        "assets/AuditLogs-B82zlw7c.js",
+        "assets/Settings-DnjCfsfZ.js",
+        "assets/Assets-D4od5S_F.js",
+        "assets/ProductionWorkspace-DkVqKEqJ.js",
+        "assets/DealerAnalytics-BzGeOvHP.js",
+        "assets/Procurement-CzPfEWCj.js",
+        "assets/BarterWorkspaceView--K6jv_fG.js",
+        "assets/Contracts-CA6Vwyt9.js",
+        "assets/FinanceAnalyticsWorkspaceV2-B222q93n.js",
+        "assets/AdjustmentCenterView-Dn44vesN.js",
+        "assets/CollectionCenterView-h4XWOL8l.js",
+        "assets/WarehouseWorkspace-CBKVE5he.js",
+        "assets/ReceiptDiscrepancyWorkbench-DB2ZHAXO.js"
+      ],
+      "packages": [
+        "react-dom",
+        "scheduler",
+        "zustand"
+      ]
+    },
+    {
+      "fileName": "assets/AIAssistant-BH2MwJ0a.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Dashboard-SAGpfHXd.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/CRM-Da0h_MPo.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/geminiService-CJekPZnm.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/RiskControl-DiVYP2bY.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Shipping-dLpLRIFD.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/shipping.service-Bfi0ygOL.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/RMA-EfyRGvH6.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Samples-BticNLRU.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/sample.service-CqAMeN-n.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/SalesOrders-DjAZ-ARy.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/smartFormService-CQJ_kBai.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/TeamManagement-Cl04WOHd.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/team.service-BPfMFms-.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/AuditLogs-B82zlw7c.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Settings-DnjCfsfZ.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/AISettings-CqlQIwGq.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/aiConfig-CdOyeQoK.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Assets-D4od5S_F.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/ProductionWorkspace-DkVqKEqJ.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/asset.service-2M46Lyvd.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/DealerAnalytics-BzGeOvHP.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Procurement-CzPfEWCj.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/BarterWorkspaceView--K6jv_fG.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/procurement.service-DTyd0Z3k.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/Contracts-CA6Vwyt9.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/contract.service-CsgsBMae.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/tableRecognition-B-fA59bu.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/DataTable-BTEEMb54.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/customer.impl-4TRsyFTd.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/customerAddressV2-CjyawtFz.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/FinanceAnalyticsWorkspaceV2-B222q93n.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/ReasonDialog-Z1GtRXzr.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/useDialogFocus-BBzYGPS6.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/order.impl-BDH-TC8q.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/types-Cf11yT98.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/customerName-CyLGYZ9G.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/customerAlias-D60h-wUp.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/AdjustmentCenterView-Dn44vesN.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/adjustment.service-D_3CDM4E.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/apiMapping-DzdvfzkP.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/CollectionCenterView-h4XWOL8l.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/dataTableAdapter-BHEJBodT.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/CollectionActionModal-CXadPdnp.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/collections.impl-7C6mZrO2.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/WarehouseWorkspace-CBKVE5he.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/useUnsavedForm-C-Fti7SI.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/DocumentInputGuide-SJN6IGzI.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/ReceiptDiscrepancyWorkbench-DB2ZHAXO.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/PageShell-FWEJlEbh.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/receiptDiscrepancy.service-IwHjZYYh.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/FormField-D62WuOtf.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/EnterpriseDataGrid-CfBKOPLI.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "@tanstack/react-virtual",
+        "@tanstack/virtual-core"
+      ]
+    },
+    {
+      "fileName": "assets/tablePreferences-aRoY3W7O.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/spreadsheetIO-F0M07Gxt.js",
+      "isEntry": false,
+      "dynamicImports": [
+        "assets/exceljs.min-DzKWhkvf.js",
+        "assets/exceljs.min-DzKWhkvf.js"
+      ],
+      "packages": []
+    },
+    {
+      "fileName": "assets/StatusBadge-Bssi4LuV.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/statusBadgeLogic-C6LO7Jk7.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/WorkspaceTaskNavigator-BKm_cd89.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/exceljs.min-DzKWhkvf.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": [
+        "exceljs"
+      ]
+    }
+  ],
+  "packagesDetailed": [
+    {
+      "name": "@reduxjs/toolkit",
+      "version": "2.11.2",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "@tanstack/react-virtual",
+      "version": "3.14.5",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "@tanstack/virtual-core",
+      "version": "3.17.3",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "axios",
+      "version": "1.18.1",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "clsx",
+      "version": "2.1.1",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-array",
+      "version": "3.2.4",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-color",
+      "version": "3.1.0",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-format",
+      "version": "3.1.2",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-interpolate",
+      "version": "3.0.1",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-path",
+      "version": "3.1.0",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-scale",
+      "version": "4.0.2",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-shape",
+      "version": "3.2.0",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-time",
+      "version": "3.1.0",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "d3-time-format",
+      "version": "4.1.0",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "decimal.js-light",
+      "version": "2.5.1",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "es-toolkit",
+      "version": "1.44.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "eventemitter3",
+      "version": "5.0.4",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "exceljs",
+      "version": "4.4.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "framer-motion",
+      "version": "12.34.2",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "immer",
+      "version": "11.1.3",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "internmap",
+      "version": "2.0.3",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "lucide-react",
+      "version": "0.563.0",
+      "license": "ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "motion-dom",
+      "version": "12.34.2",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "motion-utils",
+      "version": "12.29.2",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "react",
+      "version": "19.2.4",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "react-dom",
+      "version": "19.2.4",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "react-is",
+      "version": "19.2.4",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "react-redux",
+      "version": "9.2.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "recharts",
+      "version": "3.7.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "redux",
+      "version": "5.0.1",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "redux-thunk",
+      "version": "3.1.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "reselect",
+      "version": "5.1.1",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "scheduler",
+      "version": "0.27.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "tiny-invariant",
+      "version": "1.3.3",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "use-sync-external-store",
+      "version": "1.6.0",
+      "license": "MIT",
+      "classification": "allowed"
+    },
+    {
+      "name": "victory-vendor",
+      "version": "37.3.6",
+      "license": "MIT AND ISC",
+      "classification": "allowed"
+    },
+    {
+      "name": "zustand",
+      "version": "5.0.14",
+      "license": "MIT",
+      "classification": "allowed"
+    }
+  ],
+  "bomGridCandidatePackages": []
+}

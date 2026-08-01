@@ -410,6 +410,8 @@ function renderMarkdown(report) {
     '## Reproduction',
     '',
     '```powershell',
+    '# Frontend strict ratchet scope is defined in tsconfig.strict.json',
+    'npm run typecheck:strict',
     'npm run audit:commercial:ui-ux',
     '```',
     '',

@@ -104,6 +104,7 @@ async function waitForRouteReady(page, route, timeoutMs) {
   await page.waitForFunction((expectedRoute) => {
     const text = document.body?.innerText || '';
     const visible = (element) => {
+      if (element.closest('[aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
@@ -113,9 +114,18 @@ async function waitForRouteReady(page, route, timeoutMs) {
       return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
     });
     if (document.querySelector('input[type="password"]')) return true;
-    if (window.location.hash !== expectedRoute) return false;
-    if (blockingLoading) return false;
-    return text.trim().length > 100;
+    const readinessKey = '__ailaodaPerformanceAuditReadySince';
+    if (window.location.hash !== expectedRoute || blockingLoading || text.trim().length <= 100) {
+      window[readinessKey] = 0;
+      return false;
+    }
+    const now = Date.now();
+    const readySince = Number(window[readinessKey] || 0);
+    if (!readySince) {
+      window[readinessKey] = now;
+      return false;
+    }
+    return now - readySince >= 600;
   }, route, { timeout: Math.min(timeoutMs, 10000) }).catch(() => {});
 }
 

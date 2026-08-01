@@ -11,6 +11,7 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { CreditEngine } from '../utils/CreditEngine';
 import { withDbRetry } from '../utils/dbRetry';
 import { logger } from '../utils/logger';
+import { addMoney, multiplyMoney } from '../utils/money';
 import { canUseCustomerForBusinessWrite } from '../utils/recordAccess';
 import {
   buildOrderImportFingerprint,
@@ -18,6 +19,7 @@ import {
   type OrderImportIdempotencyService,
 } from './order-import-idempotency.service';
 import { SearchIndexService } from './search-index.service';
+import { resolveOrderItemMaterialIdentities } from './order-item-material-identity';
 
 type ImportOrderRow = {
   customerId?: unknown;
@@ -26,6 +28,7 @@ type ImportOrderRow = {
 };
 
 type ImportOrderItem = {
+  materialId: number | null;
   productName: string;
   specification: string | null;
   quantity: number;
@@ -84,7 +87,6 @@ function buildImportItems(items: Record<string, unknown>[]) {
     const productName = String(item.productName || '').trim();
     const quantity = Number(item.quantity);
     const unitPrice = Number(item.unitPrice);
-    const totalPrice = quantity * unitPrice;
 
     if (!productName) throw new OrderImportRowError('Product name is required.');
     if (!Number.isFinite(quantity) || quantity <= 0) {
@@ -93,10 +95,12 @@ function buildImportItems(items: Record<string, unknown>[]) {
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
       throw new OrderImportRowError('Item unit price must be a non-negative number.');
     }
+    const totalPrice = multiplyMoney(quantity, unitPrice);
     if (!Number.isFinite(totalPrice)) throw new OrderImportRowError('Item total is outside the supported range.');
 
-    totalAmount += totalPrice;
+    totalAmount = addMoney(totalAmount, totalPrice);
     return {
+      materialId: item.materialId ? Number(item.materialId) : null,
       productName,
       specification: item.specification ? String(item.specification) : null,
       quantity,
@@ -151,6 +155,7 @@ export class OrderImportService {
     }
 
     return this.dependencies.runTransaction(async (tx) => {
+      const governedOrderItems = await resolveOrderItemMaterialIdentities(tx, orderItems);
       const existingOrder = await tx.order.findFirst({
         where: { importBatchId: batch.id, importRowNumber: batch.rowNumber },
         select: { id: true, orderNo: true },
@@ -198,7 +203,7 @@ export class OrderImportService {
           createdBy: actor.userId,
           importBatchId: batch.id,
           importRowNumber: batch.rowNumber,
-          items: { create: orderItems },
+          items: { create: governedOrderItems },
         },
         select: { id: true, orderNo: true },
       });

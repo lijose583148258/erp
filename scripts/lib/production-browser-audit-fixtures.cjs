@@ -20,6 +20,7 @@ const FORBIDDEN_MOJIBAKE = [
 ].map((code) => String.fromCharCode(code));
 
 const S = {
+  productionTitle: '\u751f\u4ea7\u914d\u65b9\u4e0e\u5de5\u5355',
   bomManagement: '\u914d\u65b9\u4e3b\u6863\u5de5\u4f5c\u53f0',
   workOrderDesk: '\u5de5\u5355\u5de5\u4f5c\u53f0',
   batchList: '\u6279\u6b21\u5217\u8868',
@@ -29,6 +30,7 @@ const S = {
   formulaStatus: '\u914d\u65b9\u72b6\u6001',
   formulaMode: '\u914d\u65b9\u6a21\u5f0f',
   outputUnit: '\u8f93\u51fa\u5355\u4f4d',
+  shelfLifeDays: '\u4ea7\u54c1\u4fdd\u8d28\u671f\uff08\u5929\uff09',
   standardBatch: '\u6807\u51c6\u6279\u91cf',
   batchUnit: '\u6279\u91cf\u5355\u4f4d',
   density: '\u5bc6\u5ea6',
@@ -75,13 +77,22 @@ const STEP_TIMEOUT_MS = {
 };
 
 function createProductionAuditData(runId) {
+  const bomName = `T9-CHEM-BOM-${runId}`;
   return {
-    bomName: `T9-CHEM-BOM-${runId}`,
+    bomName,
+    finishedGood: {
+      code: `FG-${runId}`,
+      nameZh: bomName,
+      category: 'finished_good',
+      baseUnit: 'kg',
+      shelfLifeDays: 365,
+    },
     bomVersion: 'v1',
     bomType: 'chemical_formula',
     bomStatus: 'active',
     formulationMode: 'percentage',
     outputUnit: 'kg',
+    shelfLifeDays: '365',
     standardBatchSize: '1000',
     batchSizeUnit: 'kg',
     density: '1.12',
@@ -90,6 +101,12 @@ function createProductionAuditData(runId) {
     effectiveTo: '2026-12-31',
     processSummary: '\u5e38\u6e29\u9884\u6df7 -> \u5347\u6e29\u5206\u6563 -> \u8fc7\u6ee4\u51fa\u6599',
     qualitySummary: '\u56fa\u542b 55% +/-2%, \u7c98\u5ea6 6000-9000cps, \u5916\u89c2\u5747\u5300\u65e0\u7ed3\u5757',
+    qualityCharacteristics: [
+      { code: 'SOLIDS', name: '\u56fa\u542b\u91cf', valueType: 'numeric', unit: '%', lowerLimit: '53', upperLimit: '57', testMethod: 'GB/T 1725', actual: '55.4', instrumentNo: 'OVEN-QC-01' },
+      { code: 'VISCOSITY', name: '\u7c98\u5ea6', valueType: 'numeric', unit: 'mPa\u00b7s', lowerLimit: '6000', upperLimit: '9000', testMethod: 'GB/T 2794', actual: '7200', instrumentNo: 'VIS-QC-01' },
+      { code: 'PH', name: 'pH', valueType: 'numeric', unit: '', lowerLimit: '7', upperLimit: '9', testMethod: 'pH meter', actual: '8.1', instrumentNo: 'PH-QC-01' },
+      { code: 'APPEARANCE', name: '\u5916\u89c2', valueType: 'text', unit: '', targetText: '\u5408\u683c|\u901a\u8fc7', testMethod: '\u76ee\u6d4b', actual: '\u5408\u683c', instrumentNo: '' },
+    ],
     items: [
       { materialName: '\u73af\u6c27\u6811\u8102-\u4e3b\u6599', materialCode: 'RESIN-MAIN', ingredientRole: 'main_resin', dosageMode: 'percentage', percentage: '45', quantityPerUnit: '0.45', unit: 'kg', lossRate: '1.2', allowedVarianceRate: '3', processStage: '\u9884\u6df7', substituteGroup: '', yieldContribution: '98', notes: '\u4e3b\u6811\u8102' },
       { materialName: '\u56fa\u5316\u5242-\u8f85\u6599', materialCode: 'CURING-AGENT', ingredientRole: 'curing_agent', dosageMode: 'percentage', percentage: '15', quantityPerUnit: '0.15', unit: 'kg', lossRate: '0.3', allowedVarianceRate: '2', processStage: '\u4e3b\u6df7', substituteGroup: '', yieldContribution: '', notes: '\u56fa\u5316\u5242' },
@@ -103,7 +120,7 @@ function createProductionAuditData(runId) {
       { materialName: '', materialCode: 'ADD-SECRET-07', ingredientRole: 'additive', dosageMode: 'percentage', percentage: '2', quantityPerUnit: '0.02', unit: 'kg', lossRate: '0.5', allowedVarianceRate: '5', processStage: '\u540e\u6dfb\u52a0', substituteGroup: '', yieldContribution: '', notes: '\u4fdd\u5bc6\u4ee3\u53f7' },
     ],
     workOrder: {
-      productName: `T9-CHEM-WO-${runId}`,
+      productName: bomName,
       targetQuantity: '10',
       producedQuantity: '10',
       lossQuantity: '0.2',
@@ -111,7 +128,12 @@ function createProductionAuditData(runId) {
       plannedEndAt: '2026-04-16T18:00',
       note: `Work order for ${runId}`,
     },
-    qc: { result: 'pass', defectRate: '0.8', checkedBy: `QC-${runId.slice(-4)}`, note: `QC note ${runId}` },
+    qc: {
+      result: 'pass',
+      sampleNo: `SAMPLE-${runId}`,
+      note: `QC note ${runId}`,
+      reviewNote: `Independent release ${runId}`,
+    },
   };
 }
 

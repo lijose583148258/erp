@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -15,6 +16,7 @@ const AUDIT_USER = {
 
 const DATA = {
   productName: `WH-XFER-UI-RESIN-${RUN_ID}`,
+  materialCode: `WH-XFER-MAT-${RUN_ID}`,
   batchNo: `WH-XFER-UI-BATCH-${RUN_ID}`,
   initialQuantity: 42,
   transferQuantity: 12,
@@ -76,16 +78,6 @@ async function expectOk(label, promise) {
     throw new Error(`${label} failed: ${response.status} ${JSON.stringify(response.json)}`);
   }
   return response;
-}
-
-async function loginApi(username, password) {
-  const response = await expectOk(`login ${username}`, apiFetch('/auth/login', {
-    method: 'POST',
-    data: { username, password },
-  }));
-  const data = unwrapData(response);
-  if (!data?.token) throw new Error(`login ${username} returned no token`);
-  return data;
 }
 
 async function ensureWarehouseAuditUser() {
@@ -206,6 +198,24 @@ async function run() {
   let browser = null;
   try {
     const warehouseUser = await ensureWarehouseAuditUser();
+    const materialAccounts = await ensureUiAuditAccounts('warehouse_material', ['admin']);
+    const materialLogin = await expectOk('login material fixture admin', apiFetch('/auth/login', {
+      method: 'POST',
+      data: {
+        username: materialAccounts.admin.username,
+        password: materialAccounts.admin.password,
+      },
+    }));
+    const materialToken = unwrapData(materialLogin)?.token;
+    if (!materialToken) throw new Error('material fixture admin login returned no token');
+    const material = await ensureReleasedMaterial({
+      request: (endpoint, options) => apiFetch(endpoint, options, materialToken),
+      code: DATA.materialCode,
+      name: DATA.productName,
+      unit: 'kg',
+      category: 'raw_material',
+    });
+    report.material = { id: material.id, code: material.code };
 
     const { raw, wip } = await getDefaultLocations(warehouseUser.token);
     report.locations = { raw: raw.id, wip: wip.id };
@@ -215,6 +225,7 @@ async function run() {
       method: 'POST',
       data: {
         locationId: Number(raw.id),
+        materialId: Number(material.id),
         productName: DATA.productName,
         batchNo: DATA.batchNo,
         quantity: DATA.initialQuantity,

@@ -1,0 +1,13 @@
+{
+  "name": "@ailaoda/archiver-exceljs-compat",
+  "version": "1.0.0",
+  "private": true,
+  "license": "MIT",
+  "main": "index.cjs",
+  "engines": {
+    "node": ">=20.19.0"
+  },
+  "dependencies": {
+    "archiver-upstream": "npm:archiver@8.0.0"
+  }
+}

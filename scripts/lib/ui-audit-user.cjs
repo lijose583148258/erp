@@ -1,7 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { applyAuditDatabaseContext } = require('./audit-runtime-context.cjs');
 
-const ORIGIN_REPORT = path.resolve(process.cwd(), 'output', 'audit', 'stable-runtime-origin-v1.json');
 function resolveDefaultAccount() {
   const username = String(process.env.AUDIT_UI_USERNAME || '').trim();
   const passwordFile = String(process.env.AUDIT_UI_PASSWORD_FILE || '').trim();
@@ -19,22 +20,10 @@ function resolveDefaultAccount() {
   return { username, password, role };
 }
 
-function prepareDatabaseUrl() {
-  if (process.env.DATABASE_URL) return;
-  try {
-    const origin = JSON.parse(fs.readFileSync(ORIGIN_REPORT, 'utf8').replace(/^\uFEFF/, ''));
-    if (origin?.runtimeDbPath) {
-      process.env.DATABASE_URL = `file:${String(origin.runtimeDbPath).replace(/\\/g, '/')}`;
-    }
-  } catch {
-    // Prisma will use the project's default DATABASE_URL if no runtime report exists.
-  }
-}
-
 function createAuditPrismaClient() {
   const provider = String(process.env.AUDIT_PRISMA_PROVIDER || 'sqlite').trim().toLowerCase();
   if (provider === 'sqlite') {
-    prepareDatabaseUrl();
+    applyAuditDatabaseContext(process.env);
     const { PrismaClient } = require('../../backend/node_modules/@prisma/client');
     return new PrismaClient();
   }
@@ -53,10 +42,31 @@ function createAuditPrismaClient() {
   return new PrismaClient({ datasources: { db: { url: databaseUrl } } });
 }
 
+async function ensureUiAuditAccounts(scope, roles, options = {}) {
+  const normalizedScope = String(scope || 'audit').toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30) || 'audit';
+  const password = options.password || crypto.randomBytes(24).toString('base64url') + '!aA1';
+  const accounts = {};
+  for (const role of roles) {
+    const account = {
+      username: `${normalizedScope}_${role}`.slice(0, 48),
+      password,
+      role,
+      segment: options.segmentByRole?.[role] || options.segment || 'mixed',
+    };
+    await ensureUiAuditUser(account);
+    accounts[role] = account;
+  }
+  return accounts;
+}
+
 async function ensureUiAuditUser(account) {
   const resolvedAccount = account || resolveDefaultAccount();
   if (!resolvedAccount.username || !resolvedAccount.password || !resolvedAccount.role) {
     throw new Error('UI audit account is incomplete.');
+  }
+  const segment = resolvedAccount.segment || 'mixed';
+  if (!['direct', 'channel', 'mixed'].includes(segment)) {
+    throw new Error(`Unsupported UI audit segment: ${segment}`);
   }
   const bcrypt = require('../../backend/node_modules/bcryptjs');
   const prisma = createAuditPrismaClient();
@@ -67,7 +77,7 @@ async function ensureUiAuditUser(account) {
       update: {
         passwordHash,
         role: resolvedAccount.role,
-        segment: 'mixed',
+        segment,
         email: `${resolvedAccount.username}@local.test`,
         isActive: true,
         mustChangePassword: false,
@@ -76,7 +86,7 @@ async function ensureUiAuditUser(account) {
         username: resolvedAccount.username,
         passwordHash,
         role: resolvedAccount.role,
-        segment: 'mixed',
+        segment,
         email: `${resolvedAccount.username}@local.test`,
         isActive: true,
         mustChangePassword: false,
@@ -127,7 +137,9 @@ async function loginUiAuditUser(page, appUrl, options = {}) {
     }
   };
 
-  await page.addInitScript(applySession, session);
+  if (options.persistInitScript !== false) {
+    await page.addInitScript(applySession, session);
+  }
   await page.evaluate(applySession, session).catch(() => {});
 
   return { token, user, account };
@@ -135,6 +147,7 @@ async function loginUiAuditUser(page, appUrl, options = {}) {
 
 module.exports = {
   createAuditPrismaClient,
+  ensureUiAuditAccounts,
   ensureUiAuditUser,
   loginUiAuditUser,
   resolveDefaultAccount,

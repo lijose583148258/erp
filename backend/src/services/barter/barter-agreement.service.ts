@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import { buildBusinessNo } from '../../utils/businessNo';
 import { withDbRetry } from '../../utils/dbRetry';
+import { compareMoney } from '../../utils/money';
 import type { TransactionClient } from '../stock-movement.service';
 import type {
   BarterAgreementListQuery,
@@ -10,7 +11,11 @@ import type {
   CreateBarterAgreementInput,
   CreateBarterBatchInput,
 } from './barter.types';
-import { computeItemValue, previewBarterSettlement, roundMoney } from './barter.calculations';
+import {
+  calculateBarterAgreementProgress,
+  computeItemValue,
+  previewBarterSettlement,
+} from './barter.calculations';
 import { determineAgreementStatus, toDisplayName } from './barter.formatters';
 import { validateCounterpartyAndOrderLinks } from './barter-counterparty.service';
 import { getBarterSettlement } from './barter-query.service';
@@ -41,15 +46,11 @@ export async function syncBarterAgreementProgress(agreementId: number, client: T
     },
   });
 
-  const executedOffsetAmount = roundMoney(settlements.reduce((sum, settlement) => {
-    if (settlement.status !== 'posted') {
-      return sum;
-    }
-    return sum + settlement.offsetPostings.reduce((postingTotal, posting) => postingTotal + Number(posting.offsetAmount), 0);
-  }, 0));
-  const agreedOffsetAmount = roundMoney(Number(agreement.agreedOffsetAmount || 0));
-  const remainingOffsetAmount = roundMoney(Math.max(agreedOffsetAmount - executedOffsetAmount, 0));
-  const completionRatio = agreedOffsetAmount <= 0 ? 0 : roundMoney(Math.min(executedOffsetAmount / agreedOffsetAmount, 1));
+  const {
+    executedOffsetAmount,
+    remainingOffsetAmount,
+    completionRatio,
+  } = calculateBarterAgreementProgress(agreement.agreedOffsetAmount, settlements);
   const status = determineAgreementStatus(String(agreement.status || 'active'), executedOffsetAmount, remainingOffsetAmount);
 
   return client.barterAgreement.update({
@@ -193,6 +194,7 @@ export async function createBarterAgreement(input: CreateBarterAgreementInput) {
       items: {
         create: input.items.map((item) => ({
           side: item.side,
+          materialId: item.materialId ?? null,
           itemName: item.itemName,
           specification: item.specification || null,
           unit: item.unit,
@@ -264,12 +266,12 @@ export async function createBarterBatchForAgreement(agreementId: number, input: 
       throw new Error(`Barter agreement status ${liveAgreement.status} cannot create new execution batches`);
     }
 
-    if (Number(liveAgreement.remainingOffsetAmount || 0) <= 0) {
+    if (compareMoney(liveAgreement.remainingOffsetAmount, 0) <= 0) {
       throw new Error('Barter agreement has no remaining offset amount');
     }
 
     const preview = previewBarterSettlement({ items: input.items, settlementMode: liveAgreement.settlementMode as BarterSettlementMode });
-    if (preview.suggestedOffsetAmount > Number(liveAgreement.remainingOffsetAmount || 0)) {
+    if (compareMoney(preview.suggestedOffsetAmount, liveAgreement.remainingOffsetAmount) > 0) {
       throw new Error(`Batch offset amount cannot exceed agreement remaining amount ${liveAgreement.remainingOffsetAmount}`);
     }
 
@@ -315,6 +317,7 @@ export async function createBarterBatchForAgreement(agreementId: number, input: 
         items: {
           create: input.items.map(item => ({
             side: item.side,
+            materialId: item.materialId ?? null,
             itemName: item.itemName,
             specification: item.specification || null,
             unit: item.unit,

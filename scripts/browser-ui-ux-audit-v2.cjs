@@ -1,13 +1,19 @@
 const path = require('path');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const { findMojibake } = require('./lib/audit-utils.cjs');
-const { FALLBACK_ROUTES, VIEWPORTS, parseConfig } = require('./lib/browser-ui-ux-audit-config.cjs');
+const {
+  FALLBACK_ROUTES,
+  VIEWPORTS,
+  normalizeRoute,
+  parseConfig,
+} = require('./lib/browser-ui-ux-audit-config.cjs');
 const {
   addFinding,
   atomicWrite,
   createRun,
   ensureDir,
+  pruneAuditRuns,
   safeName,
   writeReports,
 } = require('./lib/browser-ui-ux-audit-report.cjs');
@@ -126,6 +132,7 @@ async function waitForRouteReady(page, route, timeoutMs) {
   await page.waitForFunction((expectedRoute) => {
     const text = document.body?.innerText || '';
     const visible = (element) => {
+      if (element.closest('[aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
@@ -135,10 +142,19 @@ async function waitForRouteReady(page, route, timeoutMs) {
       return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
     });
     if (document.querySelector('input[type="password"]')) return true;
-    if (window.location.hash !== expectedRoute) return false;
-    if (blockingLoading) return false;
-    return text.trim().length > 100;
-  }, route, { timeout: Math.min(timeoutMs, 10000) }).catch(() => {});
+    const readinessKey = '__ailaodaUiAuditReadySince';
+    if (window.location.hash !== expectedRoute || blockingLoading || text.trim().length <= 100) {
+      window[readinessKey] = 0;
+      return false;
+    }
+    const now = Date.now();
+    const readySince = Number(window[readinessKey] || 0);
+    if (!readySince) {
+      window[readinessKey] = now;
+      return false;
+    }
+    return now - readySince >= 600;
+  }, route, { timeout: Math.min(timeoutMs, 20000) }).catch(() => {});
 }
 
 async function auditState(page, run, route, viewport, state, collectors) {
@@ -152,8 +168,13 @@ async function auditState(page, run, route, viewport, state, collectors) {
     screenshot: screenshot ? path.join(run.root, screenshot) : null,
   });
 
-  const findings = await page.evaluate(({ route, viewportId, state, isMobile }) => {
+  const findings = await page.evaluate(({ route, viewportId, state, isMobile, reducedMotion }) => {
     const result = [];
+    const guidedComplexRoutes = new Set([
+      '#crm', '#orders', '#collections', '#adjustment', '#financeAnalytics',
+      '#barter', '#shipping', '#discrepancies', '#production', '#warehouse',
+      '#procurement', '#team', '#audit',
+    ]);
     const visible = (element) => {
       if (element.closest('[aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
@@ -209,11 +230,92 @@ async function auditState(page, run, route, viewport, state, collectors) {
     if (!document.querySelector('main, [role="main"]')) add('warning', 'accessibility', 'MISSING_MAIN_LANDMARK', 'Page lacks a main landmark', document.body);
     if (!document.querySelector('nav, [role="navigation"], aside, header')) add('error', 'interaction', 'MISSING_NAVIGATION', 'No stable navigation landmark was found', document.body);
     if (!document.querySelector('h1,h2,[data-page-title]')) add('error', 'accessibility', 'MISSING_VISIBLE_PAGE_TITLE', 'No visible page title or heading was found', document.body);
-    const blockingLoading = Array.from(document.body.querySelectorAll('*')).some((node) => {
+    if (state === 'initial' && guidedComplexRoutes.has(route)) {
+      const visibleH1s = Array.from(document.querySelectorAll('h1')).filter(visible);
+      if (visibleH1s.length !== 1) {
+        add('error', 'hierarchy', 'COMPLEX_ROUTE_H1_COUNT_INVALID', 'A high-risk business route must expose exactly one visible h1', document.body, { h1Count: visibleH1s.length });
+      }
+      const visibleGuidance = Array.from(document.querySelectorAll('[data-document-input-guide], [data-workspace-task-navigator]')).some(visible);
+      if (!visibleGuidance) {
+        add('error', 'hierarchy', 'COMPLEX_ROUTE_GUIDANCE_MISSING', 'A high-risk business route must explain its task boundary or ordered input flow', document.body);
+      }
+    }
+    for (const pageShell of Array.from(document.querySelectorAll('[data-page-shell]')).filter(visible)) {
+      const h1s = Array.from(pageShell.querySelectorAll('h1')).filter(visible);
+      if (h1s.length !== 1) {
+        add('error', 'hierarchy', 'PAGE_SHELL_H1_COUNT_INVALID', 'A governed page shell must expose exactly one visible h1', pageShell, { h1Count: h1s.length });
+      }
+      const labelledBy = pageShell.getAttribute('aria-labelledby');
+      if (!labelledBy || !document.getElementById(labelledBy)) {
+        add('error', 'hierarchy', 'PAGE_SHELL_NAME_MISSING', 'A governed page shell must reference its visible page title', pageShell);
+      }
+    }
+    for (const guide of Array.from(document.querySelectorAll('[data-document-input-guide]')).filter(visible)) {
+      const labelledBy = guide.getAttribute('aria-labelledby');
+      const descriptionId = guide.getAttribute('aria-describedby');
+      if (!labelledBy || !document.getElementById(labelledBy) || !descriptionId || !document.getElementById(descriptionId)) {
+        add('error', 'hierarchy', 'DOCUMENT_GUIDE_RELATION_MISSING', 'An input guide must connect its title and explanation to the guide region', guide);
+      }
+      if (!guide.querySelector('ol > li')) {
+        add('error', 'hierarchy', 'DOCUMENT_GUIDE_STEPS_NOT_ORDERED', 'Input-guide steps must use an ordered sequence', guide);
+      }
+    }
+    for (const section of Array.from(document.querySelectorAll('[data-form-section]')).filter(visible)) {
+      const labelledBy = section.getAttribute('aria-labelledby');
+      if (!labelledBy || !document.getElementById(labelledBy)) {
+        add('error', 'hierarchy', 'FORM_SECTION_NAME_MISSING', 'A governed form section must reference a visible section title', section);
+      }
+    }
+    for (const dialog of Array.from(document.querySelectorAll('[role="dialog"]:not([data-ux-dialog-scope="utility"])')).filter(visible)) {
+      const controls = Array.from(dialog.querySelectorAll('input,select,textarea')).filter(visible);
+      if (controls.length < 6) continue;
+      const descriptionId = dialog.getAttribute('aria-describedby');
+      if (!descriptionId || !document.getElementById(descriptionId)) {
+        add('error', 'hierarchy', 'COMPLEX_DIALOG_DESCRIPTION_MISSING', 'A complex dialog must explain the order and business meaning of its fields', dialog, { controlCount: controls.length });
+      }
+      const sections = Array.from(dialog.querySelectorAll('[data-form-section]')).filter(visible);
+      if (sections.length < 2) {
+        add('error', 'hierarchy', 'COMPLEX_DIALOG_SECTIONS_MISSING', 'A complex dialog must split inputs into at least two named business sections', dialog, { controlCount: controls.length, sectionCount: sections.length });
+      }
+      if (!Array.from(dialog.querySelectorAll('[data-save-impact]')).some(visible)) {
+        add('error', 'hierarchy', 'COMPLEX_DIALOG_SAVE_IMPACT_MISSING', 'A complex dialog must state what saving creates and what it does not trigger', dialog);
+      }
+      for (const field of controls) {
+        const hasExplicitName = Boolean(
+          (field.id && document.querySelector(`label[for="${CSS.escape(field.id)}"]`))
+          || field.closest('label')
+          || field.getAttribute('aria-label')
+          || field.getAttribute('aria-labelledby')
+          || field.getAttribute('title')
+        );
+        if (!hasExplicitName && field.getAttribute('placeholder')) {
+          add('error', 'hierarchy', 'COMPLEX_FIELD_PLACEHOLDER_ONLY', 'Placeholder text must not be the only explanation for a field in a complex dialog', field);
+        }
+      }
+    }
+    for (const navigator of Array.from(document.querySelectorAll('[data-workspace-task-navigator]')).filter(visible)) {
+      const selectedTabs = navigator.querySelectorAll('[role="tab"][aria-selected="true"]');
+      if (selectedTabs.length !== 1) {
+        add('error', 'hierarchy', 'TASK_NAVIGATOR_SELECTION_INVALID', 'A task navigator must expose exactly one selected task', navigator, { selectedCount: selectedTabs.length });
+      }
+      if (!navigator.querySelector('[role="tablist"]')) {
+        add('error', 'hierarchy', 'TASK_NAVIGATOR_TABLIST_MISSING', 'Task choices must be grouped as one keyboard-navigable tab list', navigator);
+      }
+    }
+    const blockingLoading = Array.from(document.body.querySelectorAll('*')).filter((node) => {
       const nodeText = (node.textContent || '').trim();
       return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
     });
-    if (blockingLoading) add('error', 'runtime', 'ROUTE_STILL_LOADING', 'Route was still showing a loading state when audited', document.body);
+    if (blockingLoading.length) {
+      add('error', 'runtime', 'ROUTE_STILL_LOADING', 'Route was still showing a loading state when audited', document.body, {
+        loadingIndicators: blockingLoading.slice(0, 10).map((node) => ({
+          tag: node.tagName.toLowerCase(),
+          text: (node.textContent || '').trim().slice(0, 80),
+          testId: node.getAttribute('data-testid') || undefined,
+          gridState: node.closest('[data-grid-state]')?.getAttribute('data-grid-state') || undefined,
+        })),
+      });
+    }
     if (document.documentElement.scrollWidth > window.innerWidth + 2 && !document.querySelector('[data-testid*="grid"], .overflow-x-auto, [class*="overflow-x-auto"]')) {
       add('error', 'layout', 'DOCUMENT_HORIZONTAL_OVERFLOW', 'Document has horizontal overflow outside a known scroll container', document.documentElement, {
         scrollWidth: document.documentElement.scrollWidth,
@@ -235,19 +337,37 @@ async function auditState(page, run, route, viewport, state, collectors) {
       if ((rect.right > window.innerWidth + 4 || rect.left < -4) && !hasScrollableAncestor(element)) {
         add('error', 'layout', 'ELEMENT_OUTSIDE_VIEWPORT', 'Visible control extends outside viewport', element);
       }
-      if ((element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) && name.length > 0 && !element.getAttribute('title')) {
+      const visibleText = (element.innerText || '').trim();
+      const structuralPopup = element.matches('[role="dialog"],[role="menu"]');
+      if (!structuralPopup && (element.scrollWidth > element.clientWidth + 2 || element.scrollHeight > element.clientHeight + 2) && visibleText.length > 1 && !element.getAttribute('title')) {
         add('warning', 'visual', 'TEXT_CLIPPED_WITHOUT_FULL_TEXT', 'Text appears clipped without title/full-text fallback', element);
       }
     }
 
+    const previouslyFocused = document.activeElement;
     for (const field of Array.from(document.querySelectorAll('input,select,textarea'))) {
       if (!visible(field)) continue;
       const hasLabel = (field.id && document.querySelector(`label[for="${CSS.escape(field.id)}"]`)) || field.closest('label');
       const hasName = hasLabel || field.getAttribute('aria-label') || field.getAttribute('aria-labelledby') || field.getAttribute('placeholder') || field.getAttribute('title');
       if (!hasName) add('error', 'accessibility', 'FIELD_MISSING_NAME', 'Form field has no accessible name', field);
-      const focusStyle = window.getComputedStyle(field, ':focus');
-      if (!focusStyle.outlineStyle && !focusStyle.boxShadow) add('warning', 'interaction', 'FIELD_FOCUS_STYLE_WEAK', 'Field may lack a visible focus style', field);
+      if (!field.disabled) {
+        const before = window.getComputedStyle(field);
+        const beforeBorderColor = before.borderColor;
+        field.focus({ preventScroll: true });
+        const focused = window.getComputedStyle(field);
+        const hasOutline = focused.outlineStyle !== 'none' && Number.parseFloat(focused.outlineWidth || '0') >= 1;
+        const hasShadow = focused.boxShadow !== 'none';
+        const hasBorderChange = focused.borderColor !== beforeBorderColor && Number.parseFloat(focused.borderWidth || '0') >= 1;
+        const focusClassContext = [field, field.parentElement, field.parentElement?.parentElement]
+          .map((element) => element?.getAttribute?.('class') || '')
+          .join(' ');
+        const hasDeclaredFocusStyle = /(?:^|\s)(?:focus|focus-visible|focus-within):(?:ring|outline|border|shadow)[^\s]*/.test(focusClassContext);
+        if (!hasOutline && !hasShadow && !hasBorderChange && !hasDeclaredFocusStyle) {
+          add('warning', 'interaction', 'FIELD_FOCUS_STYLE_WEAK', 'Field lacks a visible focus style', field);
+        }
+      }
     }
+    if (previouslyFocused instanceof HTMLElement) previouslyFocused.focus({ preventScroll: true });
 
     const textNodes = Array.from(document.body.querySelectorAll('body *')).filter((element) => visible(element) && (element.textContent || '').trim().length > 0);
     for (const element of textNodes.slice(0, 350)) {
@@ -261,19 +381,73 @@ async function auditState(page, run, route, viewport, state, collectors) {
     const tables = Array.from(document.querySelectorAll('table'));
     for (const table of tables) {
       if (!visible(table)) continue;
-      const cols = table.querySelectorAll('thead th, tbody tr:first-child td').length;
+      const headerColumns = table.querySelectorAll('thead th').length;
+      const bodyColumns = table.querySelectorAll('tbody tr:first-child td').length;
+      const cols = Math.max(headerColumns, bodyColumns);
       if (isMobile && cols > 12 && !hasScrollableAncestor(table)) add('warning', 'responsive', 'MOBILE_WIDE_TABLE_WITHOUT_SCROLL', 'Wide table on mobile has no obvious scroll container', table, { columns: cols });
+      if (isMobile && state === 'initial' && cols >= 5) {
+        const scope = table.closest('section, [data-testid$="-panel"], [data-workspace-section]') || table.parentElement?.parentElement || table.parentElement;
+        const mobileAlternative = scope?.querySelector('[data-mobile-card-list]');
+        if (!mobileAlternative || !visible(mobileAlternative)) {
+          add('warning', 'responsive', 'MOBILE_COMPLEX_TABLE_WITHOUT_CARD_ALTERNATIVE', 'Complex table has no visible task-card alternative on mobile', table, { columns: cols });
+        }
+      }
       const rect = table.getBoundingClientRect();
       if (rect.right > window.innerWidth + 4 && !hasScrollableAncestor(table)) add('error', 'responsive', 'TABLE_OVERFLOWS_PAGE', 'Table overflows page instead of internal scroll container', table);
     }
+    for (const grid of Array.from(document.querySelectorAll('[data-enterprise-grid]')).filter(visible)) {
+      const table = grid.querySelector('table');
+      if (table && !table.getAttribute('aria-label') && !table.getAttribute('aria-labelledby') && !table.querySelector('caption')) {
+        add('error', 'table', 'ENTERPRISE_TABLE_NAME_MISSING', 'A governed business table must expose its business object name', table);
+      }
+      if (!grid.getAttribute('data-grid-state')) {
+        add('error', 'table', 'ENTERPRISE_GRID_STATE_MISSING', 'A governed business table must distinguish loading, empty, and ready states', grid);
+      }
+    }
 
-    const stickyHeight = Array.from(document.querySelectorAll('header,[class*="sticky"],[class*="fixed"]'))
-      .filter(visible)
-      .reduce((sum, element) => sum + Math.min(element.getBoundingClientRect().height, window.innerHeight), 0);
-    if (isMobile && stickyHeight > window.innerHeight * 0.45) add('warning', 'responsive', 'MOBILE_STICKY_TOO_TALL', 'Sticky elements consume more than 45% of mobile height', document.body, { stickyHeight });
+    if (reducedMotion) {
+      const durationMs = (value) => String(value || '').split(',').reduce((max, part) => {
+        const token = part.trim();
+        if (!token) return max;
+        const numeric = Number.parseFloat(token);
+        if (!Number.isFinite(numeric)) return max;
+        return Math.max(max, token.endsWith('ms') ? numeric : numeric * 1000);
+      }, 0);
+      let motionFindingCount = 0;
+      for (const element of Array.from(document.body.querySelectorAll('*'))) {
+        if (motionFindingCount >= 8 || !visible(element)) continue;
+        const style = window.getComputedStyle(element);
+        const animationMs = durationMs(style.animationDuration);
+        const transitionMs = durationMs(style.transitionDuration);
+        if (animationMs > 20 || transitionMs > 20) {
+          add('error', 'motion', 'REDUCED_MOTION_NOT_HONORED', 'Visible motion exceeds 20ms while reduced motion is requested', element, { animationMs, transitionMs });
+          motionFindingCount += 1;
+        }
+      }
+    }
+
+    const persistentElements = Array.from(document.body.querySelectorAll('*')).filter((element) => {
+      if (!visible(element)) return false;
+      const style = window.getComputedStyle(element);
+      if (style.pointerEvents === 'none') return false;
+      return style.position === 'fixed' || style.position === 'sticky';
+    });
+    let topOccupied = 0;
+    let bottomOccupied = 0;
+    for (const element of persistentElements) {
+      const rect = element.getBoundingClientRect();
+      const spansMostOfViewport = rect.width >= window.innerWidth * 0.6;
+      if (!spansMostOfViewport) continue;
+      if (rect.top <= 8) topOccupied = Math.max(topOccupied, Math.min(window.innerHeight, rect.bottom));
+      if (rect.bottom >= window.innerHeight - 8) bottomOccupied = Math.max(bottomOccupied, Math.min(window.innerHeight, window.innerHeight - rect.top));
+    }
+    const stickyHeight = Math.min(window.innerHeight, topOccupied + bottomOccupied);
+    if (isMobile && state === 'initial' && stickyHeight > window.innerHeight * 0.45) {
+      add('warning', 'responsive', 'MOBILE_STICKY_TOO_TALL', 'Persistent top and bottom controls consume more than 45% of mobile height', document.body, { stickyHeight, topOccupied, bottomOccupied });
+    }
 
     return result;
-  }, { route, viewportId: viewport.id, state, isMobile: viewport.isMobile });
+  }, { route, viewportId: viewport.id, state, isMobile: viewport.isMobile, reducedMotion: run.config.reducedMotion });
 
   for (const finding of findings) {
     addFinding(run.report, { ...finding, screenshot });
@@ -354,6 +528,117 @@ async function auditKeyboard(page, run, route, viewport) {
       state: 'keyboard',
     });
   }
+
+  const governedTabList = page.locator('[data-page-shell] [role="tablist"]:visible, [data-workspace-task-navigator] [role="tablist"]:visible').first();
+  if (await governedTabList.count()) {
+    const tabs = governedTabList.locator('[role="tab"]:visible');
+    const tabCount = await tabs.count();
+    if (tabCount > 1) {
+      const startTab = governedTabList.locator('[role="tab"][aria-selected="true"]:visible').first();
+      const focusTarget = await startTab.count() ? startTab : tabs.first();
+      await focusTarget.focus();
+      const before = await page.evaluate(() => document.activeElement?.textContent?.trim() || '');
+      await page.keyboard.press('ArrowRight');
+      const after = await page.evaluate(() => ({
+        text: document.activeElement?.textContent?.trim() || '',
+        role: document.activeElement?.getAttribute('role') || '',
+      }));
+      if (after.role !== 'tab' || after.text === before) {
+        addFinding(run.report, {
+          severity: 'error',
+          category: 'interaction',
+          code: 'GOVERNED_TAB_ARROW_KEY_FAILED',
+          message: 'ArrowRight did not move focus between governed page/task tabs',
+          route,
+          viewport: viewport.id,
+          state: 'keyboard',
+          details: { before, after, tabCount },
+        });
+      }
+      await page.keyboard.press('Home').catch(() => {});
+    }
+  }
+}
+
+async function auditGovernedGridMenu(page, run, route, viewport) {
+  const trigger = page.locator('[data-enterprise-grid] button[aria-label*="表格列"]:visible').first();
+  if (!(await trigger.count())) return;
+  await trigger.click();
+  await page.waitForTimeout(50);
+  const result = await trigger.evaluate((node) => {
+    const controlledId = node.getAttribute('aria-controls');
+    const panel = controlledId ? document.getElementById(controlledId) : null;
+    if (!(panel instanceof HTMLElement)) return { visible: false, clipped: true, reason: 'panel-missing' };
+    const panelRect = panel.getBoundingClientRect();
+    const panelStyle = window.getComputedStyle(panel);
+    let ancestor = panel.parentElement;
+    let clippedBy = '';
+    while (ancestor && ancestor !== document.body) {
+      const style = window.getComputedStyle(ancestor);
+      if (/(hidden|clip)/.test(`${style.overflow}${style.overflowX}${style.overflowY}`)) {
+        const rect = ancestor.getBoundingClientRect();
+        if (panelRect.left < rect.left - 1 || panelRect.right > rect.right + 1 || panelRect.top < rect.top - 1 || panelRect.bottom > rect.bottom + 1) {
+          clippedBy = ancestor.tagName.toLowerCase();
+          break;
+        }
+      }
+      ancestor = ancestor.parentElement;
+    }
+    return {
+      visible: panelStyle.display !== 'none' && panelStyle.visibility !== 'hidden' && panelRect.width > 0 && panelRect.height > 0,
+      clipped: Boolean(clippedBy) || panelRect.left < -1 || panelRect.right > window.innerWidth + 1 || panelRect.top < -1 || panelRect.bottom > window.innerHeight + 1,
+      clippedBy,
+      panelRect: { left: panelRect.left, right: panelRect.right, top: panelRect.top, bottom: panelRect.bottom },
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+    };
+  });
+  if (!result.visible || result.clipped) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'interaction',
+      code: 'GRID_COLUMN_MENU_CLIPPED',
+      message: 'The governed table column menu is hidden, clipped, or outside the viewport',
+      route,
+      viewport: viewport.id,
+      state: 'grid-column-menu',
+      details: result,
+    });
+  }
+  await page.keyboard.press('Escape').catch(() => {});
+  const remainsOpen = await trigger.getAttribute('aria-expanded').catch(() => 'false');
+  if (remainsOpen === 'true') await trigger.click().catch(() => {});
+}
+
+async function auditComplexEntryDialog(page, run, route, viewport, collectors) {
+  if (route !== '#crm') return;
+  const trigger = page.locator('[data-testid="crm-add-customer"]:visible');
+  if (!(await trigger.count())) return;
+  try {
+    await trigger.click({ timeout: 2000 });
+    const dialog = page.locator('[data-testid="crm-create-modal"] [role="dialog"]:visible');
+    await dialog.waitFor({ state: 'visible', timeout: 3000 });
+    await auditState(page, run, route, viewport, 'complex-entry-dialog', collectors);
+
+    const advancedToggle = dialog.locator('[data-testid="crm-advanced-toggle"]:visible');
+    if (await advancedToggle.count()) {
+      await advancedToggle.click();
+      await page.waitForTimeout(50);
+      await auditState(page, run, route, viewport, 'complex-entry-advanced', collectors);
+    }
+
+    await dialog.locator('[data-testid="crm-create-close"]:visible').click({ timeout: 2000 });
+  } catch (error) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'interaction',
+      code: 'COMPLEX_ENTRY_DIALOG_AUDIT_FAILED',
+      message: `Complex entry dialog could not be opened, inspected, and closed: ${String(error.message || error)}`,
+      route,
+      viewport: viewport.id,
+      state: 'complex-entry-dialog',
+    });
+    await page.keyboard.press('Escape').catch(() => {});
+  }
 }
 
 async function safeOpenMenuState(page, run, route, viewport, collectors) {
@@ -378,7 +663,7 @@ async function safeOpenMenuState(page, run, route, viewport, collectors) {
 }
 
 async function safeSearchEmptyState(page, run, route, viewport, collectors) {
-  const search = page.locator('input[type="search"], input[placeholder*="Search"], input[placeholder*="搜索"], input[aria-label*="Search"], input[aria-label*="搜索"]').first();
+  const search = page.locator('input[type="search"]:visible, input[data-testid*="search"]:visible:not([role="combobox"]), input[placeholder*="Search"]:visible:not([role="combobox"]), input[placeholder*="搜索"]:visible:not([role="combobox"]), input[aria-label*="Search"]:visible:not([role="combobox"]), input[aria-label*="搜索"]:visible:not([role="combobox"])').first();
   if (!(await search.count())) return;
   try {
     const previousValue = await search.inputValue().catch(() => '');
@@ -407,9 +692,28 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   });
   await waitForAppSettled(page, run.config.pageTimeoutMs);
   await waitForRouteReady(page, route, run.config.pageTimeoutMs);
+  await page.evaluate(() => {
+    window.scrollTo(0, 0);
+    const appScroller = document.querySelector('[data-testid="app-content-scroll"]');
+    if (appScroller instanceof HTMLElement) appScroller.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    if (document.activeElement instanceof HTMLElement) document.activeElement.blur();
+  });
 
   const bodyText = await page.locator('body').innerText({ timeout: 2000 }).catch(() => '');
-  if (!bodyText.trim() || /login|登录|sign in/i.test(bodyText.slice(0, 600))) {
+  const loginFormVisible = await page.evaluate(() => {
+    const visible = (element) => {
+      const style = window.getComputedStyle(element);
+      const rect = element.getBoundingClientRect();
+      return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
+    };
+    const password = Array.from(document.querySelectorAll('input[type="password"]')).find(visible);
+    if (!password) return false;
+    const scope = password.closest('form') || document.body;
+    const username = Array.from(scope.querySelectorAll('input[type="email"],input[autocomplete="username"],input[name*="user" i],input[type="text"]')).find(visible);
+    const submit = Array.from(scope.querySelectorAll('button[type="submit"],input[type="submit"],button')).find(visible);
+    return Boolean(username && submit);
+  });
+  if (!bodyText.trim() || loginFormVisible) {
     run.report.skippedRoutes.push({ route, viewport: viewport.id, reason: 'route did not render an authenticated app page' });
     return;
   }
@@ -431,14 +735,19 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   run.report.summary.viewportRuns += 1;
   await auditState(page, run, route, viewport, 'initial', collectors);
   await auditKeyboard(page, run, route, viewport);
+  await auditGovernedGridMenu(page, run, route, viewport);
+  await auditComplexEntryDialog(page, run, route, viewport, collectors);
   await safeOpenMenuState(page, run, route, viewport, collectors);
   await safeSearchEmptyState(page, run, route, viewport, collectors);
 }
 
 async function run() {
   const config = parseConfig();
+  const auditOutputRoot = path.join(process.cwd(), 'output', 'ui-ux-audit');
+  const removedRuns = pruneAuditRuns(auditOutputRoot, Math.max(0, config.keepRuns - 1));
   const run = createRun(config, { fallbackRoutes: FALLBACK_ROUTES, viewports: VIEWPORTS });
   run.config = config;
+  run.report.evidenceCleanup = { keepRuns: config.keepRuns, removedRuns };
   ensureDir(run.root);
 
   let browser;
@@ -449,6 +758,9 @@ async function run() {
   let timedOut = false;
 
   try {
+    const auditAccount = config.username && config.password
+      ? { username: config.username, password: config.password, role: 'admin' }
+      : (await ensureUiAuditAccounts('browser_ui_ux', ['admin'])).admin;
     const launched = await launchBrowserWithGuard({ retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     context = await browser.newContext({
@@ -456,23 +768,18 @@ async function run() {
       deviceScaleFactor: 1,
       colorScheme: config.colorScheme === 'dark' ? 'dark' : 'light',
       reducedMotion: config.reducedMotion ? 'reduce' : 'no-preference',
+      serviceWorkers: 'block',
     });
     page = await context.newPage();
     const collectors = installPageCollectors(page, run);
 
     await page.goto(config.appUrl, { waitUntil: 'domcontentloaded', timeout: config.pageTimeoutMs });
     await loginUiAuditUser(page, config.appUrl, {
-      account: { username: config.username, password: config.password, role: 'admin' },
+      account: auditAccount,
       defaultStorage: { 'ailao.language': 'zh', 'ailao.theme': config.colorScheme === 'dark' ? 'dark' : 'light' },
     });
     await page.reload({ waitUntil: 'domcontentloaded', timeout: config.pageTimeoutMs });
     await waitForAppSettled(page, config.pageTimeoutMs);
-
-    if (config.reducedMotion) {
-      await page.addStyleTag({
-        content: '*,*::before,*::after{transition-duration:0.01ms!important;animation-duration:0.01ms!important;animation-iteration-count:1!important;scroll-behavior:auto!important;}',
-      }).catch(() => {});
-    }
 
     const routes = await discoverRoutes(page, config, run.report);
     run.report.routes = routes;

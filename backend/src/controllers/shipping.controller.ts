@@ -8,6 +8,8 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
+import { resolveShipmentIdentity } from '../services/shipment-material-identity';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createShippingReceiptEvent } from './shipping-receipt-event.controller';
 import {
     SHIPMENT_STATUS_TRANSITIONS,
@@ -25,6 +27,12 @@ import {
 import {
     mergeWhereAnd,
 } from '../utils/recordAccess';
+
+const resolveShipmentStatusCode = (message: string) => {
+    if (message.endsWith('_NOT_FOUND')) return 404;
+    if (message.startsWith('SHIPMENT_') || message.startsWith('STOCK_MATERIAL_')) return 409;
+    return 500;
+};
 
 export class ShippingController {
     async getShipments(req: AuthRequest, res: Response) {
@@ -77,7 +85,7 @@ export class ShippingController {
                 return res.status(403).json({ success: false, message: '无权创建或推进出货物流' });
             }
 
-            const { customerId, orderId, productName, quantity, unit = '件', packageType, carrier, trackingNo, batchNo } = req.body;
+            const { customerId, orderId, orderItemId, materialId, productName, quantity, unit = '件', packageType, carrier, trackingNo, batchNo } = req.body;
             const normalizedOrderId = orderId ? Number(orderId) : null;
 
             if (normalizedOrderId) {
@@ -114,22 +122,35 @@ export class ShippingController {
 
             const shipmentNo = buildBusinessNo('SHP');
 
-            const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => tx.shipment.create({
-                data: {
-                    shipmentNo,
+            const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                const identity = await resolveShipmentIdentity(tx, {
                     customerId: Number(customerId),
                     orderId: normalizedOrderId,
+                    orderItemId: orderItemId ? Number(orderItemId) : null,
+                    materialId: materialId ? Number(materialId) : null,
                     productName,
-                    quantity,
+                    quantity: Number(quantity),
                     unit,
+                    batchNo: batchNo || null,
+                });
+                return tx.shipment.create({ data: {
+                    shipmentNo,
+                    customerId: Number(customerId),
+                    orderId: identity.orderId,
+                    orderItemId: identity.orderItemId,
+                    materialId: identity.materialId,
+                    productBatchId: identity.productBatchId,
+                    productName: identity.productName,
+                    quantity,
+                    unit: identity.unit,
                     packageType,
                     carrier,
                     trackingNo,
-                    batchNo: batchNo || null,
+                    batchNo: identity.batchNo,
                     status: 'pending',
                     createdBy: req.user!.userId,
-                },
-            })), { label: 'createShipment' });
+                }});
+            }, { isolationLevel: 'Serializable' }), { label: 'createShipment' });
 
             const shipmentDetail = await getShipmentDetail(shipment.id);
 
@@ -148,7 +169,17 @@ export class ShippingController {
             res.status(201).json({ success: true, data: shipmentDetail ?? shipment, message: '发货单创建成功' });
         } catch (error) {
             logger.error('创建发货单错误:', error);
-            res.status(500).json({ success: false, message: '服务器内部错误' });
+            if (isMaterialReleaseReadinessError(error)) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: '发货会形成库存与客户履约事实，请先把该行关联到已发布的统一物料。',
+                    errorCode: error.message,
+                    details: error.details,
+                });
+            }
+            const message = error instanceof Error ? error.message : 'Failed to create shipment';
+            const status = resolveShipmentStatusCode(message);
+            res.status(status).json({ success: false, message: status === 500 ? 'Failed to create shipment' : message });
         }
     }
 
@@ -260,6 +291,7 @@ export class ShippingController {
                     status: true,
                     orderId: true,
                     productName: true,
+                    materialId: true,
                     quantity: true,
                     unit: true,
                     batchNo: true,
@@ -321,13 +353,24 @@ export class ShippingController {
                         quantity: Number(existingShipment.quantity || 0),
                         unit: existingShipment.unit || 'kg',
                         batchNo: existingShipment.batchNo,
+                        materialId: existingShipment.materialId,
                     }, req.user?.userId || null)
                     : { posted: false, issueStock: null };
 
-                if (issueResult.issueStock && !existingShipment.batchNo) {
+                if (issueResult.issueStock) {
+                    const productBatch = await tx.productBatch.findFirst({
+                        where: issueResult.issueStock.materialId
+                            ? { materialId: issueResult.issueStock.materialId, batchNo: issueResult.issueStock.batchNo }
+                            : { productName: issueResult.issueStock.productName, batchNo: issueResult.issueStock.batchNo },
+                        select: { id: true },
+                    });
                     await tx.shipment.update({
                         where: { id: Number(id) },
-                        data: { batchNo: issueResult.issueStock.batchNo },
+                        data: {
+                            batchNo: issueResult.issueStock.batchNo,
+                            materialId: issueResult.issueStock.materialId,
+                            productBatchId: productBatch?.id ?? null,
+                        },
                     });
                 }
 

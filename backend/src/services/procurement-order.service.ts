@@ -5,9 +5,12 @@ import {
   normalizePurchaseStatus,
 } from './procurement-domain.service';
 import type { TransactionClient } from './stock-movement.service';
+import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 
 export interface CreatePurchaseOrderInput {
   supplierId?: unknown;
+  materialId?: unknown;
   item?: unknown;
   quantity?: unknown;
   unit?: unknown;
@@ -98,7 +101,7 @@ function normalizeCreateStatus(value: unknown) {
 
 export async function createPurchaseOrder(tx: TransactionClient, input: CreatePurchaseOrderInput) {
   const supplierId = toPositiveInteger(input.supplierId, 'PURCHASE_ORDER_INVALID_SUPPLIER_ID');
-  const item = toRequiredText(input.item, 'PURCHASE_ORDER_INVALID_ITEM');
+  const requestedItem = toRequiredText(input.item, 'PURCHASE_ORDER_INVALID_ITEM');
   const quantity = toRequiredPositiveNumber(input.quantity, 'PURCHASE_ORDER_INVALID_QUANTITY');
   const price = toRequiredNonNegativeNumber(input.price, 'PURCHASE_ORDER_INVALID_PRICE');
   const currency = normalizeCurrency(input.currency);
@@ -111,6 +114,28 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
   const otherCost = toOptionalNonNegativeNumber(input.otherCost, 'PURCHASE_ORDER_INVALID_COST');
   const eta = toOptionalDate(input.eta);
   const initialStatus = normalizeCreateStatus(input.status);
+  const requestedUnit = toOptionalText(input.unit) || 'kg';
+  const materialId = input.materialId === undefined || input.materialId === null || input.materialId === ''
+    ? null
+    : toPositiveInteger(input.materialId, 'PURCHASE_ORDER_INVALID_MATERIAL_ID');
+  const materialIdentity = await resolveStockMaterialIdentity(tx, {
+    materialId,
+    productName: requestedItem,
+    unit: requestedUnit,
+  });
+  if (!['pending', 'cancelled'].includes(initialStatus)) {
+    await assertMaterialReleaseReadiness(tx, {
+      entityType: 'purchase_order',
+      action: 'create_approved',
+      lines: [{
+        lineKey: 'new',
+        rowNumber: 1,
+        materialId: materialIdentity.materialId,
+        displayName: materialIdentity.productName,
+        unit: materialIdentity.unit,
+      }],
+    });
+  }
 
   const supplier = await tx.supplier.findUnique({ where: { id: supplierId } });
   if (!supplier) {
@@ -147,9 +172,10 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
   return tx.purchaseOrder.create({
     data: {
       supplierId,
-      item,
+      materialId: materialIdentity.materialId,
+      item: materialIdentity.productName,
       quantity,
-      unit: toOptionalText(input.unit) || 'kg',
+      unit: materialIdentity.unit,
       price,
       currency: valuation.currency,
       exchangeRate: valuation.exchangeRate,

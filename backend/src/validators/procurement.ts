@@ -67,6 +67,7 @@ export const updateContractSchema = z.object({
 
 export const createPurchaseOrderSchema = z.object({
   supplierId: z.coerce.number().int().positive(),
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   item: z.string().trim().min(1),
   quantity: z.coerce.number().positive(),
   unit: z.string().trim().min(1),

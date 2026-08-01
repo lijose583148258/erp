@@ -74,6 +74,7 @@ const parseContacts = (value: unknown): Contact[] => {
 export interface PurchaseOrder {
   id: string;
   supplierId: string;
+  materialId?: string;
   supplierName: string;
   supplierNameZh?: string;
   supplierNameEn?: string;
@@ -215,6 +216,7 @@ const mapOrder = (value: unknown): PurchaseOrder => {
   ...item,
   id: toStringValue(item.id),
   supplierId: toStringValue(item.supplierId),
+  materialId: toOptionalString(item.materialId) || '',
   supplierName: toStringValue(item.supplierName),
   supplierNameZh: toOptionalString(item.supplierNameZh),
   supplierNameEn: toOptionalString(item.supplierNameEn),
@@ -297,6 +299,7 @@ export const procurementService = {
   async createOrder(order: Partial<PurchaseOrder>): Promise<PurchaseOrder> {
     const payload = {
       supplierId: Number(order.supplierId),
+      materialId: order.materialId ? Number(order.materialId) : undefined,
       supplierName: order.supplierName,
       supplierNameZh: order.supplierNameZh,
       supplierNameEn: order.supplierNameEn,

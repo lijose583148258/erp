@@ -159,7 +159,7 @@ export const SupplierWorkspace = ({
       </div>
       )}
       <div className="border-t border-slate-100 bg-white/95 p-4 backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
-        <button data-testid="save-supplier-button" onClick={addSupplier} disabled={!canWrite} className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.saveSupplier}</button>
+        <button data-testid="save-supplier-button" onClick={addSupplier} disabled={!canWrite} className="w-full rounded-2xl bg-blue-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">{t.saveSupplier}</button>
       </div>
     </div>
   </div>

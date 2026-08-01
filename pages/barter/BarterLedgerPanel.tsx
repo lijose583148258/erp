@@ -65,10 +65,10 @@ export function BarterLedgerPanel({
                 </div>
               </div>
               <div className="mt-3 grid grid-cols-4 gap-3 text-sm font-bold text-slate-700">
-                <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">我方货值</div><div>{formatPrice(settlement.totalPartyAValue)}</div></div>
-                <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">对方货值</div><div>{formatPrice(settlement.totalPartyBValue)}</div></div>
-                <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">本次差额</div><div>{formatPrice(settlement.cashDifference)}</div></div>
-                <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">本次已过账</div><div>{formatPrice((settlement.offsetPostings || []).reduce((sum, posting) => sum + Number(posting.offsetAmount || 0), 0))}</div></div>
+                <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">我方货值</div><div>{formatPrice(settlement.totalPartyAValue)}</div></div>
+                <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">对方货值</div><div>{formatPrice(settlement.totalPartyBValue)}</div></div>
+                <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">本次差额</div><div>{formatPrice(settlement.cashDifference)}</div></div>
+                <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">本次已过账</div><div>{formatPrice((settlement.offsetPostings || []).reduce((sum, posting) => sum + Number(posting.offsetAmount || 0), 0))}</div></div>
               </div>
             </div>
           ))}

@@ -102,7 +102,7 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
                   <span className="mr-2 text-2xl">{model.icon}</span>
                   <span className="text-sm font-bold text-slate-800 dark:text-white">{model.name}</span>
                 </div>
-                <p className="line-clamp-2 text-[10px] text-slate-400">{model.description}</p>
+                <p className="line-clamp-2 text-xs text-slate-400">{model.description}</p>
               </button>
             ))}
           </div>
@@ -121,11 +121,11 @@ const AISettings: React.FC<AISettingsProps> = ({ isOpen, onClose }) => {
                 </div>
               </div>
               <label className="block">
-                <span className="mb-1 ml-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">{t.apiEndpoint}</span>
+                <span className="mb-1 ml-2 block text-xs font-black uppercase tracking-widest text-slate-400">{t.apiEndpoint}</span>
                 <input value={apiEndpoint} onChange={event => setApiEndpoint(event.target.value)} className="w-full rounded-xl bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-100 dark:bg-slate-800" />
               </label>
               <label className="block">
-                <span className="mb-1 ml-2 block text-[10px] font-black uppercase tracking-widest text-slate-400">模型名称</span>
+                <span className="mb-1 ml-2 block text-xs font-black uppercase tracking-widest text-slate-400">模型名称</span>
                 <input value={modelName} onChange={event => setModelName(event.target.value)} className="w-full rounded-xl bg-slate-50 px-4 py-3 font-mono text-sm outline-none focus:ring-2 focus:ring-blue-100 dark:bg-slate-800" />
               </label>
               {testResult && (

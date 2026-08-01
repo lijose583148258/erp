@@ -60,6 +60,8 @@ export type Permission =
   | 'assets.write'
   | 'production.read'
   | 'production.write'
+  | 'production.quality.inspect'
+  | 'production.quality.release'
   | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
@@ -74,6 +76,9 @@ export type Permission =
   | 'procurement.read'
   | 'procurement.write'
   | 'procurement.b2b.read'
+  | 'materials.read'
+  | 'materials.write'
+  | 'materials.govern'
   | 'commercial.read'
   | 'commercial.workflow.manage'
   | 'commercial.notification.write'
@@ -81,6 +86,7 @@ export type Permission =
   | 'system.read'
   | 'system.metrics.read'
   | 'system.backup.manage'
+  | 'settings.read'
   | 'audit.read'
   | 'ai.assistant.use';
 
@@ -145,6 +151,8 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'assets.write', resource: 'assets', action: 'write', label: '管理资产', group: '资产' },
   { code: 'production.read', resource: 'production', action: 'read', label: '查看生产', group: '生产' },
   { code: 'production.write', resource: 'production', action: 'write', label: '管理生产', group: '生产' },
+  { code: 'production.quality.inspect', resource: 'production.quality', action: 'inspect', label: '执行生产质检', group: '生产', description: '录入结构化检验测量值，不包含最终批次放行权限' },
+  { code: 'production.quality.release', resource: 'production.quality', action: 'release', label: '审核并放行生产批次', group: '生产', description: '审核检验记录并决定放行或隔离；同一人不得同时检验和放行同一记录' },
   { code: 'production.cost.read', resource: 'production.cost', action: 'read', label: '查看生产成本', group: '生产', description: '查看批次成本台账、生产成本归集和成本核算结果' },
   { code: 'adjustments.read', resource: 'adjustments', action: 'read', label: '查看调整单', group: '调整' },
   { code: 'adjustments.write', resource: 'adjustments', action: 'write', label: '新建调整单', group: '调整' },
@@ -158,12 +166,16 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'procurement.read', resource: 'procurement', action: 'read', label: '查看采购', group: '采购' },
   { code: 'procurement.write', resource: 'procurement', action: 'write', label: '管理采购', group: '采购' },
   { code: 'procurement.b2b.read', resource: 'procurement.b2b', action: 'read', label: '查看 B2B 采购状态', group: '采购' },
+  { code: 'materials.read', resource: 'materials', action: 'read', label: '查看物料主数据', group: '物料主数据' },
+  { code: 'materials.write', resource: 'materials', action: 'write', label: '维护物料主数据', group: '物料主数据', description: '创建、修改、启用、冻结或停用统一物料及其别名' },
+  { code: 'materials.govern', resource: 'materials', action: 'govern', label: '执行物料历史治理', group: '物料主数据', description: '预览、应用或回滚历史自由文本到统一物料的批量关联，仅限受控治理人员' },
   { code: 'audit.read', resource: 'audit', action: 'read', label: '查看审计日志', group: '审计' },
   { code: 'ai.assistant.use', resource: 'ai.assistant', action: 'use', label: '使用受管 AI 助手', group: '智能助手', description: '仅允许发送经过隐私门禁的安全上下文，不授予业务明细读取权限' },
   { code: 'finance.currency.sync', resource: 'finance.currency', action: 'sync', label: 'Sync currency rates', group: 'finance' },
   { code: 'system.read', resource: 'system', action: 'read', label: 'Read system status', group: 'system' },
   { code: 'system.metrics.read', resource: 'system.metrics', action: 'read', label: 'Read Prometheus metrics', group: 'system' },
   { code: 'system.backup.manage', resource: 'system.backup', action: 'manage', label: 'Manage system backups', group: 'system' },
+  { code: 'settings.read', resource: 'settings', action: 'read', label: '查看系统设置入口', group: '系统', description: '控制前端系统设置入口可见性；具体设置写入仍由各自后端权限保护' },
   { code: 'commercial.read', resource: 'commercial', action: 'read', label: '查看商业化平台', group: '平台治理' },
   { code: 'commercial.workflow.manage', resource: 'commercial.workflow', action: 'manage', label: '管理审批工作流', group: '平台治理' },
   { code: 'commercial.notification.write', resource: 'commercial.notification', action: 'write', label: '发布平台通知', group: '平台治理' },
@@ -232,6 +244,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.inspect',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -246,6 +260,9 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
+    'materials.govern',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -253,6 +270,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'system.read',
     'system.metrics.read',
     'system.backup.manage',
+    'settings.read',
     'audit.read',
     'ai.assistant.use',
     ],
@@ -309,6 +327,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -323,6 +342,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -361,6 +382,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'rma.read',
     'rma.write',
     'procurement.b2b.read',
+    'materials.read',
     ],
   },
   warehouse: {
@@ -382,6 +404,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
@@ -393,6 +416,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'materials.read',
     ],
   },
   finance: {
@@ -430,6 +454,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'finance.currency.sync',
     'procurement.suppliers.read',
     'procurement.read',
+    'materials.read',
     ],
   },
 };

@@ -154,7 +154,7 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                                 onKeyDown={handleKeyDown}
                             />
                             <div className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                                <span className="text-[10px] font-black text-slate-400">ESC</span>
+                                <span className="text-xs font-black text-slate-400">ESC</span>
                             </div>
                         </div>
 
@@ -168,7 +168,7 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                                         if (catCmds.length === 0) return null;
                                         return (
                                             <div key={cat} className="space-y-1">
-                                                <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 opacity-50">
+                                                <div className="px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-400 opacity-50">
                                                     {cat === 'navigation' ? t.navQuickJump : cat === 'actions' ? t.navBusinessOps : t.navSysMgmt}
                                                 </div>
                                                 {catCmds.map((cmd) => {
@@ -220,16 +220,16 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                         {/* Footer */}
                         <div className="px-6 py-4 bg-slate-50/50 dark:bg-slate-800/10 border-t border-slate-50 dark:border-slate-800 flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
                                     <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border rounded-md shadow-sm">Enter</kbd>
                                     <span>{t.ctrlSelect}</span>
                                 </div>
-                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
                                     <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border rounded-md shadow-sm">Enter</kbd>
                                     <span>{t.ctrlConfirm}</span>
                                 </div>
                             </div>
-                            <div className="text-[10px] font-black italic text-blue-500 uppercase tracking-tighter">
+                            <div className="text-xs font-black italic text-blue-500 uppercase tracking-tighter">
                                 Opus 5.0 Core
                             </div>
                         </div>

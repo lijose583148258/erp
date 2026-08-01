@@ -23,6 +23,7 @@ const paymentMethodSchema = z.enum([
 });
 
 const orderItemSchema = z.object({
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   productName: z.string().trim().min(1).max(120),
   quantity: z.coerce.number().positive(),
   unitPrice: z.coerce.number().nonnegative(),

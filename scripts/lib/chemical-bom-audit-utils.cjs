@@ -192,9 +192,10 @@ const createChemicalBomAuditContext = ({ appUrl, reportDir, reportPath }) => {
     };
   };
 
-  const ensureRawStock = async (token, locationId, code, quantity = 50, unitCost = 10) => {
+  const ensureRawStock = async (token, locationId, code, quantity = 50, unitCost = 10, materialId = null) => {
     const payload = {
       locationId,
+      materialId,
       productName: code,
       batchNo: `${code}-BATCH`,
       quantity,

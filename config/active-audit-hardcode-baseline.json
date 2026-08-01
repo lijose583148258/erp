@@ -1,0 +1,146 @@
+{
+  "version": 1,
+  "policy": "Only reachable audit scripts are grandfathered; every finding must decrease and no new finding may enter.",
+  "findings": [
+    {
+      "category": "demo-credential",
+      "file": "scripts/adjustment-cost-ledger-transaction-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/assets-batch-browser-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/audit-read-dynamic-permission-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/backup-retention-governance-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/barter-agreement-browser-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/barter-browser-audit-v2.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/collection-overdue-server-pagination-browser-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/collection-overdue-server-search-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/commercial-platform-api-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/crm-dom-probe-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/masterdata-search-readback-api-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/module-registry-title-browser-audit-v1.ts"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/phase3-daily-stability-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/procurement-debug-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/procurement-partial-receipt-concurrency-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/receipt-discrepancy-action-api-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/receipt-discrepancy-rma-link-browser-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/role-permission-assignment-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/samples-rma-browser-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/shipping-api-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/shipping-receipt-concurrency-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/supplier-permission-api-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/ui-screenshot.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/warehouse-filter-network-probe.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/warehouse-ledger-api-audit-v1.cjs"
+    },
+    {
+      "category": "demo-credential",
+      "file": "scripts/warehouse-transfer-api-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/adjustment-cost-ledger-transaction-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/collection-center-human-flow-browser-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/collection-overdue-server-pagination-browser-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/collection-overdue-server-search-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/payment-order-reconcile-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/procurement-partial-receipt-concurrency-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/production-state-reconcile-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/shipping-receipt-concurrency-audit-v1.cjs"
+    },
+    {
+      "category": "silent-runtime-db-fallback",
+      "file": "scripts/warehouse-transfer-api-audit-v1.cjs"
+    }
+  ]
+}

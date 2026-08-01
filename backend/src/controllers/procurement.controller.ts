@@ -17,6 +17,7 @@ import {
   PARTIAL_RECEIPT_MESSAGE,
 } from '../services/procurement-receipt.service';
 import { createPurchaseOrder } from '../services/procurement-order.service';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createSupplierRecord } from '../services/procurement-supplier.service';
 import { changePurchaseOrderStatus } from '../services/procurement-status.service';
 import {
@@ -326,6 +327,14 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('创建采购单错误:', error);
+      if (isMaterialReleaseReadinessError(error)) {
+        return res.status(error.statusCode).json({
+          success: false,
+          message: '可先创建待处理采购草稿；若直接创建为已审批或在途，必须关联已发布的统一物料。',
+          errorCode: error.message,
+          details: error.details,
+        });
+      }
       const statusCode = error instanceof AppError ? error.statusCode : 500;
       const errorKey = error instanceof Error ? error.message : '';
       const details = error instanceof AppError ? error.details : undefined;
@@ -382,6 +391,14 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('更新采购单状态错误:', error);
+      if (isMaterialReleaseReadinessError(error)) {
+        return res.status(error.statusCode).json({
+          success: false,
+          message: '采购单可保留为待处理草稿；审批、发运或收货前必须关联已发布的统一物料。',
+          errorCode: error.message,
+          details: error.details,
+        });
+      }
       if (error instanceof AppError && error.message === 'PURCHASE_ORDER_NOT_FOUND') {
         return res.status(error.statusCode).json({ success: false, message: '采购单不存在' });
       }

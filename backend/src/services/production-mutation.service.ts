@@ -5,13 +5,13 @@ import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
 import {
   ProductionBomInput,
-  ProductionQualityCheckInput,
-  ProductionQualityResult,
   ProductionWorkOrderInput,
   ProductionWorkOrderStatus,
   ProductionWorkOrderStepInput,
 } from './production-query.service';
 import { assertBomConsumptionCoverage } from './production-completion.validation';
+import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
+import { assertLatestQualityRelease } from './production-quality.service';
 
 export { ProductionCompletionValidationError } from './production-completion.validation';
 
@@ -31,6 +31,54 @@ const toPositiveNumber = (value: unknown) => {
 const roundQuantity = (value: number, precision = 6) => {
   const factor = 10 ** precision;
   return Math.round(value * factor) / factor;
+};
+
+const FINISHED_GOODS_CATEGORIES = new Set(['finished_good', 'semi_finished']);
+
+export const resolveFinishedGoodsMaterial = async (
+  tx: TransactionClient,
+  materialId: number | null | undefined,
+  controlled: boolean,
+) => {
+  if (!materialId) {
+    if (controlled) throw new Error('BOM_OUTPUT_MATERIAL_MASTER_REQUIRED');
+    return null;
+  }
+  const material = await tx.material.findUnique({
+    where: { id: Number(materialId) },
+    select: {
+      id: true,
+      code: true,
+      nameZh: true,
+      category: true,
+      baseUnit: true,
+      shelfLifeDays: true,
+      status: true,
+      isTemporary: true,
+    },
+  });
+  if (!material) throw new Error('BOM_OUTPUT_MATERIAL_NOT_FOUND');
+  if (!FINISHED_GOODS_CATEGORIES.has(material.category)) {
+    throw new Error(`BOM_OUTPUT_MATERIAL_CATEGORY_INVALID:${material.code}:${material.category}`);
+  }
+  if (material.status === 'blocked' || material.status === 'retired') {
+    throw new Error(`BOM_OUTPUT_MATERIAL_UNAVAILABLE:${material.code}`);
+  }
+  if (controlled && (material.status !== 'active' || material.isTemporary)) {
+    throw new Error(`BOM_OUTPUT_MATERIAL_NOT_RELEASED:${material.code}`);
+  }
+  if (controlled && !material.shelfLifeDays) {
+    throw new Error(`BOM_OUTPUT_SHELF_LIFE_REQUIRED:${material.code}`);
+  }
+  return material;
+};
+
+export const calculateBatchExpiryDate = (productionDate: Date, shelfLifeDays: unknown) => {
+  const days = Number(shelfLifeDays);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new Error('BOM 缺少有效的保质期天数，禁止自动创建成品批次。');
+  }
+  return new Date(productionDate.getTime() + days * 24 * 60 * 60 * 1000);
 };
 
 const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number]) => {
@@ -74,8 +122,21 @@ const WORK_ORDER_STATUS_RANK: Record<ProductionWorkOrderStatus, number> = {
 const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.productionWorkOrder.findUnique({
   where: { id },
   include: {
-    bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-    productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+    bom: {
+      include: { qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+    },
+    productBatch: {
+      select: {
+        id: true,
+        materialId: true,
+        batchNo: true,
+        productName: true,
+        productionDate: true,
+        expiryDate: true,
+        stockQuantity: true,
+        unit: true,
+      },
+    },
     steps: { orderBy: { stepNo: 'asc' } },
     qualityChecks: { orderBy: { createdAt: 'desc' } },
   },
@@ -84,25 +145,76 @@ const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.production
 export class ProductionMutationService {
   static async createBom(input: ProductionBomInput, createdBy: number) {
     const bomNo = buildNo('BOM');
-    const items = (input.items || [])
+    const draftItems = (input.items || [])
       .map(item => ({
         ...item,
         materialName: String(item.materialName || item.materialCode || '').trim(),
         materialCode: item.materialCode ? String(item.materialCode).trim() : null,
         quantityPerUnit: normalizeBomQuantityPerUnit(item),
       }))
-      .filter(item => item.materialName && Number(item.quantityPerUnit || 0) > 0);
+      .filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
 
     return prisma.$transaction(async tx => {
+      const controlledBom = (input.status || 'draft') !== 'draft';
+      const outputMaterial = await resolveFinishedGoodsMaterial(tx, input.materialId, controlledBom);
+      const materialIds = Array.from(new Set(
+        draftItems
+          .map(item => Number(item.materialId || 0))
+          .filter(id => Number.isInteger(id) && id > 0),
+      ));
+      const materials = materialIds.length > 0
+        ? await tx.material.findMany({
+          where: { id: { in: materialIds } },
+          select: {
+            id: true,
+            code: true,
+            nameZh: true,
+            baseUnit: true,
+            status: true,
+            isTemporary: true,
+          },
+        })
+        : [];
+      if (materials.length !== materialIds.length) {
+        throw new Error('BOM_MATERIAL_NOT_FOUND');
+      }
+      const materialById = new Map(materials.map(material => [material.id, material]));
+      const items = draftItems.map((item, index) => {
+        const materialId = item.materialId ? Number(item.materialId) : null;
+        if (!materialId) {
+          if (controlledBom) throw new Error(`BOM_MATERIAL_MASTER_REQUIRED:${index + 1}`);
+          return { ...item, materialId: null };
+        }
+        const material = materialById.get(materialId);
+        if (!material) throw new Error('BOM_MATERIAL_NOT_FOUND');
+        if (material.status === 'blocked' || material.status === 'retired') {
+          throw new Error(`BOM_MATERIAL_UNAVAILABLE:${material.code}`);
+        }
+        if (controlledBom && (material.status !== 'active' || material.isTemporary)) {
+          throw new Error(`BOM_MATERIAL_NOT_RELEASED:${material.code}`);
+        }
+        if (item.unit.trim().toLocaleLowerCase() !== material.baseUnit.trim().toLocaleLowerCase()) {
+          throw new Error(`BOM_MATERIAL_UNIT_MISMATCH:${material.code}:${item.unit}:${material.baseUnit}`);
+        }
+        return {
+          ...item,
+          materialId,
+          materialCode: material.code,
+          materialName: material.nameZh,
+        };
+      });
+
       const created = await tx.productionBom.create({
         data: {
           bomNo,
-          productName: input.productName,
+          materialId: outputMaterial?.id ?? null,
+          productName: outputMaterial?.nameZh ?? input.productName,
           version: input.version || 'v1',
           bomType: input.bomType || 'standard',
           status: input.status || 'draft',
           formulationMode: input.formulationMode || null,
-          outputUnit: input.outputUnit,
+          outputUnit: outputMaterial?.baseUnit ?? input.outputUnit,
+          shelfLifeDays: outputMaterial?.shelfLifeDays ?? input.shelfLifeDays,
           standardBatchSize: input.standardBatchSize ?? null,
           batchSizeUnit: input.batchSizeUnit || null,
           density: input.density ?? null,
@@ -115,6 +227,7 @@ export class ProductionMutationService {
           createdBy,
           items: {
             create: items.map(item => ({
+              materialId: item.materialId,
               materialName: item.materialName,
               materialCode: item.materialCode || null,
               ingredientRole: item.ingredientRole || null,
@@ -130,10 +243,29 @@ export class ProductionMutationService {
               notes: item.notes || null,
             })),
           },
+          qualityCharacteristics: {
+            create: (input.qualityCharacteristics || []).map((characteristic, index) => ({
+              code: characteristic.code.trim().toUpperCase(),
+              name: characteristic.name.trim(),
+              valueType: characteristic.valueType || 'numeric',
+              unit: characteristic.unit?.trim() || null,
+              lowerLimit: characteristic.lowerLimit === null || characteristic.lowerLimit === undefined || characteristic.lowerLimit === ''
+                ? null
+                : String(characteristic.lowerLimit),
+              upperLimit: characteristic.upperLimit === null || characteristic.upperLimit === undefined || characteristic.upperLimit === ''
+                ? null
+                : String(characteristic.upperLimit),
+              targetText: characteristic.targetText?.trim() || null,
+              testMethod: characteristic.testMethod?.trim() || null,
+              required: characteristic.required !== false,
+              sortOrder: characteristic.sortOrder ?? index,
+            })),
+          },
         },
         include: {
           creator: { select: { id: true, username: true, role: true } },
           items: { orderBy: { id: 'asc' } },
+          qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       });
 
@@ -142,6 +274,7 @@ export class ProductionMutationService {
         include: {
           creator: { select: { id: true, username: true, role: true } },
           items: { orderBy: { id: 'asc' } },
+          qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       });
 
@@ -155,6 +288,28 @@ export class ProductionMutationService {
 
   static async createWorkOrder(input: ProductionWorkOrderInput, createdBy: number) {
     return prisma.$transaction(async tx => {
+      const bom = input.bomId
+        ? await tx.productionBom.findUnique({
+          where: { id: input.bomId },
+          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true },
+        })
+        : null;
+      if (input.bomId && !bom) throw new Error(`Production BOM not found: ${input.bomId}`);
+      const batch = input.batchId
+        ? await tx.productBatch.findUnique({
+          where: { id: input.batchId },
+          select: { id: true, materialId: true, productName: true, unit: true },
+        })
+        : null;
+      if (input.batchId && !batch) throw new Error(`Product batch not found: ${input.batchId}`);
+      const outputMaterialId = bom?.materialId ?? batch?.materialId ?? null;
+      const outputProductName = bom?.productName ?? batch?.productName ?? input.productName;
+      if (bom?.materialId && batch && batch.materialId !== bom.materialId) {
+        throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
+      }
+      if (!bom?.materialId && batch?.materialId && bom && batch.productName !== bom.productName) {
+        throw new Error('WORK_ORDER_OUTPUT_BATCH_NAME_MISMATCH');
+      }
       const stepInputs: ProductionWorkOrderStepInput[] = input.steps && input.steps.length > 0
         ? input.steps
         : DEFAULT_STEPS.map((title, index) => ({ stepNo: index + 1, title }));
@@ -164,7 +319,8 @@ export class ProductionMutationService {
           workOrderNo: buildNo('WO'),
           bomId: input.bomId ?? null,
           batchId: input.batchId ?? null,
-          productName: input.productName,
+          materialId: outputMaterialId,
+          productName: outputProductName,
           targetQuantity: Number(input.targetQuantity || 0),
           producedQuantity: Number(input.producedQuantity || 0),
           lossQuantity: Number(input.lossQuantity || 0),
@@ -187,8 +343,19 @@ export class ProductionMutationService {
       return tx.productionWorkOrder.findUnique({
         where: { id: workOrder.id },
         include: {
-          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-          productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+          productBatch: {
+            select: {
+              id: true,
+              materialId: true,
+              batchNo: true,
+              productName: true,
+              productionDate: true,
+              expiryDate: true,
+              stockQuantity: true,
+              unit: true,
+            },
+          },
           steps: { orderBy: { stepNo: 'asc' } },
           qualityChecks: true,
         },
@@ -201,7 +368,7 @@ export class ProductionMutationService {
       const workOrder = await tx.productionWorkOrder.findUnique({
         where: { id },
         include: {
-          bom: { include: { items: true } },
+          bom: { include: { items: true, qualityCharacteristics: true } },
           productBatch: true,
         },
       });
@@ -238,6 +405,11 @@ export class ProductionMutationService {
       }> = [];
 
       if (status === 'completed') {
+        await assertLatestQualityRelease(tx, workOrder.id, workOrder.bom?.qualityCharacteristics.length || 0);
+        const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
+        if (netOutput > 0 && !workOrder.batchId) {
+          calculateBatchExpiryDate(new Date(), workOrder.bom?.shelfLifeDays);
+        }
         const requiredMaterialCount = workOrder.bom?.items?.length || 0;
         const aggregatedRecords = new Map<number, number>();
 
@@ -315,22 +487,32 @@ export class ProductionMutationService {
           quantityDelta: number;
           note: string;
         } | null = null;
+        let lineageOutputBatch: {
+          id: number;
+          materialId: number | null;
+          batchNo: string;
+          productName: string;
+        } | null = null;
 
         if (netOutput > 0) {
           const outputLocationId = await resolveFinishedGoodsLocationId(tx);
           if (workOrder.batchId) {
             const currentBatch = await tx.productBatch.findUnique({
               where: { id: workOrder.batchId },
-              select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true },
+              select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, qualityStatus: true, unit: true },
             });
             if (!currentBatch) {
               throw new Error(`Product batch not found: ${workOrder.batchId}`);
+            }
+            if (workOrder.materialId && currentBatch.materialId !== workOrder.materialId) {
+              throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
             }
             const quantityBefore = Number(currentBatch?.stockQuantity || 0);
             await tx.productBatch.update({
               where: { id: workOrder.batchId },
               data: {
                 stockQuantity: { increment: netOutput },
+                qualityStatus: (workOrder.bom?.qualityCharacteristics.length || 0) > 0 ? 'released' : currentBatch.qualityStatus,
               },
             });
             await StockMovementService.postStockEntry({
@@ -341,6 +523,7 @@ export class ProductionMutationService {
               createdBy: workOrder.createdBy,
               lines: [{
                 locationId: outputLocationId,
+                materialId: currentBatch.materialId,
                 productName: currentBatch.productName,
                 batchNo: currentBatch.batchNo,
                 quantityDelta: netOutput,
@@ -353,14 +536,18 @@ export class ProductionMutationService {
               quantityDelta: netOutput,
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
+            lineageOutputBatch = currentBatch;
           } else {
+            const productionDate = new Date();
             const createdBatch = await tx.productBatch.create({
               data: {
-        batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
+                materialId: workOrder.materialId,
+                batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
                 productName: workOrder.productName,
-                productionDate: new Date(),
-                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                productionDate,
+                expiryDate: calculateBatchExpiryDate(productionDate, workOrder.bom?.shelfLifeDays),
                 stockQuantity: netOutput,
+                qualityStatus: (workOrder.bom?.qualityCharacteristics.length || 0) > 0 ? 'released' : 'not_required',
                 unit: workOrder.bom?.outputUnit || 'kg',
                 isColdChain: false,
                 notes: `Generated from work order ${workOrder.workOrderNo}`,
@@ -379,6 +566,7 @@ export class ProductionMutationService {
               createdBy: workOrder.createdBy,
               lines: [{
                 locationId: outputLocationId,
+                materialId: createdBatch.materialId,
                 productName: createdBatch.productName,
                 batchNo: createdBatch.batchNo,
                 quantityDelta: netOutput,
@@ -391,6 +579,7 @@ export class ProductionMutationService {
               quantityDelta: netOutput,
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
+            lineageOutputBatch = createdBatch;
           }
         }
 
@@ -405,12 +594,23 @@ export class ProductionMutationService {
             createdBy: workOrder.createdBy,
             lines: validatedConsumptionRecords.map(record => ({
               locationId: record.stock?.locationId || 0,
+              materialId: record.stock?.materialId || null,
               productName: record.stock?.productName || '',
               batchNo: record.stock?.batchNo || '',
               quantityDelta: -record.quantity,
               unit: record.stock?.unit || 'kg',
             })),
           }, tx);
+
+          if (!lineageOutputBatch) {
+            throw new Error(`Output batch is missing for genealogy: ${workOrder.workOrderNo}`);
+          }
+          await persistBatchGenealogyEdges(tx, {
+            workOrderId: workOrder.id,
+            outputQuantity: netOutput,
+            outputBatch: lineageOutputBatch,
+            consumptions: validatedConsumptionRecords,
+          });
 
           for (const record of validatedConsumptionRecords) {
             const currentStock = record.stock;
@@ -422,10 +622,9 @@ export class ProductionMutationService {
               // exist as StockBalance rows. ProductBatch is optional here; the
               // stock voucher above is the authoritative inventory deduction.
               const matchBatch = await tx.productBatch.findFirst({
-                where: {
-                  productName: currentStock.productName,
-                  batchNo: currentStock.batchNo,
-                },
+                where: currentStock.materialId
+                  ? { materialId: currentStock.materialId, batchNo: currentStock.batchNo }
+                  : { productName: currentStock.productName, batchNo: currentStock.batchNo },
                 select: { id: true, stockQuantity: true },
               });
 
@@ -490,19 +689,6 @@ export class ProductionMutationService {
     });
   }
 
-  static async createQualityCheck(workOrderId: number, input: ProductionQualityCheckInput) {
-    return prisma.productionQualityCheck.create({
-      data: {
-        workOrderId,
-        checkNo: buildNo('QC'),
-        result: input.result,
-        defectRate: input.defectRate ?? null,
-        note: input.note || null,
-        checkedBy: input.checkedBy || null,
-        checkedAt: new Date(),
-      },
-    });
-  }
 }
 
 

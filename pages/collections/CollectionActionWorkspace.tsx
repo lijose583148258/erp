@@ -49,7 +49,7 @@ const QuickMetric = ({ label, value, tone }: { label: string; value: string; ton
 
   return (
     <div className={`rounded-[22px] border px-4 py-4 ${toneClass}`}>
-      <div className="text-[10px] font-black uppercase tracking-[0.18em] opacity-70">{label}</div>
+      <div className="text-xs font-black uppercase tracking-[0.18em] opacity-70">{label}</div>
       <div className="mt-2 text-lg font-black">{value}</div>
     </div>
   );
@@ -121,7 +121,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
               disabled={syncing}
               className="rounded-[22px] bg-slate-900 px-4 py-4 text-left text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] opacity-70">系统动作</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] opacity-70">系统动作</div>
               <div className="mt-2 text-sm font-black">{syncing ? '同步中...' : '同步逾期'}</div>
             </button>
           ) : null}
@@ -133,7 +133,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
               disabled={batching}
               className="rounded-[22px] bg-amber-500 px-4 py-4 text-left text-white transition hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] opacity-70">系统动作</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] opacity-70">系统动作</div>
               <div className="mt-2 text-sm font-black">{batching ? '批量催收中...' : '批量催收'}</div>
             </button>
           ) : null}
@@ -176,7 +176,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                 <div className="text-xs font-black text-slate-500 dark:text-slate-400">{progress}%</div>
               </div>
               <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all" style={{ width: `${progress}%` }} />
+ <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
               </div>
               <div className="mt-3 grid gap-2 text-sm font-bold text-slate-700 dark:text-slate-200 md:grid-cols-2">
                 <div>已核销到帐：{formatPrice(verifiedAmount)}</div>
@@ -256,7 +256,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                       <div>
                         <div className="flex items-center gap-2">
                           <div className="text-sm font-black text-slate-900 dark:text-white">{formatPrice(record.amount)}</div>
-                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${paymentBadge(record.status)}`}>
+                          <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${paymentBadge(record.status)}`}>
                             {record.status}
                           </span>
                         </div>

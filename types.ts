@@ -229,6 +229,7 @@ export interface CollectionPromiseSnapshot {
 }
 
 export interface SalesOrderItem {
+  materialId?: number | null;
   sku: string;
   productName: string;
   packagingSpec: string;
@@ -332,6 +333,9 @@ export interface Shipment {
   id: string;
   shipmentNo?: string;
   orderId: string;
+  orderItemId?: string;
+  materialId?: string;
+  productBatchId?: string;
   orderNo?: string;
   customerId?: string;
   customerName: string;

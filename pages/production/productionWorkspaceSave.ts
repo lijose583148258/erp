@@ -1,6 +1,6 @@
-export type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'standardBatchSize' | 'percentage' | 'items', string>>;
+export type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'shelfLifeDays' | 'standardBatchSize' | 'percentage' | 'items', string>>;
 export type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
-export type QualityFormErrors = Partial<Record<'defectRate' | 'checkedBy', string>>;
+export type QualityFormErrors = Partial<Record<'sampleNo' | 'measurements', string>>;
 export type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
 
 const SAVE_TIMEOUT_MS = 10000;
@@ -24,6 +24,7 @@ export const validateBomForm = ({
   productName,
   outputUnit,
   formulationMode,
+  shelfLifeDaysInput,
   standardBatchSizeInput,
   percentageSummary,
   effectiveItemCount,
@@ -32,6 +33,7 @@ export const validateBomForm = ({
   productName: string;
   outputUnit: string;
   formulationMode: string;
+  shelfLifeDaysInput: string;
   standardBatchSizeInput: string;
   percentageSummary: number;
   effectiveItemCount: number;
@@ -40,6 +42,10 @@ export const validateBomForm = ({
   const errors: BomFormErrors = {};
   if (!productName.trim()) errors.productName = '请填写产品名称';
   if (!outputUnit.trim()) errors.outputUnit = '请填写输出单位';
+  const shelfLifeDays = Number(shelfLifeDaysInput);
+  if (!Number.isInteger(shelfLifeDays) || shelfLifeDays < 1 || shelfLifeDays > 3650) {
+    errors.shelfLifeDays = '请填写 1 到 3650 天的产品保质期';
+  }
 
   const standardBatchSize = Number(standardBatchSizeInput || 0);
   if (formulationMode === 'percentage' && standardBatchSize <= 0) {
@@ -55,7 +61,7 @@ export const validateBomForm = ({
     errors.items = '化工配方建议至少填写 10 种原料；保密原料可以只填代号/编码';
   }
 
-  return { errors, standardBatchSize };
+  return { errors, shelfLifeDays, standardBatchSize };
 };
 
 export const validateWorkOrderForm = ({
@@ -75,23 +81,26 @@ export const validateWorkOrderForm = ({
 };
 
 export const validateQualityForm = ({
-  result,
-  defectRateInput,
-  checkedBy,
+  sampleNo,
+  characteristics,
+  measurementValues,
 }: {
-  result: string;
-  defectRateInput: string;
-  checkedBy: string;
+  sampleNo: string;
+  characteristics: Array<{ id: number; code: string; name: string; valueType: 'numeric' | 'text'; required: boolean }>;
+  measurementValues: Record<number, string>;
 }) => {
   const errors: QualityFormErrors = {};
-  const defectRateValue = defectRateInput.trim() ? Number(defectRateInput) : null;
-  if (defectRateValue !== null && (!Number.isFinite(defectRateValue) || defectRateValue < 0 || defectRateValue > 100)) {
-    errors.defectRate = '缺陷率必须在 0 到 100 之间';
-  }
-  if (result === 'fail' && !checkedBy.trim()) {
-    errors.checkedBy = '不合格记录请填写质检人';
-  }
-  return { errors, defectRateValue };
+  if (!sampleNo.trim()) errors.sampleNo = '请填写样品编号或留样编号';
+  if (characteristics.length === 0) errors.measurements = '当前 BOM 没有结构化放行标准，不能生成可放行的检验记录';
+  const missing = characteristics.filter(item => item.required && !String(measurementValues[item.id] || '').trim());
+  if (missing.length) errors.measurements = `请补齐必检项：${missing.map(item => item.name).join('、')}`;
+  const invalidNumeric = characteristics.find(item => (
+    item.valueType === 'numeric'
+    && String(measurementValues[item.id] || '').trim()
+    && !Number.isFinite(Number(measurementValues[item.id]))
+  ));
+  if (invalidNumeric) errors.measurements = `${invalidNumeric.name} 必须填写有效数字`;
+  return { errors };
 };
 
 export const validateAdjustmentForm = ({

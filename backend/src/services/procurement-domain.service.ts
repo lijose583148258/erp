@@ -1,4 +1,11 @@
 import type { Prisma } from '@prisma/client';
+import {
+  addMoney,
+  multiplyMoney,
+  prorateMoney,
+  roundMoney,
+  subtractMoney,
+} from '../utils/money';
 
 export function normalizeSupplierAliases(value: unknown): string[] {
   if (!value) return [];
@@ -148,10 +155,6 @@ export function toFiniteNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function roundMoney(value: number) {
-  return Number(value.toFixed(2));
-}
-
 export function calculatePurchaseValuation(input: {
   quantity: unknown;
   price: unknown;
@@ -169,19 +172,30 @@ export function calculatePurchaseValuation(input: {
   const currency = normalizeCurrency(input.currency);
   const exchangeRate = Math.max(toFiniteNumber(input.exchangeRate, 1), 0.000001);
   const taxRate = Math.max(toFiniteNumber(input.taxRate, 0), 0);
-  const itemAmount = price * quantity;
-  const baseItemAmount = currency === 'CNY' ? itemAmount : itemAmount / exchangeRate;
+  const itemAmount = multiplyMoney(price, quantity);
+  const baseItemAmount = currency === 'CNY'
+    ? itemAmount
+    : prorateMoney(itemAmount, 1, exchangeRate);
   const explicitTaxAmount = input.taxAmount === undefined || input.taxAmount === null || input.taxAmount === ''
     ? null
     : toFiniteNumber(input.taxAmount, 0);
-  const taxAmount = explicitTaxAmount === null ? baseItemAmount * (taxRate / 100) : explicitTaxAmount;
+  const taxAmount = explicitTaxAmount === null
+    ? multiplyMoney(baseItemAmount, taxRate, 0.01)
+    : roundMoney(explicitTaxAmount);
   const freightCost = toFiniteNumber(input.freightCost, 0);
   const dutyCost = toFiniteNumber(input.dutyCost, 0);
   const insuranceCost = toFiniteNumber(input.insuranceCost, 0);
   const otherCost = toFiniteNumber(input.otherCost, 0);
   // Extra costs are stored in the base accounting currency (CNY). Only item price is converted from order currency.
-  const landedCostAmount = roundMoney(baseItemAmount + taxAmount + freightCost + dutyCost + insuranceCost + otherCost);
-  const landedUnitCost = quantity > 0 ? roundMoney(landedCostAmount / quantity) : 0;
+  const landedCostAmount = addMoney(
+    baseItemAmount,
+    taxAmount,
+    freightCost,
+    dutyCost,
+    insuranceCost,
+    otherCost,
+  );
+  const landedUnitCost = quantity > 0 ? prorateMoney(landedCostAmount, 1, quantity) : 0;
 
   return {
     currency,
@@ -214,10 +228,10 @@ export function resolveReceiptCostAmount(
   if (landedCostAmount > 0 && orderQuantity > 0) {
     const acceptedQuantityAfter = acceptedQuantityBefore + quantityDelta;
     if (acceptedQuantityAfter >= orderQuantity - 0.000001) {
-      return roundMoney(landedCostAmount - roundMoney(unitCost * acceptedQuantityBefore));
+      return subtractMoney(landedCostAmount, multiplyMoney(unitCost, acceptedQuantityBefore));
     }
   }
-  return roundMoney(unitCost * quantityDelta);
+  return multiplyMoney(unitCost, quantityDelta);
 }
 
 export function normalizePurchaseStatus(status: string | null | undefined) {

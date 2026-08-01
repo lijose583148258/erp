@@ -14,6 +14,7 @@ on:
       - 'backend/src/routes/warehouse.routes.ts'
       - 'scripts/cloud-postgres-*.cjs'
       - 'scripts/postgres-*.cjs'
+      - 'scripts/decimal-shadow-*.cjs'
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
       - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
       - 'ops/cloud-sandbox/**'
@@ -220,6 +221,14 @@ jobs:
           emit_secret JWT_SECRET
           emit_secret METRICS_BEARER_TOKEN
 
+          postgres_host_port="$(python - <<'PY'
+          import socket
+
+          with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+              sock.bind(("127.0.0.1", 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
           audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           audit_password="$(openssl rand -hex 24)Aa1!"
           audit_password_file="${RUNNER_TEMP}/ailaoda-cloud-audit-password"
@@ -244,8 +253,9 @@ jobs:
             printf 'CONCURRENCY_FINANCE_PASSWORD_FILE=%s\n' "${audit_password_file}"
             printf 'CONCURRENCY_MANAGER_USERNAME=cloud_ha_manager_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
             printf 'CONCURRENCY_MANAGER_PASSWORD_FILE=%s\n' "${audit_password_file}"
-            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
-            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+            printf 'POSTGRES_HOST_PORT=%s\n' "${postgres_host_port}"
+            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:%s/ailaoda?schema=public\n' "${postgres_password}" "${postgres_host_port}"
+            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:%s/ailaoda?schema=public\n' "${postgres_password}" "${postgres_host_port}"
           } >> "${GITHUB_ENV}"
 
       - name: Setup Node
@@ -259,11 +269,14 @@ jobs:
           npm ci
           npm --prefix backend ci
 
+      - name: Verify collision-resistant cloud topology contract
+        run: npm run test:contract:cloud-topology
+
       - name: Remove stale generated runtime evidence
         shell: bash
         run: |
-          rm -rf output/audit output/playwright cloud-evidence
-          mkdir -p output/audit output/playwright cloud-evidence
+          rm -rf output/audit output/playwright output/ui-ux-audit cloud-evidence
+          mkdir -p output/audit output/playwright output/ui-ux-audit cloud-evidence
 
       - name: Verify cloud runner Chrome
         run: google-chrome --version
@@ -295,10 +308,12 @@ jobs:
           DATABASE_URL="${sqlite_url}" POSTGRES_URL="${postgres_url}" POSTGRES_IMPORT_MODE=empty-only \
             npm run run:db:postgres-import-rehearsal
           node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
+          AUDIT_DATABASE_URL="${postgres_url}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-import npm run audit:db:decimal-shadow
 
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs mutate
           DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
+          DATABASE_URL="${sqlite_url}" AUDIT_DATABASE_URL="${sqlite_url}" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback npm run audit:db:decimal-shadow
 
       - name: Build PostgreSQL application image
         run: |
@@ -322,11 +337,16 @@ jobs:
           set -euo pipefail
           npm run audit:ui:unsaved-changes
           npm run audit:ui:complex-input-governance
+          UI_UX_AUDIT_ROUTES="#crm,#orders,#production,#warehouse,#procurement" \
+            UI_UX_AUDIT_TIMEOUT_MS=300000 \
+            UI_UX_AUDIT_SCREENSHOT_MODE=viewport \
+            npm run test:browser:ui-ux
           npm run audit:orders:browser
           npm run audit:procurement:browser
           npm run audit:warehouse:transfer:browser
           npm run audit:shipping:browser
           npm run audit:collection:human-flow
+          AUDIT_DATABASE_URL="${DATABASE_URL}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-human-flows npm run audit:db:decimal-shadow
 
       - name: Verify shared session across app instances
         run: |
@@ -487,6 +507,7 @@ jobs:
           docker compose --profile application logs --no-color > cloud-evidence/application-compose.log 2>&1 || true
           cp -r output/audit cloud-evidence/audit 2>/dev/null || true
           cp -r output/playwright cloud-evidence/playwright 2>/dev/null || true
+          cp -r output/ui-ux-audit cloud-evidence/ui-ux-audit 2>/dev/null || true
           node -e 'const fs=require("fs"); fs.mkdirSync("cloud-evidence",{recursive:true}); const failed=process.env.JOB_STATUS!=="success"; fs.writeFileSync("cloud-evidence/application-audit-summary.json",JSON.stringify({name:"Enterprise cloud application audit",status:failed?"failed":"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,checkedAt:new Date().toISOString()},null,2)+"\n")'
         env:
           JOB_STATUS: ${{ job.status }}

@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001';
 const API_BASE = `${APP_URL.replace(/\/$/, '')}/api`;
@@ -362,10 +363,13 @@ async function main() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   try {
     const tokens = await withTimeout('login-sales-manager-finance', 20000, async () => {
+      const accounts = await ensureUiAuditAccounts('receivable_audit', ['sales', 'manager', 'finance'], {
+        password: process.env.RECEIVABLE_AUDIT_PASSWORD,
+      });
       const [sales, manager, finance] = await Promise.all([
-        login('sales', 'sales123'),
-        login('manager', 'manager123'),
-        login('finance', 'finance123'),
+        login(accounts.sales.username, accounts.sales.password),
+        login(accounts.manager.username, accounts.manager.password),
+        login(accounts.finance.username, accounts.finance.password),
       ]);
       return { sales, manager, finance };
     });

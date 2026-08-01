@@ -235,7 +235,7 @@ const SalesOrders = () => {
                 </div>
                 <div className="flex gap-4">
                     {activeDesk === 'orders' && state.canCreateOrder && (
-                        <button data-testid="sales-order-create-button" onClick={state.openCreateModal} className="flex items-center px-10 py-4 bg-blue-600 text-white rounded-[28px] font-black text-sm shadow-2xl hover:bg-blue-700 transition-all active:scale-95">
+ <button data-testid="sales-order-create-button" onClick={state.openCreateModal} className="flex items-center px-10 py-4 bg-blue-600 text-white rounded-[28px] font-black text-sm shadow-2xl hover:bg-blue-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
                             <Pencil size={20} className="mr-3" /> {t.newOrder}
                         </button>
                     )}

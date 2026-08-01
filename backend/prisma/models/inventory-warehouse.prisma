@@ -1,5 +1,6 @@
 model ProductBatch {
   id              Int       @id @default(autoincrement())
+  materialId      Int?      @map("material_id")
   batchNo         String    @unique @map("batch_no")
   productName     String    @map("product_name")
   productionDate  DateTime  @map("production_date")
@@ -7,17 +8,23 @@ model ProductBatch {
   storageTemp     String?   @map("storage_temp")
   isColdChain     Boolean   @default(false) @map("is_cold_chain")
   stockQuantity   Float     @default(0) @map("stock_quantity")
+  qualityStatus   String    @default("not_required") @map("quality_status")
   unit            String
   notes           String?
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
   adjustments     AdjustmentRecord[] @relation("BatchAdjustments")
+  material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   productionWorkOrders ProductionWorkOrder[]
   inventoryCostLedgers InventoryCostLedger[]
+  shipments       Shipment[]
+  genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputBatch")
 
+  @@index([materialId])
   @@index([productName])
   @@index([expiryDate])
+  @@index([qualityStatus])
   @@map("product_batches")
 }
 
@@ -139,6 +146,7 @@ model Location {
 model StockBalance {
   id          Int      @id @default(autoincrement())
   locationId  Int      @map("location_id")
+  materialId  Int?     @map("material_id")
   productName String   @map("product_name")
   batchNo     String   @map("batch_no")
   quantity    Float    @default(0)
@@ -148,9 +156,13 @@ model StockBalance {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  material    Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   movements   StockMovement[]
+  genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputStock")
 
   @@unique([locationId, productName, batchNo])
+  @@unique([locationId, materialId, batchNo])
+  @@index([materialId])
   @@index([productName])
   @@index([batchNo])
   @@map("stock_balances")
@@ -196,6 +208,7 @@ model StockMovement {
   entryId        Int      @map("entry_id")
   stockBalanceId Int?     @map("stock_balance_id")
   locationId     Int      @map("location_id")
+  materialId     Int?     @map("material_id")
   productName    String   @map("product_name")
   batchNo        String   @map("batch_no")
   unit           String   @default("kg")
@@ -207,10 +220,12 @@ model StockMovement {
   entry        StockEntry    @relation(fields: [entryId], references: [id], onDelete: Cascade)
   stockBalance StockBalance? @relation(fields: [stockBalanceId], references: [id], onDelete: SetNull)
   location     Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  material     Material?     @relation(fields: [materialId], references: [id], onDelete: SetNull)
 
   @@index([entryId])
   @@index([stockBalanceId])
   @@index([locationId])
+  @@index([materialId])
   @@index([productName])
   @@index([batchNo])
   @@map("stock_movements")

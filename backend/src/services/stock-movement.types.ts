@@ -21,6 +21,8 @@ export type StockSourceType =
 
 export interface StockMovementLineInput {
   locationId: number;
+  materialId?: number | null;
+  shelfLifeDays?: number | null;
   productName: string;
   batchNo: string;
   quantityDelta: number;

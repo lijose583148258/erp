@@ -20,6 +20,36 @@ function safeName(value) {
     .replace(/^_+|_+$/g, '') || 'root';
 }
 
+function pruneAuditRuns(baseRoot, retainCount) {
+  ensureDir(baseRoot);
+  const runName = /^\d{17}-\d+-[a-z0-9]{6}$/i;
+  const runs = fs.readdirSync(baseRoot, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && runName.test(entry.name))
+    .map((entry) => {
+      const target = path.join(baseRoot, entry.name);
+      return { name: entry.name, target, modifiedAt: fs.statSync(target).mtimeMs };
+    })
+    .sort((left, right) => right.modifiedAt - left.modifiedAt);
+  const removed = [];
+  const removeTree = (target) => {
+    for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+      const child = path.join(target, entry.name);
+      if (entry.isDirectory()) removeTree(child);
+      else fs.unlinkSync(child);
+    }
+    fs.rmdirSync(target);
+  };
+  for (const run of runs.slice(Math.max(0, retainCount))) {
+    if (path.dirname(path.resolve(run.target)) !== path.resolve(baseRoot)) {
+      throw new Error(`refusing to prune UI audit run outside ${baseRoot}`);
+    }
+    removeTree(run.target);
+    if (fs.existsSync(run.target)) throw new Error(`UI audit retention cleanup incomplete: ${run.target}`);
+    removed.push(run.name);
+  }
+  return removed;
+}
+
 function createRun(config, { fallbackRoutes, viewports }) {
   const stamp = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 17);
   const runId = `${stamp}-${process.pid}-${Math.random().toString(36).slice(2, 8)}`;
@@ -138,4 +168,4 @@ function writeReports(run, status) {
   return { reportJson, reportMd, summaryTxt };
 }
 
-module.exports = { addFinding, atomicWrite, createRun, ensureDir, renderMarkdown, safeName, writeReports };
+module.exports = { addFinding, atomicWrite, createRun, ensureDir, pruneAuditRuns, renderMarkdown, safeName, writeReports };

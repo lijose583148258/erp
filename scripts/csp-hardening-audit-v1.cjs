@@ -57,17 +57,24 @@ if (!server.includes('AILAODA_ALLOW_UNSAFE_INLINE_CSP')) {
 if (!server.includes('const cspScriptSources = allowUnsafeInlineCsp ? ["\'self\'", "\'unsafe-inline\'"] : ["\'self\'"];')) {
   add('P1', 'backend/src/server.ts', 'script-src must default to self without unsafe-inline.');
 }
-if (!server.includes('const cspStyleSources = allowUnsafeInlineCsp ? ["\'self\'", "\'unsafe-inline\'"] : ["\'self\'"];')) {
-  add('P1', 'backend/src/server.ts', 'style-src must default to self without unsafe-inline.');
+if (
+  !server.includes('const cspStyleSources = allowUnsafeInlineCsp')
+  || !server.includes("'nonce-${String((res as Response).locals.cspNonce || '')}'")
+  || !server.includes("randomBytes(18).toString('base64')")
+) {
+  add('P1', 'backend/src/server.ts', 'style-src must default to self plus a per-response cryptographic nonce without unsafe-inline.');
+}
+if (!server.includes('<meta name="csp-nonce" content="${nonce}">')) {
+  add('P1', 'backend/src/server.ts', 'The frontend index must expose the matching per-response nonce to CSP-aware web components.');
 }
 if (!server.includes('const cspStyleAttributeSources = ["\'unsafe-inline\'"];')) {
   add('P1', 'backend/src/server.ts', 'React dynamic style attributes must have an explicit CSP3 style-src-attr boundary.');
 }
 if (!server.includes('styleSrcElem: cspStyleSources') || !server.includes('styleSrcAttr: cspStyleAttributeSources')) {
-  add('P1', 'backend/src/server.ts', 'CSP must keep style elements strict while isolating the React style-attribute compatibility policy.');
+  add('P1', 'backend/src/server.ts', 'CSP must nonce-authorize style elements while isolating the React style-attribute compatibility policy.');
 }
 const cspTest = read('backend/src/security/cspHeaders.test.ts');
-for (const token of ["directives['script-src']", "directives['style-src-elem']", "directives['style-src-attr']", "[\"'unsafe-inline'\"]"]) {
+for (const token of ["directives['script-src']", "directives['style-src-elem']", "directives['style-src-attr']", "nonce-[A-Za-z0-9+/=]", "not.toContain(\"'unsafe-inline'\")"]) {
   if (!cspTest.includes(token)) add('P1', 'backend/src/security/cspHeaders.test.ts', `CSP header test is missing directive assertion: ${token}`);
 }
 if (/<style[\s\S]*?>/.test(openApiDocument) || /style=/.test(openApiDocument)) {

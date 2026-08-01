@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
@@ -39,6 +41,10 @@ import {
 } from '../pages/production/productionWorkspaceSave';
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
+import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
+import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
+import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
+import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
 
 type FrontendUnitTest = {
   name: string;
@@ -46,6 +52,93 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'material repair panel is mounted in the authenticated shell and routes to the real module hash',
+    run: () => {
+      const appSource = fs.readFileSync(path.join(process.cwd(), 'App.tsx'), 'utf8');
+      const panelSource = fs.readFileSync(
+        path.join(process.cwd(), 'components/materials/MaterialReadinessRepairPanel.tsx'),
+        'utf8',
+      );
+      assert.match(
+        appSource,
+        /<ClickSpark\s*\/>[\s\S]*?<MaterialReadinessRepairPanel\s*\/>[\s\S]*?<CommandPalette/,
+      );
+      assert.ok(panelSource.includes("window.location.hash = '#materials'"));
+      assert.ok(!panelSource.includes("window.location.hash = '#/materials'"));
+      assert.ok(panelSource.includes('duration-150'));
+      assert.ok(panelSource.includes('motion-reduce:animate-none'));
+    },
+  },
+  {
+    name: 'shipping OCR requires explicit canonical material confirmation before creation',
+    run: () => {
+      const hookSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/useShippingOcr.ts'), 'utf8');
+      const panelSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/ShippingOcrPanel.tsx'), 'utf8');
+      const auditSource = fs.readFileSync(path.join(process.cwd(), 'scripts/shipping-browser-audit-v1.cjs'), 'utf8');
+      assert.ok(hookSource.includes('if (!ocrMaterial)'));
+      assert.ok(hookSource.includes('materialId: String(ocrMaterial.id)'));
+      assert.ok(panelSource.includes('dataTestId="shipping-ocr-material-input"'));
+      assert.ok(panelSource.includes('disabled={!ocrMaterial}'));
+      assert.ok(auditSource.includes("selectMaterialCombobox(page, 'shipping-ocr-material-input'"));
+    },
+  },
+  {
+    name: 'material readiness errors preserve row identity and human repair guidance',
+    run: () => {
+      const parsed = parseMaterialReadinessDetails({
+        contract: 'material-release-readiness/v1',
+        entityType: 'sales_order',
+        entityId: '42',
+        action: 'confirm',
+        issueCount: 1,
+        issues: [{
+          lineKey: '9',
+          rowNumber: 2,
+          materialId: 7,
+          materialCode: 'RM-0007',
+          displayName: '丙烯酸',
+          reason: 'unit_mismatch',
+          requestedUnit: 'L',
+          baseUnit: 'kg',
+        }],
+        repairRoute: '/materials',
+        retryableAfterRepair: true,
+      });
+      assert.ok(parsed);
+      assert.equal(parsed.issues[0].rowNumber, 2);
+      assert.equal(getMaterialReadinessIssueLabel(parsed.issues[0]), '单位不一致：当前 L，主数据 kg');
+      assert.equal(parseMaterialReadinessDetails({ contract: 'unknown', issues: [] }), null);
+    },
+  },
+  {
+    name: 'canonical material master is a lazy, permission-scoped production module',
+    run: () => {
+      assert.ok(MODULE_ORDER.includes('materials'));
+      assert.equal(moduleRegistry.materials.group, 'production');
+      assert.equal(MENU_PERMISSION_BY_MODULE.materials, 'materials.read');
+      assert.deepEqual(moduleRegistry.materials.roles, ['admin', 'manager']);
+    },
+  },
+  {
+    name: 'notification queue deduplicates messages and limits viewport obstruction',
+    run: () => {
+      const first = enqueueNotification([], { id: '1', type: 'success', message: '已保存' });
+      const replaced = enqueueNotification(first, { id: '2', type: 'success', message: '已保存' });
+      assert.deepEqual(replaced.map((item) => item.id), ['2']);
+
+      const bounded = ['A', 'B', 'C', 'D'].reduce(
+        (state, message, index) => enqueueNotification(state, {
+          id: String(index),
+          type: 'info',
+          message,
+        }),
+        [] as ReturnType<typeof enqueueNotification>,
+      );
+      assert.equal(bounded.length, MAX_VISIBLE_NOTIFICATIONS);
+      assert.deepEqual(bounded.map((item) => item.message), ['B', 'C', 'D']);
+    },
+  },
   {
     name: 'sales order update payload maps payment terms to the backend contract',
     run: () => {
@@ -91,14 +184,17 @@ const tests: FrontendUnitTest[] = [
         productName: '',
         outputUnit: '',
         formulationMode: 'percentage',
+        shelfLifeDaysInput: '0',
         standardBatchSizeInput: '0',
         percentageSummary: 99,
         effectiveItemCount: 2,
         bomType: 'chemical_formula',
       });
+      assert.equal(bom.shelfLifeDays, 0);
       assert.equal(bom.standardBatchSize, 0);
       assert.equal(bom.errors.productName, '请填写产品名称');
       assert.equal(bom.errors.outputUnit, '请填写输出单位');
+      assert.ok(bom.errors.shelfLifeDays);
       assert.ok(bom.errors.standardBatchSize);
       assert.ok(bom.errors.percentage);
       assert.ok(bom.errors.items);
@@ -107,10 +203,13 @@ const tests: FrontendUnitTest[] = [
       assert.equal(workOrder.targetQuantity, 0);
       assert.ok(workOrder.errors.targetQuantity);
 
-      const quality = validateQualityForm({ result: 'fail', defectRateInput: '101', checkedBy: '' });
-      assert.equal(quality.defectRateValue, 101);
-      assert.ok(quality.errors.defectRate);
-      assert.ok(quality.errors.checkedBy);
+      const quality = validateQualityForm({
+        sampleNo: '',
+        characteristics: [{ id: 1, code: 'SOLIDS', name: '固含量', valueType: 'numeric', required: true }],
+        measurementValues: { 1: 'not-a-number' },
+      });
+      assert.ok(quality.errors.sampleNo);
+      assert.ok(quality.errors.measurements);
 
       const adjustment = validateAdjustmentForm({ hasBatch: false, quantityInput: '-1', reason: '' });
       assert.equal(adjustment.quantity, -1);

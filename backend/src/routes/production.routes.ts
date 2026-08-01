@@ -8,6 +8,7 @@ import {
   createProductionBomSchema,
   createProductionQualityCheckSchema,
   createProductionWorkOrderSchema,
+  reviewProductionQualityCheckSchema,
   updateProductionStepSchema,
   updateProductionWorkOrderStatusSchema,
 } from '../validators';
@@ -22,6 +23,13 @@ router.get('/boms', authorizePermission('production.read'), authRoute((req, res)
 router.post('/boms', authorizePermission('production.write'), validateZod(createProductionBomSchema), authRoute((req, res) => controller.createBom(req, res)));
 router.get('/work-orders', authorizePermission('production.read'), authRoute((req, res) => controller.getWorkOrders(req, res)));
 router.get('/work-orders/:id/preview-consumption', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.previewConsumption(req, res)));
+router.get(
+  '/batches/:batchId/trace',
+  authorizePermission('production.read'),
+  [param('batchId').isInt({ min: 1 })],
+  validateRequest,
+  authRoute((req, res) => controller.getBatchTrace(req, res)),
+);
 router.get(
   '/batches/:batchId/cost-ledger',
   authorizePermission('production.cost.read'),
@@ -48,11 +56,19 @@ router.patch(
 );
 router.post(
   '/work-orders/:id/checks',
-  authorizePermission('production.write'),
+  authorizePermission('production.quality.inspect'),
   [param('id').isInt({ min: 1 })],
   validateRequest,
   validateZod(createProductionQualityCheckSchema),
   authRoute((req, res) => controller.createQualityCheck(req, res)),
+);
+router.post(
+  '/work-orders/:id/checks/:checkId/review',
+  authorizePermission('production.quality.release'),
+  [param('id').isInt({ min: 1 }), param('checkId').isInt({ min: 1 })],
+  validateRequest,
+  validateZod(reviewProductionQualityCheckSchema),
+  authRoute((req, res) => controller.reviewQualityCheck(req, res)),
 );
 
 export default router;

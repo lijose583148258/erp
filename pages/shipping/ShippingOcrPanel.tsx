@@ -1,5 +1,7 @@
 ﻿import React from 'react';
 import { Box, Camera, CheckCircle, Image as ImageIcon, Plus, X } from 'lucide-react';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
+import type { MaterialMaster } from '../../services/material.service';
 
 type Props = {
   t: Record<string, string>;
@@ -11,6 +13,11 @@ type Props = {
   previewMode: 'single' | 'gallery';
   isOcrProcessing: boolean;
   ocrResult: any;
+  ocrMaterialQuery: string;
+  ocrMaterial: MaterialMaster | null;
+  onMaterialQueryChange: (value: string) => void;
+  onMaterialClear: () => void;
+  onMaterialSelect: (material: MaterialMaster) => void;
   onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onParse: () => void;
   onApply: () => void;
@@ -31,6 +38,11 @@ const ShippingOcrPanel: React.FC<Props> = ({
   previewMode,
   isOcrProcessing,
   ocrResult,
+  ocrMaterialQuery,
+  ocrMaterial,
+  onMaterialQueryChange,
+  onMaterialClear,
+  onMaterialSelect,
   onImageUpload,
   onParse,
   onApply,
@@ -40,16 +52,16 @@ const ShippingOcrPanel: React.FC<Props> = ({
   onTogglePreview,
   fileInputRef,
 }) => {
-  const uploadCardClass = `relative h-48 rounded-2xl border-2 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden ${
+ const uploadCardClass = `relative h-48 rounded-2xl border-2 border-dashed transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none flex flex-col items-center justify-center cursor-pointer overflow-hidden ${
     ocrImage
       ? 'border-blue-300 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20'
       : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 hover:border-blue-300 hover:bg-blue-50/40 dark:hover:border-blue-800'
   }`;
 
-  const parseButtonClass = `flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center ${
+ const parseButtonClass = `flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none flex items-center justify-center ${
     isOcrProcessing
       ? 'bg-slate-400 text-white cursor-not-allowed shadow-slate-200'
-      : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700 active:scale-[0.98]'
+      : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700'
   }`;
 
   return (
@@ -63,7 +75,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
           <p className="text-xs text-slate-500 font-bold mt-1">{t.ocrShipmentHint}</p>
         </div>
         <div className="flex gap-2">
-          <span className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-[10px] font-black uppercase tracking-widest border border-blue-100 dark:border-blue-800">
+          <span className="px-3 py-1 bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 rounded-full text-xs font-black uppercase tracking-widest border border-blue-100 dark:border-blue-800">
             AI Powered
           </span>
         </div>
@@ -88,7 +100,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                       e.stopPropagation();
                       onClearAll();
                     }}
-                    className="mt-2 text-[10px] font-black text-rose-500 hover:underline"
+                    className="mt-2 text-xs font-black text-rose-500 hover:underline"
                   >
                     {t.clear || '清空'}
                   </button>
@@ -104,7 +116,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
 
           {ocrImages.length > 0 && (
             <div className="flex items-center justify-between">
-              <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">
+              <span className="text-xs font-black text-slate-400 uppercase tracking-widest">
                 {ocrImages.length} {t.images || 'Images'}
               </span>
               <div className="flex items-center gap-2">
@@ -112,7 +124,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                   <button
                     type="button"
                     onClick={onTogglePreview}
-                    className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800"
                   >
                     {previewMode === 'single' ? (t.gallery || '画廊') : (t.single || '单张')}
                   </button>
@@ -120,7 +132,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                 <button
                   type="button"
                   onClick={onClearAll}
-                  className="px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                  className="px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border border-rose-200 dark:border-rose-800 text-rose-600 dark:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-900/20"
                 >
                   {t.clear || '清空'}
                 </button>
@@ -169,7 +181,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
             value={ocrText}
             onChange={(e) => setOcrText(e.target.value)}
             placeholder={t.ocrPlaceholder}
-            className="w-full h-24 bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 text-xs font-bold outline-none resize-none border border-transparent focus:border-blue-300 dark:focus:border-blue-900 transition-all"
+ className="w-full h-24 bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 text-xs font-bold outline-none resize-none border border-transparent focus:border-blue-300 dark:focus:border-blue-900 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none"
           />
 
           <div className="flex items-center gap-3">
@@ -191,9 +203,9 @@ const ShippingOcrPanel: React.FC<Props> = ({
 
         <div className="bg-slate-50 dark:bg-slate-800/30 rounded-2xl p-6 border border-slate-100 dark:border-slate-800 flex flex-col">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.ocrResult || '识别预览'}</h3>
+            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.ocrResult || '识别预览'}</h3>
             {ocrResult && (
-              <div className="flex items-center text-emerald-600 text-[10px] font-black uppercase">
+              <div className="flex items-center text-emerald-600 text-xs font-black uppercase">
                 <CheckCircle size={12} className="mr-1" />
                 {t.ocrConfidence}: {Math.round(ocrResult.confidence * 100)}%
               </div>
@@ -234,18 +246,33 @@ const ShippingOcrPanel: React.FC<Props> = ({
                   </div>
                 )}
               </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
+                <MaterialMasterCombobox
+                  dataTestId="shipping-ocr-material-input"
+                  label="过账物料确认"
+                  value={ocrMaterialQuery}
+                  selectedMaterialId={ocrMaterial?.id || null}
+                  onTextChange={onMaterialQueryChange}
+                  onClearSelection={onMaterialClear}
+                  onSelect={onMaterialSelect}
+                />
+                <p className="mt-2 text-[11px] font-semibold leading-5 text-amber-800 dark:text-amber-200">
+                  OCR 品名只作为检索提示，不会自动绑定物料。请人工核对物料编码、名称和基础单位后再创建发货单。
+                </p>
+              </div>
               <button
                 data-testid="shipping-ocr-apply-button"
                 onClick={onApply}
-                className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-all active:scale-[0.98]"
+                disabled={!ocrMaterial}
+ className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-colors duration-150 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none motion-reduce:transition-none dark:disabled:bg-slate-700"
               >
-                {t.ocrApply}
+                {ocrMaterial ? t.ocrApply : '请先确认统一物料'}
               </button>
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center opacity-30">
               <Box size={40} className="text-slate-400 mb-4" />
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">{t.awaitingOcr || '等待识别数据...'}</p>
+              <p className="text-xs font-black text-slate-400 uppercase tracking-widest">{t.awaitingOcr || '等待识别数据...'}</p>
             </div>
           )}
         </div>

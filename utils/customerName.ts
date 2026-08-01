@@ -1,4 +1,4 @@
-import type { Customer, Language } from '../types';
+import type { Language } from '../types';
 import { splitCustomerTextList } from './customerAlias';
 
 type CustomerNameSource = {

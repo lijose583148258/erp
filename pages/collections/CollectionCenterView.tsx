@@ -21,8 +21,8 @@ import useCollectionCenterState, {
 } from './useCollectionCenter';
 import { useCollectionCenterTables } from './useCollectionCenterTables';
 
-const filterChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
-const sortChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
+const filterChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none';
+const sortChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none';
 type CollectionDeskTab = 'receivable' | 'promise' | 'risk' | 'principle';
 
 const Metric = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
