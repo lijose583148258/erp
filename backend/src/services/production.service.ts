@@ -1,4 +1,3 @@
-import { AuthRequest } from '../middleware/auth';
 import {
   ProductionBomInput,
   ProductionQualityCheckInput,
@@ -11,6 +10,7 @@ import { ProductionQueryService } from './production-query.service';
 import { ProductionMutationService } from './production-mutation.service';
 import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { BatchTraceService } from './batch-trace.service';
+import { ProductionQualityService, type ProductionQualityActor } from './production-quality.service';
 
 export type { ProductionWorkOrderStatus, ProductionQualityResult, ProductionBomInput, ProductionBomItemInput, ProductionWorkOrderInput, ProductionWorkOrderStepInput, ProductionQualityCheckInput } from './production-query.service';
 
@@ -47,8 +47,17 @@ export class ProductionService {
     return ProductionMutationService.updateWorkOrderStep(workOrderId, stepId, input);
   }
 
-  static async createQualityCheck(workOrderId: number, input: ProductionQualityCheckInput) {
-    return ProductionMutationService.createQualityCheck(workOrderId, input);
+  static async createQualityCheck(workOrderId: number, input: ProductionQualityCheckInput, actor: ProductionQualityActor) {
+    return ProductionQualityService.submitInspection(workOrderId, input, actor);
+  }
+
+  static async reviewQualityCheck(
+    workOrderId: number,
+    qualityCheckId: number,
+    input: { decision: 'release' | 'reject'; reviewNote: string },
+    actor: ProductionQualityActor,
+  ) {
+    return ProductionQualityService.reviewInspection(workOrderId, qualityCheckId, input, actor);
   }
 
   static async getBatchCostLedger(batchId: number, options: { page?: number; pageSize?: number } = {}) {

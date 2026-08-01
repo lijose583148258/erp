@@ -25,6 +25,7 @@ model ProductionBom {
   updatedAt   DateTime @updatedAt @map("updated_at")
 
   items       ProductionBomItem[]
+  qualityCharacteristics ProductionQualityCharacteristic[]
   workOrders  ProductionWorkOrder[]
 
   @@index([productName])
@@ -57,6 +58,30 @@ model ProductionBomItem {
   @@index([bomId])
   @@index([materialId])
   @@map("production_bom_items")
+}
+
+model ProductionQualityCharacteristic {
+  id          Int           @id @default(autoincrement())
+  bomId       Int           @map("bom_id")
+  bom         ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
+  code        String
+  name        String
+  valueType   String        @default("numeric") @map("value_type")
+  unit        String?
+  lowerLimit  Decimal?      @map("lower_limit")
+  upperLimit  Decimal?      @map("upper_limit")
+  targetText  String?       @map("target_text")
+  testMethod  String?       @map("test_method")
+  required    Boolean       @default(true)
+  sortOrder   Int           @default(0) @map("sort_order")
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+
+  measurements ProductionQualityMeasurement[]
+
+  @@unique([bomId, code])
+  @@index([bomId, sortOrder])
+  @@map("production_quality_characteristics")
 }
 
 model ProductionWorkOrder {
@@ -148,15 +173,57 @@ model ProductionQualityCheck {
   workOrderId   Int                 @map("work_order_id")
   workOrder     ProductionWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
   checkNo       String              @unique @map("check_no")
+  revision      Int                 @default(1)
+  status        String              @default("submitted")
   result        String              @default("pending")
+  disposition   String              @default("pending")
+  sampleNo      String?             @map("sample_no")
   defectRate    Float?              @map("defect_rate")
   note          String?
+  inspectorUserId Int?              @map("inspector_user_id")
+  inspector     User?               @relation("ProductionQualityInspector", fields: [inspectorUserId], references: [id], onDelete: SetNull)
   checkedBy     String?             @map("checked_by")
   checkedAt     DateTime?           @map("checked_at")
+  reviewedByUserId Int?             @map("reviewed_by_user_id")
+  reviewer      User?               @relation("ProductionQualityReviewer", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+  reviewedBy    String?             @map("reviewed_by")
+  reviewedAt    DateTime?           @map("reviewed_at")
+  reviewNote    String?             @map("review_note")
   createdAt     DateTime            @default(now()) @map("created_at")
   updatedAt     DateTime            @updatedAt @map("updated_at")
 
+  measurements  ProductionQualityMeasurement[]
+
   @@index([workOrderId])
+  @@unique([workOrderId, revision])
   @@index([result])
+  @@index([status])
   @@map("production_quality_checks")
+}
+
+model ProductionQualityMeasurement {
+  id               Int                             @id @default(autoincrement())
+  qualityCheckId   Int                             @map("quality_check_id")
+  qualityCheck     ProductionQualityCheck          @relation(fields: [qualityCheckId], references: [id], onDelete: Cascade)
+  characteristicId Int?                           @map("characteristic_id")
+  characteristic   ProductionQualityCharacteristic? @relation(fields: [characteristicId], references: [id], onDelete: SetNull)
+  characteristicCode String                        @map("characteristic_code")
+  characteristicName String                        @map("characteristic_name")
+  valueType        String                          @map("value_type")
+  unit             String?
+  lowerLimit       Decimal?                        @map("lower_limit")
+  upperLimit       Decimal?                        @map("upper_limit")
+  targetText       String?                         @map("target_text")
+  measuredNumeric  Decimal?                        @map("measured_numeric")
+  measuredText     String?                         @map("measured_text")
+  result           String
+  testMethod       String?                         @map("test_method")
+  instrumentNo     String?                         @map("instrument_no")
+  note             String?
+  createdAt        DateTime                        @default(now()) @map("created_at")
+
+  @@unique([qualityCheckId, characteristicCode])
+  @@index([qualityCheckId])
+  @@index([characteristicId])
+  @@map("production_quality_measurements")
 }

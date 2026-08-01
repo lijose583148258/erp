@@ -168,6 +168,20 @@ describe('OpenAPI contract foundation', () => {
     }
   });
 
+  it('documents structured inspection and independent release contracts', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const submit = document.paths[`${prefix}/production/work-orders/{id}/checks`]?.post;
+      const review = document.paths[`${prefix}/production/work-orders/{id}/checks/{checkId}/review`]?.post;
+      expect((submit?.requestBody?.content as any)?.['application/json']?.schema).toEqual({ $ref: '#/components/schemas/ProductionQualityInspectionRequest' });
+      expect((review?.requestBody?.content as any)?.['application/json']?.schema).toEqual({ $ref: '#/components/schemas/ProductionQualityReviewRequest' });
+      expect(submit?.description).toContain('server derives pass/fail');
+      expect(review?.description).toContain('self-review');
+    }
+    expect(document.components.schemas.ProductionQualityInspectionRequest.required).toEqual(['sampleNo', 'measurements']);
+    expect(document.components.schemas.ProductionQualityReviewRequest.required).toEqual(['decision', 'reviewNote']);
+  });
+
   it('documents identity-bound manual stock inbound and shipment creation', () => {
     const document = buildOpenApiDocument();
     for (const prefix of ['/api', '/api/v1']) {

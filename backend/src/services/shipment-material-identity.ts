@@ -54,10 +54,13 @@ export async function resolveShipmentIdentity(tx: TransactionClient, input: Ship
       where: canonical.materialId
         ? { materialId: canonical.materialId, batchNo: input.batchNo }
         : { productName: canonical.productName, batchNo: input.batchNo },
-      select: { id: true, materialId: true, batchNo: true },
+      select: { id: true, materialId: true, batchNo: true, qualityStatus: true },
     })
     : null;
   if (input.batchNo && !productBatch) throw new Error('SHIPMENT_PRODUCT_BATCH_NOT_FOUND');
+  if (productBatch && ['hold', 'quarantine', 'pending_qc'].includes(productBatch.qualityStatus)) {
+    throw new Error(`SHIPMENT_PRODUCT_BATCH_NOT_RELEASED:${productBatch.batchNo}:${productBatch.qualityStatus}`);
+  }
 
   return {
     orderId: orderItem?.orderId ?? input.orderId ?? null,

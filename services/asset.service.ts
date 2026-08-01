@@ -43,6 +43,7 @@ export interface ProductBatch {
     notes?: string | null;
     remainingDays?: number;
     status?: 'expired' | 'expiring' | 'healthy';
+    qualityStatus?: 'not_required' | 'pending_qc' | 'hold' | 'released' | 'quarantined';
 }
 
 export interface ProductBatchPaginationMeta {

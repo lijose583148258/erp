@@ -129,7 +129,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
   const hasShortage = suggestions.some((suggestion) => suggestion.shortageQty > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-sm">
       <div
         data-testid="production-complete-modal"
         role="dialog"
@@ -252,7 +252,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                                     step="0.01"
                                     value={records[pick.stockBalanceId] ?? 0}
                                     onChange={(e) => handleDeductChange(pick.stockBalanceId, e.target.value)}
-                                    className="w-24 text-right bg-white dark:bg-slate-900 border border-blue-200 dark:border-slate-700 px-2 py-1 rounded-lg text-xs font-bold text-blue-700 dark:text-blue-300 outline-none focus:ring-2 focus:ring-blue-500/30 transition-all"
+                                    className="w-24 rounded-lg border border-blue-200 bg-white px-2 py-1 text-right text-xs font-bold text-blue-700 outline-none transition-colors duration-150 focus:ring-2 focus:ring-blue-500/30 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300"
                                   />
                                 </td>
                               </tr>
@@ -306,7 +306,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                 onClick={handleSubmit}
                 disabled={submitting}
                 data-testid="production-complete-confirm"
-                className="flex min-h-12 w-full items-center justify-center gap-2 px-8 py-3 rounded-[20px] bg-blue-600 text-white text-xs font-black uppercase tracking-widest transition-[transform,background-color,box-shadow] motion-reduce:transition-none hover:bg-blue-700 hover:scale-[1.02] motion-reduce:hover:scale-100 shadow-xl shadow-blue-500/20 active-shrink disabled:opacity-50 sm:w-auto"
+                className="flex min-h-12 w-full items-center justify-center gap-2 px-8 py-3 rounded-[20px] bg-blue-600 text-white text-xs font-black uppercase tracking-widest transition-[background-color,box-shadow] motion-reduce:transition-none hover:bg-blue-700 shadow-xl shadow-blue-500/20 disabled:opacity-50 sm:w-auto"
               >
                 <Save size={16} />
                 确认扣减并完工

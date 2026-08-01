@@ -4,6 +4,8 @@ import { MaterialMasterCombobox } from '../../components/materials/MaterialMaste
 import { ProductionBom } from '../../services/production.service';
 import { ProductionBomLineGrid } from './ProductionBomLineGrid';
 import type { BomItemDraft } from './productionBomLineModel';
+import { ProductionQualitySpecEditor } from './ProductionQualitySpecEditor';
+import type { QualityCharacteristicDraft } from './useProductionWorkspaceForms';
 import { buildBomDraftPreviewSummary } from './ProductionWorkspaceDerived';
 import {
   BOM_STATUS_LABELS,
@@ -72,6 +74,8 @@ interface ProductionBomSectionProps {
   numericStandardBatchSize: number;
   bomItems: BomItemDraft[];
   setBomItems: Dispatch<SetStateAction<BomItemDraft[]>>;
+  bomQualityCharacteristics: QualityCharacteristicDraft[];
+  setBomQualityCharacteristics: Dispatch<SetStateAction<QualityCharacteristicDraft[]>>;
   loading: boolean;
   bomSaving: boolean;
   bomFormErrors: BomFormErrors;
@@ -130,6 +134,8 @@ export function ProductionBomSection({
   numericStandardBatchSize,
   bomItems,
   setBomItems,
+  bomQualityCharacteristics,
+  setBomQualityCharacteristics,
   loading,
   bomSaving,
   bomFormErrors,
@@ -290,6 +296,7 @@ export function ProductionBomSection({
                 </div>
                 <TextareaField dataTestId="production-bom-process-text" label="工艺摘要" value={bomProcessText} onChange={setBomProcessText} placeholder="输入搅拌、升温、熟化、过滤等关键工艺参数" />
                 <TextareaField dataTestId="production-bom-quality-spec-text" label="质检规范" value={bomQualitySpecText} onChange={setBomQualitySpecText} placeholder="填写固含、粘度、外观、颜色、耐温等放行标准" />
+                <ProductionQualitySpecEditor rows={bomQualityCharacteristics} setRows={setBomQualityCharacteristics} />
                 <TextareaField dataTestId="production-bom-notes" label="备注" value={bomNotes} onChange={setBomNotes} placeholder="说明适用产品、产线、颜色体系或客户专配信息" />
               </div>
             ) : null}
@@ -349,7 +356,7 @@ export function ProductionBomSection({
               <div className="text-sm font-black text-slate-900 dark:text-white">保存为一个配方版本</div>
               <div className="text-xs font-bold text-slate-400">保存前确认左侧主数据 + 右侧原料明细；保存后请在下方只读列表回读，确认原料行没有丢失。</div>
             </div>
-            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading || bomSaving} aria-busy={bomSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] motion-reduce:hover:scale-100 transition-[transform,background-color,box-shadow] motion-reduce:transition-none active-shrink disabled:opacity-60">{bomSaving ? '保存中...' : '保存配方版本（主数据 + 明细）'}</button>
+            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading || bomSaving} aria-busy={bomSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 transition-[background-color,box-shadow] motion-reduce:transition-none hover:bg-blue-700 disabled:opacity-60">{bomSaving ? '保存中...' : '保存配方版本（主数据 + 明细）'}</button>
           </div>
         </div>
       </div>
@@ -370,7 +377,7 @@ export function ProductionBomSection({
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
               {displayedBoms.map(bom => (
-                <tr key={bom.id} className={`transition-all ${selectedBomId === bom.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}>
+                <tr key={bom.id} className={`transition-colors duration-150 motion-reduce:transition-none ${selectedBomId === bom.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}>
                   <Td mono>{bom.bomNo}</Td>
                   <Td>
                     <div className="font-bold text-slate-900 dark:text-white text-sm">{bom.productName}</div>

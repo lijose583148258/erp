@@ -28,6 +28,14 @@ interface BatchTraceNode {
 
 type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
 
+const QUALITY_STATUS_LABELS: Record<NonNullable<ProductBatch['qualityStatus']>, string> = {
+  not_required: '无需质检',
+  pending_qc: '待质检',
+  hold: '待判定',
+  released: '已放行',
+  quarantined: '已隔离',
+};
+
 interface ProductionBatchAdjustmentSectionProps {
   batches: ProductBatch[];
   batchKeyword: string;
@@ -119,6 +127,7 @@ export function ProductionBatchAdjustmentSection({
                   <Th>日期</Th>
                   <Th>库存</Th>
                   <Th>状态</Th>
+                  <Th>质量状态</Th>
                   <Th>操作</Th>
                 </tr>
               </thead>
@@ -128,13 +137,18 @@ export function ProductionBatchAdjustmentSection({
                     key={batch.id}
                     data-testid={`production-batch-row-${batch.id}`}
                     onClick={() => setSelectedBatchId(batch.id)}
-                    className={`cursor-pointer transition-all ${selectedBatchId === batch.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}
+                    className={`cursor-pointer transition-colors duration-150 motion-reduce:transition-none ${selectedBatchId === batch.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}
                   >
                     <Td mono>{batch.batchNo}</Td>
                     <Td strong>{batch.productName}</Td>
                     <Td>{formatDateOnly(batch.productionDate)} / {formatDateOnly(batch.expiryDate)}</Td>
                     <Td>{batch.stockQuantity} {batch.unit}</Td>
                     <Td><BatchBadge status={batch.status} /></Td>
+                    <Td>
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-[11px] font-black ${batch.qualityStatus === 'released' || batch.qualityStatus === 'not_required' ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-200' : batch.qualityStatus === 'quarantined' ? 'bg-rose-50 text-rose-700 dark:bg-rose-950/30 dark:text-rose-200' : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-200'}`}>
+                        {QUALITY_STATUS_LABELS[batch.qualityStatus || 'not_required']}
+                      </span>
+                    </Td>
                     <Td><button onClick={e => { e.stopPropagation(); setSelectedBatchId(batch.id); }} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest">选中</button></Td>
                   </tr>
                 ))}
@@ -188,7 +202,7 @@ export function ProductionBatchAdjustmentSection({
                 </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   {TEMPLATES.map(template => (
-                    <button key={template.id} onClick={() => { setTemplateId(template.id); setAdjustmentReason(template.reason); clearAdjustmentFormError('reason'); }} className={`text-left p-4 rounded-[24px] border transition-all duration-300 ${templateId === template.id ? 'bg-blue-600 text-white border-blue-500 shadow-xl shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-200 dark:hover:border-blue-900'}`}>
+                    <button key={template.id} onClick={() => { setTemplateId(template.id); setAdjustmentReason(template.reason); clearAdjustmentFormError('reason'); }} className={`text-left p-4 rounded-[24px] border transition-colors duration-150 motion-reduce:transition-none ${templateId === template.id ? 'bg-blue-600 text-white border-blue-500 shadow-xl shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-white/60 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-blue-200 dark:hover:border-blue-900'}`}>
                       <div className="text-xs font-black uppercase tracking-widest">{template.label}</div>
                       <div className="mt-2 text-[11px] opacity-75">{template.hint}</div>
                     </button>
@@ -244,7 +258,7 @@ export function ProductionBatchAdjustmentSection({
         </div>
         <div className="mb-6 flex flex-wrap gap-2">
           {(['all', 'posted', 'pending', 'reversed'] as AdjustmentStatusFilter[]).map(status => (
-            <button key={status} onClick={() => setAdjustmentStatus(status)} className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest border transition-all ${adjustmentStatus === status ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300'}`}>
+            <button key={status} onClick={() => setAdjustmentStatus(status)} className={`px-4 py-2 rounded-full text-xs font-black uppercase tracking-widest border transition-colors duration-150 motion-reduce:transition-none ${adjustmentStatus === status ? 'bg-blue-600 text-white border-blue-600 shadow-lg shadow-blue-500/20' : 'bg-white/80 dark:bg-slate-900/80 border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-300'}`}>
               {status === 'all' ? '全部' : status === 'posted' ? '已生效' : status === 'pending' ? '待处理' : '已冲销'}
             </button>
           ))}
@@ -264,7 +278,7 @@ export function ProductionBatchAdjustmentSection({
             </thead>
             <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
               {adjustments.map(record => (
-                <tr key={record.id} data-testid={`production-adjustment-row-${record.id}`} className="hover:bg-blue-50/20 dark:hover:bg-blue-900/5 transition-all">
+                <tr key={record.id} data-testid={`production-adjustment-row-${record.id}`} className="transition-colors duration-150 hover:bg-blue-50/20 motion-reduce:transition-none dark:hover:bg-blue-900/5">
                   <Td mono>{record.adjustmentNo}</Td>
                   <Td>
                     <div className="font-bold text-slate-900 dark:text-white text-sm">{record.batchNo || ''}</div>

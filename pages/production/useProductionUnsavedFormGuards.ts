@@ -89,10 +89,11 @@ export const useProductionUnsavedFormGuards = ({
     touched: qualityForm.touched,
     resetKey: qualitySaveVersion,
     value: {
-      qcResult: qualityForm.qcResult,
-      qcDefectRate: qualityForm.qcDefectRate,
+      qcSampleNo: qualityForm.qcSampleNo,
+      qcMeasurementValues: qualityForm.qcMeasurementValues,
+      qcInstrumentNumbers: qualityForm.qcInstrumentNumbers,
       qcNote: qualityForm.qcNote,
-      qcCheckedBy: qualityForm.qcCheckedBy,
+      qcReviewNote: qualityForm.qcReviewNote,
     },
   });
 

@@ -37,6 +37,7 @@ export const useProductionBomForm = () => {
   const [bomQualitySpecText, setBomQualitySpecText] = useState('');
   const [bomNotes, setBomNotes] = useState('');
   const [bomItems, setBomItems] = useState<BomItemDraft[]>(newBomItems());
+  const [bomQualityCharacteristics, setBomQualityCharacteristics] = useState<QualityCharacteristicDraft[]>([]);
 
   const resetBomForm = () => {
     setBomMaterialId(null);
@@ -57,6 +58,7 @@ export const useProductionBomForm = () => {
     setBomQualitySpecText('');
     setBomNotes('');
     setBomItems(newBomItems());
+    setBomQualityCharacteristics([]);
   };
 
   return {
@@ -150,12 +152,43 @@ export const useProductionBomForm = () => {
       touch.markTouched();
       setBomItems(value);
     },
+    bomQualityCharacteristics,
+    setBomQualityCharacteristics: (value: SetStateAction<QualityCharacteristicDraft[]>) => {
+      touch.markTouched();
+      setBomQualityCharacteristics(value);
+    },
     resetBomForm,
     touched: touch.touched,
     markTouched: touch.markTouched,
     clearTouched: touch.clearTouched,
   };
 };
+
+export type QualityCharacteristicDraft = {
+  rowKey: string;
+  code: string;
+  name: string;
+  valueType: 'numeric' | 'text';
+  unit: string;
+  lowerLimit: string;
+  upperLimit: string;
+  targetText: string;
+  testMethod: string;
+  required: boolean;
+};
+
+export const newQualityCharacteristicDraft = (): QualityCharacteristicDraft => ({
+  rowKey: globalThis.crypto?.randomUUID?.() || `quality-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  code: '',
+  name: '',
+  valueType: 'numeric',
+  unit: '',
+  lowerLimit: '',
+  upperLimit: '',
+  targetText: '',
+  testMethod: '',
+  required: true,
+});
 
 export const useProductionWorkOrderForm = (createInitialSteps: () => StepDraft[]) => {
   const touch = useTouchedState();
@@ -230,38 +263,45 @@ export const useProductionWorkOrderForm = (createInitialSteps: () => StepDraft[]
 
 export const useProductionQualityForm = () => {
   const touch = useTouchedState();
-  const [qcResult, setQcResult] = useState<'pass' | 'fail'>('pass');
-  const [qcDefectRate, setQcDefectRate] = useState('');
+  const [qcSampleNo, setQcSampleNo] = useState('');
+  const [qcMeasurementValues, setQcMeasurementValues] = useState<Record<number, string>>({});
+  const [qcInstrumentNumbers, setQcInstrumentNumbers] = useState<Record<number, string>>({});
   const [qcNote, setQcNote] = useState('');
-  const [qcCheckedBy, setQcCheckedBy] = useState('');
+  const [qcReviewNote, setQcReviewNote] = useState('');
 
   const resetQualityForm = () => {
-    setQcResult('pass');
-    setQcDefectRate('');
+    setQcSampleNo('');
+    setQcMeasurementValues({});
+    setQcInstrumentNumbers({});
     setQcNote('');
-    setQcCheckedBy('');
+    setQcReviewNote('');
   };
 
   return {
-    qcResult,
-    setQcResult: (value: 'pass' | 'fail') => {
+    qcSampleNo,
+    setQcSampleNo: (value: string) => {
       touch.markTouched();
-      setQcResult(value);
+      setQcSampleNo(value);
     },
-    qcDefectRate,
-    setQcDefectRate: (value: string) => {
+    qcMeasurementValues,
+    setQcMeasurementValue: (characteristicId: number, value: string) => {
       touch.markTouched();
-      setQcDefectRate(value);
+      setQcMeasurementValues(current => ({ ...current, [characteristicId]: value }));
+    },
+    qcInstrumentNumbers,
+    setQcInstrumentNumber: (characteristicId: number, value: string) => {
+      touch.markTouched();
+      setQcInstrumentNumbers(current => ({ ...current, [characteristicId]: value }));
     },
     qcNote,
     setQcNote: (value: string) => {
       touch.markTouched();
       setQcNote(value);
     },
-    qcCheckedBy,
-    setQcCheckedBy: (value: string) => {
+    qcReviewNote,
+    setQcReviewNote: (value: string) => {
       touch.markTouched();
-      setQcCheckedBy(value);
+      setQcReviewNote(value);
     },
     resetQualityForm,
     touched: touch.touched,

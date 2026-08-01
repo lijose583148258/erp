@@ -10,7 +10,7 @@ describe('shipment material identity', () => {
       orderItem: { findUnique: jest.fn().mockResolvedValue({ id: 3, orderId: 2, materialId: 9, productName: '旧名称', quantity: 20, unit: 'kg', order: { customerId: 1 } }) },
       shipment: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 5 } }) },
       material: { findUnique: jest.fn().mockResolvedValue(activeMaterial) },
-      productBatch: { findFirst: jest.fn().mockResolvedValue({ id: 11, materialId: 9, batchNo: 'FG-B-1' }) },
+      productBatch: { findFirst: jest.fn().mockResolvedValue({ id: 11, materialId: 9, batchNo: 'FG-B-1', qualityStatus: 'released' }) },
     } as any;
     const result = await resolveShipmentIdentity(tx, { customerId: 1, orderId: 2, orderItemId: 3, productName: '任意文本', quantity: 10, unit: 'kg', batchNo: 'FG-B-1' });
     expect(result).toMatchObject({ orderItemId: 3, materialId: 9, productName: '成品乳液', productBatchId: 11 });
@@ -32,5 +32,16 @@ describe('shipment material identity', () => {
     } as any;
     await expect(resolveShipmentIdentity(tx, { customerId: 1, orderId: 2, orderItemId: 3, productName: '成品乳液', quantity: 3, unit: 'kg' }))
       .rejects.toThrow('SHIPMENT_ORDER_ITEM_QUANTITY_EXCEEDED');
+  });
+
+  it('rejects a quarantined finished-goods batch before shipment persistence', async () => {
+    const tx = {
+      orderItem: { findUnique: jest.fn().mockResolvedValue({ id: 3, orderId: 2, materialId: 9, productName: '成品乳液', quantity: 20, unit: 'kg', order: { customerId: 1 } }) },
+      shipment: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }) },
+      material: { findUnique: jest.fn().mockResolvedValue(activeMaterial) },
+      productBatch: { findFirst: jest.fn().mockResolvedValue({ id: 11, materialId: 9, batchNo: 'FG-HOLD', qualityStatus: 'quarantine' }) },
+    } as any;
+    await expect(resolveShipmentIdentity(tx, { customerId: 1, orderId: 2, orderItemId: 3, productName: '成品乳液', quantity: 3, unit: 'kg', batchNo: 'FG-HOLD' }))
+      .rejects.toThrow('SHIPMENT_PRODUCT_BATCH_NOT_RELEASED');
   });
 });

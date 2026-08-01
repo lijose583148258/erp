@@ -35,8 +35,8 @@ type Props = {
 };
 const baseInputClass =
   'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-100 dark:focus:bg-slate-900 border-none';
-const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
-const commonSelectClass = 'w-full rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-all focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30 cursor-pointer';
+const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-colors duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
+const commonSelectClass = 'w-full cursor-pointer rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-colors duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
 export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize, formulationMode }) => {
   const [pasteText, setPasteText] = useState('');
   const [showPastePanel, setShowPastePanel] = useState(false);
@@ -479,7 +479,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       <button
                         type="button"
                         onClick={() => duplicateItem(index)}
-                        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all dark:hover:bg-slate-800 dark:hover:text-slate-200"
+                        className="rounded-lg p-2 text-slate-400 transition-colors duration-150 hover:bg-slate-100 hover:text-slate-700 motion-reduce:transition-none dark:hover:bg-slate-800 dark:hover:text-slate-200"
                         title="复制一行"
                       >
                         <CopyPlus size={16} />
@@ -487,7 +487,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       <button
                         type="button"
                         onClick={() => removeItem(index)}
-                        className="rounded-lg p-2 text-rose-400 hover:bg-rose-50 hover:text-rose-600 transition-all dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
+                        className="rounded-lg p-2 text-rose-400 transition-colors duration-150 hover:bg-rose-50 hover:text-rose-600 motion-reduce:transition-none dark:hover:bg-rose-950/30 dark:hover:text-rose-300"
                         title="删除一行"
                       >
                         <Trash2 size={16} />

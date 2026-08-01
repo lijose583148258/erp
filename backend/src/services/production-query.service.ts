@@ -3,6 +3,19 @@ import prisma from '../config/database';
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
 
+export interface ProductionQualityCharacteristicInput {
+  code: string;
+  name: string;
+  valueType?: 'numeric' | 'text';
+  unit?: string | null;
+  lowerLimit?: string | number | null;
+  upperLimit?: string | number | null;
+  targetText?: string | null;
+  testMethod?: string | null;
+  required?: boolean;
+  sortOrder?: number;
+}
+
 export interface ProductionBomItemInput {
   materialId?: number | null;
   materialName?: string | null;
@@ -37,6 +50,7 @@ export interface ProductionBomInput {
   effectiveTo?: string | null;
   processJson?: string | null;
   qualitySpecJson?: string | null;
+  qualityCharacteristics?: ProductionQualityCharacteristicInput[];
   notes?: string | null;
   items?: ProductionBomItemInput[];
 }
@@ -62,10 +76,16 @@ export interface ProductionWorkOrderInput {
 }
 
 export interface ProductionQualityCheckInput {
-  result: ProductionQualityResult;
+  sampleNo: string;
   defectRate?: number | null;
   note?: string | null;
-  checkedBy?: string | null;
+  measurements: Array<{
+    characteristicId: number;
+    measuredNumeric?: string | number | null;
+    measuredText?: string | null;
+    instrumentNo?: string | null;
+    note?: string | null;
+  }>;
 }
 
 const serializeDate = (value: Date | null | undefined) => value ? value.toISOString() : null;
@@ -174,6 +194,7 @@ export class ProductionQueryService {
       include: {
         creator: { select: { id: true, username: true, role: true } },
         items: { orderBy: { id: 'asc' } },
+        qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         workOrders: {
           select: { id: true, workOrderNo: true, status: true, targetQuantity: true, producedQuantity: true, lossQuantity: true },
           orderBy: { createdAt: 'desc' },
@@ -188,6 +209,11 @@ export class ProductionQueryService {
       effectiveTo: serializeDate(item.effectiveTo),
       createdAt: serializeDate(item.createdAt),
       updatedAt: serializeDate(item.updatedAt),
+      qualityCharacteristics: item.qualityCharacteristics.map(characteristic => ({
+        ...characteristic,
+        lowerLimit: characteristic.lowerLimit?.toString() ?? null,
+        upperLimit: characteristic.upperLimit?.toString() ?? null,
+      })),
     }));
   }
 
@@ -207,7 +233,9 @@ export class ProductionQueryService {
       where,
       orderBy: { createdAt: 'desc' },
       include: {
-        bom: { select: { id: true, bomNo: true, materialId: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+        bom: {
+          include: { qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
         productBatch: {
           select: {
             id: true,
@@ -217,11 +245,15 @@ export class ProductionQueryService {
             productionDate: true,
             expiryDate: true,
             stockQuantity: true,
+            qualityStatus: true,
             unit: true,
           },
         },
         steps: { orderBy: { stepNo: 'asc' } },
-        qualityChecks: { orderBy: { createdAt: 'desc' } },
+        qualityChecks: {
+          orderBy: { revision: 'desc' },
+          include: { measurements: { orderBy: { id: 'asc' } } },
+        },
       },
     });
 
@@ -243,8 +275,15 @@ export class ProductionQueryService {
       qualityChecks: item.qualityChecks.map(check => ({
         ...check,
         checkedAt: serializeDate(check.checkedAt),
+        reviewedAt: serializeDate(check.reviewedAt),
         createdAt: serializeDate(check.createdAt),
         updatedAt: serializeDate(check.updatedAt),
+        measurements: check.measurements.map(measurement => ({
+          ...measurement,
+          lowerLimit: measurement.lowerLimit?.toString() ?? null,
+          upperLimit: measurement.upperLimit?.toString() ?? null,
+          measuredNumeric: measurement.measuredNumeric?.toString() ?? null,
+        })),
       })),
     }));
   }

@@ -53,6 +53,8 @@ export type FrontendPermission =
   | 'assets.write'
   | 'production.read'
   | 'production.write'
+  | 'production.quality.inspect'
+  | 'production.quality.release'
   | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
@@ -154,6 +156,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.inspect',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -226,6 +230,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -290,6 +295,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',

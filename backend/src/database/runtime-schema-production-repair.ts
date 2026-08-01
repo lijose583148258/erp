@@ -5,6 +5,7 @@ import {
   dropIndexIfExists,
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
+import prisma from '../config/database';
 
 export const repairProductionSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'production_boms', 'material_id', 'INTEGER');
@@ -34,6 +35,70 @@ export const repairProductionSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'shipments', 'order_item_id', 'INTEGER');
   await addColumnIfMissing(report, 'shipments', 'material_id', 'INTEGER');
   await addColumnIfMissing(report, 'shipments', 'product_batch_id', 'INTEGER');
+  await addColumnIfMissing(report, 'product_batches', 'quality_status', `TEXT NOT NULL DEFAULT 'not_required'`);
+
+  await createTableIfMissing(report, 'production_quality_characteristics', `
+    CREATE TABLE "production_quality_characteristics" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "bom_id" INTEGER NOT NULL,
+      "code" TEXT NOT NULL,
+      "name" TEXT NOT NULL,
+      "value_type" TEXT NOT NULL DEFAULT 'numeric',
+      "unit" TEXT,
+      "lower_limit" DECIMAL,
+      "upper_limit" DECIMAL,
+      "target_text" TEXT,
+      "test_method" TEXT,
+      "required" BOOLEAN NOT NULL DEFAULT 1,
+      "sort_order" INTEGER NOT NULL DEFAULT 0,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "updated_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "production_quality_characteristics_bom_id_fkey" FOREIGN KEY ("bom_id") REFERENCES "production_boms" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )
+  `);
+
+  await addColumnIfMissing(report, 'production_quality_checks', 'revision', 'INTEGER');
+  await addColumnIfMissing(report, 'production_quality_checks', 'status', `TEXT NOT NULL DEFAULT 'legacy_recorded'`);
+  await addColumnIfMissing(report, 'production_quality_checks', 'disposition', `TEXT NOT NULL DEFAULT 'legacy'`);
+  await addColumnIfMissing(report, 'production_quality_checks', 'sample_no', 'TEXT');
+  await addColumnIfMissing(report, 'production_quality_checks', 'inspector_user_id', 'INTEGER');
+  await addColumnIfMissing(report, 'production_quality_checks', 'reviewed_by_user_id', 'INTEGER');
+  await addColumnIfMissing(report, 'production_quality_checks', 'reviewed_by', 'TEXT');
+  await addColumnIfMissing(report, 'production_quality_checks', 'reviewed_at', 'DATETIME');
+  await addColumnIfMissing(report, 'production_quality_checks', 'review_note', 'TEXT');
+  await prisma.$executeRawUnsafe(`
+    UPDATE "production_quality_checks" AS qc
+    SET "revision" = (
+      SELECT COUNT(*) FROM "production_quality_checks" AS earlier
+      WHERE earlier."work_order_id" = qc."work_order_id"
+        AND (earlier."created_at" < qc."created_at" OR (earlier."created_at" = qc."created_at" AND earlier."id" <= qc."id"))
+    )
+    WHERE qc."revision" IS NULL
+  `);
+
+  await createTableIfMissing(report, 'production_quality_measurements', `
+    CREATE TABLE "production_quality_measurements" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "quality_check_id" INTEGER NOT NULL,
+      "characteristic_id" INTEGER,
+      "characteristic_code" TEXT NOT NULL,
+      "characteristic_name" TEXT NOT NULL,
+      "value_type" TEXT NOT NULL,
+      "unit" TEXT,
+      "lower_limit" DECIMAL,
+      "upper_limit" DECIMAL,
+      "target_text" TEXT,
+      "measured_numeric" DECIMAL,
+      "measured_text" TEXT,
+      "result" TEXT NOT NULL,
+      "test_method" TEXT,
+      "instrument_no" TEXT,
+      "note" TEXT,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      CONSTRAINT "production_quality_measurements_quality_check_id_fkey" FOREIGN KEY ("quality_check_id") REFERENCES "production_quality_checks" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+      CONSTRAINT "production_quality_measurements_characteristic_id_fkey" FOREIGN KEY ("characteristic_id") REFERENCES "production_quality_characteristics" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+    )
+  `);
 
   await createIndexIfMissing(report, 'production_boms_material_id_idx', 'CREATE INDEX "production_boms_material_id_idx" ON "production_boms"("material_id")');
   await createIndexIfMissing(report, 'production_work_orders_material_id_idx', 'CREATE INDEX "production_work_orders_material_id_idx" ON "production_work_orders"("material_id")');
@@ -42,6 +107,14 @@ export const repairProductionSchema = async (report: SchemaRepairReport) => {
   await createIndexIfMissing(report, 'shipments_material_id_idx', 'CREATE INDEX "shipments_material_id_idx" ON "shipments"("material_id")');
   await createIndexIfMissing(report, 'shipments_product_batch_id_idx', 'CREATE INDEX "shipments_product_batch_id_idx" ON "shipments"("product_batch_id")');
   await createIndexIfMissing(report, 'shipments_batch_no_idx', 'CREATE INDEX "shipments_batch_no_idx" ON "shipments"("batch_no")');
+  await createIndexIfMissing(report, 'product_batches_quality_status_idx', 'CREATE INDEX "product_batches_quality_status_idx" ON "product_batches"("quality_status")');
+  await createIndexIfMissing(report, 'production_quality_characteristics_bom_id_code_key', 'CREATE UNIQUE INDEX "production_quality_characteristics_bom_id_code_key" ON "production_quality_characteristics"("bom_id", "code")');
+  await createIndexIfMissing(report, 'production_quality_characteristics_bom_id_sort_order_idx', 'CREATE INDEX "production_quality_characteristics_bom_id_sort_order_idx" ON "production_quality_characteristics"("bom_id", "sort_order")');
+  await createIndexIfMissing(report, 'production_quality_checks_work_order_id_revision_key', 'CREATE UNIQUE INDEX "production_quality_checks_work_order_id_revision_key" ON "production_quality_checks"("work_order_id", "revision")');
+  await createIndexIfMissing(report, 'production_quality_checks_status_idx', 'CREATE INDEX "production_quality_checks_status_idx" ON "production_quality_checks"("status")');
+  await createIndexIfMissing(report, 'production_quality_measurements_quality_check_id_characteristic_code_key', 'CREATE UNIQUE INDEX "production_quality_measurements_quality_check_id_characteristic_code_key" ON "production_quality_measurements"("quality_check_id", "characteristic_code")');
+  await createIndexIfMissing(report, 'production_quality_measurements_quality_check_id_idx', 'CREATE INDEX "production_quality_measurements_quality_check_id_idx" ON "production_quality_measurements"("quality_check_id")');
+  await createIndexIfMissing(report, 'production_quality_measurements_characteristic_id_idx', 'CREATE INDEX "production_quality_measurements_characteristic_id_idx" ON "production_quality_measurements"("characteristic_id")');
 
   await createTableIfMissing(report, 'batch_genealogy_edges', `
     CREATE TABLE "batch_genealogy_edges" (

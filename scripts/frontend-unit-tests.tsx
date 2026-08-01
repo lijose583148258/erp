@@ -141,10 +141,13 @@ const tests: FrontendUnitTest[] = [
       assert.equal(workOrder.targetQuantity, 0);
       assert.ok(workOrder.errors.targetQuantity);
 
-      const quality = validateQualityForm({ result: 'fail', defectRateInput: '101', checkedBy: '' });
-      assert.equal(quality.defectRateValue, 101);
-      assert.ok(quality.errors.defectRate);
-      assert.ok(quality.errors.checkedBy);
+      const quality = validateQualityForm({
+        sampleNo: '',
+        characteristics: [{ id: 1, code: 'SOLIDS', name: '固含量', valueType: 'numeric', required: true }],
+        measurementValues: { 1: 'not-a-number' },
+      });
+      assert.ok(quality.errors.sampleNo);
+      assert.ok(quality.errors.measurements);
 
       const adjustment = validateAdjustmentForm({ hasBatch: false, quantityInput: '-1', reason: '' });
       assert.equal(adjustment.quantity, -1);

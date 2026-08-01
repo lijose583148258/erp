@@ -8,6 +8,7 @@ import {
   createProductionBomSchema,
   createProductionQualityCheckSchema,
   createProductionWorkOrderSchema,
+  reviewProductionQualityCheckSchema,
   updateProductionStepSchema,
   updateProductionWorkOrderStatusSchema,
 } from '../validators';
@@ -55,11 +56,19 @@ router.patch(
 );
 router.post(
   '/work-orders/:id/checks',
-  authorizePermission('production.write'),
+  authorizePermission('production.quality.inspect'),
   [param('id').isInt({ min: 1 })],
   validateRequest,
   validateZod(createProductionQualityCheckSchema),
   authRoute((req, res) => controller.createQualityCheck(req, res)),
+);
+router.post(
+  '/work-orders/:id/checks/:checkId/review',
+  authorizePermission('production.quality.release'),
+  [param('id').isInt({ min: 1 }), param('checkId').isInt({ min: 1 })],
+  validateRequest,
+  validateZod(reviewProductionQualityCheckSchema),
+  authRoute((req, res) => controller.reviewQualityCheck(req, res)),
 );
 
 export default router;

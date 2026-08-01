@@ -3,6 +3,39 @@ import api, { ApiRequestOptions } from '../utils/api';
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
 
+export interface ProductionQualityCharacteristic {
+  id: number;
+  bomId: number;
+  code: string;
+  name: string;
+  valueType: 'numeric' | 'text';
+  unit: string | null;
+  lowerLimit: string | null;
+  upperLimit: string | null;
+  targetText: string | null;
+  testMethod: string | null;
+  required: boolean;
+  sortOrder: number;
+}
+
+export interface ProductionQualityMeasurement {
+  id: number;
+  characteristicId: number | null;
+  characteristicCode: string;
+  characteristicName: string;
+  valueType: 'numeric' | 'text';
+  unit: string | null;
+  lowerLimit: string | null;
+  upperLimit: string | null;
+  targetText: string | null;
+  measuredNumeric: string | null;
+  measuredText: string | null;
+  result: 'pass' | 'fail';
+  testMethod: string | null;
+  instrumentNo: string | null;
+  note: string | null;
+}
+
 export interface ProductionSummary {
   bomCount: number;
   workOrderCount: number;
@@ -59,6 +92,7 @@ export interface ProductionBom {
   createdBy: number;
   creator?: { id: number; username: string; role: string } | null;
   items: ProductionBomItem[];
+  qualityCharacteristics: ProductionQualityCharacteristic[];
   workOrders?: Array<{
     id: number;
     workOrderNo: string;
@@ -89,11 +123,21 @@ export interface ProductionQualityCheck {
   id: number;
   workOrderId: number;
   checkNo: string;
+  revision: number;
+  status: 'legacy_recorded' | 'submitted' | 'released' | 'rejected';
   result: ProductionQualityResult;
+  disposition: 'legacy' | 'hold' | 'released' | 'quarantine';
+  sampleNo: string | null;
   defectRate: number | null;
   note: string | null;
   checkedBy: string | null;
+  inspectorUserId: number | null;
   checkedAt: string | null;
+  reviewedBy: string | null;
+  reviewedByUserId: number | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  measurements: ProductionQualityMeasurement[];
   createdAt: string;
   updatedAt: string;
 }
@@ -115,7 +159,7 @@ export interface ProductionWorkOrder {
   actualEndAt: string | null;
   note: string | null;
   createdBy: number;
-  bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null } | null;
+  bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null; qualityCharacteristics: ProductionQualityCharacteristic[] } | null;
   productBatch?: {
     id: number;
     materialId?: number | null;
@@ -124,6 +168,7 @@ export interface ProductionWorkOrder {
     productionDate: string | null;
     expiryDate: string | null;
     stockQuantity: number;
+    qualityStatus?: string;
     unit: string;
   } | null;
   steps: ProductionStep[];
@@ -160,6 +205,18 @@ export const productionService = {
     effectiveTo?: string | null;
     processJson?: string | null;
     qualitySpecJson?: string | null;
+    qualityCharacteristics?: Array<{
+      code: string;
+      name: string;
+      valueType?: 'numeric' | 'text';
+      unit?: string | null;
+      lowerLimit?: string | number | null;
+      upperLimit?: string | number | null;
+      targetText?: string | null;
+      testMethod?: string | null;
+      required?: boolean;
+      sortOrder?: number;
+    }>;
     notes?: string | null;
     items?: ProductionBomItem[];
   }): Promise<ProductionBom> {
@@ -203,8 +260,24 @@ export const productionService = {
     return response.data;
   },
 
-  async createQualityCheck(id: number, data: { result: ProductionQualityResult; defectRate?: number | null; note?: string | null; checkedBy?: string | null }): Promise<ProductionQualityCheck> {
+  async createQualityCheck(id: number, data: {
+    sampleNo: string;
+    defectRate?: number | null;
+    note?: string | null;
+    measurements: Array<{
+      characteristicId: number;
+      measuredNumeric?: string | number | null;
+      measuredText?: string | null;
+      instrumentNo?: string | null;
+      note?: string | null;
+    }>;
+  }): Promise<ProductionQualityCheck> {
     const response = await api.post<any, { success: boolean; data: ProductionQualityCheck }>(`/production/work-orders/${id}/checks`, data);
+    return response.data;
+  },
+
+  async reviewQualityCheck(id: number, checkId: number, data: { decision: 'release' | 'reject'; reviewNote: string }): Promise<ProductionQualityCheck> {
+    const response = await api.post<any, { success: boolean; data: ProductionQualityCheck }>(`/production/work-orders/${id}/checks/${checkId}/review`, data);
     return response.data;
   },
 };

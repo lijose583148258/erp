@@ -21,25 +21,32 @@ export const materialAliasInputSchema = z.object({
   aliasType: z.enum(MATERIAL_ALIAS_TYPES).default('business'),
 }).strict();
 
-export const createMaterialSchema = z.object({
+const materialSchema = z.object({
   code: z.string().trim().min(2).max(64).regex(/^[A-Za-z0-9][A-Za-z0-9._/-]*$/, '物料编码只能包含字母、数字、点、斜线、下划线和短横线'),
   nameZh: z.string().trim().min(1).max(160),
   nameEn: optionalText(160),
   nameVi: optionalText(160),
-  category: z.enum(MATERIAL_CATEGORIES).default('raw_material'),
+  category: z.enum(MATERIAL_CATEGORIES),
   baseUnit: z.string().trim().min(1).max(24),
   specification: optionalText(240),
-  status: z.enum(MATERIAL_STATUSES).default('draft'),
-  isTemporary: z.boolean().default(true),
+  status: z.enum(MATERIAL_STATUSES),
+  isTemporary: z.boolean(),
   casNumber: optionalText(64),
   unNumber: optionalText(64),
   hsCode: optionalText(64),
   shelfLifeDays: z.coerce.number().int().min(1).max(3650).optional().nullable(),
   complianceNotes: optionalText(2000),
+  aliases: z.array(materialAliasInputSchema).max(50),
+}).strict();
+
+export const createMaterialSchema = materialSchema.extend({
+  category: z.enum(MATERIAL_CATEGORIES).default('raw_material'),
+  status: z.enum(MATERIAL_STATUSES).default('draft'),
+  isTemporary: z.boolean().default(true),
   aliases: z.array(materialAliasInputSchema).max(50).default([]),
 }).strict();
 
-export const updateMaterialSchema = createMaterialSchema
+export const updateMaterialSchema = materialSchema
   .omit({ code: true, aliases: true })
   .partial()
   .extend({

@@ -49,6 +49,16 @@ async function resolveShippingIssueStock(tx: TransactionClient, shipment: Shippi
     throw new Error(`No available stock for shipment ${shipment.shipmentNo}: ${shipment.productName}${shipment.batchNo ? ` / ${shipment.batchNo}` : ''}`);
   }
 
+  const productBatch = await tx.productBatch.findFirst({
+    where: stock.materialId
+      ? { materialId: stock.materialId, batchNo: stock.batchNo }
+      : { productName: stock.productName, batchNo: stock.batchNo },
+    select: { qualityStatus: true },
+  });
+  if (productBatch && ['hold', 'quarantine', 'pending_qc'].includes(productBatch.qualityStatus)) {
+    throw new Error(`STOCK_MATERIAL_BATCH_NOT_RELEASED:${stock.batchNo}:${productBatch.qualityStatus}`);
+  }
+
   return stock;
 }
 

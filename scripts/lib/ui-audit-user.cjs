@@ -127,7 +127,9 @@ async function loginUiAuditUser(page, appUrl, options = {}) {
     }
   };
 
-  await page.addInitScript(applySession, session);
+  if (options.persistInitScript !== false) {
+    await page.addInitScript(applySession, session);
+  }
   await page.evaluate(applySession, session).catch(() => {});
 
   return { token, user, account };

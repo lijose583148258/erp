@@ -8,6 +8,7 @@ model ProductBatch {
   storageTemp     String?   @map("storage_temp")
   isColdChain     Boolean   @default(false) @map("is_cold_chain")
   stockQuantity   Float     @default(0) @map("stock_quantity")
+  qualityStatus   String    @default("not_required") @map("quality_status")
   unit            String
   notes           String?
   createdAt       DateTime  @default(now()) @map("created_at")
@@ -23,6 +24,7 @@ model ProductBatch {
   @@index([materialId])
   @@index([productName])
   @@index([expiryDate])
+  @@index([qualityStatus])
   @@map("product_batches")
 }
 

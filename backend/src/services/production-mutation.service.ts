@@ -5,14 +5,13 @@ import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
 import {
   ProductionBomInput,
-  ProductionQualityCheckInput,
-  ProductionQualityResult,
   ProductionWorkOrderInput,
   ProductionWorkOrderStatus,
   ProductionWorkOrderStepInput,
 } from './production-query.service';
 import { assertBomConsumptionCoverage } from './production-completion.validation';
 import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
+import { assertLatestQualityRelease } from './production-quality.service';
 
 export { ProductionCompletionValidationError } from './production-completion.validation';
 
@@ -123,7 +122,9 @@ const WORK_ORDER_STATUS_RANK: Record<ProductionWorkOrderStatus, number> = {
 const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.productionWorkOrder.findUnique({
   where: { id },
   include: {
-    bom: { select: { id: true, bomNo: true, materialId: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+    bom: {
+      include: { qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+    },
     productBatch: {
       select: {
         id: true,
@@ -242,10 +243,29 @@ export class ProductionMutationService {
               notes: item.notes || null,
             })),
           },
+          qualityCharacteristics: {
+            create: (input.qualityCharacteristics || []).map((characteristic, index) => ({
+              code: characteristic.code.trim().toUpperCase(),
+              name: characteristic.name.trim(),
+              valueType: characteristic.valueType || 'numeric',
+              unit: characteristic.unit?.trim() || null,
+              lowerLimit: characteristic.lowerLimit === null || characteristic.lowerLimit === undefined || characteristic.lowerLimit === ''
+                ? null
+                : String(characteristic.lowerLimit),
+              upperLimit: characteristic.upperLimit === null || characteristic.upperLimit === undefined || characteristic.upperLimit === ''
+                ? null
+                : String(characteristic.upperLimit),
+              targetText: characteristic.targetText?.trim() || null,
+              testMethod: characteristic.testMethod?.trim() || null,
+              required: characteristic.required !== false,
+              sortOrder: characteristic.sortOrder ?? index,
+            })),
+          },
         },
         include: {
           creator: { select: { id: true, username: true, role: true } },
           items: { orderBy: { id: 'asc' } },
+          qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       });
 
@@ -254,6 +274,7 @@ export class ProductionMutationService {
         include: {
           creator: { select: { id: true, username: true, role: true } },
           items: { orderBy: { id: 'asc' } },
+          qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       });
 
@@ -347,7 +368,7 @@ export class ProductionMutationService {
       const workOrder = await tx.productionWorkOrder.findUnique({
         where: { id },
         include: {
-          bom: { include: { items: true } },
+          bom: { include: { items: true, qualityCharacteristics: true } },
           productBatch: true,
         },
       });
@@ -384,6 +405,7 @@ export class ProductionMutationService {
       }> = [];
 
       if (status === 'completed') {
+        await assertLatestQualityRelease(tx, workOrder.id, workOrder.bom?.qualityCharacteristics.length || 0);
         const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
         if (netOutput > 0 && !workOrder.batchId) {
           calculateBatchExpiryDate(new Date(), workOrder.bom?.shelfLifeDays);
@@ -477,7 +499,7 @@ export class ProductionMutationService {
           if (workOrder.batchId) {
             const currentBatch = await tx.productBatch.findUnique({
               where: { id: workOrder.batchId },
-              select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, unit: true },
+              select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, qualityStatus: true, unit: true },
             });
             if (!currentBatch) {
               throw new Error(`Product batch not found: ${workOrder.batchId}`);
@@ -490,6 +512,7 @@ export class ProductionMutationService {
               where: { id: workOrder.batchId },
               data: {
                 stockQuantity: { increment: netOutput },
+                qualityStatus: (workOrder.bom?.qualityCharacteristics.length || 0) > 0 ? 'released' : currentBatch.qualityStatus,
               },
             });
             await StockMovementService.postStockEntry({
@@ -524,6 +547,7 @@ export class ProductionMutationService {
                 productionDate,
                 expiryDate: calculateBatchExpiryDate(productionDate, workOrder.bom?.shelfLifeDays),
                 stockQuantity: netOutput,
+                qualityStatus: (workOrder.bom?.qualityCharacteristics.length || 0) > 0 ? 'released' : 'not_required',
                 unit: workOrder.bom?.outputUnit || 'kg',
                 isColdChain: false,
                 notes: `Generated from work order ${workOrder.workOrderNo}`,
@@ -665,19 +689,6 @@ export class ProductionMutationService {
     });
   }
 
-  static async createQualityCheck(workOrderId: number, input: ProductionQualityCheckInput) {
-    return prisma.productionQualityCheck.create({
-      data: {
-        workOrderId,
-        checkNo: buildNo('QC'),
-        result: input.result,
-        defectRate: input.defectRate ?? null,
-        note: input.note || null,
-        checkedBy: input.checkedBy || null,
-        checkedAt: new Date(),
-      },
-    });
-  }
 }
 
 

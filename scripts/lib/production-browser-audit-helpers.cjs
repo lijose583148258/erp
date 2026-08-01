@@ -144,7 +144,13 @@ async function setControlByTestId(page, testId, value) {
 }
 
 async function fillBomHeaderFields(page, testData) {
-  await page.getByTestId('production-bom-product-name').fill(testData.bomName);
+  const productInput = page.getByTestId('production-bom-product-name');
+  await productInput.fill(testData.finishedGood?.code || testData.bomName);
+  if (testData.finishedGood?.code) {
+    const option = page.getByRole('option').filter({ hasText: testData.finishedGood.code }).first();
+    await option.waitFor({ state: 'visible', timeout: 10000 });
+    await option.click();
+  }
   await page.getByTestId('production-bom-output-unit').fill(testData.outputUnit);
   await page.getByTestId('production-bom-shelf-life-days').fill(testData.shelfLifeDays);
   await page.getByTestId('production-bom-standard-batch-size').fill(testData.standardBatchSize);

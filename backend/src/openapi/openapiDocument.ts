@@ -417,6 +417,33 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/production/work-orders/{id}/checks`] = {
+      post: {
+        tags: ['Production'],
+        summary: 'Submit a structured production quality inspection',
+        description: 'Captures actual values against the immutable BOM characteristic snapshot. The server derives pass/fail; the client cannot submit its own result. Requires production.quality.inspect.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionQualityInspectionRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Inspection submitted and held for independent review.' } },
+      },
+    };
+
+    paths[`${prefix}/production/work-orders/{id}/checks/{checkId}/review`] = {
+      post: {
+        tags: ['Production'],
+        summary: 'Independently release or reject a production inspection',
+        description: 'Rejects self-review, stale revisions, and release of a failed inspection. Requires production.quality.release.',
+        security: secured(true),
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } },
+          { name: 'checkId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionQualityReviewRequest' } } } },
+        responses: writeResponses,
+      },
+    };
+
     paths[`${prefix}/shipping`] = {
       ...paths[`${prefix}/shipping`],
       post: {

@@ -287,6 +287,17 @@ async function applyAuthorizationPolicyMigrations() {
       'Grant the governed aggregate-only AI assistant boundary to built-in roles without granting access to protected business records.',
     );
   }
+
+  const productionQualitySeparationCode = '2026-08-01-production-quality-separation-v1';
+  if (!(await hasPolicyMigration(productionQualitySeparationCode))) {
+    await grantMissingRolePermissions('admin', ['production.quality.inspect', 'production.quality.release']);
+    await grantMissingRolePermissions('manager', ['production.quality.release']);
+    await grantMissingRolePermissions('warehouse', ['production.quality.inspect']);
+    await markPolicyMigration(
+      productionQualitySeparationCode,
+      'Separate production inspection entry from quality release; inspectors cannot review their own inspection record.',
+    );
+  }
 }
 
 export async function ensureAuthorizationPolicySeed() {
