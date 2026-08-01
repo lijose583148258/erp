@@ -1,15 +1,11 @@
 const path = require('path');
 const { createChemicalBomAuditContext } = require('./lib/chemical-bom-audit-utils.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001';
 const REPORT_DIR = path.join(__dirname, '../output/playwright');
 const REPORT_PATH = path.join(REPORT_DIR, 'chemical-bom-production-chain-audit-report-v1.json');
 const OVERALL_TIMEOUT_MS = 280_000;
-const AUDIT_API_USERNAME = process.env.AUDIT_API_USERNAME;
-const AUDIT_API_PASSWORD = process.env.AUDIT_API_PASSWORD;
-if (!AUDIT_API_USERNAME || !AUDIT_API_PASSWORD) {
-  throw new Error('AUDIT_API_USERNAME and AUDIT_API_PASSWORD are required');
-}
 
 const {
   report,
@@ -37,8 +33,9 @@ const {
   reportPath: REPORT_PATH,
 });
 
-const createChemicalBomPayload = (materialCodes) => ({
-  productName: `CHEM-GLUE-BOM-${Date.now()}`,
+const createChemicalBomPayload = (materials, outputMaterial) => ({
+  materialId: outputMaterial.id,
+  productName: outputMaterial.nameZh,
   version: 'qa-chemical-v1',
   bomType: 'chemical_formula',
   status: 'active',
@@ -59,10 +56,33 @@ const createChemicalBomPayload = (materialCodes) => ({
     summary: 'solids, viscosity, appearance, and batch traceability',
     controls: ['solids 57 +/- 2%', 'viscosity within spec', 'no visible sediment'],
   }),
+  qualityCharacteristics: [
+    {
+      code: 'SOLIDS',
+      name: 'Solids',
+      valueType: 'numeric',
+      unit: '%',
+      lowerLimit: 55,
+      upperLimit: 59,
+      testMethod: 'GB/T 1725',
+      required: true,
+      sortOrder: 0,
+    },
+    {
+      code: 'APPEARANCE',
+      name: 'Appearance',
+      valueType: 'text',
+      targetText: 'pass|accepted',
+      testMethod: 'visual',
+      required: true,
+      sortOrder: 1,
+    },
+  ],
   notes: 'chemical BOM audit sample, internal codes only',
-  items: materialCodes.map((code, index) => ({
+  items: materials.map((material, index) => ({
+    materialId: material.id,
     materialName: `CODE-${String(index + 1).padStart(2, '0')}`,
-    materialCode: code,
+    materialCode: material.code,
     ingredientRole: index === 0 ? 'main_resin' : index === 1 ? 'curing_agent' : index === 2 ? 'solvent' : 'additive',
     dosageMode: 'percentage',
     percentage: 10,
@@ -126,8 +146,36 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
   writeReport();
 
   try {
-    const adminToken = await login(AUDIT_API_USERNAME, AUDIT_API_PASSWORD);
+    const { admin } = await ensureUiAuditAccounts('chemical_bom_production', ['admin']);
+    const { admin: reviewer } = await ensureUiAuditAccounts('chemical_bom_release', ['admin']);
+    const adminToken = await login(admin.username, admin.password);
+    const reviewerToken = await login(reviewer.username, reviewer.password);
     recordStep('login_admin', 'passed', { appUrl: APP_URL });
+
+    const materialRunId = `${Date.now()}`;
+    const outputMaterialResponse = await requestJson('POST', '/api/materials', {
+      token: adminToken,
+      expectedStatus: 201,
+      body: {
+        code: `CHEM-FG-${materialRunId}`,
+        nameZh: `CHEM-GLUE-BOM-${materialRunId}`,
+        nameEn: `Chemical glue ${materialRunId}`,
+        category: 'finished_good',
+        baseUnit: 'kg',
+        status: 'active',
+        isTemporary: false,
+        shelfLifeDays: 365,
+        aliases: [],
+      },
+    });
+    const outputMaterial = outputMaterialResponse.data?.data;
+    if (!outputMaterial?.id) {
+      fail('Finished-goods material master was not created', { outputMaterialResponse });
+    }
+    recordStep('create_finished_goods_material_master', 'passed', {
+      materialId: outputMaterial.id,
+      materialCode: outputMaterial.code,
+    });
 
     const bootstrap = await ensureWarehouseAndLocations(adminToken);
     recordStep('bootstrap_warehouse_locations', 'passed', {
@@ -135,14 +183,41 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       locationCodes: Object.keys(bootstrap.locations),
     });
 
-    const materialCodes = Array.from({ length: 10 }, (_, index) => `CHEM-${Date.now()}-${String(index + 1).padStart(2, '0')}`);
+    const rawMaterials = [];
+    for (let index = 0; index < 10; index += 1) {
+      const materialResponse = await requestJson('POST', '/api/materials', {
+        token: adminToken,
+        expectedStatus: 201,
+        body: {
+          code: `CHEM-${materialRunId}-${String(index + 1).padStart(2, '0')}`,
+          nameZh: `CODE-${String(index + 1).padStart(2, '0')}`,
+          category: 'raw_material',
+          baseUnit: 'kg',
+          status: 'active',
+          isTemporary: false,
+          shelfLifeDays: 730,
+          aliases: [],
+        },
+      });
+      const material = materialResponse.data?.data;
+      if (!material?.id) fail('Raw-material master was not created', { index, materialResponse });
+      rawMaterials.push(material);
+    }
+    const materialCodes = rawMaterials.map(material => material.code);
     const rawLocation = bootstrap.locations['LOC-RAW'];
     const fgLocation = bootstrap.locations['LOC-FG'];
 
     const seededBalances = [];
     for (let index = 0; index < materialCodes.length; index += 1) {
       const code = materialCodes[index];
-      const balance = await ensureRawStock(adminToken, rawLocation.id, code, 50, 10 + index);
+      const balance = await ensureRawStock(
+        adminToken,
+        rawLocation.id,
+        code,
+        50,
+        10 + index,
+        rawMaterials[index].id,
+      );
       seededBalances.push(balance);
     }
     recordStep('seed_raw_material_stock', 'passed', {
@@ -150,7 +225,7 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       rawLocationId: rawLocation.id,
     });
 
-    const bom = await createBom(adminToken, createChemicalBomPayload(materialCodes));
+    const bom = await createBom(adminToken, createChemicalBomPayload(rawMaterials, outputMaterial));
     recordStep('create_chemical_bom', 'passed', {
       bomId: bom.id,
       bomNo: bom.bomNo,
@@ -189,6 +264,71 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       workOrderId: workOrder.id,
       workOrderNo: workOrder.workOrderNo,
       workOrderStatus: workOrder.status,
+    });
+
+    await requestJson('PATCH', `/api/production/work-orders/${workOrder.id}/status`, {
+      token: adminToken,
+      expectedStatus: 200,
+      body: { status: 'qc_pending' },
+    });
+    const workOrderForQc = await findWorkOrder(adminToken, bom.productName, workOrder.id);
+    const qualityCharacteristics = workOrderForQc?.bom?.qualityCharacteristics || [];
+    if (qualityCharacteristics.length !== 2) {
+      fail('Work order did not preserve its structured quality specification', {
+        workOrderId: workOrder.id,
+        qualityCharacteristics,
+      });
+    }
+    const measurements = qualityCharacteristics.map(characteristic => (
+      characteristic.valueType === 'numeric'
+        ? {
+          characteristicId: characteristic.id,
+          measuredNumeric: 57,
+          instrumentNo: 'CHEM-QC-01',
+        }
+        : {
+          characteristicId: characteristic.id,
+          measuredText: 'pass',
+        }
+    ));
+    const qualityCheckResponse = await requestJson(
+      'POST',
+      `/api/production/work-orders/${workOrder.id}/checks`,
+      {
+        token: adminToken,
+        expectedStatus: 201,
+        body: {
+          sampleNo: `SAMPLE-${workOrder.workOrderNo}`,
+          note: 'chemical BOM structured inspection',
+          measurements,
+        },
+      },
+    );
+    const qualityCheck = qualityCheckResponse.data?.data;
+    if (!qualityCheck?.id || qualityCheck.result !== 'pass' || qualityCheck.status !== 'submitted') {
+      fail('Structured quality inspection did not produce a submitted pass result', { qualityCheck });
+    }
+    const releaseResponse = await requestJson(
+      'POST',
+      `/api/production/work-orders/${workOrder.id}/checks/${qualityCheck.id}/review`,
+      {
+        token: reviewerToken,
+        expectedStatus: 200,
+        body: {
+          decision: 'release',
+          reviewNote: 'independent release for chemical BOM audit',
+        },
+      },
+    );
+    const releasedCheck = releaseResponse.data?.data;
+    if (releasedCheck?.status !== 'released' || releasedCheck?.disposition !== 'released') {
+      fail('Independent quality review did not release the inspection', { releasedCheck });
+    }
+    recordStep('structured_quality_inspection_and_release', 'passed', {
+      qualityCheckId: qualityCheck.id,
+      specificationCount: qualityCharacteristics.length,
+      inspector: admin.username,
+      reviewer: reviewer.username,
     });
 
     const preview = await getPreviewConsumption(adminToken, workOrder.id);
@@ -288,9 +428,12 @@ const assertCompletedWorkOrder = (workOrderReadback, workOrderId) => {
       const code = materialCodes[index];
       const balances = await listStockBalances(adminToken, {
         locationId: String(rawLocation.id),
-        productName: code,
+        materialId: String(rawMaterials[index].id),
       });
-      const balance = balances.find(item => String(item.productName) === code && Number(item.locationId) === Number(rawLocation.id));
+      const balance = balances.find(item => (
+        Number(item.materialId) === Number(rawMaterials[index].id)
+        && Number(item.locationId) === Number(rawLocation.id)
+      ));
       if (!balance) {
         fail('Raw material stock balance was not found after completion', { code, balances });
       }

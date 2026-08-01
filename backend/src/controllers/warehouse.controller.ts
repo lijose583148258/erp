@@ -174,11 +174,12 @@ export class WarehouseController {
   async listStockBalances(req: AuthRequest, res: Response) {
     try {
       const prisma = (await import('../config/database')).default;
-      const { productName, batchNo, warehouseId, locationId, page = '1', pageSize = '50' } = req.query;
+      const { materialId, productName, batchNo, warehouseId, locationId, page = '1', pageSize = '50' } = req.query;
       const pageNum = Math.max(1, Number(page));
       const size = Math.min(100, Math.max(1, Number(pageSize)));
 
       const where: Record<string, any> = {};
+      if (materialId) where.materialId = Number(materialId);
       if (productName) where.productName = { contains: String(productName) };
       if (batchNo) where.batchNo = { contains: String(batchNo) };
       if (locationId) where.locationId = Number(locationId);

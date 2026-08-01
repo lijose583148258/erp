@@ -51,6 +51,7 @@ async function ensureUiAuditAccounts(scope, roles, options = {}) {
       username: `${normalizedScope}_${role}`.slice(0, 48),
       password,
       role,
+      segment: options.segmentByRole?.[role] || options.segment || 'mixed',
     };
     await ensureUiAuditUser(account);
     accounts[role] = account;
@@ -63,6 +64,10 @@ async function ensureUiAuditUser(account) {
   if (!resolvedAccount.username || !resolvedAccount.password || !resolvedAccount.role) {
     throw new Error('UI audit account is incomplete.');
   }
+  const segment = resolvedAccount.segment || 'mixed';
+  if (!['direct', 'channel', 'mixed'].includes(segment)) {
+    throw new Error(`Unsupported UI audit segment: ${segment}`);
+  }
   const bcrypt = require('../../backend/node_modules/bcryptjs');
   const prisma = createAuditPrismaClient();
   const passwordHash = await bcrypt.hash(resolvedAccount.password, 12);
@@ -72,7 +77,7 @@ async function ensureUiAuditUser(account) {
       update: {
         passwordHash,
         role: resolvedAccount.role,
-        segment: 'mixed',
+        segment,
         email: `${resolvedAccount.username}@local.test`,
         isActive: true,
         mustChangePassword: false,
@@ -81,7 +86,7 @@ async function ensureUiAuditUser(account) {
         username: resolvedAccount.username,
         passwordHash,
         role: resolvedAccount.role,
-        segment: 'mixed',
+        segment,
         email: `${resolvedAccount.username}@local.test`,
         isActive: true,
         mustChangePassword: false,

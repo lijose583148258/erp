@@ -46,6 +46,16 @@ const cases: Case[] = [
     expected: true,
   },
   {
+    label: 'barter-duplicate-submit-localized',
+    args: ['创建货抵执行批次失败', new Error('检测到重复提交货抵批次，请刷新执行批次后再提交。')],
+    expected: true,
+  },
+  {
+    label: 'barter-already-posted-localized',
+    args: ['货抵过账失败', new Error('该货抵批次已过账，请刷新页面后再核对。')],
+    expected: true,
+  },
+  {
     label: 'collection-promise-illegal-transition',
     args: ['Failed to update promise status', new Error('Promise status cannot transition from kept to cancelled')],
     expected: true,

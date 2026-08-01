@@ -1,6 +1,6 @@
 const path = require('path');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const { findMojibake } = require('./lib/audit-utils.cjs');
 const {
   FALLBACK_ROUTES,
@@ -518,6 +518,9 @@ async function run() {
   let timedOut = false;
 
   try {
+    const auditAccount = config.username && config.password
+      ? { username: config.username, password: config.password, role: 'admin' }
+      : (await ensureUiAuditAccounts('browser_ui_ux', ['admin'])).admin;
     const launched = await launchBrowserWithGuard({ retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     context = await browser.newContext({
@@ -532,7 +535,7 @@ async function run() {
 
     await page.goto(config.appUrl, { waitUntil: 'domcontentloaded', timeout: config.pageTimeoutMs });
     await loginUiAuditUser(page, config.appUrl, {
-      account: { username: config.username, password: config.password, role: 'admin' },
+      account: auditAccount,
       defaultStorage: { 'ailao.language': 'zh', 'ailao.theme': config.colorScheme === 'dark' ? 'dark' : 'light' },
     });
     await page.reload({ waitUntil: 'domcontentloaded', timeout: config.pageTimeoutMs });

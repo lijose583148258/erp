@@ -61,8 +61,8 @@ function normalizeRoute(value) {
 function parseConfig(env = process.env) {
   return {
     appUrl: env.APP_URL || 'http://127.0.0.1:5001/',
-    username: env.AUDIT_ADMIN_USERNAME || 'ui_ux_audit_admin',
-    password: env.AUDIT_ADMIN_PASSWORD || 'AuditSmoke12345!',
+    username: String(env.AUDIT_ADMIN_USERNAME || '').trim(),
+    password: String(env.AUDIT_ADMIN_PASSWORD || '').trim(),
     forcedRoutes: (env.UI_UX_AUDIT_ROUTES || '').split(',').map(normalizeRoute).filter(Boolean),
     maxRoutes: intEnv(env, 'UI_UX_AUDIT_MAX_ROUTES', 30, 1),
     timeoutMs: intEnv(env, 'UI_UX_AUDIT_TIMEOUT_MS', 420000, 1000),

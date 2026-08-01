@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   ensureDir,
   safeScreenshot: captureScreenshot,
@@ -44,6 +44,7 @@ const report = {
 };
 
 let authToken = '';
+let auditAccount = null;
 
 function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
@@ -66,6 +67,7 @@ const {
   captureScreenshot,
   forbiddenMojibake: FORBIDDEN_MOJIBAKE,
   getAuthToken: () => authToken,
+  getAuditAccount: () => auditAccount,
   loginUiAuditUser,
   readBackTimeout: TIMEOUTS.readBack,
   recordStep,
@@ -541,6 +543,8 @@ async function run() {
   let browser;
   let page = null;
   try {
+    const accounts = await ensureUiAuditAccounts('procurement_browser', ['admin']);
+    auditAccount = accounts.admin;
     const launched = await launchBrowserWithGuard({
       recordStep,
       retryLimit: 1,

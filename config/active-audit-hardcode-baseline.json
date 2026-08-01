@@ -36,35 +36,11 @@
     },
     {
       "category": "demo-credential",
-      "file": "scripts/collection-performance-audit-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
       "file": "scripts/commercial-platform-api-audit-v1.cjs"
     },
     {
       "category": "demo-credential",
-      "file": "scripts/concurrency-reconcile-deep-audit-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
       "file": "scripts/crm-dom-probe-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
-      "file": "scripts/crm-permission-ai-audit-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
-      "file": "scripts/dynamic-role-rbac-audit-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
-      "file": "scripts/human-layout-boundary-audit-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
-      "file": "scripts/lib/procurement-browser-audit-helpers.cjs"
     },
     {
       "category": "demo-credential",
@@ -73,14 +49,6 @@
     {
       "category": "demo-credential",
       "file": "scripts/module-registry-title-browser-audit-v1.ts"
-    },
-    {
-      "category": "demo-credential",
-      "file": "scripts/money-goods-chain-api-audit-v1.cjs"
-    },
-    {
-      "category": "demo-credential",
-      "file": "scripts/partial-receipt-api-audit-v1.cjs"
     },
     {
       "category": "demo-credential",
@@ -153,10 +121,6 @@
     {
       "category": "silent-runtime-db-fallback",
       "file": "scripts/collection-overdue-server-search-audit-v1.cjs"
-    },
-    {
-      "category": "silent-runtime-db-fallback",
-      "file": "scripts/collection-performance-audit-v1.cjs"
     },
     {
       "category": "silent-runtime-db-fallback",
