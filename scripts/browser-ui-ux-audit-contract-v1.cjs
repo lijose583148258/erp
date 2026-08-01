@@ -127,6 +127,8 @@ assert.match(uiAuditSource, /COMPLEX_DIALOG_SAVE_IMPACT_MISSING/, 'complex dialo
 assert.match(uiAuditSource, /COMPLEX_FIELD_PLACEHOLDER_ONLY/, 'placeholder-only complex inputs must be detected');
 assert.match(uiAuditSource, /data-ux-dialog-scope="utility"/, 'utility popovers must be classified separately from business-entry dialogs');
 assert.match(uiAuditSource, /Math\.min\(timeoutMs, 20000\)/, 'cold cloud routes must receive a bounded readiness window before visual assertions');
+assert.match(uiAuditSource, /readySince[\s\S]*>= 600/, 'route readiness must remain stable across delayed data-fetch effects before visual assertions');
+assert.match(uiAuditSource, /loadingIndicators:/, 'loading failures must identify the exact blocking controls instead of reporting only the page body');
 assert.match(uiAuditSource, /structuralPopup/, 'dialog scroll containers must not be misreported as clipped leaf text');
 assert.match(uiAuditSource, /auditComplexEntryDialog/, 'generic UI audit must open a real complex entry dialog');
 assert.match(uiAuditSource, /complex-entry-advanced/, 'generic UI audit must inspect low-frequency advanced fields separately');

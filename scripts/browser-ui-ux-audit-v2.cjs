@@ -132,6 +132,7 @@ async function waitForRouteReady(page, route, timeoutMs) {
   await page.waitForFunction((expectedRoute) => {
     const text = document.body?.innerText || '';
     const visible = (element) => {
+      if (element.closest('[aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
       const rect = element.getBoundingClientRect();
       return style.visibility !== 'hidden' && style.display !== 'none' && rect.width > 0 && rect.height > 0;
@@ -141,9 +142,18 @@ async function waitForRouteReady(page, route, timeoutMs) {
       return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
     });
     if (document.querySelector('input[type="password"]')) return true;
-    if (window.location.hash !== expectedRoute) return false;
-    if (blockingLoading) return false;
-    return text.trim().length > 100;
+    const readinessKey = '__ailaodaUiAuditReadySince';
+    if (window.location.hash !== expectedRoute || blockingLoading || text.trim().length <= 100) {
+      window[readinessKey] = 0;
+      return false;
+    }
+    const now = Date.now();
+    const readySince = Number(window[readinessKey] || 0);
+    if (!readySince) {
+      window[readinessKey] = now;
+      return false;
+    }
+    return now - readySince >= 600;
   }, route, { timeout: Math.min(timeoutMs, 20000) }).catch(() => {});
 }
 
@@ -292,11 +302,20 @@ async function auditState(page, run, route, viewport, state, collectors) {
         add('error', 'hierarchy', 'TASK_NAVIGATOR_TABLIST_MISSING', 'Task choices must be grouped as one keyboard-navigable tab list', navigator);
       }
     }
-    const blockingLoading = Array.from(document.body.querySelectorAll('*')).some((node) => {
+    const blockingLoading = Array.from(document.body.querySelectorAll('*')).filter((node) => {
       const nodeText = (node.textContent || '').trim();
       return visible(node) && /^(正在加载|Loading)\.{0,3}$/i.test(nodeText);
     });
-    if (blockingLoading) add('error', 'runtime', 'ROUTE_STILL_LOADING', 'Route was still showing a loading state when audited', document.body);
+    if (blockingLoading.length) {
+      add('error', 'runtime', 'ROUTE_STILL_LOADING', 'Route was still showing a loading state when audited', document.body, {
+        loadingIndicators: blockingLoading.slice(0, 10).map((node) => ({
+          tag: node.tagName.toLowerCase(),
+          text: (node.textContent || '').trim().slice(0, 80),
+          testId: node.getAttribute('data-testid') || undefined,
+          gridState: node.closest('[data-grid-state]')?.getAttribute('data-grid-state') || undefined,
+        })),
+      });
+    }
     if (document.documentElement.scrollWidth > window.innerWidth + 2 && !document.querySelector('[data-testid*="grid"], .overflow-x-auto, [class*="overflow-x-auto"]')) {
       add('error', 'layout', 'DOCUMENT_HORIZONTAL_OVERFLOW', 'Document has horizontal overflow outside a known scroll container', document.documentElement, {
         scrollWidth: document.documentElement.scrollWidth,
