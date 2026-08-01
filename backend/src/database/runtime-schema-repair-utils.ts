@@ -48,14 +48,14 @@ export const indexExists = async (indexName: string) => {
 };
 
 const KNOWN_TABLES = new Set([
-  'orders', 'customers', 'suppliers', 'payment_records', 'shipments', 'purchase_orders',
+  'orders', 'order_items', 'customers', 'suppliers', 'payment_records', 'shipments', 'purchase_orders',
   'users',
   'purchase_receipts', 'shipment_receipts', 'receipt_discrepancy_cases',
   'receipt_discrepancy_actions', 'receipt_tolerance_rules',
   'barter_settlements', 'barter_items', 'barter_valuation_snapshots',
   'barter_offset_postings', 'barter_reversal_logs', 'contracts',
   'contract_milestones', 'product_batches', 'adjustment_records',
-  'production_boms', 'production_bom_items', 'production_work_orders',
+  'production_boms', 'production_bom_items', 'production_work_orders', 'batch_genealogy_edges',
   'inventory_cost_ledgers',
   'warehouses', 'locations', 'stock_balances', 'stock_entries', 'stock_movements',
   'auth_roles', 'auth_permissions', 'auth_role_permissions', 'auth_policy_migrations',

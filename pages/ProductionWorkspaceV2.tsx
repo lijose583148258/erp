@@ -74,7 +74,7 @@ const ProductionWorkspaceV2 = () => {
   const workOrderForm = useProductionWorkOrderForm(createInitialWorkOrderSteps);
   const qualityForm = useProductionQualityForm();
   const adjustmentForm = useProductionAdjustmentForm();
-  const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomShelfLifeDays, setBomShelfLifeDays, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
+  const { bomMaterialId, setBomMaterialId, bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomShelfLifeDays, setBomShelfLifeDays, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
   const { woProductName, setWoProductName, setWoProductNameSilently, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
   const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
@@ -128,6 +128,9 @@ const ProductionWorkspaceV2 = () => {
       effectiveItemCount: items.length,
       bomType,
     });
+    if (bomStatus !== 'draft' && !bomMaterialId) {
+      nextErrors.productName = '受控配方必须选择已启用的成品或半成品物料，不能只填自由文本名称。';
+    }
     if (Object.keys(nextErrors).length) {
       setBomFormErrors(nextErrors);
       notify('warning', Object.values(nextErrors)[0] || '请补齐配方信息');
@@ -141,6 +144,7 @@ const ProductionWorkspaceV2 = () => {
     setBomSaving(true);
     try {
       const createdBom = await withSaveTimeout(() => productionService.createBom({
+        materialId: bomMaterialId,
         productName: bomProductName.trim(),
         version: bomVersion.trim() || 'v1',
         bomType,
@@ -173,6 +177,10 @@ const ProductionWorkspaceV2 = () => {
       }
       if (readbackBom.shelfLifeDays !== shelfLifeDays) {
         notify('error', `保存后保质期回读不一致：期望 ${shelfLifeDays} 天，实际 ${readbackBom.shelfLifeDays ?? '未配置'}`);
+        return;
+      }
+      if ((readbackBom.materialId ?? null) !== (bomMaterialId ?? null)) {
+        notify('error', `保存后成品身份回读不一致：期望 #${bomMaterialId ?? '未关联'}，实际 #${readbackBom.materialId ?? '未关联'}`);
         return;
       }
 
@@ -403,6 +411,8 @@ const ProductionWorkspaceV2 = () => {
             bomKeyword={bomKeyword}
             setBomKeyword={setBomKeyword}
             bomProductName={bomProductName}
+            bomMaterialId={bomMaterialId}
+            setBomMaterialId={setBomMaterialId}
             setBomProductName={setBomProductName}
             bomVersion={bomVersion}
             setBomVersion={setBomVersion}

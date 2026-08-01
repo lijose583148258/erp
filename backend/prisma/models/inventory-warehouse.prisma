@@ -17,6 +17,8 @@ model ProductBatch {
   material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   productionWorkOrders ProductionWorkOrder[]
   inventoryCostLedgers InventoryCostLedger[]
+  shipments       Shipment[]
+  genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputBatch")
 
   @@index([materialId])
   @@index([productName])
@@ -154,6 +156,7 @@ model StockBalance {
   location    Location @relation(fields: [locationId], references: [id], onDelete: Cascade)
   material    Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   movements   StockMovement[]
+  genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputStock")
 
   @@unique([locationId, productName, batchNo])
   @@unique([locationId, materialId, batchNo])

@@ -21,6 +21,7 @@ export interface ProductionBomItemInput {
 }
 
 export interface ProductionBomInput {
+  materialId?: number | null;
   productName: string;
   version?: string | null;
   bomType?: string | null;
@@ -109,7 +110,7 @@ export class ProductionQueryService {
         take: 20,
         include: {
           bom: { select: { id: true, bomNo: true, productName: true, version: true } },
-          productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+          productBatch: { select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
         },
       }),
       prisma.productBatch.count(),
@@ -206,10 +207,11 @@ export class ProductionQueryService {
       where,
       orderBy: { createdAt: 'desc' },
       include: {
-        bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+        bom: { select: { id: true, bomNo: true, materialId: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
         productBatch: {
           select: {
             id: true,
+            materialId: true,
             batchNo: true,
             productName: true,
             productionDate: true,
@@ -266,15 +268,17 @@ export class ProductionQueryService {
       const requiredQty = resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
       if (requiredQty <= 0) continue;
       const lookupTokens = normalizeMaterialLookupTokens((item as any).materialCode, item.materialName);
-      const lookupWhere = lookupTokens.length > 0
-        ? {
+      const lookupWhere = item.materialId
+        ? { materialId: item.materialId, quantity: { gt: 0 } }
+        : lookupTokens.length > 0
+          ? {
             OR: lookupTokens.flatMap(token => [
               { productName: { contains: token } },
               { batchNo: { contains: token } },
             ]),
             quantity: { gt: 0 },
           }
-        : { productName: item.materialName, quantity: { gt: 0 } };
+          : { productName: item.materialName, quantity: { gt: 0 } };
 
       const stocks = await prisma.stockBalance.findMany({
         where: lookupWhere,

@@ -200,7 +200,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                         type="button"
                                         onClick={() => setIsAssistOpen((value) => !value)}
                                         aria-expanded={isAssistOpen}
-                                        className="flex w-full items-center justify-between gap-4 rounded-[28px] px-6 py-5 text-left transition hover:bg-slate-50 dark:hover:bg-slate-800/40"
+                                        className="flex w-full items-center justify-between gap-4 rounded-[28px] px-6 py-5 text-left transition-colors hover:bg-slate-50 motion-reduce:transition-none dark:hover:bg-slate-800/40"
                                     >
                                         <div className="min-w-0">
                                             <div className="text-sm font-black uppercase tracking-[0.18em] text-slate-700 dark:text-slate-200">{t.assistiveEntryTitle || '辅助录入'}</div>
@@ -215,7 +215,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                                 </div>
                                             )}
                                         </div>
-                                        <ChevronDown size={20} className={`shrink-0 text-slate-400 transition-transform ${isAssistOpen ? 'rotate-180' : ''}`} />
+                                        <ChevronDown size={20} className={`shrink-0 text-slate-400 transition-transform duration-150 motion-reduce:transition-none ${isAssistOpen ? 'rotate-180' : ''}`} />
                                     </button>
 
                                     <div className={isAssistOpen ? 'space-y-4 border-t border-slate-100 p-6 dark:border-slate-800' : 'hidden'}>

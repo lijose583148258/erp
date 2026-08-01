@@ -1,4 +1,6 @@
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 const { findMojibake } = require('./lib/audit-utils.cjs');
 const {
   FALLBACK_ROUTES,
@@ -50,5 +52,24 @@ assert.deepEqual(findMojibake('bad\uFFFDtext'), { code: 'replacement-character',
 assert.equal(findMojibake('label="\u93cd\u56e7\u566f"').code, 'known-encoding-sequence');
 assert.equal(findMojibake('private \uE6E7').code, 'private-use-character');
 
+const productionBomSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'production', 'ProductionBomSection.tsx'), 'utf8');
+const materialLookupSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'production', 'MaterialLookupField.tsx'), 'utf8');
+const completionModalSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'production', 'CompleteWorkOrderModal.tsx'), 'utf8');
+assert.match(productionBomSource, /relative z-10[\s\S]*md:sticky md:bottom-4/, 'mobile BOM save panel must remain in document flow and only become sticky from desktop width');
+assert.match(productionBomSource, /motion-reduce:transition-none/, 'BOM primary action must respect reduced-motion preference');
+assert.match(materialLookupSource, /role="combobox"/);
+assert.match(materialLookupSource, /aria-activedescendant/);
+assert.match(materialLookupSource, /event\.key === 'ArrowDown'/);
+assert.match(materialLookupSource, /event\.key === 'ArrowUp'/);
+assert.match(materialLookupSource, /event\.key === 'Enter'/);
+assert.match(materialLookupSource, /role="option"/);
+assert.match(materialLookupSource, /aria-selected=/);
+assert.match(completionModalSource, /role="dialog"/);
+assert.match(completionModalSource, /aria-modal="true"/);
+assert.match(completionModalSource, /hidden w-full text-left max-w-full sm:table/, 'completion stock table must not force horizontal mobile scrolling');
+assert.match(completionModalSource, /production-complete-mobile-picks/, 'completion picks need a task-oriented mobile layout');
+assert.match(completionModalSource, /flex flex-col-reverse[\s\S]*sm:flex-row/, 'mobile completion actions must remain reachable and preserve primary-action order');
+
 console.log('Browser UI/UX Audit Contract: PASS');
 console.log('- config parsing, route normalization, report rendering, and multilingual mojibake boundaries verified');
+console.log('- BOM mobile save hierarchy, completion task cards, reduced motion, and keyboard material lookup semantics verified');

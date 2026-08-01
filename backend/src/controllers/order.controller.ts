@@ -8,6 +8,7 @@ import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { OrderUpdateRejectedError, OrderUpdateService } from '../services/order-update.service';
 import { buildOrderItemsAndTotals } from '../services/order-item-normalization';
+import { resolveOrderItemMaterialIdentities } from '../services/order-item-material-identity';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
@@ -115,6 +116,7 @@ export class OrderController {
             }
 
             const createdOrder = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                const governedOrderItems = await resolveOrderItemMaterialIdentities(tx, orderItems);
                 // Serialize credit decisions for one customer before reading exposure.
                 // Rejections throw so this row touch is rolled back with the attempt.
                 const customer = await tx.customer.update({
@@ -166,7 +168,7 @@ export class OrderController {
                         status: 'pending',
                         contractId: contractId ? Number(contractId) : null,
                         createdBy: req.user!.userId,
-                        items: { create: orderItems },
+                        items: { create: governedOrderItems },
                     },
                     include: {
                         items: true,

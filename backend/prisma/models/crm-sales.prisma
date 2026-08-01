@@ -157,6 +157,7 @@ model OrderImportBatch {
 model OrderItem {
   id              Int       @id @default(autoincrement())
   orderId         Int       @map("order_id")
+  materialId      Int?      @map("material_id")
   productName     String    @map("product_name")
   specification   String?
   quantity        Float
@@ -169,8 +170,11 @@ model OrderItem {
 
   // 关联
   order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  shipments       Shipment[]
 
   @@index([orderId])
+  @@index([materialId])
   @@map("order_items")
 }
 

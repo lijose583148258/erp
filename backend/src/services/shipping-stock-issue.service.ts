@@ -7,6 +7,7 @@ export type ShippingIssueShipment = {
   quantity: number;
   unit: string;
   batchNo?: string | null;
+  materialId?: number | null;
 };
 
 async function hasShippingIssuePosted(tx: TransactionClient, shipmentNo: string) {
@@ -33,9 +34,10 @@ async function resolveShippingIssueStock(tx: TransactionClient, shipment: Shippi
 
   const where: Prisma.StockBalanceWhereInput = {
     locationId: finishedGoodsLocation.id,
-    productName: shipment.productName,
     quantity: { gte: quantity },
   };
+  if (shipment.materialId) where.materialId = shipment.materialId;
+  else where.productName = shipment.productName;
   if (shipment.batchNo) where.batchNo = shipment.batchNo;
 
   const stock = await tx.stockBalance.findFirst({
@@ -68,6 +70,7 @@ export async function postShippingIssueIfMissing(
     createdBy: createdBy || null,
     lines: [{
       locationId: issueStock.locationId,
+      materialId: issueStock.materialId,
       productName: issueStock.productName,
       batchNo: issueStock.batchNo,
       quantityDelta: -Number(shipment.quantity || 0),

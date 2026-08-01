@@ -153,6 +153,36 @@ describe('OpenAPI contract foundation', () => {
       .toEqual(['productName', 'outputUnit', 'shelfLifeDays', 'items']);
     expect(document.components.schemas.ProductionBomCreateRequest.properties.shelfLifeDays)
       .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, maximum: 3650 }));
+    expect(document.components.schemas.ProductionBomCreateRequest.properties.materialId)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, nullable: true }));
+  });
+
+  it('documents the bounded batch genealogy evidence endpoint', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const trace = document.paths[`${prefix}/production/batches/{batchId}/trace`]?.get;
+      expect(trace).toBeDefined();
+      expect(trace?.parameters?.[0]).toEqual(expect.objectContaining({ name: 'batchId', in: 'path', required: true }));
+      expect(trace?.description).toContain('scope=direct-one-hop');
+      expect(trace?.security).toBeDefined();
+    }
+  });
+
+  it('documents identity-bound manual stock inbound and shipment creation', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const inbound = document.paths[`${prefix}/warehouses/stock-balances`]?.post;
+      const shipment = document.paths[`${prefix}/shipping`]?.post;
+      expect((inbound?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/WarehouseStockCreateRequest' });
+      expect((shipment?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/ShipmentCreateRequest' });
+      expect(shipment?.responses['409']).toBeDefined();
+      expect(shipment?.responses['404']).toBeDefined();
+    }
+    expect(document.components.schemas.WarehouseStockCreateRequest.properties.materialId).toBeDefined();
+    expect(document.components.schemas.ShipmentCreateRequest.properties.orderItemId).toBeDefined();
+    expect(document.components.schemas.ShipmentCreateRequest.properties.materialId).toBeDefined();
   });
 
   it('documents canonical material search, lifecycle writes, and BOM linkage', () => {

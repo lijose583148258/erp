@@ -1,6 +1,8 @@
 model ProductionBom {
   id          Int      @id @default(autoincrement())
   bomNo       String   @unique @map("bom_no")
+  materialId  Int?     @map("material_id")
+  material    Material? @relation("ProductionBomOutputMaterial", fields: [materialId], references: [id], onDelete: SetNull)
   productName String   @map("product_name")
   version     String   @default("v1")
   bomType     String   @default("standard") @map("bom_type")
@@ -26,6 +28,7 @@ model ProductionBom {
   workOrders  ProductionWorkOrder[]
 
   @@index([productName])
+  @@index([materialId])
   @@index([createdBy])
   @@map("production_boms")
 }
@@ -63,6 +66,8 @@ model ProductionWorkOrder {
   bom              ProductionBom?    @relation(fields: [bomId], references: [id], onDelete: SetNull)
   batchId          Int?              @map("batch_id")
   productBatch     ProductBatch?     @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  materialId       Int?              @map("material_id")
+  material         Material?         @relation("ProductionWorkOrderOutputMaterial", fields: [materialId], references: [id], onDelete: SetNull)
   productName      String            @map("product_name")
   targetQuantity   Float             @map("target_quantity")
   producedQuantity Float             @default(0) @map("produced_quantity")
@@ -81,12 +86,42 @@ model ProductionWorkOrder {
   steps            ProductionProcessStep[]
   qualityChecks    ProductionQualityCheck[]
   inventoryCostLedgers InventoryCostLedger[]
+  genealogyEdges   BatchGenealogyEdge[]
 
   @@index([bomId])
   @@index([batchId])
+  @@index([materialId])
   @@index([status])
   @@index([createdBy])
   @@map("production_work_orders")
+}
+
+model BatchGenealogyEdge {
+  id                  Int                 @id @default(autoincrement())
+  workOrderId         Int                 @map("work_order_id")
+  workOrder           ProductionWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  inputStockBalanceId Int?                @map("input_stock_balance_id")
+  inputStockBalance   StockBalance?       @relation("GenealogyInputStock", fields: [inputStockBalanceId], references: [id], onDelete: SetNull)
+  inputMaterialId     Int?                @map("input_material_id")
+  inputMaterial       Material?           @relation("GenealogyInputMaterial", fields: [inputMaterialId], references: [id], onDelete: SetNull)
+  inputBatchNo        String              @map("input_batch_no")
+  inputProductName    String              @map("input_product_name")
+  quantityConsumed    Float               @map("quantity_consumed")
+  inputUnit           String              @map("input_unit")
+  outputBatchId       Int                 @map("output_batch_id")
+  outputBatch         ProductBatch        @relation("GenealogyOutputBatch", fields: [outputBatchId], references: [id], onDelete: Restrict)
+  outputMaterialId    Int?                @map("output_material_id")
+  outputMaterial      Material?           @relation("GenealogyOutputMaterial", fields: [outputMaterialId], references: [id], onDelete: SetNull)
+  outputBatchNo       String              @map("output_batch_no")
+  outputProductName   String              @map("output_product_name")
+  outputQuantity      Float               @map("output_quantity")
+  createdAt           DateTime            @default(now()) @map("created_at")
+
+  @@unique([workOrderId, inputStockBalanceId, outputBatchId])
+  @@index([inputMaterialId, inputBatchNo])
+  @@index([outputMaterialId, outputBatchId])
+  @@index([workOrderId])
+  @@map("batch_genealogy_edges")
 }
 
 model ProductionProcessStep {

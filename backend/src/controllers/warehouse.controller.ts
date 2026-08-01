@@ -255,7 +255,7 @@ export class WarehouseController {
       }
 
       const prisma = (await import('../config/database')).default;
-      const { locationId, productName, batchNo, quantity, unit = 'kg', sourceRef, reason, note, unitCost, costAmountDelta } = req.body;
+      const { locationId, materialId, productName, batchNo, quantity, unit = 'kg', sourceRef, reason, note, unitCost, costAmountDelta } = req.body;
 
       if (!locationId || !productName || !batchNo) {
         return res.status(400).json({ success: false, message: '库位、产品名称、批次号不能为空' } as ApiResponse);
@@ -289,6 +289,7 @@ export class WarehouseController {
         createdBy: req.user?.userId || null,
         lines: [{
           locationId: Number(locationId),
+          materialId: materialId ? Number(materialId) : null,
           productName: String(productName),
           batchNo: String(batchNo),
           quantityDelta,

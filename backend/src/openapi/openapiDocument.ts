@@ -406,6 +406,29 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/production/batches/{batchId}/trace`] = {
+      get: {
+        tags: ['Production'],
+        summary: 'Read the direct batch genealogy and shipment evidence',
+        description: 'Returns the selected batch, direct actual-consumption edges, direct downstream batches, shipments, orders and customers. The response declares scope=direct-one-hop and is not a recall-case workflow. Requires production.read.',
+        security: secured(true),
+        parameters: [{ name: 'batchId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: jsonResponse,
+      },
+    };
+
+    paths[`${prefix}/shipping`] = {
+      ...paths[`${prefix}/shipping`],
+      post: {
+        tags: ['Shipping'],
+        summary: 'Create an identity-bound shipment',
+        description: 'Binds the shipment to an exact customer, optional sales-order line, canonical material, and product batch. Identity substitution conflicts are rejected before persistence. Requires shipping.write.',
+        security: secured(true),
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ShipmentCreateRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Shipment created with resolved identity.' }, '404': { description: 'The linked order item or product batch does not exist.' } },
+      },
+    };
+
     paths[`${prefix}/system/search/status`] = {
       get: {
         tags: ['System'],
@@ -474,6 +497,18 @@ export const buildOpenApiDocument = () => {
           content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockAdjustmentRequest' } } },
         },
         responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/warehouses/stock-balances`] = {
+      ...paths[`${prefix}/warehouses/stock-balances`],
+      post: {
+        tags: ['Warehouse'],
+        summary: 'Post a governed manual stock inbound voucher',
+        description: 'Posts inventory through the stock ledger. Supplying materialId locks product name, base unit, shelf-life policy, balance identity, and generated batch identity to active material master data. Requires warehouse.write.',
+        security: secured(true),
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockCreateRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Stock inbound voucher posted.' } },
       },
     };
 

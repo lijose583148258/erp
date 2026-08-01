@@ -21,10 +21,16 @@ model Material {
 
   aliases         MaterialAlias[]
   bomItems        ProductionBomItem[]
+  productionBoms  ProductionBom[] @relation("ProductionBomOutputMaterial")
+  productionWorkOrders ProductionWorkOrder[] @relation("ProductionWorkOrderOutputMaterial")
+  salesOrderItems OrderItem[]
   purchaseOrders  PurchaseOrder[]
+  shipments       Shipment[]
   productBatches  ProductBatch[]
   stockBalances   StockBalance[]
   stockMovements  StockMovement[]
+  genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputMaterial")
+  genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputMaterial")
 
   @@index([nameZh])
   @@index([nameEn])

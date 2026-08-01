@@ -18,6 +18,7 @@ import {
   type OrderImportIdempotencyService,
 } from './order-import-idempotency.service';
 import { SearchIndexService } from './search-index.service';
+import { resolveOrderItemMaterialIdentities } from './order-item-material-identity';
 
 type ImportOrderRow = {
   customerId?: unknown;
@@ -26,6 +27,7 @@ type ImportOrderRow = {
 };
 
 type ImportOrderItem = {
+  materialId: number | null;
   productName: string;
   specification: string | null;
   quantity: number;
@@ -97,6 +99,7 @@ function buildImportItems(items: Record<string, unknown>[]) {
 
     totalAmount += totalPrice;
     return {
+      materialId: item.materialId ? Number(item.materialId) : null,
       productName,
       specification: item.specification ? String(item.specification) : null,
       quantity,
@@ -151,6 +154,7 @@ export class OrderImportService {
     }
 
     return this.dependencies.runTransaction(async (tx) => {
+      const governedOrderItems = await resolveOrderItemMaterialIdentities(tx, orderItems);
       const existingOrder = await tx.order.findFirst({
         where: { importBatchId: batch.id, importRowNumber: batch.rowNumber },
         select: { id: true, orderNo: true },
@@ -198,7 +202,7 @@ export class OrderImportService {
           createdBy: actor.userId,
           importBatchId: batch.id,
           importRowNumber: batch.rowNumber,
-          items: { create: orderItems },
+          items: { create: governedOrderItems },
         },
         select: { id: true, orderNo: true },
       });

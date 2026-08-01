@@ -12,6 +12,7 @@ import {
   ProductionWorkOrderStepInput,
 } from './production-query.service';
 import { assertBomConsumptionCoverage } from './production-completion.validation';
+import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
 
 export { ProductionCompletionValidationError } from './production-completion.validation';
 
@@ -31,6 +32,46 @@ const toPositiveNumber = (value: unknown) => {
 const roundQuantity = (value: number, precision = 6) => {
   const factor = 10 ** precision;
   return Math.round(value * factor) / factor;
+};
+
+const FINISHED_GOODS_CATEGORIES = new Set(['finished_good', 'semi_finished']);
+
+export const resolveFinishedGoodsMaterial = async (
+  tx: TransactionClient,
+  materialId: number | null | undefined,
+  controlled: boolean,
+) => {
+  if (!materialId) {
+    if (controlled) throw new Error('BOM_OUTPUT_MATERIAL_MASTER_REQUIRED');
+    return null;
+  }
+  const material = await tx.material.findUnique({
+    where: { id: Number(materialId) },
+    select: {
+      id: true,
+      code: true,
+      nameZh: true,
+      category: true,
+      baseUnit: true,
+      shelfLifeDays: true,
+      status: true,
+      isTemporary: true,
+    },
+  });
+  if (!material) throw new Error('BOM_OUTPUT_MATERIAL_NOT_FOUND');
+  if (!FINISHED_GOODS_CATEGORIES.has(material.category)) {
+    throw new Error(`BOM_OUTPUT_MATERIAL_CATEGORY_INVALID:${material.code}:${material.category}`);
+  }
+  if (material.status === 'blocked' || material.status === 'retired') {
+    throw new Error(`BOM_OUTPUT_MATERIAL_UNAVAILABLE:${material.code}`);
+  }
+  if (controlled && (material.status !== 'active' || material.isTemporary)) {
+    throw new Error(`BOM_OUTPUT_MATERIAL_NOT_RELEASED:${material.code}`);
+  }
+  if (controlled && !material.shelfLifeDays) {
+    throw new Error(`BOM_OUTPUT_SHELF_LIFE_REQUIRED:${material.code}`);
+  }
+  return material;
 };
 
 export const calculateBatchExpiryDate = (productionDate: Date, shelfLifeDays: unknown) => {
@@ -82,7 +123,7 @@ const WORK_ORDER_STATUS_RANK: Record<ProductionWorkOrderStatus, number> = {
 const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.productionWorkOrder.findUnique({
   where: { id },
   include: {
-    bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+    bom: { select: { id: true, bomNo: true, materialId: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
     productBatch: {
       select: {
         id: true,
@@ -113,6 +154,8 @@ export class ProductionMutationService {
       .filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
 
     return prisma.$transaction(async tx => {
+      const controlledBom = (input.status || 'draft') !== 'draft';
+      const outputMaterial = await resolveFinishedGoodsMaterial(tx, input.materialId, controlledBom);
       const materialIds = Array.from(new Set(
         draftItems
           .map(item => Number(item.materialId || 0))
@@ -135,7 +178,6 @@ export class ProductionMutationService {
         throw new Error('BOM_MATERIAL_NOT_FOUND');
       }
       const materialById = new Map(materials.map(material => [material.id, material]));
-      const controlledBom = (input.status || 'draft') !== 'draft';
       const items = draftItems.map((item, index) => {
         const materialId = item.materialId ? Number(item.materialId) : null;
         if (!materialId) {
@@ -164,13 +206,14 @@ export class ProductionMutationService {
       const created = await tx.productionBom.create({
         data: {
           bomNo,
-          productName: input.productName,
+          materialId: outputMaterial?.id ?? null,
+          productName: outputMaterial?.nameZh ?? input.productName,
           version: input.version || 'v1',
           bomType: input.bomType || 'standard',
           status: input.status || 'draft',
           formulationMode: input.formulationMode || null,
-          outputUnit: input.outputUnit,
-          shelfLifeDays: input.shelfLifeDays,
+          outputUnit: outputMaterial?.baseUnit ?? input.outputUnit,
+          shelfLifeDays: outputMaterial?.shelfLifeDays ?? input.shelfLifeDays,
           standardBatchSize: input.standardBatchSize ?? null,
           batchSizeUnit: input.batchSizeUnit || null,
           density: input.density ?? null,
@@ -224,6 +267,28 @@ export class ProductionMutationService {
 
   static async createWorkOrder(input: ProductionWorkOrderInput, createdBy: number) {
     return prisma.$transaction(async tx => {
+      const bom = input.bomId
+        ? await tx.productionBom.findUnique({
+          where: { id: input.bomId },
+          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true },
+        })
+        : null;
+      if (input.bomId && !bom) throw new Error(`Production BOM not found: ${input.bomId}`);
+      const batch = input.batchId
+        ? await tx.productBatch.findUnique({
+          where: { id: input.batchId },
+          select: { id: true, materialId: true, productName: true, unit: true },
+        })
+        : null;
+      if (input.batchId && !batch) throw new Error(`Product batch not found: ${input.batchId}`);
+      const outputMaterialId = bom?.materialId ?? batch?.materialId ?? null;
+      const outputProductName = bom?.productName ?? batch?.productName ?? input.productName;
+      if (bom?.materialId && batch && batch.materialId !== bom.materialId) {
+        throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
+      }
+      if (!bom?.materialId && batch?.materialId && bom && batch.productName !== bom.productName) {
+        throw new Error('WORK_ORDER_OUTPUT_BATCH_NAME_MISMATCH');
+      }
       const stepInputs: ProductionWorkOrderStepInput[] = input.steps && input.steps.length > 0
         ? input.steps
         : DEFAULT_STEPS.map((title, index) => ({ stepNo: index + 1, title }));
@@ -233,7 +298,8 @@ export class ProductionMutationService {
           workOrderNo: buildNo('WO'),
           bomId: input.bomId ?? null,
           batchId: input.batchId ?? null,
-          productName: input.productName,
+          materialId: outputMaterialId,
+          productName: outputProductName,
           targetQuantity: Number(input.targetQuantity || 0),
           producedQuantity: Number(input.producedQuantity || 0),
           lossQuantity: Number(input.lossQuantity || 0),
@@ -260,6 +326,7 @@ export class ProductionMutationService {
           productBatch: {
             select: {
               id: true,
+              materialId: true,
               batchNo: true,
               productName: true,
               productionDate: true,
@@ -398,6 +465,12 @@ export class ProductionMutationService {
           quantityDelta: number;
           note: string;
         } | null = null;
+        let lineageOutputBatch: {
+          id: number;
+          materialId: number | null;
+          batchNo: string;
+          productName: string;
+        } | null = null;
 
         if (netOutput > 0) {
           const outputLocationId = await resolveFinishedGoodsLocationId(tx);
@@ -408,6 +481,9 @@ export class ProductionMutationService {
             });
             if (!currentBatch) {
               throw new Error(`Product batch not found: ${workOrder.batchId}`);
+            }
+            if (workOrder.materialId && currentBatch.materialId !== workOrder.materialId) {
+              throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
             }
             const quantityBefore = Number(currentBatch?.stockQuantity || 0);
             await tx.productBatch.update({
@@ -437,11 +513,13 @@ export class ProductionMutationService {
               quantityDelta: netOutput,
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
+            lineageOutputBatch = currentBatch;
           } else {
             const productionDate = new Date();
             const createdBatch = await tx.productBatch.create({
               data: {
-        batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
+                materialId: workOrder.materialId,
+                batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
                 productName: workOrder.productName,
                 productionDate,
                 expiryDate: calculateBatchExpiryDate(productionDate, workOrder.bom?.shelfLifeDays),
@@ -464,6 +542,7 @@ export class ProductionMutationService {
               createdBy: workOrder.createdBy,
               lines: [{
                 locationId: outputLocationId,
+                materialId: createdBatch.materialId,
                 productName: createdBatch.productName,
                 batchNo: createdBatch.batchNo,
                 quantityDelta: netOutput,
@@ -476,6 +555,7 @@ export class ProductionMutationService {
               quantityDelta: netOutput,
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
+            lineageOutputBatch = createdBatch;
           }
         }
 
@@ -497,6 +577,16 @@ export class ProductionMutationService {
               unit: record.stock?.unit || 'kg',
             })),
           }, tx);
+
+          if (!lineageOutputBatch) {
+            throw new Error(`Output batch is missing for genealogy: ${workOrder.workOrderNo}`);
+          }
+          await persistBatchGenealogyEdges(tx, {
+            workOrderId: workOrder.id,
+            outputQuantity: netOutput,
+            outputBatch: lineageOutputBatch,
+            consumptions: validatedConsumptionRecords,
+          });
 
           for (const record of validatedConsumptionRecords) {
             const currentStock = record.stock;

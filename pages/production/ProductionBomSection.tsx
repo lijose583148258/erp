@@ -1,5 +1,6 @@
 import React, { Dispatch, SetStateAction } from 'react';
 import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 import { ProductionBom } from '../../services/production.service';
 import { ProductionBomLineGrid } from './ProductionBomLineGrid';
 import type { BomItemDraft } from './productionBomLineModel';
@@ -34,6 +35,8 @@ interface ProductionBomSectionProps {
   bomKeyword: string;
   setBomKeyword: (value: string) => void;
   bomProductName: string;
+  bomMaterialId: number | null;
+  setBomMaterialId: (value: number | null) => void;
   setBomProductName: (value: string) => void;
   bomVersion: string;
   setBomVersion: (value: string) => void;
@@ -90,6 +93,8 @@ export function ProductionBomSection({
   bomKeyword,
   setBomKeyword,
   bomProductName,
+  bomMaterialId,
+  setBomMaterialId,
   setBomProductName,
   bomVersion,
   setBomVersion,
@@ -187,19 +192,30 @@ export function ProductionBomSection({
             <span>此区域字段属于配方主档；保存时会与下方有效原料行组成一个版本。</span>
           </div>
           <div className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-4">
-            <Field
+            <MaterialMasterCombobox
               dataTestId="production-bom-product-name"
-              label="产品名称"
+              label="成品 / 半成品物料"
               value={bomProductName}
-              onChange={value => {
+              selectedMaterialId={bomMaterialId}
+              allowedCategories={['finished_good', 'semi_finished']}
+              onTextChange={value => {
                 onFormTouched();
                 clearBomFormError('productName');
+                setBomMaterialId(null);
                 setBomProductName(value);
               }}
-              placeholder="例如：环氧树脂底胶"
+              onClearSelection={() => setBomMaterialId(null)}
+              onSelect={material => {
+                setBomMaterialId(material.id);
+                setBomProductName(material.nameZh);
+                setBomOutputUnit(material.baseUnit);
+                setBomBatchSizeUnit(material.baseUnit);
+                if (material.shelfLifeDays) setBomShelfLifeDays(String(material.shelfLifeDays));
+                clearBomFormError('productName');
+                clearBomFormError('outputUnit');
+                clearBomFormError('shelfLifeDays');
+              }}
               error={bomFormErrors.productName}
-              required
-              hint="成品名称；不是原料名称"
             />
             <Field dataTestId="production-bom-version" label="版本" value={bomVersion} onChange={value => { onFormTouched(); setBomVersion(value); }} placeholder="v1" />
             <SelectField dataTestId="production-bom-type" label="配方类型" value={bomType} onChange={value => { onFormTouched(); setBomType(value); }} options={BOM_TYPE_OPTIONS} />
@@ -328,12 +344,12 @@ export function ProductionBomSection({
             standardBatchSize={numericStandardBatchSize}
             formulationMode={bomFormulationMode}
           />
-          <div className="sticky bottom-4 z-10 flex flex-col gap-3 rounded-[28px] border border-blue-100 bg-white/90 p-4 shadow-[0_20px_60px_rgba(37,99,235,0.12)] backdrop-blur-xl dark:border-blue-900/40 dark:bg-slate-900/90 md:flex-row md:items-center md:justify-between">
+          <div className="relative z-10 flex flex-col gap-3 rounded-[28px] border border-blue-100 bg-white/95 p-4 shadow-[0_20px_60px_rgba(37,99,235,0.12)] backdrop-blur-xl dark:border-blue-900/40 dark:bg-slate-900/95 md:sticky md:bottom-4 md:flex-row md:items-center md:justify-between">
             <div>
               <div className="text-sm font-black text-slate-900 dark:text-white">保存为一个配方版本</div>
               <div className="text-xs font-bold text-slate-400">保存前确认左侧主数据 + 右侧原料明细；保存后请在下方只读列表回读，确认原料行没有丢失。</div>
             </div>
-            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading || bomSaving} aria-busy={bomSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] transition-all active-shrink disabled:opacity-60">{bomSaving ? '保存中...' : '保存配方版本（主数据 + 明细）'}</button>
+            <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading || bomSaving} aria-busy={bomSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 hover:scale-[1.01] motion-reduce:hover:scale-100 transition-[transform,background-color,box-shadow] motion-reduce:transition-none active-shrink disabled:opacity-60">{bomSaving ? '保存中...' : '保存配方版本（主数据 + 明细）'}</button>
           </div>
         </div>
       </div>

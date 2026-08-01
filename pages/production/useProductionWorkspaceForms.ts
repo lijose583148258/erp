@@ -19,6 +19,7 @@ const useTouchedState = () => {
 
 export const useProductionBomForm = () => {
   const touch = useTouchedState();
+  const [bomMaterialId, setBomMaterialId] = useState<number | null>(null);
   const [bomProductName, setBomProductName] = useState('');
   const [bomVersion, setBomVersion] = useState('v1');
   const [bomType, setBomType] = useState<BomType>('standard');
@@ -38,6 +39,7 @@ export const useProductionBomForm = () => {
   const [bomItems, setBomItems] = useState<BomItemDraft[]>(newBomItems());
 
   const resetBomForm = () => {
+    setBomMaterialId(null);
     setBomProductName('');
     setBomVersion('v1');
     setBomType('standard');
@@ -58,6 +60,11 @@ export const useProductionBomForm = () => {
   };
 
   return {
+    bomMaterialId,
+    setBomMaterialId: (value: number | null) => {
+      touch.markTouched();
+      setBomMaterialId(value);
+    },
     bomProductName,
     setBomProductName: (value: string) => {
       touch.markTouched();

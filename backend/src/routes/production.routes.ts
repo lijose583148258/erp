@@ -23,6 +23,13 @@ router.post('/boms', authorizePermission('production.write'), validateZod(create
 router.get('/work-orders', authorizePermission('production.read'), authRoute((req, res) => controller.getWorkOrders(req, res)));
 router.get('/work-orders/:id/preview-consumption', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.previewConsumption(req, res)));
 router.get(
+  '/batches/:batchId/trace',
+  authorizePermission('production.read'),
+  [param('batchId').isInt({ min: 1 })],
+  validateRequest,
+  authRoute((req, res) => controller.getBatchTrace(req, res)),
+);
+router.get(
   '/batches/:batchId/cost-ledger',
   authorizePermission('production.cost.read'),
   [param('batchId').isInt({ min: 1 })],

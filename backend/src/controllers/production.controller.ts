@@ -62,6 +62,7 @@ export class ProductionController {
     try {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
       const {
+        materialId,
         productName,
         version,
         bomType,
@@ -85,6 +86,7 @@ export class ProductionController {
       }
 
       const created = await ProductionService.createBom({
+        materialId: toNumber(materialId) ?? null,
         productName: String(productName),
         version: version ? String(version) : null,
         bomType: bomType ? String(bomType) : null,
@@ -143,7 +145,7 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to preview consumption', error);
       const message = error instanceof Error ? error.message : 'Failed to preview consumption';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
   async getBatchCostLedger(req: AuthRequest, res: Response) {
@@ -163,6 +165,18 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to load batch cost ledger', error);
       res.status(500).json({ success: false, message: 'Failed to load batch cost ledger' } as ApiResponse);
+    }
+  }
+
+  async getBatchTrace(req: AuthRequest, res: Response) {
+    try {
+      if (!canReadProduction(req)) return rejectProductionRead(res);
+      const data = await ProductionService.getBatchTrace(Number(req.params.batchId));
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to load batch trace', error);
+      const message = error instanceof Error ? error.message : 'Failed to load batch trace';
+      return res.status(message.includes('not found') ? 404 : 500).json({ success: false, message } as ApiResponse);
     }
   }
 

@@ -39,6 +39,7 @@ export interface ProductionBomItem {
 export interface ProductionBom {
   id: number;
   bomNo: string;
+  materialId?: number | null;
   productName: string;
   version: string;
   bomType?: string;
@@ -102,6 +103,7 @@ export interface ProductionWorkOrder {
   workOrderNo: string;
   bomId: number | null;
   batchId: number | null;
+  materialId?: number | null;
   productName: string;
   targetQuantity: number;
   producedQuantity: number;
@@ -116,6 +118,7 @@ export interface ProductionWorkOrder {
   bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null } | null;
   productBatch?: {
     id: number;
+    materialId?: number | null;
     batchNo: string;
     productName: string;
     productionDate: string | null;
@@ -141,6 +144,7 @@ export const productionService = {
   },
 
   async createBom(data: {
+    materialId?: number | null;
     productName: string;
     version?: string | null;
     bomType?: string | null;

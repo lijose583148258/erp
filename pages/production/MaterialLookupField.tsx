@@ -31,10 +31,13 @@ export function MaterialLookupField({
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<MaterialMaster[]>([]);
   const [message, setMessage] = useState('');
+  const [activeIndex, setActiveIndex] = useState(-1);
+  const selectableResults = results.filter(material => material.status !== 'blocked' && material.status !== 'retired');
 
   useEffect(() => {
     if (!open || materialCode.trim().length < 1 || materialId) {
       setResults([]);
+      setActiveIndex(-1);
       setMessage('');
       return;
     }
@@ -45,6 +48,7 @@ export function MaterialLookupField({
       try {
         const data = await materialService.search(materialCode.trim(), { signal: controller.signal });
         setResults(data.items || []);
+        setActiveIndex(-1);
         if (!data.items?.length) setMessage('未找到统一物料；草稿可继续使用临时文本，正式发布前必须完成归档。');
       } catch (error) {
         if (!controller.signal.aborted) {
@@ -70,6 +74,7 @@ export function MaterialLookupField({
     });
     setOpen(false);
     setResults([]);
+    setActiveIndex(-1);
     setMessage('');
   };
 
@@ -84,11 +89,34 @@ export function MaterialLookupField({
           aria-controls={listboxId}
           aria-expanded={open}
           aria-autocomplete="list"
+          aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
           value={materialCode}
           onFocus={() => setOpen(true)}
           onChange={(event) => {
             onChange({ materialId: null, materialCode: event.target.value });
             setOpen(true);
+          }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              setOpen(false);
+              setActiveIndex(-1);
+              return;
+            }
+            if (event.key === 'ArrowDown') {
+              event.preventDefault();
+              setOpen(true);
+              setActiveIndex(index => Math.min(index + 1, selectableResults.length - 1));
+              return;
+            }
+            if (event.key === 'ArrowUp') {
+              event.preventDefault();
+              setActiveIndex(index => Math.max(0, index - 1));
+              return;
+            }
+            if (event.key === 'Enter' && activeIndex >= 0 && selectableResults[activeIndex]) {
+              event.preventDefault();
+              selectMaterial(selectableResults[activeIndex]);
+            }
           }}
           placeholder="编码 / 名称 / CAS"
           className={`${className} pl-9 pr-9`}
@@ -128,12 +156,16 @@ export function MaterialLookupField({
         >
           {results.map(material => {
             const unavailable = material.status === 'blocked' || material.status === 'retired';
+            const selectableIndex = selectableResults.findIndex(item => item.id === material.id);
             return (
               <button
+                id={selectableIndex >= 0 ? `${listboxId}-option-${selectableIndex}` : undefined}
                 key={material.id}
                 type="button"
                 role="option"
                 disabled={unavailable}
+                aria-selected={selectableIndex === activeIndex}
+                onMouseEnter={() => { if (selectableIndex >= 0) setActiveIndex(selectableIndex); }}
                 onClick={() => selectMaterial(material)}
                 className="flex w-full items-start justify-between gap-3 rounded-lg px-3 py-2 text-left hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-blue-950/30"
               >

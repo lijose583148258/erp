@@ -2,6 +2,7 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import type { AuthRequest } from '../middleware/auth';
 import { buildOrderItemsAndTotals } from './order-item-normalization';
+import { resolveOrderItemMaterialIdentities } from './order-item-material-identity';
 import { canUseOrderForBusinessWrite } from '../utils/recordAccess';
 import { CreditEngine } from '../utils/CreditEngine';
 import { withDbRetry } from '../utils/dbRetry';
@@ -66,6 +67,9 @@ export const OrderUpdateService = {
             if (!canUseOrderForBusinessWrite(req, existing)) {
                 throw new OrderUpdateRejectedError(403, '无权编辑该订单。');
             }
+            const governedReplacementItems = itemReplacement
+                ? await resolveOrderItemMaterialIdentities(tx, itemReplacement.orderItems)
+                : null;
 
             const replacementFinalAmount = itemReplacement
                 ? itemReplacement.totalAmount - Number(existing.discountAmount)
@@ -114,7 +118,7 @@ export const OrderUpdateService = {
                         finalAmount: replacementFinalAmount,
                         items: {
                             deleteMany: {},
-                            create: itemReplacement.orderItems,
+                            create: governedReplacementItems || [],
                         },
                     } : {}),
                 },

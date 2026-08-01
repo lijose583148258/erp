@@ -1,7 +1,7 @@
 import React, { useEffect, useId, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckCircle2, LoaderCircle, Search, X } from 'lucide-react';
-import { materialService, type MaterialMaster } from '../../services/material.service';
+import { materialService, type MaterialCategory, type MaterialMaster } from '../../services/material.service';
 
 type Props = {
   value: string;
@@ -11,6 +11,11 @@ type Props = {
   onClearSelection: () => void;
   error?: string;
   dataTestId?: string;
+  label?: string;
+  required?: boolean;
+  hideLabel?: boolean;
+  compactStatus?: boolean;
+  allowedCategories?: MaterialCategory[];
 };
 
 export function MaterialMasterCombobox({
@@ -21,6 +26,11 @@ export function MaterialMasterCombobox({
   onClearSelection,
   error,
   dataTestId = 'material-master-combobox',
+  label = '采购物料',
+  required = true,
+  hideLabel = false,
+  compactStatus = false,
+  allowedCategories,
 }: Props) {
   const listboxId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -33,7 +43,11 @@ export function MaterialMasterCombobox({
   const [popupStyle, setPopupStyle] = useState<React.CSSProperties>({});
   const [queryFailed, setQueryFailed] = useState(false);
 
-  const eligibleResults = results.filter(item => item.status === 'active' && !item.isTemporary);
+  const eligibleResults = results.filter(item => (
+    item.status === 'active'
+    && !item.isTemporary
+    && (!allowedCategories?.length || allowedCategories.includes(item.category))
+  ));
 
   useEffect(() => {
     const closeOnOutsidePointer = (event: PointerEvent) => {
@@ -113,9 +127,11 @@ export function MaterialMasterCombobox({
 
   return (
     <div ref={rootRef} className="relative">
-      <label htmlFor={`${listboxId}-input`} className="mb-1.5 block text-xs font-black text-slate-700 dark:text-slate-200">
-        采购物料 <span className="text-rose-500">*</span>
-      </label>
+      {!hideLabel ? (
+        <label htmlFor={`${listboxId}-input`} className="mb-1.5 block text-xs font-black text-slate-700 dark:text-slate-200">
+          {label} {required ? <span className="text-rose-500">*</span> : null}
+        </label>
+      ) : null}
       <div className="relative">
         <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
         <input
@@ -129,6 +145,7 @@ export function MaterialMasterCombobox({
           aria-busy={loading}
           aria-activedescendant={activeIndex >= 0 ? `${listboxId}-option-${activeIndex}` : undefined}
           value={value}
+          title={value || undefined}
           onFocus={() => setOpen(true)}
           onChange={(event) => {
             if (selectedMaterialId) onClearSelection();
@@ -176,11 +193,11 @@ export function MaterialMasterCombobox({
       </div>
 
       {error ? <p className="mt-1 text-xs font-bold text-rose-600">{error}</p> : null}
-      <div aria-live="polite" className={`mt-1.5 flex items-center gap-1.5 text-xs font-bold ${selectedMaterialId ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300'}`}>
+      <div aria-live="polite" className={`mt-1.5 flex items-center gap-1.5 font-bold ${compactStatus ? 'text-[10px] leading-4' : 'text-xs'} ${selectedMaterialId ? 'text-emerald-700 dark:text-emerald-300' : 'text-amber-600 dark:text-amber-300'}`}>
         {selectedMaterialId ? <CheckCircle2 size={13} /> : null}
         {selectedMaterialId
-          ? `已关联统一物料 #${selectedMaterialId}；名称和单位随主数据锁定`
-          : '尚未关联主数据；历史兼容模式可保存，但收货前建议完成归档'}
+          ? (compactStatus ? `已关联 #${selectedMaterialId}` : `已关联统一物料 #${selectedMaterialId}；名称和单位随主数据锁定`)
+          : (compactStatus ? '未关联：按历史文本保存' : '尚未关联主数据；历史兼容模式可保存，但收货前建议完成归档')}
       </div>
 
       {open && !selectedMaterialId && value.trim() ? createPortal((

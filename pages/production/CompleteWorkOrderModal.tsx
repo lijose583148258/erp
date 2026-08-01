@@ -129,14 +129,18 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
   const hasShortage = suggestions.some((suggestion) => suggestion.shortageQty > 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-slate-900/50 backdrop-blur-sm">
       <div
         data-testid="production-complete-modal"
-        className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-[36px] shadow-2xl border border-slate-100 dark:border-slate-800 p-8"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="production-complete-title"
+        className="relative w-full max-w-4xl max-h-[calc(100dvh-1.5rem)] sm:max-h-[90vh] overflow-y-auto bg-white dark:bg-slate-900 rounded-[28px] sm:rounded-[36px] shadow-2xl border border-slate-100 dark:border-slate-800 p-4 sm:p-8"
       >
         <button
           onClick={onClose}
-          className="absolute top-6 right-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition"
+          aria-label="关闭完工确认"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors motion-reduce:transition-none"
         >
           <X size={20} />
         </button>
@@ -146,7 +150,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
             <Layers3 size={24} />
           </div>
           <div>
-            <h2 className="text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">工单完工耗料确认</h2>
+            <h2 id="production-complete-title" className="pr-10 text-lg sm:text-xl font-black text-slate-900 dark:text-white uppercase tracking-tight">工单完工耗料确认</h2>
             <p className="text-sm font-bold text-slate-500 mt-1">
               工单: {productName} | 生产数量: {targetQuantity}
             </p>
@@ -200,7 +204,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
               ) : (
                 suggestions.map((suggestion, idx) => (
                   <div
-                    key={idx}
+                    key={`${suggestion.materialName}-${idx}`}
                     className="rounded-[24px] border border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-800/40 overflow-hidden"
                   >
                     <div className="flex items-center justify-between px-5 py-3 border-b border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900/60">
@@ -222,7 +226,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                       <div className="px-5 py-4 text-xs font-bold text-slate-400 text-center">系统未找到对应的在库库存记录</div>
                     ) : (
                       <div className="p-3">
-                        <table className="w-full text-left max-w-full">
+                        <table className="hidden w-full text-left max-w-full sm:table">
                           <thead>
                             <tr>
                               <th className="px-3 py-2 text-xs font-black uppercase text-slate-400">库位存放点</th>
@@ -255,6 +259,34 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                             ))}
                           </tbody>
                         </table>
+                        <div className="space-y-2 sm:hidden" data-testid="production-complete-mobile-picks">
+                          {suggestion.pickList.map((pick) => (
+                            <div key={pick.stockBalanceId} className="rounded-2xl border border-slate-200 bg-white p-3 dark:border-slate-700 dark:bg-slate-900">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="text-xs font-black text-slate-800 dark:text-slate-100">{pick.locationName}</div>
+                                  <div className="mt-1 break-all font-mono text-[11px] text-slate-500">批号 {pick.batchNo}</div>
+                                </div>
+                                <div className="shrink-0 text-right text-[11px] font-bold text-slate-500">
+                                  可用 <span className="text-slate-900 dark:text-white">{pick.availableQty.toFixed(2)}</span>
+                                </div>
+                              </div>
+                              <label className="mt-3 block text-xs font-black text-slate-600 dark:text-slate-300">
+                                确认扣减量
+                                <input
+                                  data-testid={`production-complete-mobile-deduct-${pick.stockBalanceId}`}
+                                  type="number"
+                                  min="0"
+                                  max={pick.availableQty}
+                                  step="0.01"
+                                  value={records[pick.stockBalanceId] ?? 0}
+                                  onChange={(event) => handleDeductChange(pick.stockBalanceId, event.target.value)}
+                                  className="mt-1 min-h-11 w-full rounded-xl border border-blue-200 bg-white px-3 text-right text-sm font-black text-blue-700 outline-none focus:ring-2 focus:ring-blue-500/30 dark:border-slate-700 dark:bg-slate-900 dark:text-blue-300"
+                                />
+                              </label>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     )}
                   </div>
@@ -262,11 +294,11 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
               )}
             </div>
 
-            <div className="flex items-center justify-end gap-3 pt-6 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-col-reverse gap-3 pt-6 border-t border-slate-100 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-end">
               <button
                 onClick={onClose}
                 disabled={submitting}
-                className="px-6 py-3 rounded-[20px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-black uppercase tracking-widest transition hover:bg-slate-200 dark:hover:bg-slate-700"
+                className="min-h-12 w-full px-6 py-3 rounded-[20px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-xs font-black uppercase tracking-widest transition-colors motion-reduce:transition-none hover:bg-slate-200 dark:hover:bg-slate-700 sm:w-auto"
               >
                 暂不完工
               </button>
@@ -274,7 +306,7 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                 onClick={handleSubmit}
                 disabled={submitting}
                 data-testid="production-complete-confirm"
-                className="flex items-center gap-2 px-8 py-3 rounded-[20px] bg-blue-600 text-white text-xs font-black uppercase tracking-widest transition hover:bg-blue-700 hover:scale-[1.02] shadow-xl shadow-blue-500/20 active-shrink disabled:opacity-50"
+                className="flex min-h-12 w-full items-center justify-center gap-2 px-8 py-3 rounded-[20px] bg-blue-600 text-white text-xs font-black uppercase tracking-widest transition-[transform,background-color,box-shadow] motion-reduce:transition-none hover:bg-blue-700 hover:scale-[1.02] motion-reduce:hover:scale-100 shadow-xl shadow-blue-500/20 active-shrink disabled:opacity-50 sm:w-auto"
               >
                 <Save size={16} />
                 确认扣减并完工

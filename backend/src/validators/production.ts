@@ -83,6 +83,7 @@ const productionStepInputSchema = z.object({
 }).strict();
 
 export const createProductionBomSchema = z.object({
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   productName: z.string().trim().min(1),
   version: z.string().trim().optional().nullable(),
   bomType: z.string().trim().optional().nullable(),

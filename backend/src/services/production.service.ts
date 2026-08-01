@@ -10,6 +10,7 @@ import {
 import { ProductionQueryService } from './production-query.service';
 import { ProductionMutationService } from './production-mutation.service';
 import { ProductionCostLedgerService } from './production-cost-ledger.service';
+import { BatchTraceService } from './batch-trace.service';
 
 export type { ProductionWorkOrderStatus, ProductionQualityResult, ProductionBomInput, ProductionBomItemInput, ProductionWorkOrderInput, ProductionWorkOrderStepInput, ProductionQualityCheckInput } from './production-query.service';
 
@@ -52,5 +53,9 @@ export class ProductionService {
 
   static async getBatchCostLedger(batchId: number, options: { page?: number; pageSize?: number } = {}) {
     return ProductionCostLedgerService.listByBatchId(batchId, options);
+  }
+
+  static async getBatchTrace(batchId: number) {
+    return BatchTraceService.getBatchTrace(batchId);
   }
 }

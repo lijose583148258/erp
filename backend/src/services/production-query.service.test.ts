@@ -5,6 +5,7 @@ const prismaMock = {
   },
   productionWorkOrder: {
     findMany: jest.fn(),
+    findUnique: jest.fn(),
     groupBy: jest.fn(),
     aggregate: jest.fn(),
   },
@@ -13,6 +14,9 @@ const prismaMock = {
   },
   productionQualityCheck: {
     groupBy: jest.fn(),
+  },
+  stockBalance: {
+    findMany: jest.fn(),
   },
 };
 
@@ -70,5 +74,25 @@ describe('ProductionQueryService.getSummary', () => {
       passCount: 8,
       failCount: 1,
     });
+  });
+});
+
+describe('ProductionQueryService.previewWorkOrderConsumption', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('uses exact material identity instead of suggesting same-name legacy stock', async () => {
+    prismaMock.productionWorkOrder.findUnique.mockResolvedValue({
+      id: 7,
+      targetQuantity: 40,
+      bom: { items: [{ materialId: 11, materialCode: 'RM-0011', materialName: '原料', quantityPerUnit: 0.5, lossRate: 0 }] },
+    });
+    prismaMock.stockBalance.findMany.mockResolvedValue([{ id: 3, locationId: 4, batchNo: 'LOT-1', quantity: 30, location: { name: 'A01', warehouse: { name: '主仓' } } }]);
+
+    const result = await ProductionQueryService.previewWorkOrderConsumption(7);
+
+    expect(prismaMock.stockBalance.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { materialId: 11, quantity: { gt: 0 } },
+    }));
+    expect(result[0]).toMatchObject({ materialName: 'RM-0011', requiredQty: 20, shortageQty: 0 });
   });
 });

@@ -7,6 +7,7 @@ export const buildOrderItemsAndTotals = (items: any[]) => {
         totalAmount += totalPrice;
 
         return {
+            materialId: item.materialId ? Number(item.materialId) : null,
             productName: item.productName,
             specification: item.specification || item.packagingSpec || null,
             quantity,

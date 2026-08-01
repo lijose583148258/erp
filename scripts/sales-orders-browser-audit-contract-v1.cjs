@@ -49,6 +49,29 @@ for (const stage of ['open-sales-order-edit', 'save-sales-order-edit', 'verify-s
 }
 assert.ok(!editFlowSource.includes("'edit-sales-order-items'"), 'monolithic edit timebox must stay removed');
 
+const salesGridSource = fs.readFileSync(require.resolve('../pages/sales-orders/SalesOrderLineGrid.tsx'), 'utf8');
+const salesHeaderSource = fs.readFileSync(require.resolve('../pages/sales-orders/SalesOrderHeaderForm.tsx'), 'utf8');
+const salesModalSource = fs.readFileSync(require.resolve('../pages/sales-orders/SalesOrderEditorModal.tsx'), 'utf8');
+for (const token of [
+  '第 2 步 · 选择商品并录入数量价格',
+  '<MaterialMasterCombobox',
+  "selectedMaterialId={item.materialId || null}",
+  "allowedCategories={['raw_material', 'finished_good', 'semi_finished', 'packaging']}",
+  'aria-label="销售订单商品明细卡片"',
+  'lg:hidden',
+  'hidden overflow-x-auto',
+  'sticky left-0',
+  'sticky right-0',
+  '保存结果：生成待确认销售订单和商品行，不立即扣库存',
+  'motion-reduce:transition-none',
+]) {
+  assert.ok(salesGridSource.includes(token), `sales line hierarchy/motion contract missing: ${token}`);
+}
+assert.ok(salesGridSource.includes('key={`sales-line-${index}`}'), 'sales line must use an edit-stable row key');
+assert.ok(!salesGridSource.includes('key={`${index}-${item.productName}'), 'sales line key must not change during IME or text editing');
+assert.ok(salesHeaderSource.includes('第 1 步 · 确认客户与交易条件'), 'sales header step hierarchy is missing');
+assert.ok(salesModalSource.includes('motion-reduce:transition-none'), 'sales modal reduced-motion contract is missing');
+
 async function verifyRuntimeFailureEvidence() {
   const runtimeReport = { steps: [] };
   const runtime = createSalesOrdersBrowserAuditRuntime({
