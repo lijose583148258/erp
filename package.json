@@ -23,6 +23,7 @@
         "test:contract:sales-orders-browser": "node ./scripts/sales-orders-browser-audit-contract-v1.cjs",
         "test:contract:human-flow": "node ./scripts/browser-human-flow-modules-contract-v1.cjs",
         "test:contract:procurement-browser": "node ./scripts/procurement-browser-audit-contract-v1.cjs",
+        "test:contract:cloud-topology": "node ./scripts/enterprise-cloud-topology-contract-v1.cjs",
         "generate:api:sdk": "node ./scripts/generate-api-sdk-v1.cjs",
         "prisma:validate": "npm --prefix backend run prisma:validate",
         "test": "npm run audit:auth:default-credentials && npm run audit:refactor:freeze && npm run test:pilot-stability",
