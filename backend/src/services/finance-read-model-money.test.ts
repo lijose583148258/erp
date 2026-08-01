@@ -1,4 +1,4 @@
-import { calculateMilestoneAmounts } from './collection-query.service';
+import { calculateMilestoneAmounts } from './collection/collection.helpers';
 import { resolveBaseAmount, resolvePortionBaseAmount } from './finance-summary.service';
 
 describe('finance read-model money precision', () => {

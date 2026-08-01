@@ -5,7 +5,15 @@ import {
     buildPaymentDataScopeWhere,
     mergeWhereAnd,
 } from '../../utils/recordAccess';
-import { compareMoney, maxMoney, subtractMoney } from '../../utils/money';
+import {
+    addMoney,
+    compareMoney,
+    maxMoney,
+    prorateMoney,
+    roundMoney,
+    subtractMoney,
+    type DecimalInput,
+} from '../../utils/money';
 
 export const COLLECTION_DAY_MS = 24 * 60 * 60 * 1000;
 export const COLLECTION_DEFAULT_PAGE_SIZE = 20;
@@ -22,16 +30,40 @@ export interface CollectionActionPlan {
     holdRecommended: boolean;
 }
 
-export const getEffectiveReceivableAmount = (finalAmount: number, receivableAdjustmentAmount = 0) =>
+export const getEffectiveReceivableAmount = (
+    finalAmount: DecimalInput,
+    receivableAdjustmentAmount: DecimalInput = 0,
+) =>
     maxMoney(0, subtractMoney(finalAmount, receivableAdjustmentAmount));
 
-export const getOutstandingAmount = (finalAmount: number, paidAmount: number, receivableAdjustmentAmount = 0) =>
+export const getOutstandingAmount = (
+    finalAmount: DecimalInput,
+    paidAmount: DecimalInput,
+    receivableAdjustmentAmount: DecimalInput = 0,
+) =>
     maxMoney(0, subtractMoney(getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount), paidAmount));
 
+export const calculateMilestoneAmounts = (input: {
+    explicitAmount: DecimalInput;
+    contractTotalAmount: DecimalInput;
+    percentage: DecimalInput;
+    verifiedPayments: Array<{ amount: DecimalInput }>;
+}) => {
+    const targetAmount = input.explicitAmount !== null && input.explicitAmount !== undefined
+        ? roundMoney(input.explicitAmount)
+        : prorateMoney(input.contractTotalAmount, input.percentage, 100);
+    const paidAmount = addMoney(...input.verifiedPayments.map(payment => payment.amount));
+    return {
+        targetAmount,
+        paidAmount,
+        remainingAmount: maxMoney(0, subtractMoney(targetAmount, paidAmount)),
+    };
+};
+
 export const determineReceivablePaymentStatus = (
-    paidAmount: number,
-    finalAmount: number,
-    receivableAdjustmentAmount = 0,
+    paidAmount: DecimalInput,
+    finalAmount: DecimalInput,
+    receivableAdjustmentAmount: DecimalInput = 0,
 ) => {
     const effectiveReceivable = getEffectiveReceivableAmount(finalAmount, receivableAdjustmentAmount);
     if (compareMoney(paidAmount, effectiveReceivable) >= 0) return 'paid';
@@ -45,9 +77,9 @@ export const getDueDate = (createdAt: Date, paymentTerms: number) =>
 export const isOverdue = (
     createdAt: Date,
     paymentTerms: number,
-    finalAmount: number,
-    paidAmount: number,
-    receivableAdjustmentAmount = 0,
+    finalAmount: DecimalInput,
+    paidAmount: DecimalInput,
+    receivableAdjustmentAmount: DecimalInput = 0,
     now = new Date(),
 ) => {
     const outstanding = getOutstandingAmount(finalAmount, paidAmount, receivableAdjustmentAmount);

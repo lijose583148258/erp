@@ -2,16 +2,17 @@ import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import type { Prisma } from '@prisma/client';
 import {
+    calculateMilestoneAmounts,
     determineReceivablePaymentStatus,
+    getEffectiveReceivableAmount,
     getDunningLevel,
     getOutstandingAmount,
     getOverdueDays,
     isOverdue,
 } from './collection/collection.helpers';
 import { withDbRetry } from '../utils/dbRetry';
+import { addMoney, compareMoney, type DecimalInput } from '../utils/money';
 
-// 浮点精度修复：将金额转换为整数分进行比较，消除 0.1+0.2 !== 0.3 的问题
-const toCents = (n: number) => Math.round(n * 100);
 type CollectionDb = typeof prisma | Prisma.TransactionClient;
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING = 'PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING';
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE = 'Verified payments would exceed order outstanding balance.';
@@ -20,6 +21,28 @@ export const getPaymentVerificationConflictMessage = (error: unknown) => (
         ? PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE
         : null
 );
+
+export const calculateVerifiedPaymentState = (input: {
+    verifiedPayments: Array<{ amount: DecimalInput }>;
+    finalAmount: DecimalInput;
+    receivableAdjustmentAmount?: DecimalInput;
+}) => {
+    const paidAmount = addMoney(...input.verifiedPayments.map(payment => payment.amount));
+    const effectiveReceivableAmount = getEffectiveReceivableAmount(
+        input.finalAmount,
+        input.receivableAdjustmentAmount,
+    );
+    return {
+        paidAmount,
+        effectiveReceivableAmount,
+        exceedsOutstanding: compareMoney(paidAmount, effectiveReceivableAmount) > 0,
+        paymentStatus: determineReceivablePaymentStatus(
+            paidAmount,
+            input.finalAmount,
+            input.receivableAdjustmentAmount,
+        ),
+    };
+};
 
 export class CollectionStateService {
     private static syncAllCustomerOverdueAmountsInFlight: Promise<number> | null = null;
@@ -56,19 +79,19 @@ export class CollectionStateService {
             if (!isOverdue(
                 order.createdAt,
                 order.paymentTerms,
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
                 now,
             )) {
                 return sum;
             }
 
-            return sum + getOutstandingAmount(
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
-            );
+            return addMoney(sum, getOutstandingAmount(
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
+            ));
         }, 0);
 
         await db.customer.update({
@@ -146,17 +169,17 @@ export class CollectionStateService {
             if (isOverdue(
                 order.createdAt,
                 order.paymentTerms,
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
                 now,
             )) {
                 const daysOverdue = getOverdueDays(order.createdAt, order.paymentTerms, now);
-                current.overdueAmount += getOutstandingAmount(
-                    Number(order.finalAmount),
-                    Number(order.paidAmount),
-                    Number(order.receivableAdjustmentAmount),
-                );
+                current.overdueAmount = addMoney(current.overdueAmount, getOutstandingAmount(
+                    order.finalAmount,
+                    order.paidAmount,
+                    order.receivableAdjustmentAmount,
+                ));
                 current.dunningLevel = Math.max(current.dunningLevel, getDunningLevel(daysOverdue));
             }
             orderStateByCustomer.set(order.customerId, current);
@@ -282,12 +305,11 @@ export class CollectionStateService {
             throw new Error(`Order not found: ${orderId}`);
         }
 
-        const paidAmount = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-        const paymentStatus = determineReceivablePaymentStatus(
-            paidAmount,
-            Number(order.finalAmount),
-            Number(order.receivableAdjustmentAmount),
-        );
+        const { paidAmount, paymentStatus } = calculateVerifiedPaymentState({
+            verifiedPayments: payments,
+            finalAmount: order.finalAmount,
+            receivableAdjustmentAmount: order.receivableAdjustmentAmount,
+        });
 
         await tx.order.update({
             where: { id: orderId },
@@ -362,26 +384,20 @@ export class CollectionStateService {
                 },
                 select: { amount: true },
             });
-            const paidAmount = allVerifiedPayments.reduce((sum, record) => sum + Number(record.amount), 0);
-            const effectiveReceivableAmount = Math.max(
-                0,
-                Number(order.finalAmount) - Number(order.receivableAdjustmentAmount || 0),
-            );
-            if (toCents(paidAmount) > toCents(effectiveReceivableAmount)) {
+            const paymentState = calculateVerifiedPaymentState({
+                verifiedPayments: allVerifiedPayments,
+                finalAmount: order.finalAmount,
+                receivableAdjustmentAmount: order.receivableAdjustmentAmount,
+            });
+            if (paymentState.exceedsOutstanding) {
                 throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
             }
-
-            const paymentStatus = determineReceivablePaymentStatus(
-                paidAmount,
-                Number(order.finalAmount),
-                Number(order.receivableAdjustmentAmount),
-            );
 
             await tx.order.update({
                 where: { id: order.id },
                 data: {
-                    paidAmount,
-                    paymentStatus,
+                    paidAmount: paymentState.paidAmount,
+                    paymentStatus: paymentState.paymentStatus,
                 },
             });
 
@@ -402,9 +418,6 @@ export class CollectionStateService {
                 });
 
                 if (milestone) {
-                    const milestoneTarget = milestone.amount !== null
-                        ? Number(milestone.amount)
-                        : Number(milestone.contract.totalAmount) * Number(milestone.percentage) / 100;
                     const milestonePaid = await tx.paymentRecord.aggregate({
                         where: {
                             milestoneId: milestone.id,
@@ -412,9 +425,14 @@ export class CollectionStateService {
                         },
                         _sum: { amount: true },
                     });
-                    const milestonePaidAmount = Number(milestonePaid._sum.amount || 0);
+                    const milestoneAmounts = calculateMilestoneAmounts({
+                        explicitAmount: milestone.amount,
+                        contractTotalAmount: milestone.contract.totalAmount,
+                        percentage: milestone.percentage,
+                        verifiedPayments: [{ amount: milestonePaid._sum.amount }],
+                    });
 
-                    if (milestonePaidAmount >= milestoneTarget) {
+                    if (compareMoney(milestoneAmounts.paidAmount, milestoneAmounts.targetAmount) >= 0) {
                         await tx.contractMilestone.update({
                             where: { id: milestone.id },
                             data: { status: 'paid' },
@@ -502,9 +520,9 @@ export class CollectionStateService {
             if (!isOverdue(
                 order.createdAt,
                 order.paymentTerms,
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
                 now,
             )) {
                 return max;

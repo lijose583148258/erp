@@ -37,11 +37,19 @@ claiming a database read cutover:
 - finance totals, aging buckets, customer totals and monthly trends;
 - deterministic collection and customer payment-rate ratios;
 - collection milestone target, verified-payment sum and remaining amount.
+- payment verification and order paid-state recalculation;
+- per-customer overdue aggregation and collection-state synchronization;
+- milestone paid-state transition after verified-payment aggregation.
 
 These read models still receive legacy Prisma fields during the expand/observe
 phase. Decimal calculation removes JavaScript binary-float drift from the API
 result, but it does not prove that Prisma or the database is reading the shadow
 `NUMERIC` columns.
+
+Payment verification must continue to claim the pending payment and serialize
+the related order inside one transaction. Decimal comparison replaces the old
+integer-cent workaround; it does not replace the transaction lock or the
+overpayment rejection.
 
 ## Release phases
 

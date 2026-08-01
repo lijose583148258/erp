@@ -20,7 +20,9 @@ const orderUpdateService = read('backend/src/services/order-update.service.ts');
 const orderController = read('backend/src/controllers/order.controller.ts');
 const moneyBoundary = read('backend/src/utils/money.ts');
 const financeSummaryService = read('backend/src/services/finance-summary.service.ts');
+const collectionHelpers = read('backend/src/services/collection/collection.helpers.ts');
 const collectionQueryService = read('backend/src/services/collection-query.service.ts');
+const collectionStateService = read('backend/src/services/collection-state.service.ts');
 
 assert.equal(contract.version, '2026-08-01-receivables-decimal-shadow-v1');
 assert.deepEqual(contract.tables.map(table => table.table), [
@@ -98,11 +100,18 @@ assert.match(financeSummaryService, /prorateMoney\(totalBaseAmount, portionAmoun
 assert.match(financeSummaryService, /calculateRatio\(totalReceived, totalRevenue\)/);
 assert.doesNotMatch(financeSummaryService, /amount\s*\*\s*exchangeRate|totalBaseAmount\s*\*\s*\(portionAmount\s*\/\s*totalAmount\)/);
 assert.match(collectionQueryService, /calculateMilestoneAmounts/);
-assert.match(collectionQueryService, /prorateMoney\(input\.contractTotalAmount, input\.percentage, 100\)/);
+assert.match(collectionHelpers, /prorateMoney\(input\.contractTotalAmount, input\.percentage, 100\)/);
 assert.doesNotMatch(collectionQueryService, /Number\(milestone\.contract\.totalAmount\)\s*\*\s*Number\(milestone\.percentage\)/);
+assert.match(collectionStateService, /calculateVerifiedPaymentState/);
+assert.match(collectionStateService, /addMoney\(\.\.\.input\.verifiedPayments\.map/);
+assert.match(collectionStateService, /compareMoney\(paidAmount, effectiveReceivableAmount\)/);
+assert.match(collectionStateService, /calculateMilestoneAmounts/);
+assert.doesNotMatch(collectionStateService, /toCents|payments\.reduce\(\(sum, payment\) => sum \+|allVerifiedPayments\.reduce\(\(sum, record\) => sum \+/);
+assert.doesNotMatch(collectionStateService, /Number\(milestone\.contract\.totalAmount\)\s*\*\s*Number\(milestone\.percentage\)/);
 
 console.log('Decimal Shadow Contract Audit: PASS');
 console.log('- 7 money and 2 exchange-rate shadow fields have additive SQLite/PostgreSQL migration contracts.');
 console.log('- Backfill, write synchronization, precision metadata, provider-isolated reconciliation, and non-cutover claims are gated.');
 console.log('- Sales order create, import, and edit paths share decimal line, discount, and outstanding calculations.');
 console.log('- Finance summaries and collection milestones use decimal exchange, proration, aggregation, and ratio boundaries.');
+console.log('- Payment verification, order-state recalculation, overdue aggregation, and milestone settlement share the decimal boundary.');

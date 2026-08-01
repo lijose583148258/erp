@@ -6,20 +6,13 @@ import {
   COLLECTION_MAX_PAGE_SIZE,
   buildOrderWhere,
   buildPaymentWhere,
+  calculateMilestoneAmounts,
   getCollectionActionPlan,
   getDunningLevel,
   getDueDate,
   getOutstandingAmount,
 } from './collection/collection.helpers';
-import {
-  addMoney,
-  compareMoney,
-  maxMoney,
-  prorateMoney,
-  roundMoney,
-  subtractMoney,
-  type DecimalInput,
-} from '../utils/money';
+import { compareMoney } from '../utils/money';
 
 export interface CollectionLedgerRecord {
   id: number;
@@ -154,23 +147,6 @@ const getOverdueSearchHaystack = (order: {
   order.contractNo,
   order.contractTitle,
 ].map(normalizeSearchText).join(' ');
-
-export const calculateMilestoneAmounts = (input: {
-  explicitAmount: DecimalInput;
-  contractTotalAmount: DecimalInput;
-  percentage: DecimalInput;
-  verifiedPayments: Array<{ amount: DecimalInput }>;
-}) => {
-  const targetAmount = input.explicitAmount !== null && input.explicitAmount !== undefined
-    ? roundMoney(input.explicitAmount)
-    : prorateMoney(input.contractTotalAmount, input.percentage, 100);
-  const paidAmount = addMoney(...input.verifiedPayments.map(payment => payment.amount));
-  return {
-    targetAmount,
-    paidAmount,
-    remainingAmount: maxMoney(0, subtractMoney(targetAmount, paidAmount)),
-  };
-};
 
 export class CollectionQueryService {
   static async getLedger(req: AuthRequest, options: { page?: number; pageSize?: number; status?: string; method?: string; customerId?: number }) {
@@ -341,9 +317,9 @@ export class CollectionQueryService {
       .map(order => {
         const dueDate = getDueDate(order.createdAt, order.paymentTerms);
         const outstanding = getOutstandingAmount(
-          Number(order.finalAmount),
-          Number(order.paidAmount),
-          Number(order.receivableAdjustmentAmount),
+          order.finalAmount,
+          order.paidAmount,
+          order.receivableAdjustmentAmount,
         );
         const daysOverdue = Math.max(0, Math.ceil((now.getTime() - dueDate.getTime()) / COLLECTION_DAY_MS));
         const actionPlan = getCollectionActionPlan(daysOverdue);
