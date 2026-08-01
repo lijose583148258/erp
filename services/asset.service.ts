@@ -32,6 +32,7 @@ export interface AssetTransaction {
 
 export interface ProductBatch {
     id: number;
+    materialId?: number | null;
     batchNo: string;
     productName: string;
     productionDate: string;
@@ -133,6 +134,7 @@ export const assetService = {
 
     async createBatch(data: {
         batchNo?: string;
+        materialId: number;
         productName: string;
         productionDate: string;
         expiryDate: string;

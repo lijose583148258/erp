@@ -3,6 +3,7 @@ const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { apiFetch: fetchApi, loginApi: loginWithApi, unwrapList } = require('./lib/shipping-browser-api-helpers.cjs');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 const {
   MOJIBAKE_MARKERS,
   REQUIRED_ROUTE_COPY,
@@ -103,6 +104,18 @@ async function seedManagerLoginState(page) {
       window.localStorage.setItem('currency', 'CNY');
     }, { savedToken: managerAuth.token, savedUser: managerAuth.user });
   });
+}
+
+async function ensureShippingMaterial(page) {
+  const material = await ensureReleasedMaterial({
+    request: (endpoint, options) => apiFetch(page, endpoint, options, managerAuth.token),
+    code: `SHIP-MAT-${RUN_ID}`,
+    name: DATA.linkedProduct,
+    unit: 'kg',
+    category: 'finished_good',
+  });
+  DATA.materialId = Number(material.id);
+  report.material = { id: material.id, code: material.code };
 }
 
 async function ensureSalesAuth(page) {
@@ -393,6 +406,7 @@ async function run() {
     report.spawnPolicyProbe = launched.spawnPolicyProbe || null;
     page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     await seedManagerLoginState(page);
+    await ensureShippingMaterial(page);
     await ensureConfirmedOrder(page);
     await seedLinkedShipmentStock(page);
     await createLinkedShipmentViaApi(page);

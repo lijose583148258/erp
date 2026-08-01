@@ -5,6 +5,7 @@ import ForcePasswordChange from './components/ForcePasswordChange';
 import ToastStack from './components/app/ToastStack';
 import ClickSpark from './components/app/ClickSpark';
 import CommandPalette from './components/CommandPalette';
+import { MaterialReadinessRepairPanel } from './components/materials/MaterialReadinessRepairPanel';
 import { AppContext } from './app/AppContext';
 // Canonical app shell entry: keep explicit .tsx to avoid accidental resolution to legacy `.ts` files.
 import { useAppShell } from './app/useAppShell.tsx';
@@ -37,6 +38,7 @@ const App: React.FC = () => {
             ) : shell.currentUser.mustChangePassword ? (
                 <>
                     <ToastStack notifications={shell.notifications} onDismiss={shell.dismissNotification} />
+                    <MaterialReadinessRepairPanel />
                     <ForcePasswordChange
                         language={shell.language}
                         username={shell.currentUser.name}
@@ -48,6 +50,7 @@ const App: React.FC = () => {
                 <>
                     <ClickSpark />
                     <ToastStack notifications={shell.notifications} onDismiss={shell.dismissNotification} />
+                    <MaterialReadinessRepairPanel />
                     <CommandPalette
                         isOpen={shell.isCommandPaletteOpen}
                         onClose={() => shell.setIsCommandPaletteOpen(false)}

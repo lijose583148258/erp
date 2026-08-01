@@ -12,6 +12,7 @@ const normalizeStockName = (value: unknown, fallback: string) => {
 
 type BarterStockItem = {
   id: number;
+  materialId?: number | null;
   side?: string | null;
   itemName?: string | null;
   sourceDocument?: string | null;
@@ -43,6 +44,7 @@ const buildBarterStockLine = (
   settlementId: number,
 ): StockMovementLineInput => ({
   locationId,
+  materialId: item.materialId ?? null,
   productName: normalizeStockName(item.itemName, `barter-item-${item.id}`),
   batchNo: normalizeStockName(item.sourceDocument, `BARTER-${settlementId}-${String(item.side || 'item').toUpperCase()}-${item.id}`),
   quantityDelta,
@@ -107,6 +109,7 @@ export const postBarterStockReversalEntries = async (
       movements: {
         select: {
           locationId: true,
+          materialId: true,
           productName: true,
           batchNo: true,
           unit: true,
@@ -121,6 +124,7 @@ export const postBarterStockReversalEntries = async (
     entry.movements.map(movement => ({
       sourceType: entry.sourceType,
       locationId: movement.locationId,
+      materialId: movement.materialId,
       productName: movement.productName,
       batchNo: movement.batchNo,
       unit: movement.unit,
@@ -134,6 +138,7 @@ export const postBarterStockReversalEntries = async (
 
   const groups: Record<string, Array<{
     locationId: number;
+    materialId: number | null;
     productName: string;
     batchNo: string;
     quantityDelta: number;
@@ -150,6 +155,7 @@ export const postBarterStockReversalEntries = async (
     }
     groups[reversalType].push({
       locationId: Number(movement.locationId),
+      materialId: movement.materialId == null ? null : Number(movement.materialId),
       productName: String(movement.productName || ''),
       batchNo: String(movement.batchNo || ''),
       quantityDelta: -Number(movement.quantityDelta || 0),

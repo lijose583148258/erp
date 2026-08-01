@@ -492,6 +492,46 @@ export const openApiSchemas = {
       trackingNo: { type: 'string', nullable: true },
     },
   },
+  MaterialReadinessIssue: {
+    type: 'object',
+    required: ['lineKey', 'rowNumber', 'displayName', 'reason'],
+    properties: {
+      lineKey: { type: 'string' },
+      rowNumber: { type: 'integer', minimum: 1 },
+      materialId: { type: 'integer', minimum: 1, nullable: true },
+      materialCode: { type: 'string', nullable: true },
+      displayName: { type: 'string' },
+      reason: {
+        type: 'string',
+        enum: ['missing_material_id', 'material_not_found', 'material_inactive', 'material_temporary', 'unit_mismatch'],
+      },
+      requestedUnit: { type: 'string', nullable: true },
+      baseUnit: { type: 'string', nullable: true },
+    },
+  },
+  MaterialReadinessErrorResponse: {
+    type: 'object',
+    required: ['success', 'message', 'errorCode', 'details'],
+    properties: {
+      success: { type: 'boolean', example: false },
+      message: { type: 'string' },
+      errorCode: { type: 'string', enum: ['MATERIAL_RELEASE_REQUIRED'] },
+      details: {
+        type: 'object',
+        required: ['contract', 'entityType', 'action', 'issueCount', 'issues', 'repairRoute', 'retryableAfterRepair'],
+        properties: {
+          contract: { type: 'string', enum: ['material-release-readiness/v1'] },
+          entityType: { type: 'string' },
+          entityId: { type: 'string', nullable: true },
+          action: { type: 'string' },
+          issueCount: { type: 'integer', minimum: 1 },
+          issues: { type: 'array', minItems: 1, items: { $ref: '#/components/schemas/MaterialReadinessIssue' } },
+          repairRoute: { type: 'string', enum: ['/materials'] },
+          retryableAfterRepair: { type: 'boolean', example: true },
+        },
+      },
+    },
+  },
   ApiResponse: {
     type: 'object',
     required: ['success'],

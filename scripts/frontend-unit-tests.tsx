@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
@@ -42,6 +44,7 @@ import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services
 import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
 import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
 import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
+import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
 
 type FrontendUnitTest = {
   name: string;
@@ -49,6 +52,52 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'material repair panel is mounted in the authenticated shell and routes to the real module hash',
+    run: () => {
+      const appSource = fs.readFileSync(path.join(process.cwd(), 'App.tsx'), 'utf8');
+      const panelSource = fs.readFileSync(
+        path.join(process.cwd(), 'components/materials/MaterialReadinessRepairPanel.tsx'),
+        'utf8',
+      );
+      assert.match(
+        appSource,
+        /<ClickSpark\s*\/>[\s\S]*?<MaterialReadinessRepairPanel\s*\/>[\s\S]*?<CommandPalette/,
+      );
+      assert.ok(panelSource.includes("window.location.hash = '#materials'"));
+      assert.ok(!panelSource.includes("window.location.hash = '#/materials'"));
+      assert.ok(panelSource.includes('duration-150'));
+      assert.ok(panelSource.includes('motion-reduce:animate-none'));
+    },
+  },
+  {
+    name: 'material readiness errors preserve row identity and human repair guidance',
+    run: () => {
+      const parsed = parseMaterialReadinessDetails({
+        contract: 'material-release-readiness/v1',
+        entityType: 'sales_order',
+        entityId: '42',
+        action: 'confirm',
+        issueCount: 1,
+        issues: [{
+          lineKey: '9',
+          rowNumber: 2,
+          materialId: 7,
+          materialCode: 'RM-0007',
+          displayName: '丙烯酸',
+          reason: 'unit_mismatch',
+          requestedUnit: 'L',
+          baseUnit: 'kg',
+        }],
+        repairRoute: '/materials',
+        retryableAfterRepair: true,
+      });
+      assert.ok(parsed);
+      assert.equal(parsed.issues[0].rowNumber, 2);
+      assert.equal(getMaterialReadinessIssueLabel(parsed.issues[0]), '单位不一致：当前 L，主数据 kg');
+      assert.equal(parseMaterialReadinessDetails({ contract: 'unknown', issues: [] }), null);
+    },
+  },
   {
     name: 'canonical material master is a lazy, permission-scoped production module',
     run: () => {

@@ -9,6 +9,7 @@ import { withDbRetry } from '../utils/dbRetry';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
 import { resolveShipmentIdentity } from '../services/shipment-material-identity';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createShippingReceiptEvent } from './shipping-receipt-event.controller';
 import {
     SHIPMENT_STATUS_TRANSITIONS,
@@ -168,6 +169,14 @@ export class ShippingController {
             res.status(201).json({ success: true, data: shipmentDetail ?? shipment, message: '发货单创建成功' });
         } catch (error) {
             logger.error('创建发货单错误:', error);
+            if (isMaterialReleaseReadinessError(error)) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: '发货会形成库存与客户履约事实，请先把该行关联到已发布的统一物料。',
+                    errorCode: error.message,
+                    details: error.details,
+                });
+            }
             const message = error instanceof Error ? error.message : 'Failed to create shipment';
             const status = resolveShipmentStatusCode(message);
             res.status(status).json({ success: false, message: status === 500 ? 'Failed to create shipment' : message });

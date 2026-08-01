@@ -23,6 +23,7 @@ export const useAssets = () => {
   });
   const [batchForm, setBatchForm] = useState({
     batchNo: '',
+    materialId: 0,
     productName: '',
     productionDate: '',
     expiryDate: '',
@@ -193,13 +194,14 @@ export const useAssets = () => {
 
   const handleCreateBatch = async () => {
     try {
-      if (!batchForm.productName || !batchForm.productionDate || !batchForm.expiryDate || !batchForm.unit) {
+      if (!batchForm.materialId || !batchForm.productName || !batchForm.productionDate || !batchForm.expiryDate || !batchForm.unit) {
         notify('warning', t.batchMissingFields);
         return;
       }
 
       const createdBatch = await assetService.createBatch({
         batchNo: batchForm.batchNo || undefined,
+        materialId: batchForm.materialId,
         productName: batchForm.productName,
         productionDate: batchForm.productionDate,
         expiryDate: batchForm.expiryDate,
@@ -214,6 +216,7 @@ export const useAssets = () => {
       const nextKeyword = createdBatch.batchNo || batchForm.batchNo || '';
       setBatchForm({
         batchNo: '',
+        materialId: 0,
         productName: '',
         productionDate: '',
         expiryDate: '',
@@ -235,8 +238,8 @@ export const useAssets = () => {
       setBatches(refreshed.data);
       setBatchMeta(refreshed.meta);
       setSelectedBatchId(refreshed.data.find(row => row.batchNo === nextKeyword)?.id ?? null);
-    } catch {
-      notify('error', t.batchCreateFailed);
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : t.batchCreateFailed);
     }
   };
 

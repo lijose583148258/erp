@@ -138,6 +138,20 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.CollectionOverdueListResponse).toBeDefined();
   });
 
+  it('documents the row-level canonical material repair contract', () => {
+    const document = buildOpenApiDocument() as any;
+    expect(document.components.schemas.MaterialReadinessIssue.properties.reason.enum)
+      .toContain('missing_material_id');
+    expect(document.components.schemas.MaterialReadinessErrorResponse.properties.errorCode.enum)
+      .toEqual(['MATERIAL_RELEASE_REQUIRED']);
+    expect(document.paths['/api/v1/warehouses/stock-balances'].post.responses['409'].content['application/json'].schema)
+      .toEqual(expect.objectContaining({
+        oneOf: expect.arrayContaining([
+          { $ref: '#/components/schemas/MaterialReadinessErrorResponse' },
+        ]),
+      }));
+  });
+
   it('requires an explicit shelf-life policy when creating a production BOM', () => {
     const document = buildOpenApiDocument();
 

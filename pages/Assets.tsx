@@ -1,6 +1,7 @@
 import React from 'react';
 import { History, ArrowUpRight, ArrowDownLeft, Search, Filter, Briefcase, Boxes, ClipboardList, ThermometerSnowflake, CalendarClock, AlertTriangle, PackageCheck, Trash2, QrCode, ShieldCheck } from 'lucide-react';
 import useAssets from './useAssets';
+import { MaterialMasterCombobox } from '../components/materials/MaterialMasterCombobox';
 
 const Assets = () => {
     const {
@@ -202,12 +203,18 @@ const Assets = () => {
                                     placeholder={t.batchNo}
                                     className="px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700"
                                 />
-                                <input
-                                    data-testid="assets-batch-product-input"
+                                <MaterialMasterCombobox
+                                    dataTestId="assets-batch-product-input"
                                     value={batchForm.productName}
-                                    onChange={e => setBatchForm(prev => ({ ...prev, productName: e.target.value }))}
-                                    placeholder={t.productName}
-                                    className="px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700"
+                                    selectedMaterialId={batchForm.materialId || null}
+                                    onTextChange={(value) => setBatchForm(prev => ({ ...prev, productName: value, materialId: 0 }))}
+                                    onClearSelection={() => setBatchForm(prev => ({ ...prev, materialId: 0 }))}
+                                    onSelect={(material) => setBatchForm(prev => ({
+                                        ...prev,
+                                        materialId: material.id,
+                                        productName: material.nameZh,
+                                        unit: material.baseUnit,
+                                    }))}
                                 />
                                 <input
                                     data-testid="assets-batch-storage-temp-input"
@@ -242,6 +249,7 @@ const Assets = () => {
                                     data-testid="assets-batch-unit-input"
                                     value={batchForm.unit}
                                     onChange={e => setBatchForm(prev => ({ ...prev, unit: e.target.value }))}
+                                    readOnly={Boolean(batchForm.materialId)}
                                     placeholder={t.unit}
                                     className="px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700"
                                 />

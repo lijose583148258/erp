@@ -99,6 +99,7 @@ async function seedShipmentStock({
       method: 'POST',
       data: {
         locationId: Number(location.id),
+        materialId: Number(data.materialId),
         productName: data.linkedProduct,
         batchNo: data.batchNo,
         quantity: data.stockQuantity,
@@ -146,6 +147,7 @@ async function createConfirmedShippingOrder({
         customerId: Number(customer.id),
         items: [
           {
+            materialId: Number(data.materialId),
             productName: data.linkedProduct,
             specification: 'AUTO-SHIPPING',
             quantity: data.quantity,
@@ -200,6 +202,7 @@ async function createLinkedShipment({
       data: {
         customerId: Number(report.order.customerId),
         orderId: Number(report.order.id),
+        materialId: Number(data.materialId),
         productName: data.linkedProduct,
         quantity: data.quantity,
         unit: 'kg',

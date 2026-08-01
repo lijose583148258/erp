@@ -12,6 +12,7 @@ const normalizeUnit = (value: unknown) => normalizeText(value).toLocaleLowerCase
 export const resolveStockMaterialIdentity = async (
   tx: TransactionClient,
   line: Pick<StockMovementLineInput, 'materialId' | 'productName' | 'unit'>,
+  options: { allowInactive?: boolean } = {},
 ) => {
   if (line.materialId === undefined || line.materialId === null || line.materialId === 0) {
     return {
@@ -39,7 +40,7 @@ export const resolveStockMaterialIdentity = async (
   if (!material) {
     throw new AppError('STOCK_MATERIAL_NOT_FOUND', 404, ErrorCode.NOT_FOUND, { materialId });
   }
-  if (material.status !== 'active' || material.isTemporary) {
+  if ((material.status !== 'active' && !options.allowInactive) || material.isTemporary) {
     throw new AppError('STOCK_MATERIAL_NOT_RELEASED', 409, ErrorCode.CONFLICT, {
       materialId,
       materialCode: material.code,

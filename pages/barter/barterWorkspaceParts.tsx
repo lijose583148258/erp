@@ -1,6 +1,7 @@
 import { ArrowRightLeft, Coins, Layers3 } from 'lucide-react';
 import type { WorkspaceTaskNavigatorItem } from '../../components/ui/WorkspaceTaskNavigator';
 import type { BarterItem } from '../../services/barter.service';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 
 export type OrderOption = { id: string; label: string };
 export type BarterDeskTab = 'agreement' | 'batch' | 'ledger';
@@ -34,6 +35,7 @@ export const barterFieldClass =
 
 export const createBarterItem = (side: 'our' | 'counterparty'): BarterItem => ({
   side,
+  materialId: null,
   itemName: '',
   specification: '',
   unit: side === 'our' ? 'kg' : 'm3',
@@ -93,11 +95,28 @@ export function BarterItemEditor({ title, item, onChange }: BarterItemEditorProp
     <div className="rounded-[24px] border border-slate-100 bg-slate-50/80 p-4">
       <div className="mb-3 text-sm font-black text-slate-800">{title}</div>
       <div className="grid gap-3">
-        <input aria-label={label('品名')} title={label('品名')} value={item.itemName} onChange={(e) => onChange('itemName', e.target.value)} placeholder="品名" className={barterFieldClass} />
+        <MaterialMasterCombobox
+          value={item.itemName}
+          selectedMaterialId={item.materialId || null}
+          onTextChange={(value) => {
+            onChange('materialId', 0);
+            onChange('itemName', value);
+          }}
+          onClearSelection={() => onChange('materialId', 0)}
+          onSelect={(material) => {
+            onChange('materialId', material.id);
+            onChange('itemName', material.nameZh);
+            onChange('unit', material.baseUnit);
+            onChange('specification', material.specification || '');
+          }}
+        />
+        <p className="-mt-1 text-[11px] font-semibold text-slate-500">
+          协议草稿可先录名称；审批过账前必须选择已发布的统一物料。
+        </p>
         <input aria-label={label('规格')} title={label('规格')} value={item.specification || ''} onChange={(e) => onChange('specification', e.target.value)} placeholder="规格" className={barterFieldClass} />
         <div className="grid grid-cols-3 gap-3">
           <input aria-label={label('数量')} title={label('数量')} type="number" value={item.quantity} onChange={(e) => onChange('quantity', Number(e.target.value || 0))} placeholder="数量" className={barterFieldClass} />
-          <input aria-label={label('单位')} title={label('单位')} value={item.unit} onChange={(e) => onChange('unit', e.target.value)} placeholder="单位" className={barterFieldClass} />
+          <input aria-label={label('单位')} title={label('单位')} value={item.unit} onChange={(e) => onChange('unit', e.target.value)} readOnly={Boolean(item.materialId)} placeholder="单位" className={barterFieldClass} />
           <input aria-label={label('单价')} title={label('单价')} type="number" value={item.unitPrice} onChange={(e) => onChange('unitPrice', Number(e.target.value || 0))} placeholder="单价" className={barterFieldClass} />
         </div>
         <div className="grid grid-cols-2 gap-3">

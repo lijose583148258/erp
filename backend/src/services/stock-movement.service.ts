@@ -15,6 +15,7 @@ import {
 import { StockMovementConflictError } from './stock-movement.errors';
 import { syncProductBatchForOperationalStock } from './stock-movement.product-batch-sync';
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 import type {
   PostStockEntryInput,
   StockEntryListFilters,
@@ -39,8 +40,20 @@ export class StockMovementService {
       const sourceRef = normalizeText(input.sourceRef) || null;
       const reason = normalizeText(input.reason) || null;
       const note = normalizeText(input.note) || null;
+      const allowInactiveMaterial = new Set<StockSourceType>([
+        'warehouse_adjustment',
+        'warehouse_transfer',
+        'barter_receipt_reversal',
+        'barter_issue_reversal',
+      ]).has(input.sourceType);
+      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, sourceRef);
       const normalizedLines = await Promise.all(input.lines.map(async line => {
-        const identity = await resolveStockMaterialIdentity(tx, line);
+        // A byte-for-byte idempotent replay must remain readable after a
+        // material is archived. This does not authorize a new posting: the
+        // release gate below still fails closed when no posted entry exists.
+        const identity = await resolveStockMaterialIdentity(tx, line, {
+          allowInactive: allowInactiveMaterial || Boolean(existingPostedEntry),
+        });
         return {
           locationId: normalizeId(line.locationId, 'locationId'),
           materialId: identity.materialId,
@@ -54,6 +67,25 @@ export class StockMovementService {
           expectedQuantityBefore: normalizeOptionalNumber(line.expectedQuantityBefore, 'expectedQuantityBefore'),
         };
       }));
+
+      if (existingPostedEntry) {
+        assertIdempotentReplayMatches(existingPostedEntry, normalizedLines);
+        return existingPostedEntry;
+      }
+
+      await assertMaterialReleaseReadiness(tx, {
+        entityType: 'stock_entry',
+        entityId: sourceRef,
+        action: 'post',
+        allowInactive: allowInactiveMaterial,
+        lines: normalizedLines.map((line, index) => ({
+          lineKey: index + 1,
+          rowNumber: index + 1,
+          materialId: line.materialId,
+          displayName: line.productName,
+          unit: line.unit,
+        })),
+      });
 
       if (input.sourceType === 'warehouse_manual_inbound' && (!sourceRef || !reason)) {
         throw new Error('应急补录必须填写来源单号和补录原因。');
@@ -70,12 +102,6 @@ export class StockMovementService {
         if (line.quantityDelta === 0) {
           throw new Error('Stock movement quantity delta cannot be zero');
         }
-      }
-
-      const existingPostedEntry = await findPostedEntryResult(tx, input.sourceType, sourceRef);
-      if (existingPostedEntry) {
-        assertIdempotentReplayMatches(existingPostedEntry, normalizedLines);
-        return existingPostedEntry;
       }
 
       const firstLocation = await tx.location.findUnique({

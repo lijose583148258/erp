@@ -23,6 +23,7 @@ export type WarehouseLocationOption = WarehouseLocation & {
 
 export type InboundFormState = {
   locationId: number;
+  materialId: number;
   productName: string;
   batchNo: string;
   quantity: number;
@@ -32,7 +33,7 @@ export type InboundFormState = {
   note: string;
 };
 
-export type InboundFormErrors = Partial<Record<'locationId' | 'productName' | 'batchNo' | 'quantity' | 'sourceRef' | 'reason', string>>;
+export type InboundFormErrors = Partial<Record<'locationId' | 'materialId' | 'productName' | 'batchNo' | 'quantity' | 'sourceRef' | 'reason', string>>;
 
 export type TransferFormState = {
   toLocationId: number;

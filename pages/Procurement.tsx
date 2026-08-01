@@ -189,8 +189,8 @@ const Procurement = () => {
       if (status === 'approved') notify('success', t.paymentVerified || '采购单已审核');
       if (status === 'in_transit') notify('success', t.activeTransit || '采购单已发运');
       if (status === 'received') notify('success', `${getOrderStatusLabel(status)} / ${language === 'en' ? 'stock received' : language === 'vi' ? 'đã nhập kho' : '已入库'}`);
-    } catch {
-      notify('error', t.connectionFailed || 'Purchase status update failed');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : (t.connectionFailed || 'Purchase status update failed'));
     }
   };
 

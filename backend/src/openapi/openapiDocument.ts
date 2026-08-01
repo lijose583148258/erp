@@ -27,7 +27,19 @@ const writeResponses = {
   '400': { description: 'The request body, params, or query failed validation.' },
   '401': { description: 'Authentication is required or the token is invalid.' },
   '403': { description: 'The authenticated user does not have the required permission.' },
-  '409': { description: 'The operation conflicts with existing business data.' },
+  '409': {
+    description: 'The operation conflicts with existing business data. Controlled posting operations may return row-level material repair details.',
+    content: {
+      'application/json': {
+        schema: {
+          oneOf: [
+            { $ref: '#/components/schemas/ErrorResponse' },
+            { $ref: '#/components/schemas/MaterialReadinessErrorResponse' },
+          ],
+        },
+      },
+    },
+  },
   '500': { description: 'Unexpected server error.' },
 };
 

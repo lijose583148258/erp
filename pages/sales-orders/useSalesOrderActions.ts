@@ -28,10 +28,14 @@ export const useSalesOrderActions = ({
     };
 
     const handleStatusUpdate = async (id: string, newStatus: OrderStatus) => {
-        const updatedOrder = await orderService.updateStatus(id, newStatus);
-        invalidateSalesOrderWorkspaceState();
-        upsertOrder(updatedOrder);
-        notify('success', '订单状态已更新为：' + newStatus);
+        try {
+            const updatedOrder = await orderService.updateStatus(id, newStatus);
+            invalidateSalesOrderWorkspaceState();
+            upsertOrder(updatedOrder);
+            notify('success', '订单状态已更新为：' + newStatus);
+        } catch (error) {
+            notify('error', error instanceof Error ? error.message : '订单状态更新失败');
+        }
     };
 
     const handleQuickShip = (order: SalesOrder) => {

@@ -1,5 +1,6 @@
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
 import type { TransactionClient } from './stock-movement.service';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 
 export type ShipmentIdentityInput = {
   customerId: number;
@@ -44,6 +45,18 @@ export async function resolveShipmentIdentity(tx: TransactionClient, input: Ship
   if (orderItem?.materialId && input.materialId && orderItem.materialId !== input.materialId) {
     throw new Error('SHIPMENT_ORDER_ITEM_MATERIAL_MISMATCH');
   }
+  await assertMaterialReleaseReadiness(tx, {
+    entityType: 'shipment',
+    entityId: input.orderId ?? null,
+    action: 'create',
+    lines: [{
+      lineKey: orderItem?.id ?? 'new',
+      rowNumber: 1,
+      materialId,
+      displayName: orderItem?.productName ?? input.productName,
+      unit: orderItem?.unit ?? input.unit,
+    }],
+  });
   const canonical = await resolveStockMaterialIdentity(tx, {
     materialId,
     productName: orderItem?.productName ?? input.productName,

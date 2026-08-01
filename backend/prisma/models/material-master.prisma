@@ -31,6 +31,8 @@ model Material {
   stockMovements  StockMovement[]
   genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputMaterial")
   genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputMaterial")
+  barterAgreementItems BarterAgreementItem[]
+  barterItems       BarterItem[]
 
   @@index([nameZh])
   @@index([nameEn])

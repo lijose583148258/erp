@@ -1,6 +1,7 @@
 import { Plus } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { InboundFormErrors, InboundFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 
 const INBOUND_REASON_OPTIONS = [
   { value: '', label: '-- 选择补录原因 --' },
@@ -106,16 +107,29 @@ export function WarehouseInboundPanel({
           </div>
 
           <div>
-            <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">产品名称 *</label>
-            <input data-testid="warehouse-inbound-product-input" type="text" placeholder="如：丁酮 (MEK)" value={inboundForm.productName}
-              onChange={e => {
+            <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">统一物料 *</label>
+            <MaterialMasterCombobox
+              dataTestId="warehouse-inbound-product-input"
+              value={inboundForm.productName}
+              selectedMaterialId={inboundForm.materialId || null}
+              error={inboundErrors.materialId || inboundErrors.productName}
+              onTextChange={(value) => {
+                clearInboundError('materialId');
                 clearInboundError('productName');
-                setInboundForm(form => ({ ...form, productName: e.target.value }));
+                setInboundForm(form => ({ ...form, materialId: 0, productName: value }));
               }}
-              aria-invalid={Boolean(inboundErrors.productName)}
-              aria-describedby={inboundErrors.productName ? 'warehouse-inbound-product-error' : undefined}
-              className={controlClassName(Boolean(inboundErrors.productName))} />
-            {inboundErrors.productName ? <p id="warehouse-inbound-product-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.productName}</p> : null}
+              onClearSelection={() => setInboundForm(form => ({ ...form, materialId: 0 }))}
+              onSelect={(material) => {
+                clearInboundError('materialId');
+                clearInboundError('productName');
+                setInboundForm(form => ({
+                  ...form,
+                  materialId: material.id,
+                  productName: material.nameZh,
+                  unit: material.baseUnit,
+                }));
+              }}
+            />
           </div>
 
           <div>
@@ -147,6 +161,7 @@ export function WarehouseInboundPanel({
             <div className="w-24">
               <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">单位</label>
               <select data-testid="warehouse-inbound-unit-select" value={inboundForm.unit} onChange={e => setInboundForm(form => ({ ...form, unit: e.target.value }))}
+                disabled={Boolean(inboundForm.materialId)}
                 className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all">
                 {['kg', 'L', '桶', '瓶', '个', '吨'].map(unit => <option key={unit} value={unit}>{unit}</option>)}
               </select>

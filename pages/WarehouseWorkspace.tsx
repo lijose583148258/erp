@@ -63,6 +63,7 @@ const WarehouseWorkspace = () => {
 
   const [inboundForm, setInboundForm] = useState<InboundFormState>({
     locationId: 0,
+    materialId: 0,
     productName: '',
     batchNo: '',
     quantity: 0,
@@ -277,7 +278,8 @@ const WarehouseWorkspace = () => {
     }
     const nextErrors: InboundFormErrors = {};
     if (!inboundForm.locationId) nextErrors.locationId = '请选择补录库位';
-    if (!inboundForm.productName.trim()) nextErrors.productName = '请填写产品名称';
+    if (!inboundForm.materialId) nextErrors.materialId = '请选择已发布的统一物料';
+    if (!inboundForm.productName.trim()) nextErrors.productName = '请选择统一物料';
     if (!inboundForm.batchNo.trim()) nextErrors.batchNo = '请填写批次号';
     if (inboundForm.quantity <= 0) nextErrors.quantity = '补录数量必须大于 0';
     if (!inboundForm.sourceRef.trim()) nextErrors.sourceRef = '请填写来源单号';
@@ -300,7 +302,7 @@ const WarehouseWorkspace = () => {
       };
       setInboundMsg('应急补录 / 盘盈入库处理中...');
       await warehouseService.createStockBalance(inboundForm);
-      setInboundForm({ locationId: 0, productName: '', batchNo: '', quantity: 0, unit: 'kg', sourceRef: '', reason: '', note: '' });
+      setInboundForm({ locationId: 0, materialId: 0, productName: '', batchNo: '', quantity: 0, unit: 'kg', sourceRef: '', reason: '', note: '' });
       setLedgerSourceType(readbackFilters.sourceType);
       setLedgerProductName(readbackFilters.productName);
       setLedgerBatchNo(readbackFilters.batchNo);

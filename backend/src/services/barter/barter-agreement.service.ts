@@ -193,6 +193,7 @@ export async function createBarterAgreement(input: CreateBarterAgreementInput) {
       items: {
         create: input.items.map((item) => ({
           side: item.side,
+          materialId: item.materialId ?? null,
           itemName: item.itemName,
           specification: item.specification || null,
           unit: item.unit,
@@ -315,6 +316,7 @@ export async function createBarterBatchForAgreement(agreementId: number, input: 
         items: {
           create: input.items.map(item => ({
             side: item.side,
+            materialId: item.materialId ?? null,
             itemName: item.itemName,
             specification: item.specification || null,
             unit: item.unit,

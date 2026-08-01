@@ -60,6 +60,13 @@ requireTokens('backend/prisma/postgres-migrations/202608010004_receivables-decim
   'IS DISTINCT FROM',
   'SET NOT NULL',
 ]);
+requireTokens('backend/prisma/postgres-migrations/202608010005_barter-material-identity/migration.sql', [
+  'ALTER TABLE "barter_agreement_items" ADD COLUMN IF NOT EXISTS "material_id"',
+  'ALTER TABLE "barter_items" ADD COLUMN IF NOT EXISTS "material_id"',
+  'barter_agreement_items_material_id_fkey',
+  'barter_items_material_id_fkey',
+  'ON DELETE SET NULL',
+]);
 requireTokens('scripts/run-postgres-import-rehearsal-v1.cjs', [
   'apply-versioned-postgres-migrations',
   'verify-versioned-postgres-migrations',

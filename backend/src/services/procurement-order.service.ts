@@ -6,6 +6,7 @@ import {
 } from './procurement-domain.service';
 import type { TransactionClient } from './stock-movement.service';
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 
 export interface CreatePurchaseOrderInput {
   supplierId?: unknown;
@@ -122,6 +123,19 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
     productName: requestedItem,
     unit: requestedUnit,
   });
+  if (!['pending', 'cancelled'].includes(initialStatus)) {
+    await assertMaterialReleaseReadiness(tx, {
+      entityType: 'purchase_order',
+      action: 'create_approved',
+      lines: [{
+        lineKey: 'new',
+        rowNumber: 1,
+        materialId: materialIdentity.materialId,
+        displayName: materialIdentity.productName,
+        unit: materialIdentity.unit,
+      }],
+    });
+  }
 
   const supplier = await tx.supplier.findUnique({ where: { id: supplierId } });
   if (!supplier) {

@@ -22,6 +22,7 @@ import {
   assertBarterPostingTransition,
   assertBarterReversalTransition,
 } from './barter/barter.transitions';
+import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 import { postBarterStockEntries, postBarterStockReversalEntries } from './barter/barter.stock';
 import { validateCounterpartyAndOrderLinks } from './barter/barter-counterparty.service';
 import {
@@ -144,6 +145,7 @@ export class BarterService {
         items: {
           create: input.items.map(item => ({
             side: item.side,
+            materialId: item.materialId ?? null,
             itemName: item.itemName,
             specification: item.specification || null,
             unit: item.unit,
@@ -174,26 +176,40 @@ export class BarterService {
   }
 
   static async approveSettlement(id: number, approvedBy: number, note?: string) {
-    const settlement = await prisma.barterSettlement.findUnique({ where: { id } });
-    if (!settlement) {
-      throw new Error('未找到货抵批次，请刷新后重新选择。');
-    }
-    assertBarterApprovalTransition(settlement.status);
+    await prisma.$transaction(async tx => {
+      const settlement = await tx.barterSettlement.findUnique({
+        where: { id },
+        include: { items: { orderBy: { id: 'asc' } } },
+      });
+      if (!settlement) {
+        throw new Error('未找到货抵批次，请刷新后重新选择。');
+      }
+      assertBarterApprovalTransition(settlement.status);
 
-    const result = await prisma.barterSettlement.updateMany({
-      where: { id, status: { in: ['draft', 'quoted'] } },
-      data: {
-        status: 'approved',
-        approvedBy,
-        approvedAt: new Date(),
-        note: note ? `${settlement.note ? `${settlement.note}\n` : ''}${note}` : settlement.note,
-      },
+      const result = await tx.barterSettlement.updateMany({
+        where: { id, status: { in: ['draft', 'quoted'] } },
+        data: {
+          status: 'approved',
+          approvedBy,
+          approvedAt: new Date(),
+          note: note ? `${settlement.note ? `${settlement.note}\n` : ''}${note}` : settlement.note,
+        },
+      });
+      if (result.count !== 1) return;
+
+      await assertMaterialReleaseReadiness(tx, {
+        entityType: 'stock_entry',
+        entityId: id,
+        action: 'approve_barter',
+        lines: settlement.items.map((item, index) => ({
+          lineKey: item.id,
+          rowNumber: index + 1,
+          materialId: item.materialId,
+          displayName: item.itemName,
+          unit: item.unit,
+        })),
+      });
     });
-
-    if (result.count !== 1) {
-      return this.getSettlement(id);
-    }
-
     return this.getSettlement(id);
   }
 

@@ -16,6 +16,7 @@ import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import {
@@ -346,11 +347,11 @@ export class OrderController {
                 }
             }
 
-            const transitioned = await compareAndSetOrderStatus(prisma, {
+            const transitioned = await prisma.$transaction(tx => compareAndSetOrderStatus(tx, {
                 orderId: Number(id),
                 expectedStatus: existing.status,
                 targetStatus,
-            });
+            }));
             if (!transitioned) {
                 return res.status(409).json({
                     success: false,
@@ -389,6 +390,15 @@ export class OrderController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Update order status error:', error);
+            if (isMaterialReleaseReadinessError(error)) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: '订单仍可继续保存为草稿；确认前请先修复未关联、未发布或单位不一致的物料行。',
+                    errorCode: error.message,
+                    details: error.details,
+                    timestamp: new Date().toISOString(),
+                } as ApiResponse);
+            }
             return res.status(500).json({
                 success: false,
                 message: '服务器内部错误',
