@@ -36,7 +36,7 @@ const ShippingLogisticsPanel: React.FC<Props> = ({
                 <button
                     type="button"
                     onClick={onGenerateAiInsights}
-                    className="flex items-center px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 hover:bg-blue-700 transition-all"
+ className="flex items-center px-6 py-3 bg-blue-600 text-white rounded-2xl font-black text-sm shadow-xl shadow-blue-100 hover:bg-blue-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none"
                 >
                     <Truck size={18} className="mr-2" />
                     {t.arrangeDispatch || '发运驾驶舱'}

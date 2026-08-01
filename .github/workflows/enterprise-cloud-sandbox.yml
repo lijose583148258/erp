@@ -263,8 +263,8 @@ jobs:
       - name: Remove stale generated runtime evidence
         shell: bash
         run: |
-          rm -rf output/audit output/playwright cloud-evidence
-          mkdir -p output/audit output/playwright cloud-evidence
+          rm -rf output/audit output/playwright output/ui-ux-audit cloud-evidence
+          mkdir -p output/audit output/playwright output/ui-ux-audit cloud-evidence
 
       - name: Verify cloud runner Chrome
         run: google-chrome --version
@@ -325,6 +325,10 @@ jobs:
           set -euo pipefail
           npm run audit:ui:unsaved-changes
           npm run audit:ui:complex-input-governance
+          UI_UX_AUDIT_ROUTES="#crm,#orders,#production,#warehouse,#procurement" \
+            UI_UX_AUDIT_TIMEOUT_MS=300000 \
+            UI_UX_AUDIT_SCREENSHOT_MODE=viewport \
+            npm run test:browser:ui-ux
           npm run audit:orders:browser
           npm run audit:procurement:browser
           npm run audit:warehouse:transfer:browser
@@ -491,6 +495,7 @@ jobs:
           docker compose --profile application logs --no-color > cloud-evidence/application-compose.log 2>&1 || true
           cp -r output/audit cloud-evidence/audit 2>/dev/null || true
           cp -r output/playwright cloud-evidence/playwright 2>/dev/null || true
+          cp -r output/ui-ux-audit cloud-evidence/ui-ux-audit 2>/dev/null || true
           node -e 'const fs=require("fs"); fs.mkdirSync("cloud-evidence",{recursive:true}); const failed=process.env.JOB_STATUS!=="success"; fs.writeFileSync("cloud-evidence/application-audit-summary.json",JSON.stringify({name:"Enterprise cloud application audit",status:failed?"failed":"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,checkedAt:new Date().toISOString()},null,2)+"\n")'
         env:
           JOB_STATUS: ${{ job.status }}

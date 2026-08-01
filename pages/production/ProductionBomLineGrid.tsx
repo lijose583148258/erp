@@ -34,7 +34,7 @@ type Props = {
   formulationMode: string;
 };
 const baseInputClass =
-  'w-full bg-transparent px-2 py-1 text-xs font-bold outline-none transition focus:bg-white focus:ring-2 focus:ring-blue-100 dark:focus:bg-slate-900 border-none';
+ 'w-full border-none bg-transparent px-2 py-1 text-xs font-bold outline-none transition-[background-color,box-shadow] duration-150 focus:bg-white focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:focus:bg-slate-900';
 const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-colors duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
 const commonSelectClass = 'w-full cursor-pointer rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-colors duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
 export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize, formulationMode }) => {
@@ -234,7 +234,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
         removeItem={removeItem}
       />
       <div className="hidden overflow-x-auto rounded-[24px] border border-slate-100 bg-slate-50 dark:border-slate-800 dark:bg-slate-800/40 md:block">
-        <table data-testid="production-bom-line-grid" className={`w-full border-collapse ${showFullColumns ? 'min-w-max' : 'min-w-[1040px]'}`}>
+ <table data-testid="production-bom-line-grid" aria-label="生产配方原料明细表" className={`w-full border-collapse ${showFullColumns ? 'min-w-max' : 'min-w-[1040px]'}`}>
           <thead>
             <tr>
               <th className="sticky left-0 top-0 z-30 bg-slate-50/95 px-2 py-3 text-left text-xs font-black text-slate-500 shadow-sm dark:bg-slate-800/95 dark:text-slate-400">行</th>
@@ -288,7 +288,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                   key={index}
                   data-testid={`production-bom-line-row-${index}`}
                   onFocusCapture={() => setActiveRowIndex(index)}
-                  className={`group transition-colors hover:bg-blue-50/40 dark:hover:bg-blue-950/20 ${
+ className={`group transition-colors duration-150 hover:bg-blue-50/40 motion-reduce:transition-none dark:hover:bg-blue-950/20 ${
                     activeRowIndex === index
                       ? 'bg-blue-50/70 ring-2 ring-inset ring-blue-200 dark:bg-blue-950/25 dark:ring-blue-900/50'
                       : isInvalidDraftLine

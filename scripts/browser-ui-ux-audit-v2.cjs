@@ -160,6 +160,11 @@ async function auditState(page, run, route, viewport, state, collectors) {
 
   const findings = await page.evaluate(({ route, viewportId, state, isMobile, reducedMotion }) => {
     const result = [];
+    const guidedComplexRoutes = new Set([
+      '#crm', '#orders', '#collections', '#adjustment', '#financeAnalytics',
+      '#barter', '#shipping', '#discrepancies', '#production', '#warehouse',
+      '#procurement', '#team', '#audit',
+    ]);
     const visible = (element) => {
       if (element.closest('[aria-hidden="true"]')) return false;
       const style = window.getComputedStyle(element);
@@ -215,6 +220,16 @@ async function auditState(page, run, route, viewport, state, collectors) {
     if (!document.querySelector('main, [role="main"]')) add('warning', 'accessibility', 'MISSING_MAIN_LANDMARK', 'Page lacks a main landmark', document.body);
     if (!document.querySelector('nav, [role="navigation"], aside, header')) add('error', 'interaction', 'MISSING_NAVIGATION', 'No stable navigation landmark was found', document.body);
     if (!document.querySelector('h1,h2,[data-page-title]')) add('error', 'accessibility', 'MISSING_VISIBLE_PAGE_TITLE', 'No visible page title or heading was found', document.body);
+    if (state === 'initial' && guidedComplexRoutes.has(route)) {
+      const visibleH1s = Array.from(document.querySelectorAll('h1')).filter(visible);
+      if (visibleH1s.length !== 1) {
+        add('error', 'hierarchy', 'COMPLEX_ROUTE_H1_COUNT_INVALID', 'A high-risk business route must expose exactly one visible h1', document.body, { h1Count: visibleH1s.length });
+      }
+      const visibleGuidance = Array.from(document.querySelectorAll('[data-document-input-guide], [data-workspace-task-navigator]')).some(visible);
+      if (!visibleGuidance) {
+        add('error', 'hierarchy', 'COMPLEX_ROUTE_GUIDANCE_MISSING', 'A high-risk business route must explain its task boundary or ordered input flow', document.body);
+      }
+    }
     for (const pageShell of Array.from(document.querySelectorAll('[data-page-shell]')).filter(visible)) {
       const h1s = Array.from(pageShell.querySelectorAll('h1')).filter(visible);
       if (h1s.length !== 1) {
@@ -233,6 +248,39 @@ async function auditState(page, run, route, viewport, state, collectors) {
       }
       if (!guide.querySelector('ol > li')) {
         add('error', 'hierarchy', 'DOCUMENT_GUIDE_STEPS_NOT_ORDERED', 'Input-guide steps must use an ordered sequence', guide);
+      }
+    }
+    for (const section of Array.from(document.querySelectorAll('[data-form-section]')).filter(visible)) {
+      const labelledBy = section.getAttribute('aria-labelledby');
+      if (!labelledBy || !document.getElementById(labelledBy)) {
+        add('error', 'hierarchy', 'FORM_SECTION_NAME_MISSING', 'A governed form section must reference a visible section title', section);
+      }
+    }
+    for (const dialog of Array.from(document.querySelectorAll('[role="dialog"]')).filter(visible)) {
+      const controls = Array.from(dialog.querySelectorAll('input,select,textarea')).filter(visible);
+      if (controls.length < 6) continue;
+      const descriptionId = dialog.getAttribute('aria-describedby');
+      if (!descriptionId || !document.getElementById(descriptionId)) {
+        add('error', 'hierarchy', 'COMPLEX_DIALOG_DESCRIPTION_MISSING', 'A complex dialog must explain the order and business meaning of its fields', dialog, { controlCount: controls.length });
+      }
+      const sections = Array.from(dialog.querySelectorAll('[data-form-section]')).filter(visible);
+      if (sections.length < 2) {
+        add('error', 'hierarchy', 'COMPLEX_DIALOG_SECTIONS_MISSING', 'A complex dialog must split inputs into at least two named business sections', dialog, { controlCount: controls.length, sectionCount: sections.length });
+      }
+      if (!Array.from(dialog.querySelectorAll('[data-save-impact]')).some(visible)) {
+        add('error', 'hierarchy', 'COMPLEX_DIALOG_SAVE_IMPACT_MISSING', 'A complex dialog must state what saving creates and what it does not trigger', dialog);
+      }
+      for (const field of controls) {
+        const hasExplicitName = Boolean(
+          (field.id && document.querySelector(`label[for="${CSS.escape(field.id)}"]`))
+          || field.closest('label')
+          || field.getAttribute('aria-label')
+          || field.getAttribute('aria-labelledby')
+          || field.getAttribute('title')
+        );
+        if (!hasExplicitName && field.getAttribute('placeholder')) {
+          add('error', 'hierarchy', 'COMPLEX_FIELD_PLACEHOLDER_ONLY', 'Placeholder text must not be the only explanation for a field in a complex dialog', field);
+        }
       }
     }
     for (const navigator of Array.from(document.querySelectorAll('[data-workspace-task-navigator]')).filter(visible)) {
@@ -541,6 +589,38 @@ async function auditGovernedGridMenu(page, run, route, viewport) {
   if (remainsOpen === 'true') await trigger.click().catch(() => {});
 }
 
+async function auditComplexEntryDialog(page, run, route, viewport, collectors) {
+  if (route !== '#crm') return;
+  const trigger = page.locator('[data-testid="crm-add-customer"]:visible');
+  if (!(await trigger.count())) return;
+  try {
+    await trigger.click({ timeout: 2000 });
+    const dialog = page.locator('[data-testid="crm-create-modal"] [role="dialog"]:visible');
+    await dialog.waitFor({ state: 'visible', timeout: 3000 });
+    await auditState(page, run, route, viewport, 'complex-entry-dialog', collectors);
+
+    const advancedToggle = dialog.locator('[data-testid="crm-advanced-toggle"]:visible');
+    if (await advancedToggle.count()) {
+      await advancedToggle.click();
+      await page.waitForTimeout(50);
+      await auditState(page, run, route, viewport, 'complex-entry-advanced', collectors);
+    }
+
+    await dialog.locator('[data-testid="crm-create-close"]:visible').click({ timeout: 2000 });
+  } catch (error) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'interaction',
+      code: 'COMPLEX_ENTRY_DIALOG_AUDIT_FAILED',
+      message: `Complex entry dialog could not be opened, inspected, and closed: ${String(error.message || error)}`,
+      route,
+      viewport: viewport.id,
+      state: 'complex-entry-dialog',
+    });
+    await page.keyboard.press('Escape').catch(() => {});
+  }
+}
+
 async function safeOpenMenuState(page, run, route, viewport, collectors) {
   const safeButton = page.locator('button[aria-haspopup], button[aria-expanded], [role="button"][aria-haspopup]').filter({ hasNotText: DESTRUCTIVE_TEXT }).first();
   if (!(await safeButton.count())) return;
@@ -636,6 +716,7 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   await auditState(page, run, route, viewport, 'initial', collectors);
   await auditKeyboard(page, run, route, viewport);
   await auditGovernedGridMenu(page, run, route, viewport);
+  await auditComplexEntryDialog(page, run, route, viewport, collectors);
   await safeOpenMenuState(page, run, route, viewport, collectors);
   await safeSearchEmptyState(page, run, route, viewport, collectors);
 }

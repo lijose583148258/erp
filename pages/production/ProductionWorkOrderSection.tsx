@@ -180,7 +180,7 @@ export function ProductionWorkOrderSection({
         </div>
         <div className="flex flex-wrap gap-3">
           <button data-testid="production-work-order-save" onClick={handleCreateWorkOrder} disabled={loading || workOrderSaving} aria-busy={workOrderSaving} className="rounded-[24px] bg-blue-600 px-6 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-blue-500/30 transition-colors duration-150 hover:bg-blue-700 motion-reduce:transition-none disabled:opacity-60">{workOrderSaving ? '保存中...' : '创建工单'}</button>
-          <button onClick={() => void loadData()} className="px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 rounded-[24px] font-black text-xs uppercase tracking-widest active-shrink flex items-center gap-2"><RefreshCcw size={14} />刷新</button>
+ <button onClick={() => void loadData()} className="px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 rounded-[24px] font-black text-xs uppercase tracking-widest flex items-center gap-2"><RefreshCcw size={14} />刷新</button>
         </div>
       </div>
 

@@ -306,7 +306,7 @@ const BarterWorkspaceClean: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-700">
+ <div className="space-y-8 pb-16 motion-safe:animate-in fade-in slide-in-from-bottom-4 duration-150">
       <div className="rounded-[40px] bg-[#0B1020] p-8 text-white shadow-[0_30px_60px_rgba(15,23,42,0.24)]">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-slate-200">
           <ArrowRightLeft size={14} />

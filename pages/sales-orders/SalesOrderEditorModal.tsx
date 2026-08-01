@@ -158,14 +158,14 @@ const SalesOrderEditorModal: React.FC<Props> = ({
         offlineScanCount > 0 ? `${t.offlineScans || '离线扫描'} ${offlineScanCount}` : null,
     ].filter((badge): badge is string => Boolean(badge));
     return (
-        <div data-testid="sales-order-editor-modal" className="fixed inset-0 z-[120] flex justify-end bg-slate-950/60 backdrop-blur-md animate-in fade-in duration-300">
+ <div data-testid="sales-order-editor-modal" className="fixed inset-0 z-[120] flex justify-end bg-slate-950/60 backdrop-blur-md motion-safe:animate-in fade-in duration-150">
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sales-order-editor-title"
                 tabIndex={-1}
-                className="flex h-full w-full max-w-[98vw] flex-col bg-slate-50 shadow-2xl animate-in slide-in-from-right duration-500 dark:bg-slate-950"
+ className="flex h-full w-full max-w-[98vw] flex-col bg-slate-50 shadow-2xl motion-safe:animate-in slide-in-from-right duration-150 dark:bg-slate-950"
             >
                 <div className="sticky top-0 z-20 flex items-center justify-between border-b border-slate-200 bg-white/95 px-4 py-4 backdrop-blur sm:px-6 dark:border-slate-800 dark:bg-slate-900/95">
                     <div>

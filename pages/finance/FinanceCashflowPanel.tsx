@@ -50,7 +50,7 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
         </div>
         <button
           onClick={handleExport}
-          className="flex items-center px-4 py-2.5 rounded-[12px] text-xs font-bold bg-emerald-600 text-white shadow-sm active-shrink"
+          className="flex items-center px-4 py-2.5 rounded-[12px] text-xs font-bold bg-emerald-600 text-white shadow-sm"
         >
           <Download size={16} className="mr-2.5" />{t.export || '导出 CSV'}
         </button>

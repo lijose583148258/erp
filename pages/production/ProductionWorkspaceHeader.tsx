@@ -32,7 +32,7 @@ export const ProductionWorkspaceHeader = ({
         <p className="mt-1 max-w-3xl text-sm font-bold text-slate-500 dark:text-slate-400">{description}</p>
       </div>
       <div className="flex flex-wrap gap-2 rounded-[22px] border border-white/50 bg-white/60 p-1.5 shadow-[0_8px_30px_rgb(0,0,0,0.04)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/60">
-        <button className="flex items-center rounded-[17px] bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-blue-500/25 active-shrink">
+        <button className="flex items-center rounded-[17px] bg-gradient-to-br from-blue-600 to-blue-700 px-4 py-2.5 text-xs font-black text-white shadow-lg shadow-blue-500/25">
           <Factory size={16} className="mr-2.5" />
           {title}
         </button>

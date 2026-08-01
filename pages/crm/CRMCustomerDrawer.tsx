@@ -130,7 +130,7 @@ export function CRMCustomerDrawer({
                   type="button"
                   data-testid={`crm-customer-detail-nav-${section.id}`}
                   onClick={() => setActiveSection(section.id)}
-                  className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+ className={`rounded-2xl border px-3 py-3 text-left transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${
                     active
                       ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/20'
                       : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-blue-200 hover:bg-white hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'

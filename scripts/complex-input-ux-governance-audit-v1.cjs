@@ -8,6 +8,17 @@ const mdPath = path.join(outputDir, 'complex-input-ux-governance-audit-v1.md');
 
 const modules = [
   {
+    id: 'applicationShell',
+    page: 'components/Layout.tsx',
+    targetPattern: 'global navigation + command/search shell',
+    inputModel: 'navigation shell',
+    mustHave: ['stable navigation', 'route ownership', 'language/theme controls', 'mobile task navigation'],
+    priority: 'P0',
+    requiresGuide: false,
+    requiresReadback: false,
+    requiresFieldContext: false,
+  },
+  {
     id: 'dashboard',
     page: 'pages/Dashboard.tsx',
     targetPattern: 'overview-page',
@@ -18,6 +29,7 @@ const modules = [
   {
     id: 'crm',
     page: 'pages/CRM.tsx',
+    supportGlobs: ['pages/crm'],
     targetPattern: 'master-data object page',
     inputModel: 'simple create + advanced drawer',
     mustHave: ['multi-name', 'multi-address', 'multi-contact', 'pool ownership', 'audit trail'],
@@ -26,6 +38,7 @@ const modules = [
   {
     id: 'orders',
     page: 'pages/SalesOrders.tsx',
+    supportGlobs: ['pages/sales-orders'],
     targetPattern: 'document header + line grid',
     inputModel: 'header form + editable detail grid',
     mustHave: ['customer lookup', 'order lines', 'save readback', 'status action boundary', 'payment link'],
@@ -34,6 +47,7 @@ const modules = [
   {
     id: 'collections',
     page: 'pages/collections/CollectionCenterView.tsx',
+    supportGlobs: ['pages/collections', 'components/collections'],
     targetPattern: 'workbench + ledger',
     inputModel: 'action modal + ledger readback',
     mustHave: ['partial payment', 'verification', 'promise payment', 'overdue search', 'conflict guard'],
@@ -42,6 +56,7 @@ const modules = [
   {
     id: 'adjustment',
     page: 'pages/adjustment/AdjustmentCenterView.tsx',
+    supportGlobs: ['pages/adjustment'],
     targetPattern: 'adjustment voucher + ledger',
     inputModel: 'voucher form + approval/posting ledger',
     mustHave: ['domain boundary', 'reason required', 'post/reverse', 'audit trace'],
@@ -50,6 +65,7 @@ const modules = [
   {
     id: 'financeAnalytics',
     page: 'pages/FinanceAnalyticsWorkspaceV2.tsx',
+    supportGlobs: ['pages/finance'],
     targetPattern: 'analytics + correct action entry',
     inputModel: 'read-only analytics + adjustment entry',
     mustHave: ['do not fake payment', 'AR adjustment boundary', 'aging/cashflow readback', 'export'],
@@ -108,6 +124,7 @@ const modules = [
   {
     id: 'team',
     page: 'pages/TeamManagement.tsx',
+    supportGlobs: ['pages/team'],
     targetPattern: 'admin configuration',
     inputModel: 'role form + permission matrix',
     mustHave: ['role assignment', 'permission points', 'super admin boundary', 'audit'],
@@ -199,15 +216,27 @@ function inspectModule(module) {
   const hasGrid = text.includes('EnterpriseDataGrid') || text.includes('DataTable') || text.includes('<table') || text.includes('LineGrid') || text.includes('Editor') || text.includes('Panel');
   const hasActionBoundary = text.includes('ReasonDialog') || text.includes('StatusBadge') || text.includes('post') || text.includes('reverse') || text.includes('approve') || text.includes('transfer') || text.includes('receipt') || text.includes('audit');
   const hasReadbackHint = /readback|回读|loadData|onChanged|refresh|刷新/.test(text);
+  const hasVisibleFieldContext = /<label\b|aria-label=|aria-labelledby=|FormField/.test(text);
+  const hasSaveImpact = /data-save-impact|保存后|不会立即|不立即|过账后|写入.*(?:台账|主档|订单|库存)/.test(text);
+  const broadMotionCount = (text.match(/\btransition-all\b/g) || []).length;
+  const slowMotionCount = (text.match(/\bduration-(?:300|500|700|1000)\b/g) || []).length;
+  const unguardedEntranceMotionCount = (text.match(/(?<!motion-safe:)\banimate-in\b/g) || []).length;
+  const decorativeTransformCount = (text.match(/\b(?:hover|active|group-hover(?:\/[\w-]+)?):(?:-?translate-[^\s"'`]+|scale-[^\s"'`]+|rotate-[^\s"'`]+)|\bactive-shrink\b/g) || []).length;
   const risks = [];
 
   if (!fileOk) risks.push('entry file missing');
-  if (['P0', 'P1'].includes(module.priority) && !hasGuide) risks.push('missing explicit guide/navigator');
+  if (['P0', 'P1'].includes(module.priority) && module.requiresGuide !== false && !hasGuide) risks.push('missing explicit guide/navigator');
   if (module.inputModel.includes('grid') && !hasGrid) risks.push('expected detail grid not detected');
   if (module.mustHave.some(item => ['post/reverse', 'partial offset', 'work-order consumption', 'partial receipt'].includes(item)) && !hasActionBoundary) {
     risks.push('action boundary not obvious');
   }
-  if (['P0', 'P1'].includes(module.priority) && !hasReadbackHint) risks.push('readback evidence not obvious');
+  if (['P0', 'P1'].includes(module.priority) && module.requiresReadback !== false && !hasReadbackHint) risks.push('readback evidence not obvious');
+  if (['P0', 'P1'].includes(module.priority) && module.requiresFieldContext !== false && !hasVisibleFieldContext && !module.inputModel.includes('read-only')) {
+    risks.push('field meaning relies on layout or placeholder');
+  }
+  if (['P0', 'P1'].includes(module.priority) && (broadMotionCount || slowMotionCount || unguardedEntranceMotionCount || decorativeTransformCount)) {
+    risks.push(`motion debt: broad=${broadMotionCount}, slow=${slowMotionCount}, unguarded=${unguardedEntranceMotionCount}, decorative=${decorativeTransformCount}`);
+  }
 
   return {
     ...module,
@@ -217,6 +246,12 @@ function inspectModule(module) {
       hasGrid,
       hasActionBoundary,
       hasReadbackHint,
+      hasVisibleFieldContext,
+      hasSaveImpact,
+      broadMotionCount,
+      slowMotionCount,
+      unguardedEntranceMotionCount,
+      decorativeTransformCount,
     },
     risks,
     status: risks.length ? 'needs-review' : 'ok',
@@ -275,7 +310,7 @@ const md = [
   '',
   '| Module | Priority | Target Pattern | Input Model | Signals | Risks |',
   '| --- | --- | --- | --- | --- | --- |',
-  ...results.map(item => `| ${item.id} | ${item.priority} | ${item.targetPattern} | ${item.inputModel} | guide=${item.signals.hasGuide}; grid=${item.signals.hasGrid}; action=${item.signals.hasActionBoundary}; readback=${item.signals.hasReadbackHint} | ${item.risks.join('; ') || 'none'} |`),
+  ...results.map(item => `| ${item.id} | ${item.priority} | ${item.targetPattern} | ${item.inputModel} | guide=${item.signals.hasGuide}; grid=${item.signals.hasGrid}; action=${item.signals.hasActionBoundary}; readback=${item.signals.hasReadbackHint}; fieldContext=${item.signals.hasVisibleFieldContext}; saveImpact=${item.signals.hasSaveImpact}; motion=${item.signals.broadMotionCount}/${item.signals.slowMotionCount}/${item.signals.unguardedEntranceMotionCount}/${item.signals.decorativeTransformCount} | ${item.risks.join('; ') || 'none'} |`),
   '',
 ].join('\n');
 

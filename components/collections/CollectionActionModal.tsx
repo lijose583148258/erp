@@ -122,8 +122,8 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
   };
 
   return (
-    <div data-testid="collection-action-modal" className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
-      <div className="w-full max-w-md rounded-[32px] border border-slate-100 bg-white p-8 shadow-2xl animate-in zoom-in-95 dark:border-slate-800 dark:bg-slate-900">
+ <div data-testid="collection-action-modal" className="fixed inset-0 z-[140] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm motion-safe:animate-in fade-in">
+ <div className="w-full max-w-md rounded-[32px] border border-slate-100 bg-white p-8 shadow-2xl motion-safe:animate-in zoom-in-95 dark:border-slate-800 dark:bg-slate-900">
         <div className="mb-6 flex items-center justify-between">
           <div className="flex items-center gap-3">
             {icon}
@@ -273,7 +273,7 @@ const CollectionActionModal: React.FC<CollectionActionModalProps> = ({ mode, tar
             data-testid="collection-action-submit"
             onClick={handleSubmit}
             disabled={submitting}
-            className="mt-4 w-full rounded-[24px] bg-blue-600 py-4 font-black text-white shadow-xl transition-all hover:bg-blue-700 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
+ className="mt-4 w-full rounded-[24px] bg-blue-600 py-4 font-black text-white shadow-xl transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {submitting ? (mode === 'promise' ? t.collectionSubmittingPromise : t.collectionSubmittingDispute) : mode === 'promise' ? t.collectionSubmitPromise : t.collectionSubmitDispute}
           </button>

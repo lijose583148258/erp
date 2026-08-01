@@ -72,14 +72,14 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
     );
 
     return (
-        <div data-testid="sales-order-history-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+ <div data-testid="sales-order-history-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm motion-safe:animate-in fade-in">
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sales-order-history-title"
                 tabIndex={-1}
-                className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95 border border-slate-100 dark:border-slate-800"
+ className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-[32px] p-8 shadow-2xl motion-safe:animate-in zoom-in-95 border border-slate-100 dark:border-slate-800"
             >
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -96,8 +96,8 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                 </div>
 
                 <div className="flex mb-4 bg-slate-100 dark:bg-slate-800 p-1 rounded-xl">
-                    <button data-autofocus onClick={() => setHistoryTab('payments')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'payments' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.historyTab}</button>
-                    <button onClick={() => setHistoryTab('audit')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-all ${historyTab === 'audit' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.auditTab}</button>
+ <button data-autofocus onClick={() => setHistoryTab('payments')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${historyTab === 'payments' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.historyTab}</button>
+ <button onClick={() => setHistoryTab('audit')} className={`flex-1 py-2 text-xs font-bold uppercase rounded-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${historyTab === 'audit' ? 'bg-white dark:bg-slate-700 shadow text-slate-900 dark:text-white' : 'text-slate-400'}`}>{t.auditTab}</button>
                 </div>
 
                 {getOutstandingAmount(selectedOrder) > 0 && (
@@ -157,7 +157,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                             selectedOrder.paymentRecords
                                 .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
                                 .map((rec, idx) => (
-                                    <div key={idx} className={`p-4 rounded-2xl border relative transition-all ${rec.status === 'verified' ? 'bg-emerald-50/50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-700'}`}>
+ <div key={idx} className={`p-4 rounded-2xl border relative transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${rec.status === 'verified' ? 'bg-emerald-50/50 border-emerald-100 dark:bg-emerald-900/10 dark:border-emerald-800' : 'bg-slate-50 border-slate-100 dark:bg-slate-800/50 dark:border-slate-700'}`}>
                                         <div className="flex justify-between items-start">
                                             <div>
                                                 <p className={`text-lg font-black tracking-tight ${rec.status === 'verified' ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-600 dark:text-slate-400'}`}>{formatPrice(rec.amount)}</p>
@@ -181,7 +181,7 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                                         {rec.note && <p className="text-xs text-slate-500 mt-2 italic border-t border-slate-200 dark:border-slate-700 pt-2">"{rec.note}"</p>}
                                         {rec.status === 'pending' && canVerifyPayment && (
                                             <div className="mt-3 flex justify-end">
-                                                <button onClick={() => onVerifyPayment(rec.id)} className="px-4 py-2 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-xl text-xs font-black uppercase tracking-widest hover:scale-105 transition-all shadow-lg">
+ <button onClick={() => onVerifyPayment(rec.id)} className="px-4 py-2 bg-slate-900 text-white dark:bg-white dark:text-slate-900 rounded-xl text-xs font-black uppercase tracking-widest transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none shadow-lg">
                                                     {t.verify}
                                                 </button>
                                             </div>

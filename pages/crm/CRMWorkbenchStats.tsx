@@ -111,7 +111,7 @@ export function CRMWorkbenchStats({ scopeSegment = null, stats, segmentBreakdown
           return (
             <div
               key={card.key}
-              className={`rounded-[24px] border p-4 shadow-sm backdrop-blur-sm transition-all ${card.tone}`}
+ className={`rounded-[24px] border p-4 shadow-sm backdrop-blur-sm transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${card.tone}`}
             >
               <div className="flex items-start justify-between gap-3">
                 <div>

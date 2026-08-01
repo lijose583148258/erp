@@ -46,7 +46,7 @@ export function buildCRMColumns(t: any): Column<Customer>[] {
     {
       header: t.salesperson, key: 'tracking', accessor: (row: Customer) => (
         <div className="flex items-center text-xs group/rep cursor-pointer">
-          <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl mr-3 group-hover/rep:bg-blue-600 group-hover/rep:text-white transition-all shadow-sm">
+ <div className="p-2 bg-slate-100 dark:bg-slate-800 rounded-xl mr-3 group-hover/rep:bg-blue-600 group-hover/rep:text-white transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none shadow-sm">
             <UserRound size={14} />
           </div>
           <div className="flex flex-col text-left">
@@ -96,7 +96,7 @@ export function buildCRMColumns(t: any): Column<Customer>[] {
     },
     {
       header: text(t, 'crmRiskLevel', text(t, 'riskLevel', '风险等级')), key: 'risk', accessor: (row) => (
-        <span className={`px-3 py-1 rounded-xl text-xs font-black tracking-widest border transition-all ${row.riskLevel === RiskLevel.CRITICAL ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800' :
+ <span className={`px-3 py-1 rounded-xl text-xs font-black tracking-widest border transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${row.riskLevel === RiskLevel.CRITICAL ? 'bg-rose-100 dark:bg-rose-900/30 text-rose-600 dark:text-rose-400 border-rose-200 dark:border-rose-800' :
           row.riskLevel === RiskLevel.HIGH ? 'bg-amber-100 dark:bg-amber-900/30 text-amber-600 dark:text-amber-400 border-amber-200 dark:border-amber-800' :
             row.riskLevel === RiskLevel.MEDIUM ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400 border-blue-200 dark:border-blue-800' :
               'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800'

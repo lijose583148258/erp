@@ -125,7 +125,7 @@ const AuditLogs = () => {
                         <Search size={16} className="text-slate-400 mr-2" />
                         <input type="text" aria-label="搜索审计日志" title="搜索审计日志" placeholder={t.phSearchAudit} className="min-h-8 bg-transparent border-none focus:ring-0 text-xs w-full sm:w-48 font-bold" />
                     </div>
-                    <button type="button" aria-label="筛选审计日志" title="筛选审计日志" className="inline-flex min-h-8 min-w-8 items-center justify-center p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-blue-600 transition-all">
+ <button type="button" aria-label="筛选审计日志" title="筛选审计日志" className="inline-flex min-h-8 min-w-8 items-center justify-center p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-blue-600 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
                         <Filter size={18} />
                     </button>
                 </div>

@@ -24,7 +24,7 @@ type Props = {
 };
 
 const inputClass =
-  'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
+ 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm font-semibold text-slate-800 outline-none transition-[border-color,box-shadow] duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100';
 
 function MobileField({
   label,
@@ -57,7 +57,7 @@ export function ProductionBomMobileRows({
   removeItem,
 }: Props) {
   return (
-    <div data-testid="production-bom-mobile-lines" className="space-y-3 md:hidden">
+ <div data-testid="production-bom-mobile-lines" data-mobile-card-list className="space-y-3 md:hidden">
       {items.map((item, index) => {
         const dosageMode = normalizeDosageValue(item.dosageMode);
         const percentage = toFiniteNumber(item.percentage);
@@ -75,7 +75,7 @@ export function ProductionBomMobileRows({
             key={index}
             data-testid={`production-bom-mobile-row-${index}`}
             onFocusCapture={() => setActiveRowIndex(index)}
-            className={`rounded-2xl border p-3 transition ${
+ className={`rounded-2xl border p-3 transition-[background-color,border-color,box-shadow] duration-150 motion-reduce:transition-none ${
               activeRowIndex === index
                 ? 'border-blue-300 bg-blue-50/60 ring-2 ring-blue-100 dark:border-blue-800 dark:bg-blue-950/20'
                 : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60'

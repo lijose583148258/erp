@@ -176,7 +176,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                 <div className="text-xs font-black text-slate-500 dark:text-slate-400">{progress}%</div>
               </div>
               <div className="mt-3 h-3 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-all" style={{ width: `${progress}%` }} />
+ <div className="h-full rounded-full bg-gradient-to-r from-blue-500 to-emerald-500 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none" style={{ width: `${progress}%` }} />
               </div>
               <div className="mt-3 grid gap-2 text-sm font-bold text-slate-700 dark:text-slate-200 md:grid-cols-2">
                 <div>已核销到帐：{formatPrice(verifiedAmount)}</div>

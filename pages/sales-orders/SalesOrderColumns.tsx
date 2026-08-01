@@ -204,7 +204,7 @@ export const buildSalesOrderColumns = ({
           ) : null}
           <div className="my-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
             <div
-              className={`h-full rounded-full transition-all ${progress === 100 ? 'bg-emerald-500' : isOverdue ? 'bg-rose-400' : 'bg-blue-500'}`}
+ className={`h-full rounded-full transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${progress === 100 ? 'bg-emerald-500' : isOverdue ? 'bg-rose-400' : 'bg-blue-500'}`}
               style={{ width: `${progress}%` }}
             />
           </div>

@@ -27,7 +27,7 @@ type Props = {
 };
 
 const baseInputClass =
-    'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900';
+ 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none transition-[border-color,box-shadow] duration-150 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900';
 
 const rowsPerPage = 50;
 const hasLineError = (errors: string[], keyword: string) => errors.some(error => error.includes(keyword));
@@ -155,7 +155,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                 </div>
             )}
 
-            <div className="space-y-3 lg:hidden" aria-label="销售订单商品明细卡片">
+ <div data-mobile-card-list className="space-y-3 lg:hidden" aria-label="销售订单商品明细卡片">
                 {visibleItems.map(({ item, index }) => {
                     const currentLineErrors = lineErrors[index] || [];
                     const lineAmount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)) - Number(item.discount || 0) + Number(item.taxAmount || 0);
@@ -201,7 +201,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
             </div>
 
             <div className="hidden overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 lg:block" aria-label="销售订单商品明细表">
-                <table className="w-full min-w-[1080px] table-fixed border-collapse">
+ <table aria-label="销售订单商品明细表" className="w-full min-w-[1080px] table-fixed border-collapse">
                     <colgroup>
                         <col className="w-10" />
                         <col className="w-64" />

@@ -52,16 +52,16 @@ const ShippingOcrPanel: React.FC<Props> = ({
   onTogglePreview,
   fileInputRef,
 }) => {
-  const uploadCardClass = `relative h-48 rounded-2xl border-2 border-dashed transition-all flex flex-col items-center justify-center cursor-pointer overflow-hidden ${
+ const uploadCardClass = `relative h-48 rounded-2xl border-2 border-dashed transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none flex flex-col items-center justify-center cursor-pointer overflow-hidden ${
     ocrImage
       ? 'border-blue-300 bg-blue-50/50 dark:border-blue-800 dark:bg-blue-950/20'
       : 'border-slate-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-800/30 hover:border-blue-300 hover:bg-blue-50/40 dark:hover:border-blue-800'
   }`;
 
-  const parseButtonClass = `flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-all flex items-center justify-center ${
+ const parseButtonClass = `flex-1 py-3 rounded-xl text-xs font-black uppercase tracking-widest shadow-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none flex items-center justify-center ${
     isOcrProcessing
       ? 'bg-slate-400 text-white cursor-not-allowed shadow-slate-200'
-      : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700 active:scale-[0.98]'
+      : 'bg-blue-600 text-white shadow-blue-100 hover:bg-blue-700'
   }`;
 
   return (
@@ -181,7 +181,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
             value={ocrText}
             onChange={(e) => setOcrText(e.target.value)}
             placeholder={t.ocrPlaceholder}
-            className="w-full h-24 bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 text-xs font-bold outline-none resize-none border border-transparent focus:border-blue-300 dark:focus:border-blue-900 transition-all"
+ className="w-full h-24 bg-slate-50 dark:bg-slate-800/50 rounded-2xl p-4 text-xs font-bold outline-none resize-none border border-transparent focus:border-blue-300 dark:focus:border-blue-900 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none"
           />
 
           <div className="flex items-center gap-3">
@@ -264,7 +264,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
                 data-testid="shipping-ocr-apply-button"
                 onClick={onApply}
                 disabled={!ocrMaterial}
-                className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-colors duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none motion-reduce:transition-none dark:disabled:bg-slate-700"
+ className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-colors duration-150 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none motion-reduce:transition-none dark:disabled:bg-slate-700"
               >
                 {ocrMaterial ? t.ocrApply : '请先确认统一物料'}
               </button>

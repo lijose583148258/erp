@@ -85,6 +85,12 @@ const dataTableSource = fs.readFileSync(path.resolve(__dirname, '..', 'component
 const enterpriseGridSource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'EnterpriseDataGrid.tsx'), 'utf8');
 const columnVisibilitySource = fs.readFileSync(path.resolve(__dirname, '..', 'components', 'ui', 'ColumnVisibilityMenu.tsx'), 'utf8');
 const productionAuditHelpersSource = fs.readFileSync(path.resolve(__dirname, 'lib', 'production-browser-audit-helpers.cjs'), 'utf8');
+const crmCreateModalSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'crm', 'CRMCreateModal.tsx'), 'utf8');
+const crmFormCardsSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'crm', 'CRMCustomerFormCards.tsx'), 'utf8');
+const crmCreatePreviewSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'crm', 'CRMCreatePreviewPanel.tsx'), 'utf8');
+const salesLineGridSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'sales-orders', 'SalesOrderLineGrid.tsx'), 'utf8');
+const productionBomLineGridSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'production', 'ProductionBomLineGrid.tsx'), 'utf8');
+const productionBomMobileRowsSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'production', 'ProductionBomMobileRows.tsx'), 'utf8');
 assert.match(productionBomSource, /relative z-10[\s\S]*md:sticky md:bottom-4/, 'mobile BOM save panel must remain in document flow and only become sticky from desktop width');
 assert.match(productionBomSource, /motion-reduce:transition-none/, 'BOM primary action must respect reduced-motion preference');
 assert.match(productionBomSource, /data-mobile-card-list/, 'saved BOM versions need task-oriented mobile cards');
@@ -116,6 +122,11 @@ assert.match(uiAuditSource, /ENTERPRISE_TABLE_NAME_MISSING/, 'generic audit must
 assert.match(uiAuditSource, /REDUCED_MOTION_NOT_HONORED/, 'generic audit must measure reduced-motion behavior instead of trusting source classes');
 assert.match(uiAuditSource, /GOVERNED_TAB_ARROW_KEY_FAILED/, 'generic audit must operate governed task tabs with a real arrow key');
 assert.match(uiAuditSource, /GRID_COLUMN_MENU_CLIPPED/, 'generic audit must open and measure governed table column menus');
+assert.match(uiAuditSource, /COMPLEX_ROUTE_GUIDANCE_MISSING/, 'high-risk routes must not silently lose task or input guidance');
+assert.match(uiAuditSource, /COMPLEX_DIALOG_SAVE_IMPACT_MISSING/, 'complex dialogs must explain their save boundary');
+assert.match(uiAuditSource, /COMPLEX_FIELD_PLACEHOLDER_ONLY/, 'placeholder-only complex inputs must be detected');
+assert.match(uiAuditSource, /auditComplexEntryDialog/, 'generic UI audit must open a real complex entry dialog');
+assert.match(uiAuditSource, /complex-entry-advanced/, 'generic UI audit must inspect low-frequency advanced fields separately');
 assert.match(pageShellSource, /data-page-shell/);
 assert.match(pageShellSource, /role="tab"/);
 assert.match(pageShellSource, /event\.key === 'ArrowRight'/);
@@ -142,6 +153,18 @@ assert.match(columnVisibilitySource, /availableBelow[\s\S]*availableAbove[\s\S]*
 assert.match(productionAuditHelpersSource, /\[data-testid="\$\{testId\}"\]:visible/, 'production desk audit must target the visible task tab');
 assert.match(productionAuditHelpersSource, /desk\.click\(\{ timeout: Math\.min\(timeout, 5000\) \}\)/, 'production desk click must fail before the enclosing audit timebox');
 assert.match(productionAuditHelpersSource, /aria-selected[\s\S]*=== 'true'/, 'production desk audit must verify the task tab became active');
+assert.match(crmCreateModalSource, /data-form-section="company-master"/, 'CRM onboarding must expose named business sections');
+assert.match(crmCreateModalSource, /aria-expanded=\{showAdvanced\}/, 'CRM advanced fields must expose their disclosure state');
+assert.match(crmCreateModalSource, /第 1 步[\s\S]*第 2 步[\s\S]*第 3 步[\s\S]*第 4 步/, 'CRM onboarding must follow a visible human workflow');
+assert.doesNotMatch(crmCreateModalSource, /className="[^"]*animate-in(?![^"]*motion-safe:)/, 'CRM modal motion must be opt-in for users who allow motion');
+assert.match(crmCreatePreviewSource, /data-save-impact/, 'CRM onboarding must explain what saving creates');
+assert.match(crmCreatePreviewSource, /不会自动创建订单、授信审批或发货任务/, 'CRM onboarding must explain downstream non-effects');
+assert.match(crmFormCardsSource, /地址用途[\s\S]*站点标签[\s\S]*国家 \/ 地区代码/, 'CRM address fields need visible relationship labels');
+assert.match(crmFormCardsSource, /联系人姓名[\s\S]*角色 \/ 职务[\s\S]*电话[\s\S]*邮箱[\s\S]*常用语言/, 'CRM contact fields need visible relationship labels');
+assert.match(salesLineGridSource, /data-mobile-card-list/, 'sales-order lines need a mobile task-card representation');
+assert.match(salesLineGridSource, /aria-label="销售订单商品明细表"/, 'sales-order line table needs a stable business name');
+assert.match(productionBomMobileRowsSource, /data-mobile-card-list/, 'BOM line editing needs a mobile task-card representation');
+assert.match(productionBomLineGridSource, /aria-label="生产配方原料明细表"/, 'BOM line table needs a stable business name');
 for (const [name, source] of [['workspace', financeWorkspaceSource], ['ledger', financeLedgerSource], ['cashflow', financeCashflowSource]]) {
   assert.match(source, /data-mobile-card-list/, `finance ${name} needs a visible mobile task-card alternative`);
   assert.match(source, /hidden overflow-x-auto[^"\n]*md:block/, `finance ${name} tables must stay desktop/tablet only`);

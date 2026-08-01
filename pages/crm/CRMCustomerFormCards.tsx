@@ -1,6 +1,9 @@
 import type { Contact, CustomerAddress } from '../../types';
 
 type TranslationText = Record<string, string | undefined>;
+const cardControlClass =
+ 'mt-1.5 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none transition-[border-color,box-shadow] duration-150 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900';
+const cardLabelClass = 'block text-xs font-black text-slate-600 dark:text-slate-300';
 
 export function AddressCard({
   t,
@@ -18,9 +21,11 @@ export function AddressCard({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
       <div className="grid gap-3 md:grid-cols-3">
+ <label className={cardLabelClass}>
+ 地址用途
         <select
           data-testid={testIdPrefix ? `${testIdPrefix}-type` : undefined}
-          className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
+ className={cardControlClass}
           value={address.type}
           onChange={(event) => onChange({ type: event.target.value as CustomerAddress['type'] })}
         >
@@ -30,68 +35,56 @@ export function AddressCard({
           <option value="office">{t.crmAddressTypeOffice || '办公地址'}</option>
           <option value="other">{t.crmAddressTypeOther || '其他站点'}</option>
         </select>
+ </label>
+ <label className={cardLabelClass}>
+ 站点标签
         <input
           data-testid={testIdPrefix ? `${testIdPrefix}-label` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
+ className={cardControlClass}
           value={address.label || ''}
           onChange={(event) => onChange({ label: event.target.value })}
           maxLength={60}
-          placeholder={t.crmSiteLabelPlaceholder || '站点标签'}
+ placeholder={t.crmSiteLabelPlaceholder || '例如：越南仓、总部'}
         />
+ </label>
+ <label className={cardLabelClass}>
+ 国家 / 地区代码
         <input
           data-testid={testIdPrefix ? `${testIdPrefix}-country` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold uppercase outline-none dark:border-slate-700 dark:bg-slate-900"
+ className={`${cardControlClass} uppercase`}
           value={address.countryCode || ''}
           onChange={(event) => onChange({ countryCode: event.target.value.toUpperCase() })}
           maxLength={3}
-          placeholder={t.crmCountryCodePlaceholder || '国家代码'}
+ placeholder={t.crmCountryCodePlaceholder || '例如：CN、VN'}
         />
+ </label>
       </div>
       <div className="mt-3 grid gap-3 md:grid-cols-2">
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-registered-name` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={address.registeredName || ''}
-          onChange={(event) => onChange({ registeredName: event.target.value })}
-          maxLength={160}
-          placeholder={t.crmRegisteredNamePlaceholder || '注册名称'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-registration-no` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={address.registrationNo || ''}
-          onChange={(event) => onChange({ registrationNo: event.target.value })}
-          maxLength={80}
-          placeholder={t.crmRegistrationNoPlaceholder || '注册号 / 营业执照号'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-tax-no` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={address.taxNo || ''}
-          onChange={(event) => onChange({ taxNo: event.target.value })}
-          maxLength={80}
-          placeholder={t.crmTaxNoPlaceholder || '税号 / VAT'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-city` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={address.city || ''}
-          onChange={(event) => onChange({ city: event.target.value })}
-          maxLength={80}
-          placeholder={t.crmCityPlaceholder || '城市'}
-        />
+ <label className={cardLabelClass}>注册名称
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-registered-name` : undefined} className={cardControlClass} value={address.registeredName || ''} onChange={(event) => onChange({ registeredName: event.target.value })} maxLength={160} placeholder={t.crmRegisteredNamePlaceholder || '营业执照上的完整名称'} />
+ </label>
+ <label className={cardLabelClass}>注册号 / 营业执照号
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-registration-no` : undefined} className={cardControlClass} value={address.registrationNo || ''} onChange={(event) => onChange({ registrationNo: event.target.value })} maxLength={80} placeholder={t.crmRegistrationNoPlaceholder || '企业登记号码'} />
+ </label>
+ <label className={cardLabelClass}>税号 / VAT
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-tax-no` : undefined} className={cardControlClass} value={address.taxNo || ''} onChange={(event) => onChange({ taxNo: event.target.value })} maxLength={80} placeholder={t.crmTaxNoPlaceholder || '用于开票和税务识别'} />
+ </label>
+ <label className={cardLabelClass}>城市
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-city` : undefined} className={cardControlClass} value={address.city || ''} onChange={(event) => onChange({ city: event.target.value })} maxLength={80} placeholder={t.crmCityPlaceholder || '例如：东莞、胡志明市'} />
+ </label>
       </div>
+ <label className={`${cardLabelClass} mt-3`}>
+ 完整地址
       <textarea
         data-testid={testIdPrefix ? `${testIdPrefix}-full-address` : undefined}
         value={address.fullAddress || ''}
         onChange={(event) => onChange({ fullAddress: event.target.value })}
         aria-invalid={fullAddressOverLimit}
         aria-describedby={testIdPrefix ? `${testIdPrefix}-full-address-count` : undefined}
-        placeholder={t.crmFullAddressPlaceholder || '完整地址'}
-        className={`mt-3 min-h-[84px] w-full resize-y rounded-xl border bg-slate-50 px-4 py-3 text-sm font-bold outline-none dark:bg-slate-900 ${
-          fullAddressOverLimit ? 'border-red-500 dark:border-red-500' : 'border-slate-200 dark:border-slate-700'
-        }`}
+ placeholder={t.crmFullAddressPlaceholder || '省/州、市、区、街道、门牌及邮编'}
+ className={`${cardControlClass} min-h-[84px] resize-y ${fullAddressOverLimit ? 'border-red-500 dark:border-red-500' : ''}`}
       />
+ </label>
       <div
         id={testIdPrefix ? `${testIdPrefix}-full-address-count` : undefined}
         className={`mt-1 text-right text-xs font-medium ${fullAddressOverLimit ? 'text-red-600' : 'text-slate-500'}`}
@@ -116,57 +109,29 @@ export function ContactCard({
   return (
     <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
       <div className="grid gap-3 md:grid-cols-2">
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-name` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={contact.name || ''}
-          onChange={(event) => onChange({ name: event.target.value })}
-          maxLength={80}
-          placeholder={t.crmContactNamePlaceholder || '联系人姓名'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-role` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={contact.role || contact.position || ''}
-          onChange={(event) => onChange({ role: event.target.value, position: event.target.value })}
-          maxLength={80}
-          placeholder={t.crmRoleTitlePlaceholder || '角色 / 职务'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-phone` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={contact.phone || ''}
-          onChange={(event) => onChange({ phone: event.target.value })}
-          maxLength={40}
-          placeholder={t.crmPhonePlaceholder || '电话'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-email` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={contact.email || ''}
-          onChange={(event) => onChange({ email: event.target.value })}
-          maxLength={160}
-          placeholder={t.crmEmailPlaceholder || '邮箱'}
-        />
-        <input
-          data-testid={testIdPrefix ? `${testIdPrefix}-department` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={contact.department || ''}
-          onChange={(event) => onChange({ department: event.target.value })}
-          maxLength={80}
-          placeholder={t.crmDepartmentPlaceholder || '部门'}
-        />
-        <select
-          data-testid={testIdPrefix ? `${testIdPrefix}-language` : undefined}
-          className="rounded-[16px] border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900"
-          value={contact.language || ''}
-          onChange={(event) => onChange({ language: event.target.value as Contact['language'] })}
-        >
-          <option value="">{t.crmCommonLanguage || '常用语言'}</option>
+ <label className={cardLabelClass}>联系人姓名
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-name` : undefined} className={cardControlClass} value={contact.name || ''} onChange={(event) => onChange({ name: event.target.value })} maxLength={80} placeholder={t.crmContactNamePlaceholder || '真实姓名'} />
+ </label>
+ <label className={cardLabelClass}>角色 / 职务
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-role` : undefined} className={cardControlClass} value={contact.role || contact.position || ''} onChange={(event) => onChange({ role: event.target.value, position: event.target.value })} maxLength={80} placeholder={t.crmRoleTitlePlaceholder || '例如：采购经理'} />
+ </label>
+ <label className={cardLabelClass}>电话
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-phone` : undefined} className={cardControlClass} value={contact.phone || ''} onChange={(event) => onChange({ phone: event.target.value })} maxLength={40} placeholder={t.crmPhonePlaceholder || '含国家/地区代码'} />
+ </label>
+ <label className={cardLabelClass}>邮箱
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-email` : undefined} className={cardControlClass} value={contact.email || ''} onChange={(event) => onChange({ email: event.target.value })} maxLength={160} placeholder={t.crmEmailPlaceholder || '用于业务通知'} />
+ </label>
+ <label className={cardLabelClass}>部门
+ <input data-testid={testIdPrefix ? `${testIdPrefix}-department` : undefined} className={cardControlClass} value={contact.department || ''} onChange={(event) => onChange({ department: event.target.value })} maxLength={80} placeholder={t.crmDepartmentPlaceholder || '例如：采购部'} />
+ </label>
+ <label className={cardLabelClass}>常用语言
+ <select data-testid={testIdPrefix ? `${testIdPrefix}-language` : undefined} className={cardControlClass} value={contact.language || ''} onChange={(event) => onChange({ language: event.target.value as Contact['language'] })}>
+ <option value="">{t.crmCommonLanguage || '请选择'}</option>
           <option value="zh">{t.crmChinese || '中文'}</option>
           <option value="en">{t.crmEnglish || 'English'}</option>
           <option value="vi">{t.crmVietnamese || 'Tiếng Việt'}</option>
         </select>
+ </label>
       </div>
     </div>
   );

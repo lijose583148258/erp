@@ -46,14 +46,14 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
     const currentPaymentAmount = Number.isFinite(paymentForm.amount) ? paymentForm.amount : 0;
 
     return (
-        <div data-testid="sales-order-payment-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+ <div data-testid="sales-order-payment-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm motion-safe:animate-in fade-in">
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sales-order-payment-title"
                 tabIndex={-1}
-                className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95"
+ className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] p-8 shadow-2xl motion-safe:animate-in zoom-in-95"
             >
                 <div className="flex justify-between items-center mb-6">
                     <div>
@@ -114,7 +114,7 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                         <label htmlFor="proxy" className="font-bold text-sm text-slate-700 dark:text-slate-300">{t.proxyPaymentLabel}</label>
                     </div>
                     {paymentForm.isProxy && (
-                        <div className="animate-in slide-in-from-top-2">
+ <div className="motion-safe:animate-in slide-in-from-top-2">
                             <label className="text-xs font-black uppercase text-slate-400 ml-2">{t.proxyPayerName}</label>
                             <input type="text" className="w-full p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl font-bold outline-none text-amber-900 dark:text-amber-100" placeholder={t.phActualPayer} value={paymentForm.payerName} onChange={e => setPaymentForm({ ...paymentForm, payerName: e.target.value })} />
                         </div>
@@ -122,7 +122,7 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                     <div>
                         <input type="text" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none" placeholder={t.phNote} value={paymentForm.note} onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })} />
                     </div>
-                    <button data-testid="sales-order-payment-confirm" onClick={onConfirm} className="w-full py-4 bg-emerald-500 text-white rounded-[24px] font-black shadow-xl hover:bg-emerald-600 active:scale-95 transition-all mt-4">提交登记，待财务核验</button>
+ <button data-testid="sales-order-payment-confirm" onClick={onConfirm} className="w-full py-4 bg-emerald-500 text-white rounded-[24px] font-black shadow-xl hover:bg-emerald-600 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none mt-4">提交登记，待财务核验</button>
                 </div>
             </div>
         </div>
