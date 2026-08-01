@@ -198,9 +198,16 @@ jobs:
           NODE
 
       - name: Build and start dual PostgreSQL application instances
+        shell: bash
         run: |
+          set -euo pipefail
           docker compose --profile application build app-primary
-          docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+          if ! docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary; then
+            mkdir -p output/audit
+            docker compose --profile application ps -a > output/audit/application-compose-ps-startup-failure.txt 2>&1 || true
+            docker compose --profile application logs --no-color app-primary app-secondary > output/audit/application-startup-failure.log 2>&1 || true
+            exit 1
+          fi
 
       - name: Verify application readiness
         shell: bash
@@ -221,6 +228,14 @@ jobs:
           npm run audit:shipping:browser
           npm run audit:collection:human-flow
           AUDIT_DATABASE_URL="$ENTERPRISE_POSTGRES_URL" DECIMAL_SHADOW_AUDIT_LABEL=postgres-human-flows npm run audit:db:decimal-shadow
+      - name: Capture certification diagnostics
+        if: always()
+        shell: bash
+        run: |
+          docker compose --profile application ps -a > output/audit/application-compose-ps.txt 2>&1 || true
+          docker compose --profile application logs --no-color app-primary app-secondary > output/audit/application-compose.log 2>&1 || true
+          docker compose logs --no-color postgres > output/audit/postgres-container.log 2>&1 || true
+
       - name: Upload certification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -231,13 +246,6 @@ jobs:
             output/playwright/
           if-no-files-found: error
           retention-days: 30
-
-      - name: Capture PostgreSQL diagnostics
-        if: always()
-        shell: bash
-        run: |
-          docker compose ps -a || true
-          docker compose logs --no-color postgres > output/audit/postgres-container.log 2>&1 || true
 
       - name: Stop isolated sandbox
         if: always()
