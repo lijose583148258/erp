@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { CollectionStateService } from './collection-state.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { compareMoney, minMoney, roundMoney } from '../utils/money';
 import { getOutstandingAmount } from './collection/collection.helpers';
 import type { Prisma } from '@prisma/client';
 import type { TransactionClient } from './stock-movement.service';
@@ -15,7 +16,11 @@ import type {
   CreateBarterBatchInput,
   CreateBarterSettlementInput,
 } from './barter/barter.types';
-import { computeItemValue, previewBarterSettlement, roundMoney } from './barter/barter.calculations';
+import {
+  calculateBarterAgreementProgress,
+  computeItemValue,
+  previewBarterSettlement,
+} from './barter/barter.calculations';
 import { parseBarterMetadata } from './barter/barter.formatters';
 import {
   assertBarterApprovalTransition,
@@ -235,15 +240,15 @@ export class BarterService {
     assertBarterPostingTransition(settlement.status);
 
     const orderId = payload.orderId ?? settlement.orderId ?? null;
-    const maxOffsetAmount = roundMoney(Math.min(Number(settlement.totalPartyAValue), Number(settlement.totalPartyBValue)));
+    const maxOffsetAmount = minMoney(settlement.totalPartyAValue, settlement.totalPartyBValue);
     const offsetAmount = roundMoney(payload.postingAmount ?? maxOffsetAmount);
     const offsetType = payload.offsetType || 'barter_offset';
 
-    if (offsetAmount <= 0) {
+    if (compareMoney(offsetAmount, 0) <= 0) {
       throw new Error('货抵过账金额必须大于 0。');
     }
 
-    if (offsetAmount > maxOffsetAmount) {
+    if (compareMoney(offsetAmount, maxOffsetAmount) > 0) {
       throw new Error(`货抵过账金额不能超过本批次可抵金额 ${maxOffsetAmount}。`);
     }
 
@@ -272,16 +277,16 @@ export class BarterService {
         throw new Error('关联订单客户与货抵客户不一致。');
       }
 
-      const outstandingAmount = roundMoney(getOutstandingAmount(
-        Number(linkedOrder.finalAmount),
-        Number(linkedOrder.paidAmount),
-        Number(linkedOrder.receivableAdjustmentAmount),
-      ));
-      if (outstandingAmount <= 0) {
+      const outstandingAmount = getOutstandingAmount(
+        linkedOrder.finalAmount,
+        linkedOrder.paidAmount,
+        linkedOrder.receivableAdjustmentAmount,
+      );
+      if (compareMoney(outstandingAmount, 0) <= 0) {
         throw new Error('关联订单没有可抵扣的未回款金额。');
       }
 
-      if (offsetAmount > outstandingAmount) {
+      if (compareMoney(offsetAmount, outstandingAmount) > 0) {
         throw new Error(`货抵过账金额不能超过关联订单未回款金额 ${outstandingAmount}。`);
       }
     }
@@ -340,6 +345,7 @@ export class BarterService {
             id: { not: settlement.id },
           },
           select: {
+            status: true,
             offsetPostings: {
               select: {
                 offsetAmount: true,
@@ -348,17 +354,17 @@ export class BarterService {
           },
         });
 
-        const executedOffsetAmount = roundMoney(postedSettlements.reduce((sum, postedSettlement) => (
-          sum + postedSettlement.offsetPostings.reduce((postingTotal, posting) => postingTotal + Number(posting.offsetAmount), 0)
-        ), 0));
-        const liveRemainingAmount = roundMoney(Math.max(Number(agreement.agreedOffsetAmount || 0) - executedOffsetAmount, 0));
+        const { remainingOffsetAmount: liveRemainingAmount } = calculateBarterAgreementProgress(
+          agreement.agreedOffsetAmount,
+          postedSettlements,
+        );
 
-        if (offsetAmount > liveRemainingAmount) {
+        if (compareMoney(offsetAmount, liveRemainingAmount) > 0) {
           throw new Error(`货抵过账金额不能超过协议剩余可抵金额 ${liveRemainingAmount}。`);
         }
       }
 
-      if (orderId && offsetAmount > 0) {
+      if (orderId && compareMoney(offsetAmount, 0) > 0) {
         const linkedOrder = await tx.order.findUnique({
           where: { id: orderId },
           select: {
@@ -389,16 +395,15 @@ export class BarterService {
           },
           _sum: { amount: true },
         });
-        const paidAmount = Number(verifiedPayments._sum.amount || 0);
-        const liveOutstandingAmount = roundMoney(getOutstandingAmount(
-          Number(linkedOrder.finalAmount),
-          paidAmount,
-          Number(linkedOrder.receivableAdjustmentAmount),
-        ));
-        if (liveOutstandingAmount <= 0) {
+        const liveOutstandingAmount = getOutstandingAmount(
+          linkedOrder.finalAmount,
+          verifiedPayments._sum.amount,
+          linkedOrder.receivableAdjustmentAmount,
+        );
+        if (compareMoney(liveOutstandingAmount, 0) <= 0) {
           throw new Error('关联订单没有可抵扣的未回款金额。');
         }
-        if (offsetAmount > liveOutstandingAmount) {
+        if (compareMoney(offsetAmount, liveOutstandingAmount) > 0) {
           throw new Error(`货抵过账金额不能超过关联订单未回款金额 ${liveOutstandingAmount}。`);
         }
 

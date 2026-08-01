@@ -40,6 +40,9 @@ claiming a database read cutover:
 - payment verification and order paid-state recalculation;
 - per-customer overdue aggregation and collection-state synchronization;
 - milestone paid-state transition after verified-payment aggregation.
+- barter item valuation, posted offsets and cash-difference totals;
+- barter agreement executed/remaining progress and completion ratio;
+- barter batch/order over-offset rejection using live transactional balances.
 
 These read models still receive legacy Prisma fields during the expand/observe
 phase. Decimal calculation removes JavaScript binary-float drift from the API
@@ -50,6 +53,10 @@ Payment verification must continue to claim the pending payment and serialize
 the related order inside one transaction. Decimal comparison replaces the old
 integer-cent workaround; it does not replace the transaction lock or the
 overpayment rejection.
+
+Barter financial summaries count only `posted` settlements. Draft, quoted,
+approved and reversed batches remain visible in status counts and audit history,
+but they must not inflate executed offsets or posted cash-difference totals.
 
 ## Release phases
 

@@ -23,6 +23,10 @@ const financeSummaryService = read('backend/src/services/finance-summary.service
 const collectionHelpers = read('backend/src/services/collection/collection.helpers.ts');
 const collectionQueryService = read('backend/src/services/collection-query.service.ts');
 const collectionStateService = read('backend/src/services/collection-state.service.ts');
+const barterCalculations = read('backend/src/services/barter/barter.calculations.ts');
+const barterAgreementService = read('backend/src/services/barter/barter-agreement.service.ts');
+const barterQueryService = read('backend/src/services/barter/barter-query.service.ts');
+const barterService = read('backend/src/services/barter.service.ts');
 
 assert.equal(contract.version, '2026-08-01-receivables-decimal-shadow-v1');
 assert.deepEqual(contract.tables.map(table => table.table), [
@@ -108,6 +112,16 @@ assert.match(collectionStateService, /compareMoney\(paidAmount, effectiveReceiva
 assert.match(collectionStateService, /calculateMilestoneAmounts/);
 assert.doesNotMatch(collectionStateService, /toCents|payments\.reduce\(\(sum, payment\) => sum \+|allVerifiedPayments\.reduce\(\(sum, record\) => sum \+/);
 assert.doesNotMatch(collectionStateService, /Number\(milestone\.contract\.totalAmount\)\s*\*\s*Number\(milestone\.percentage\)/);
+assert.match(barterCalculations, /calculatePostedBarterTotals/);
+assert.match(barterCalculations, /calculateBarterAgreementProgress/);
+assert.match(barterCalculations, /settlement\.status !== 'posted'/);
+assert.match(barterAgreementService, /calculateBarterAgreementProgress/);
+assert.match(barterQueryService, /calculatePostedBarterTotals/);
+assert.match(barterService, /compareMoney\(offsetAmount, liveRemainingAmount\)/);
+assert.match(barterService, /getOutstandingAmount\(\s*linkedOrder\.finalAmount/);
+assert.doesNotMatch(barterAgreementService, /postingTotal \+ Number\(posting\.offsetAmount\)|agreedOffsetAmount - executedOffsetAmount/);
+assert.doesNotMatch(barterQueryService, /postingTotal \+ Number\(posting\.offsetAmount\)|sum \+ Number\(settlement\.cashDifference\)/);
+assert.doesNotMatch(barterService, /postingTotal \+ Number\(posting\.offsetAmount\)|offsetAmount > liveRemainingAmount/);
 
 console.log('Decimal Shadow Contract Audit: PASS');
 console.log('- 7 money and 2 exchange-rate shadow fields have additive SQLite/PostgreSQL migration contracts.');
@@ -115,3 +129,4 @@ console.log('- Backfill, write synchronization, precision metadata, provider-iso
 console.log('- Sales order create, import, and edit paths share decimal line, discount, and outstanding calculations.');
 console.log('- Finance summaries and collection milestones use decimal exchange, proration, aggregation, and ratio boundaries.');
 console.log('- Payment verification, order-state recalculation, overdue aggregation, and milestone settlement share the decimal boundary.');
+console.log('- Barter preview, posted-only summaries, agreement progress, order offsets, and reversal-aware totals share the decimal boundary.');
