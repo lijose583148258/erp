@@ -71,6 +71,19 @@ const tests: FrontendUnitTest[] = [
     },
   },
   {
+    name: 'shipping OCR requires explicit canonical material confirmation before creation',
+    run: () => {
+      const hookSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/useShippingOcr.ts'), 'utf8');
+      const panelSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/ShippingOcrPanel.tsx'), 'utf8');
+      const auditSource = fs.readFileSync(path.join(process.cwd(), 'scripts/shipping-browser-audit-v1.cjs'), 'utf8');
+      assert.ok(hookSource.includes('if (!ocrMaterial)'));
+      assert.ok(hookSource.includes('materialId: String(ocrMaterial.id)'));
+      assert.ok(panelSource.includes('dataTestId="shipping-ocr-material-input"'));
+      assert.ok(panelSource.includes('disabled={!ocrMaterial}'));
+      assert.ok(auditSource.includes("selectMaterialCombobox(page, 'shipping-ocr-material-input'"));
+    },
+  },
+  {
     name: 'material readiness errors preserve row identity and human repair guidance',
     run: () => {
       const parsed = parseMaterialReadinessDetails({

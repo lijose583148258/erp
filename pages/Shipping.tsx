@@ -323,6 +323,11 @@ const Shipping = () => {
                     previewMode={state.previewMode}
                     isOcrProcessing={state.isOcrProcessing}
                     ocrResult={state.ocrResult}
+                    ocrMaterialQuery={state.ocrMaterialQuery}
+                    ocrMaterial={state.ocrMaterial}
+                    onMaterialQueryChange={state.setOcrMaterialQuery}
+                    onMaterialClear={state.clearOcrMaterial}
+                    onMaterialSelect={state.selectOcrMaterial}
                     onImageUpload={state.handleOcrImageUpload}
                     onParse={state.handleOcrParse}
                     onApply={state.handleApplyOcr}

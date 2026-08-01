@@ -1,5 +1,7 @@
 ﻿import React from 'react';
 import { Box, Camera, CheckCircle, Image as ImageIcon, Plus, X } from 'lucide-react';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
+import type { MaterialMaster } from '../../services/material.service';
 
 type Props = {
   t: Record<string, string>;
@@ -11,6 +13,11 @@ type Props = {
   previewMode: 'single' | 'gallery';
   isOcrProcessing: boolean;
   ocrResult: any;
+  ocrMaterialQuery: string;
+  ocrMaterial: MaterialMaster | null;
+  onMaterialQueryChange: (value: string) => void;
+  onMaterialClear: () => void;
+  onMaterialSelect: (material: MaterialMaster) => void;
   onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onParse: () => void;
   onApply: () => void;
@@ -31,6 +38,11 @@ const ShippingOcrPanel: React.FC<Props> = ({
   previewMode,
   isOcrProcessing,
   ocrResult,
+  ocrMaterialQuery,
+  ocrMaterial,
+  onMaterialQueryChange,
+  onMaterialClear,
+  onMaterialSelect,
   onImageUpload,
   onParse,
   onApply,
@@ -234,12 +246,27 @@ const ShippingOcrPanel: React.FC<Props> = ({
                   </div>
                 )}
               </div>
+              <div className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 dark:border-amber-900/60 dark:bg-amber-950/20">
+                <MaterialMasterCombobox
+                  dataTestId="shipping-ocr-material-input"
+                  label="过账物料确认"
+                  value={ocrMaterialQuery}
+                  selectedMaterialId={ocrMaterial?.id || null}
+                  onTextChange={onMaterialQueryChange}
+                  onClearSelection={onMaterialClear}
+                  onSelect={onMaterialSelect}
+                />
+                <p className="mt-2 text-[11px] font-semibold leading-5 text-amber-800 dark:text-amber-200">
+                  OCR 品名只作为检索提示，不会自动绑定物料。请人工核对物料编码、名称和基础单位后再创建发货单。
+                </p>
+              </div>
               <button
                 data-testid="shipping-ocr-apply-button"
                 onClick={onApply}
-                className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-all active:scale-[0.98]"
+                disabled={!ocrMaterial}
+                className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-colors duration-150 active:scale-[0.98] disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none motion-reduce:transition-none dark:disabled:bg-slate-700"
               >
-                {t.ocrApply}
+                {ocrMaterial ? t.ocrApply : '请先确认统一物料'}
               </button>
             </div>
           ) : (

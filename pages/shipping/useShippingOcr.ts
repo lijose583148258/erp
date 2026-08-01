@@ -4,6 +4,7 @@ import { shipmentService } from '../../services/shipping.service';
 import { customerService } from '../../src/services/customer.service';
 import { matchCustomer, OcrDocumentData, parseOcrDocument } from '../../services/smartFormService';
 import { reportClientIssue } from '../../utils/clientIssue';
+import type { MaterialMaster } from '../../services/material.service';
 
 type Notify = (type: 'success' | 'error' | 'info' | 'warning', message: string) => void;
 type ShippingTab = 'logistics' | 'assets';
@@ -36,6 +37,8 @@ const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
 export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTab, loadData }: UseShippingOcrOptions) => {
     const [ocrText, setOcrText] = useState('');
     const [ocrResult, setOcrResult] = useState<OcrDocumentData | null>(null);
+    const [ocrMaterialQuery, setOcrMaterialQuery] = useState('');
+    const [ocrMaterial, setOcrMaterial] = useState<MaterialMaster | null>(null);
     const [isOcrProcessing, setIsOcrProcessing] = useState(false);
     const [ocrImage, setOcrImage] = useState<string | null>(null);
     const [ocrImages, setOcrImages] = useState<string[]>([]);
@@ -49,6 +52,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
             setActiveTab('logistics');
             setOcrText('');
             setOcrResult(null);
+            setOcrMaterialQuery('');
+            setOcrMaterial(null);
         };
         window.addEventListener('command:ocr-shipment', handleOcr as EventListener);
         return () => window.removeEventListener('command:ocr-shipment', handleOcr as EventListener);
@@ -72,6 +77,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         setTimeout(() => {
             const parsed = parseOcrDocument(normalizedText, 'shipment');
             setOcrResult(parsed);
+            setOcrMaterialQuery(parsed.productName?.trim() || '');
+            setOcrMaterial(null);
             setIsOcrProcessing(false);
             notify('success', t.autoFillSuccess || 'Recognized successfully');
         }, 1200);
@@ -127,6 +134,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         setPreviewMode('single');
         setOcrText('');
         setOcrResult(null);
+        setOcrMaterialQuery('');
+        setOcrMaterial(null);
         if (ocrFileInputRef.current) {
             ocrFileInputRef.current.value = '';
         }
@@ -165,13 +174,18 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
             notify('error', 'OCR 未识别到完整的发运信息，请补全品名和数量后再应用到表单');
             return;
         }
+        if (!ocrMaterial) {
+            notify('warning', 'OCR 只提供识别建议；创建发货单前必须人工选择已发布的统一物料。');
+            return;
+        }
 
         try {
             const payload: Partial<Shipment> = {
                 customerId: String(matched.id),
-                productName,
+                materialId: String(ocrMaterial.id),
+                productName: ocrMaterial.nameZh,
                 quantity,
-                unit: ocrResult.unit || 'kg',
+                unit: ocrMaterial.baseUnit,
                 batchNo: ocrResult.batchNo,
                 carrier: ocrResult.carrier,
                 trackingNo: ocrResult.trackingNo
@@ -190,6 +204,17 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         ocrText,
         setOcrText,
         ocrResult,
+        ocrMaterialQuery,
+        ocrMaterial,
+        setOcrMaterialQuery: (value: string) => {
+            setOcrMaterialQuery(value);
+            setOcrMaterial(null);
+        },
+        clearOcrMaterial: () => setOcrMaterial(null),
+        selectOcrMaterial: (material: MaterialMaster) => {
+            setOcrMaterial(material);
+            setOcrMaterialQuery(material.nameZh);
+        },
         isOcrProcessing,
         ocrImage,
         ocrImages,

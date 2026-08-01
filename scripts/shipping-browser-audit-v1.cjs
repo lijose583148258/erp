@@ -3,7 +3,7 @@ const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { apiFetch: fetchApi, loginApi: loginWithApi, unwrapList } = require('./lib/shipping-browser-api-helpers.cjs');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
-const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
+const { ensureReleasedMaterial, selectMaterialCombobox } = require('./lib/material-audit-fixture.cjs');
 const {
   MOJIBAKE_MARKERS,
   REQUIRED_ROUTE_COPY,
@@ -199,6 +199,7 @@ async function createShipmentViaOcr(page) {
     await page.getByTestId('shipping-ocr-textarea').fill(ocrText);
     await page.getByTestId('shipping-ocr-parse-button').click();
     await page.waitForTimeout(1400);
+    await selectMaterialCombobox(page, 'shipping-ocr-material-input', `SHIP-MAT-${RUN_ID}`, DATA.linkedProduct);
     const applyButton = page.getByTestId('shipping-ocr-apply-button');
     await applyButton.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
     await applyButton.scrollIntoViewIfNeeded();
