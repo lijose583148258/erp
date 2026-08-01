@@ -50,7 +50,7 @@ export function MaterialLookupField({
         setResults(data.items || []);
         setActiveIndex(-1);
         if (!data.items?.length) setMessage('未找到统一物料；草稿可继续使用临时文本，正式发布前必须完成归档。');
-      } catch (error) {
+      } catch {
         if (!controller.signal.aborted) {
           setResults([]);
           setMessage('物料查询失败，可继续填写草稿；请勿在未关联状态下发布配方。');

@@ -1,19 +1,12 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001';
 const API_BASE = `${APP_URL.replace(/\/$/, '')}/api`;
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'receivable-adjustment-api-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
-const AUDIT_PASSWORD = process.env.RECEIVABLE_AUDIT_PASSWORD || `Ra_${crypto.randomBytes(16).toString('hex')}!aA1`;
-const AUDIT_ACCOUNTS = {
-  sales: { username: 'receivable_audit_sales', password: AUDIT_PASSWORD, role: 'sales' },
-  manager: { username: 'receivable_audit_manager', password: AUDIT_PASSWORD, role: 'manager' },
-  finance: { username: 'receivable_audit_finance', password: AUDIT_PASSWORD, role: 'finance' },
-};
 
 const report = {
   appUrl: APP_URL,
@@ -370,11 +363,13 @@ async function main() {
   fs.mkdirSync(OUTPUT_DIR, { recursive: true });
   try {
     const tokens = await withTimeout('login-sales-manager-finance', 20000, async () => {
-      await Promise.all(Object.values(AUDIT_ACCOUNTS).map(account => ensureUiAuditUser(account)));
+      const accounts = await ensureUiAuditAccounts('receivable_audit', ['sales', 'manager', 'finance'], {
+        password: process.env.RECEIVABLE_AUDIT_PASSWORD,
+      });
       const [sales, manager, finance] = await Promise.all([
-        login(AUDIT_ACCOUNTS.sales.username, AUDIT_ACCOUNTS.sales.password),
-        login(AUDIT_ACCOUNTS.manager.username, AUDIT_ACCOUNTS.manager.password),
-        login(AUDIT_ACCOUNTS.finance.username, AUDIT_ACCOUNTS.finance.password),
+        login(accounts.sales.username, accounts.sales.password),
+        login(accounts.manager.username, accounts.manager.password),
+        login(accounts.finance.username, accounts.finance.password),
       ]);
       return { sales, manager, finance };
     });

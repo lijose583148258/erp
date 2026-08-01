@@ -1,8 +1,7 @@
 const fs = require('fs');
 const path = require('path');
-const crypto = require('crypto');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright', 'receivable-adjustment-browser-audit-v1');
@@ -12,9 +11,8 @@ const STEP_TIMEOUT_MS = 20_000;
 const FLOW_TIMEOUT_MS = 60_000;
 const REVERSE_DIALOG_TEST_ID = 'receivable-adjustment-reverse-dialog';
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}`;
-const AUDIT_PASSWORD = process.env.RECEIVABLE_BROWSER_AUDIT_PASSWORD || `Rb_${crypto.randomBytes(16).toString('hex')}!aA1`;
-const ADMIN = { username: 'receivable_browser_admin', password: AUDIT_PASSWORD, role: 'admin' };
-const SALES = { username: 'receivable_browser_sales', password: AUDIT_PASSWORD, role: 'sales' };
+let ADMIN;
+let SALES;
 
 const copy = {
   panelTitle: '\u5e94\u6536\u8c03\u6574\u5de5\u4f5c\u53f0',
@@ -333,7 +331,11 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
-    await Promise.all([ensureUiAuditUser(ADMIN), ensureUiAuditUser(SALES)]);
+    const accounts = await ensureUiAuditAccounts('receivable_browser', ['admin', 'sales'], {
+      password: process.env.RECEIVABLE_BROWSER_AUDIT_PASSWORD,
+    });
+    ADMIN = accounts.admin;
+    SALES = accounts.sales;
     const launched = await launchBrowserWithGuard({ recordStep, retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     report.launcher = launched.launcher;

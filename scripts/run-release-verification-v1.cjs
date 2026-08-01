@@ -189,6 +189,7 @@ function npxTask(name, args, options = {}) {
 function getTasks(profile) {
   const core = [
     task('active-source-inventory', 'node', ['scripts/active-source-inventory-v1.cjs']),
+    task('active-audit-hardcode-ratchet', 'node', ['scripts/active-audit-hardcode-ratchet-v1.cjs']),
     task('stable-entrypoint-policy', 'node', ['scripts/stable-entrypoint-policy-audit-v1.cjs']),
     task('legacy-interface-disconnect', 'node', ['scripts/legacy-interface-disconnect-audit-v1.cjs']),
     task('effective-source-mojibake-gate', 'node', ['scripts/effective-source-mojibake-gate-v1.cjs']),
