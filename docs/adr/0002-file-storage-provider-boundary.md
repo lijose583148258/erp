@@ -37,3 +37,14 @@ The database still stores URL-style references for compatibility. A future migra
 
 - `npm run audit:storage:abstraction`
 - `npm --prefix backend test -- --runTestsByPath src/services/file-storage.service.test.ts`
+
+## 2026-09-23 Cloud Sandbox Image Registry Decision
+
+GitHub Actions enterprise sandbox jobs failed before business verification because the cloud topology still pulled `minio/minio` and `minio/mc` from Docker Hub. The application storage design was correct, but the evidence environment was not reproducible.
+
+The cloud sandbox now pins MinIO server and client images to the official Quay registry:
+
+- `quay.io/minio/minio:RELEASE.2025-04-22T22-12-26Z`
+- `quay.io/minio/mc:RELEASE.2025-04-16T18-13-26Z`
+
+The topology contract rejects future reintroduction of Docker Hub MinIO images so Enterprise Cloud Sandbox, Enterprise Pilot Observation, and Enterprise Release Certification fail for product/runtime reasons instead of registry drift.
