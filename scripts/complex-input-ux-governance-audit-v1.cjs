@@ -10,6 +10,7 @@ const modules = [
   {
     id: 'applicationShell',
     page: 'components/Layout.tsx',
+    supportFiles: ['App.tsx', 'components/CommandPalette.tsx'],
     targetPattern: 'global navigation + command/search shell',
     inputModel: 'navigation shell',
     mustHave: ['stable navigation', 'route ownership', 'language/theme controls', 'mobile task navigation'],
@@ -210,7 +211,8 @@ function inspectModule(module) {
   const primary = read(module.page);
   const secondary = module.secondaryPage ? read(module.secondaryPage) : '';
   const support = (module.supportGlobs || []).map(readDirectorySource).join('\n');
-  const text = `${primary}\n${secondary}\n${support}`;
+  const supportFiles = (module.supportFiles || []).map(read).join('\n');
+  const text = `${primary}\n${secondary}\n${support}\n${supportFiles}`;
   const fileOk = exists(module.page) && (!module.secondaryPage || exists(module.secondaryPage));
   const hasGuide = text.includes('DocumentInputGuide') || text.includes('WorkspaceTaskNavigator');
   const hasGrid = text.includes('EnterpriseDataGrid') || text.includes('DataTable') || text.includes('<table') || text.includes('LineGrid') || text.includes('Editor') || text.includes('Panel');
@@ -236,6 +238,13 @@ function inspectModule(module) {
   }
   if (broadMotionCount || slowMotionCount || unguardedEntranceMotionCount || decorativeTransformCount) {
     risks.push(`motion debt: broad=${broadMotionCount}, slow=${slowMotionCount}, unguarded=${unguardedEntranceMotionCount}, decorative=${decorativeTransformCount}`);
+  }
+  if (module.id === 'applicationShell') {
+    if (/ClickSpark|click-spark-particle/.test(text)) risks.push('decorative global click effect is mounted');
+    if (!/data-testid="command-palette-trigger"/.test(text)) risks.push('command palette has no semantic trigger');
+    if (!/role="dialog"[\s\S]*aria-modal="true"/.test(text)) risks.push('command palette is not an accessible modal dialog');
+    if (!/useDialogFocus\(isOpen, dialogRef, onClose\)/.test(text)) risks.push('command palette has no focus trap and focus restoration');
+    if (!/role="combobox"[\s\S]*aria-activedescendant=/.test(text)) risks.push('command search does not expose active option semantics');
   }
 
   return {

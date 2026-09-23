@@ -301,6 +301,40 @@ async function auditState(page, run, route, viewport, state, collectors) {
       if (!navigator.querySelector('[role="tablist"]')) {
         add('error', 'hierarchy', 'TASK_NAVIGATOR_TABLIST_MISSING', 'Task choices must be grouped as one keyboard-navigable tab list', navigator);
       }
+      for (const selectedTab of Array.from(selectedTabs)) {
+        const style = window.getComputedStyle(selectedTab);
+        const opacity = Number.parseFloat(style.opacity || '1');
+        if (opacity < 0.85) {
+          add('error', 'visual', 'TASK_NAVIGATOR_SELECTED_STATE_FADED', 'The selected task is too faded to identify reliably', selectedTab, { opacity });
+        }
+        const parseRgb = (value) => {
+          const channels = String(value || '').match(/[\d.]+/g)?.map(Number) || [];
+          if (channels.length < 3) return null;
+          return { r: channels[0], g: channels[1], b: channels[2], a: channels[3] ?? 1 };
+        };
+        const foreground = parseRgb(style.color);
+        const background = parseRgb(style.backgroundColor);
+        if (foreground && background && background.a > 0.95) {
+          const luminance = ({ r, g, b }) => {
+            const channel = (value) => {
+              const normalized = value / 255;
+              return normalized <= 0.03928 ? normalized / 12.92 : ((normalized + 0.055) / 1.055) ** 2.4;
+            };
+            return 0.2126 * channel(r) + 0.7152 * channel(g) + 0.0722 * channel(b);
+          };
+          const foregroundLuminance = luminance(foreground);
+          const backgroundLuminance = luminance(background);
+          const contrastRatio = (Math.max(foregroundLuminance, backgroundLuminance) + 0.05)
+            / (Math.min(foregroundLuminance, backgroundLuminance) + 0.05);
+          if (contrastRatio < 4.5) {
+            add('error', 'visual', 'TASK_NAVIGATOR_SELECTED_CONTRAST_LOW', 'The selected task label does not meet normal-text contrast', selectedTab, {
+              contrastRatio: Number(contrastRatio.toFixed(2)),
+              color: style.color,
+              backgroundColor: style.backgroundColor,
+            });
+          }
+        }
+      }
     }
     const blockingLoading = Array.from(document.body.querySelectorAll('*')).filter((node) => {
       const nodeText = (node.textContent || '').trim();
@@ -609,6 +643,102 @@ async function auditGovernedGridMenu(page, run, route, viewport) {
   if (remainsOpen === 'true') await trigger.click().catch(() => {});
 }
 
+async function auditCommandPalette(page, run, route, viewport, collectors) {
+  if (route !== '#crm' || viewport.width < 1024) return;
+  const trigger = page.locator('[data-testid="command-palette-trigger"]:visible').first();
+  if (!(await trigger.count())) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'interaction',
+      code: 'COMMAND_PALETTE_TRIGGER_MISSING',
+      message: 'The desktop command palette must have a semantic, keyboard-focusable trigger',
+      route,
+      viewport: viewport.id,
+      state: 'command-palette',
+    });
+    return;
+  }
+
+  try {
+    await trigger.focus();
+    await page.keyboard.press('Control+K');
+    const dialog = page.locator('[role="dialog"][aria-modal="true"]:visible').first();
+    await dialog.waitFor({ state: 'visible', timeout: 3000 });
+    await page.locator('[data-testid="command-palette-input"]:focus').waitFor({ state: 'visible', timeout: 2000 });
+    await auditState(page, run, route, viewport, 'command-palette-open', collectors);
+
+    const semantics = await dialog.evaluate((node) => {
+      const labelledBy = node.getAttribute('aria-labelledby');
+      const describedBy = node.getAttribute('aria-describedby');
+      const input = node.querySelector('[role="combobox"]');
+      const listbox = node.querySelector('[role="listbox"]');
+      const selected = listbox?.querySelectorAll('[role="option"][aria-selected="true"]') || [];
+      return {
+        hasLabel: Boolean(labelledBy && document.getElementById(labelledBy)),
+        hasDescription: Boolean(describedBy && document.getElementById(describedBy)),
+        inputFocused: input === document.activeElement,
+        controlsListbox: Boolean(input?.getAttribute('aria-controls') && document.getElementById(input.getAttribute('aria-controls')) === listbox),
+        optionCount: listbox?.querySelectorAll('[role="option"]').length || 0,
+        selectedCount: selected.length,
+        activeDescendant: input?.getAttribute('aria-activedescendant') || '',
+      };
+    });
+    if (!semantics.hasLabel || !semantics.hasDescription || !semantics.inputFocused || !semantics.controlsListbox || semantics.optionCount === 0 || semantics.selectedCount !== 1) {
+      addFinding(run.report, {
+        severity: 'error',
+        category: 'interaction',
+        code: 'COMMAND_PALETTE_SEMANTICS_INVALID',
+        message: 'Command palette dialog, focus, combobox, listbox, or selected-option semantics are incomplete',
+        route,
+        viewport: viewport.id,
+        state: 'command-palette-open',
+        details: semantics,
+      });
+    }
+
+    await page.keyboard.press('ArrowDown');
+    const nextActiveDescendant = await page.locator('[data-testid="command-palette-input"]').getAttribute('aria-activedescendant');
+    if (semantics.optionCount > 1 && nextActiveDescendant === semantics.activeDescendant) {
+      addFinding(run.report, {
+        severity: 'error',
+        category: 'interaction',
+        code: 'COMMAND_PALETTE_ARROW_KEY_FAILED',
+        message: 'ArrowDown did not move the command palette active option',
+        route,
+        viewport: viewport.id,
+        state: 'command-palette-keyboard',
+        details: { before: semantics.activeDescendant, after: nextActiveDescendant },
+      });
+    }
+
+    await page.keyboard.press('Escape');
+    await dialog.waitFor({ state: 'hidden', timeout: 3000 });
+    const focusRestored = await page.evaluate(() => document.activeElement?.getAttribute('data-testid') === 'command-palette-trigger');
+    if (!focusRestored) {
+      addFinding(run.report, {
+        severity: 'error',
+        category: 'interaction',
+        code: 'COMMAND_PALETTE_FOCUS_NOT_RESTORED',
+        message: 'Closing the command palette did not return focus to its trigger',
+        route,
+        viewport: viewport.id,
+        state: 'command-palette-close',
+      });
+    }
+  } catch (error) {
+    addFinding(run.report, {
+      severity: 'error',
+      category: 'interaction',
+      code: 'COMMAND_PALETTE_AUDIT_FAILED',
+      message: `Command palette could not complete its keyboard and focus loop: ${String(error.message || error)}`,
+      route,
+      viewport: viewport.id,
+      state: 'command-palette',
+    });
+    await page.keyboard.press('Escape').catch(() => {});
+  }
+}
+
 async function auditComplexEntryDialog(page, run, route, viewport, collectors) {
   if (route !== '#crm') return;
   const trigger = page.locator('[data-testid="crm-add-customer"]:visible');
@@ -736,6 +866,7 @@ async function auditRouteViewport(page, run, route, viewport, collectors) {
   await auditState(page, run, route, viewport, 'initial', collectors);
   await auditKeyboard(page, run, route, viewport);
   await auditGovernedGridMenu(page, run, route, viewport);
+  await auditCommandPalette(page, run, route, viewport, collectors);
   await auditComplexEntryDialog(page, run, route, viewport, collectors);
   await safeOpenMenuState(page, run, route, viewport, collectors);
   await safeSearchEmptyState(page, run, route, viewport, collectors);

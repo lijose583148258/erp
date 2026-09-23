@@ -44,9 +44,10 @@ for (const file of ['app', 'components', 'pages'].flatMap(walkSourceFiles)) {
     add('P1', file, 'Runtime JSX must not inject a style element under the strict style-src-elem policy.');
   }
 }
-const clickSpark = read('components/app/ClickSpark.tsx');
-if (!clickSpark.includes('click-spark-particle') || !read('index.css').includes('@keyframes spark-jelly')) {
-  add('P1', 'components/app/ClickSpark.tsx', 'Click spark keyframes must live in the external same-origin stylesheet.');
+const appSource = read('App.tsx');
+const indexCss = read('index.css');
+if (/ClickSpark|click-spark-particle|spark-jelly/.test(`${appSource}\n${indexCss}`)) {
+  add('P1', 'App.tsx', 'The production shell must not mount or style the deprecated decorative click effect.');
 }
 
 const server = read('backend/src/server.ts');

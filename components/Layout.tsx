@@ -352,13 +352,21 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
                 <p className="truncate text-xs font-bold text-slate-400">{activeModuleDescription}</p>
               </div>
             </div>
-            <div className="hidden lg:flex flex-1 items-center bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl px-7 py-4.5 rounded-2xl shadow-sm border border-white/50 dark:border-slate-800 focus-within:shadow-[0_15px_40px_-5px_rgba(37,99,235,0.12)] focus-within:border-blue-200 dark:focus-within:border-blue-900 focus-within:ring-0 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none group cursor-pointer" onClick={() => setIsCommandPaletteOpen(true)}>
+            <button
+              type="button"
+              data-testid="command-palette-trigger"
+              aria-label={`${t.commandPlaceholder}（Ctrl 或 Command 加 K）`}
+              aria-haspopup="dialog"
+              aria-keyshortcuts="Control+K Meta+K"
+              className="group hidden min-h-11 flex-1 cursor-pointer items-center rounded-2xl border border-white/50 bg-white/60 px-7 py-4.5 text-left shadow-sm backdrop-blur-xl transition-[background-color,border-color,color,box-shadow] duration-150 hover:border-blue-200 hover:bg-white focus-visible:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 motion-reduce:transition-none dark:border-slate-800 dark:bg-slate-900/60 dark:hover:border-blue-800 dark:hover:bg-slate-900 lg:flex"
+              onClick={() => setIsCommandPaletteOpen(true)}
+            >
               <Search size={22} className="text-slate-400 group-focus-within:text-blue-600 transition-colors" />
-              <input type="text" placeholder={t.commandPlaceholder} readOnly tabIndex={-1} aria-hidden="true" className="bg-transparent border-none focus:ring-0 text-sm ml-5 w-full font-black text-slate-800 dark:text-white placeholder:text-slate-300 cursor-pointer" />
-              <div className="flex items-center text-xs font-black text-slate-300 px-3 py-1 bg-slate-50 dark:bg-slate-800 rounded-lg ml-2">
+              <span className="ml-5 w-full text-sm font-black text-slate-500 dark:text-slate-300">{t.commandPlaceholder}</span>
+              <kbd className="ml-2 flex items-center rounded-lg bg-slate-50 px-3 py-1 text-xs font-black text-slate-400 dark:bg-slate-800">
                 <Command size={10} className="mr-1" /> K
-              </div>
-            </div>
+              </kbd>
+            </button>
             <div className="lg:hidden flex items-center space-x-4">
               <div className="w-12 h-12 bg-blue-600 rounded-[22px] flex items-center justify-center text-white shadow-xl shadow-blue-500/30">
                 <Command size={22} />

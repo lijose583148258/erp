@@ -38,10 +38,10 @@ const variantStyles: Record<NavigatorVariant, {
 }> = {
   blue: {
     eyebrow: 'text-blue-500',
-    active: 'border-blue-500 bg-blue-600 text-white shadow-2xl shadow-blue-500/25',
-    inactive: 'border-slate-100 bg-white/80 text-slate-600 hover:border-blue-200 hover:text-slate-950 dark:border-slate-800 dark:bg-slate-900/80 dark:text-slate-300',
-    activeSubtitle: 'text-blue-50',
-    activePurpose: 'text-blue-100',
+    active: 'border-blue-800 bg-blue-700 text-white shadow-lg shadow-blue-500/20 dark:border-blue-400 dark:bg-blue-600',
+    inactive: 'border-slate-200 bg-white text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-slate-950 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-700 dark:hover:bg-blue-950/30',
+    activeSubtitle: 'text-white',
+    activePurpose: 'text-blue-50',
   },
   amber: {
     eyebrow: 'text-amber-500',

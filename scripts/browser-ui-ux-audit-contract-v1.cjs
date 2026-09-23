@@ -121,7 +121,12 @@ assert.match(uiAuditSource, /PAGE_SHELL_H1_COUNT_INVALID/, 'generic audit must r
 assert.match(uiAuditSource, /ENTERPRISE_TABLE_NAME_MISSING/, 'generic audit must reject unnamed governed business tables');
 assert.match(uiAuditSource, /REDUCED_MOTION_NOT_HONORED/, 'generic audit must measure reduced-motion behavior instead of trusting source classes');
 assert.match(uiAuditSource, /GOVERNED_TAB_ARROW_KEY_FAILED/, 'generic audit must operate governed task tabs with a real arrow key');
+assert.match(uiAuditSource, /TASK_NAVIGATOR_SELECTED_CONTRAST_LOW/, 'selected task contrast must be measured instead of judged from source classes');
+assert.match(uiAuditSource, /TASK_NAVIGATOR_SELECTED_STATE_FADED/, 'selected task opacity must remain visually decisive');
 assert.match(uiAuditSource, /GRID_COLUMN_MENU_CLIPPED/, 'generic audit must open and measure governed table column menus');
+assert.match(uiAuditSource, /auditCommandPalette/, 'generic audit must operate the command palette as a keyboard user');
+assert.match(uiAuditSource, /COMMAND_PALETTE_SEMANTICS_INVALID/, 'command palette dialog and combobox semantics must be measured');
+assert.match(uiAuditSource, /COMMAND_PALETTE_FOCUS_NOT_RESTORED/, 'command palette focus restoration must be measured');
 assert.match(uiAuditSource, /COMPLEX_ROUTE_GUIDANCE_MISSING/, 'high-risk routes must not silently lose task or input guidance');
 assert.match(uiAuditSource, /COMPLEX_DIALOG_SAVE_IMPACT_MISSING/, 'complex dialogs must explain their save boundary');
 assert.match(uiAuditSource, /COMPLEX_FIELD_PLACEHOLDER_ONLY/, 'placeholder-only complex inputs must be detected');

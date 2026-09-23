@@ -3,7 +3,6 @@ import Layout from './components/Layout';
 import Login from './components/Login';
 import ForcePasswordChange from './components/ForcePasswordChange';
 import ToastStack from './components/app/ToastStack';
-import ClickSpark from './components/app/ClickSpark';
 import CommandPalette from './components/CommandPalette';
 import { MaterialReadinessRepairPanel } from './components/materials/MaterialReadinessRepairPanel';
 import { AppContext } from './app/AppContext';
@@ -48,7 +47,6 @@ const App: React.FC = () => {
                 </>
             ) : (
                 <>
-                    <ClickSpark />
                     <ToastStack notifications={shell.notifications} onDismiss={shell.dismissNotification} />
                     <MaterialReadinessRepairPanel />
                     <CommandPalette
@@ -58,7 +56,7 @@ const App: React.FC = () => {
                     />
                     <Layout activeTab={shell.activeTab} setActiveTab={shell.setActiveTab} onLogout={shell.handleLogout}>
                         <Suspense fallback={<div className="min-h-[50vh] flex items-center justify-center text-slate-600 font-black">正在加载...</div>}>
-                            <div className="animate-in fade-in zoom-in-95 duration-500 min-h-full pb-32 lg:pb-0">
+                            <div className="min-h-full pb-32 lg:pb-0">
                                 {shell.content}
                             </div>
                         </Suspense>

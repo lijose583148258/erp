@@ -53,7 +53,7 @@ type FrontendUnitTest = {
 
 const tests: FrontendUnitTest[] = [
   {
-    name: 'material repair panel is mounted in the authenticated shell and routes to the real module hash',
+    name: 'authenticated shell keeps repair tools but removes decorative click effects',
     run: () => {
       const appSource = fs.readFileSync(path.join(process.cwd(), 'App.tsx'), 'utf8');
       const panelSource = fs.readFileSync(
@@ -62,8 +62,9 @@ const tests: FrontendUnitTest[] = [
       );
       assert.match(
         appSource,
-        /<ClickSpark\s*\/>[\s\S]*?<MaterialReadinessRepairPanel\s*\/>[\s\S]*?<CommandPalette/,
+        /<MaterialReadinessRepairPanel\s*\/>[\s\S]*?<CommandPalette/,
       );
+      assert.doesNotMatch(appSource, /ClickSpark|animate-in[\s\S]*duration-500/);
       assert.ok(panelSource.includes("window.location.hash = '#materials'"));
       assert.ok(!panelSource.includes("window.location.hash = '#/materials'"));
       assert.ok(panelSource.includes('duration-150'));
