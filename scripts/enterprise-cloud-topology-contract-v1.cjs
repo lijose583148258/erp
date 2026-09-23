@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const workflow = fs.readFileSync('.github/workflows/enterprise-cloud-sandbox.yml', 'utf8');
 const releaseWorkflow = fs.readFileSync('.github/workflows/enterprise-release-certification.yml', 'utf8');
 const compose = fs.readFileSync('ops/cloud-sandbox/docker-compose.yml', 'utf8');
+const aggregateScript = fs.readFileSync('scripts/enterprise-cloud-business-audit-summary-v1.cjs', 'utf8');
 
 assert.match(
   compose,
@@ -61,6 +62,47 @@ assert.match(
   'Enterprise release certification diagnostics must create evidence directories even when topology startup fails early.',
 );
 
+const businessAuditIds = [
+  'human_workflows',
+  'staff_20',
+  'shared_session',
+  'telemetry_ingestion',
+  'ai_isolation',
+  'ai_runtime',
+  'order_import_governance',
+  'order_import_retention',
+  'order_write_scope',
+  'ha_load',
+  'warehouse_adjustment',
+  'ha_soak',
+  'redis_failover',
+  'degradable_failover',
+  'concurrent_writes',
+  'postgres_backup_restore',
+  'postgres_promotion',
+  'postgres_cutover_verdict',
+  'enterprise_pilot_verdict',
+];
+for (const id of businessAuditIds) {
+  assert.match(
+    workflow,
+    new RegExp(`id: ${id}\\n[\\s\\S]{0,180}if: \\\$\\{\\{ always\\(\\) && steps\\.app_readiness\\.outcome == 'success' \\}\\}[\\s\\S]{0,120}continue-on-error: true`),
+    `${id} must execute after a ready application without fail-fast truncating later audits.`,
+  );
+  assert.match(aggregateScript, new RegExp(`\\['${id}',`), `${id} must be included in the aggregate verdict.`);
+}
+assert.match(
+  workflow,
+  /id: business_audit_verdict[\s\S]{0,160}if: always\(\)[\s\S]{0,160}BUSINESS_AUDIT_STEPS_JSON: \$\{\{ toJSON\(steps\) \}\}[\s\S]{0,120}enterprise-cloud-business-audit-summary-v1\.cjs/,
+  'Cloud workflow must issue one final business-audit verdict after all audit steps have executed.',
+);
+assert.match(
+  workflow,
+  /run_audit unsaved-changes[\s\S]+run_audit decimal-shadow[\s\S]+Human ERP workflow failures/,
+  'The grouped human-flow step must execute every nested audit before returning failure.',
+);
+
 console.log('Enterprise Cloud Topology Contract: PASS');
 console.log('- PostgreSQL host binding is collision-resistant and shared consistently by Compose and audit URLs.');
 console.log('- MinIO server and client images are pinned to quay.io so cloud runners can pull the enterprise object-storage topology.');
+console.log('- Business audits continue after individual failures and emit one aggregate verdict at the end.');
