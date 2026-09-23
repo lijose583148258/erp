@@ -772,7 +772,7 @@ async function auditComplexEntryDialog(page, run, route, viewport, collectors) {
 }
 
 async function safeOpenMenuState(page, run, route, viewport, collectors) {
-  const safeButton = page.locator('button[aria-haspopup], button[aria-expanded], [role="button"][aria-haspopup]').filter({ hasNotText: DESTRUCTIVE_TEXT }).first();
+  const safeButton = page.locator('button[aria-haspopup]:visible:not([data-testid="command-palette-trigger"]), button[aria-expanded]:visible:not([data-testid="command-palette-trigger"]), [role="button"][aria-haspopup]:visible:not([data-testid="command-palette-trigger"])').filter({ hasNotText: DESTRUCTIVE_TEXT }).first();
   if (!(await safeButton.count())) return;
   try {
     await safeButton.click({ timeout: 1500 });

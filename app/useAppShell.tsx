@@ -230,7 +230,7 @@ export const useAppShell = (): AppShellResult => {
 
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
-            if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+            if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
                 e.preventDefault();
                 setIsCommandPaletteOpen(prev => !prev);
             }

@@ -17,6 +17,10 @@ on:
       - 'scripts/decimal-shadow-*.cjs'
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
       - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
+      - 'scripts/enterprise-20-staff-audit-v1.cjs'
+      - 'scripts/browser-ui-ux-audit-v2.cjs'
+      - 'scripts/lib/browser-ui-ux-audit-report.cjs'
+      - 'app/useAppShell.tsx'
       - 'ops/cloud-sandbox/**'
       - 'package.json'
       - 'package-lock.json'
@@ -323,6 +327,7 @@ jobs:
         run: docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
 
       - name: Verify application readiness
+        id: app_readiness
         shell: bash
         run: |
           set -euo pipefail
@@ -347,6 +352,10 @@ jobs:
           npm run audit:shipping:browser
           npm run audit:collection:human-flow
           AUDIT_DATABASE_URL="${DATABASE_URL}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-human-flows npm run audit:db:decimal-shadow
+
+      - name: Simulate 20 distinct chemical trading and factory staff
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        run: npm run audit:enterprise:20-staff
 
       - name: Verify shared session across app instances
         run: |

@@ -15,6 +15,7 @@ const {
   pruneAuditRuns,
   renderMarkdown,
   safeName,
+  writeReports,
 } = require('./lib/browser-ui-ux-audit-report.cjs');
 
 assert.equal(normalizeRoute('/#orders'), '#orders');
@@ -62,6 +63,19 @@ const markdown = renderMarkdown(run.report, 'failed');
 assert.match(markdown, /CONTRACT_ERROR/);
 assert.match(markdown, /#orders/);
 
+const reportRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ailao-ui-audit-json-'));
+try {
+  const message = 'Line one\n"quoted" 中文 Đăng nhập';
+  addFinding(run.report, { severity: 'error', code: 'JSON_CONTRACT', message });
+  const paths = writeReports({ ...run, root: reportRoot }, 'failed');
+  const parsed = JSON.parse(fs.readFileSync(paths.reportJson, 'utf8'));
+  assert.equal(parsed.runId, run.runId);
+  assert.equal(parsed.findings.at(-1).message, message);
+  assert.equal(parsed.summary.errors, 2);
+} finally {
+  fs.rmSync(reportRoot, { recursive: true, force: true });
+}
+
 assert.equal(findMojibake('ÀÉ 化工 — Đăng nhập'), null, 'legitimate multilingual text must not be treated as mojibake');
 assert.deepEqual(findMojibake('bad\uFFFDtext'), { code: 'replacement-character', sample: '\uFFFD' });
 assert.equal(findMojibake('label="\u93cd\u56e7\u566f"').code, 'known-encoding-sequence');
@@ -73,6 +87,7 @@ const completionModalSource = fs.readFileSync(path.resolve(__dirname, '..', 'pag
 const qualityInspectionSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'production', 'ProductionQualityInspectionPanel.tsx'), 'utf8');
 const productionWorkspaceSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'ProductionWorkspaceV2.tsx'), 'utf8');
 const uiAuditSource = fs.readFileSync(path.resolve(__dirname, 'browser-ui-ux-audit-v2.cjs'), 'utf8');
+const appShellSource = fs.readFileSync(path.resolve(__dirname, '..', 'app', 'useAppShell.tsx'), 'utf8');
 const financeWorkspaceSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'FinanceAnalyticsWorkspaceV2.tsx'), 'utf8');
 const financeLedgerSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'finance', 'FinanceLedgerPanel.tsx'), 'utf8');
 const financeCashflowSource = fs.readFileSync(path.resolve(__dirname, '..', 'pages', 'finance', 'FinanceCashflowPanel.tsx'), 'utf8');
@@ -125,6 +140,8 @@ assert.match(uiAuditSource, /TASK_NAVIGATOR_SELECTED_CONTRAST_LOW/, 'selected ta
 assert.match(uiAuditSource, /TASK_NAVIGATOR_SELECTED_STATE_FADED/, 'selected task opacity must remain visually decisive');
 assert.match(uiAuditSource, /GRID_COLUMN_MENU_CLIPPED/, 'generic audit must open and measure governed table column menus');
 assert.match(uiAuditSource, /auditCommandPalette/, 'generic audit must operate the command palette as a keyboard user');
+assert.match(appShellSource, /e\.key\.toLowerCase\(\) === 'k'/, 'command palette shortcut must accept platform key casing');
+assert.match(uiAuditSource, /button\[aria-haspopup\]:visible:not\(\[data-testid="command-palette-trigger"\]\)/, 'safe menu audit must select a visible menu button and exclude the command palette trigger');
 assert.match(uiAuditSource, /COMMAND_PALETTE_SEMANTICS_INVALID/, 'command palette dialog and combobox semantics must be measured');
 assert.match(uiAuditSource, /COMMAND_PALETTE_FOCUS_NOT_RESTORED/, 'command palette focus restoration must be measured');
 assert.match(uiAuditSource, /COMPLEX_ROUTE_GUIDANCE_MISSING/, 'high-risk routes must not silently lose task or input guidance');

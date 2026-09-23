@@ -155,6 +155,10 @@ function writeReports(run, status) {
   const reportMd = path.join(run.root, 'report.md');
   const summaryTxt = path.join(run.root, 'summary.txt');
   atomicWrite(reportJson, JSON.stringify(report, null, 2));
+  const persistedReport = JSON.parse(fs.readFileSync(reportJson, 'utf8'));
+  if (persistedReport.runId !== report.runId || !Array.isArray(persistedReport.findings)) {
+    throw new Error(`UI/UX audit report is not machine-readable: ${reportJson}`);
+  }
   atomicWrite(reportMd, renderMarkdown(report, status));
   atomicWrite(summaryTxt, [
     `status=${status}`,

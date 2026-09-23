@@ -134,6 +134,7 @@
         "audit:observability:stack": "node ./scripts/observability-stack-audit-v1.cjs",
         "audit:observability:runtime": "node ./scripts/observability-runtime-proof-v1.cjs",
         "audit:load:ha": "node ./scripts/enterprise-ha-load-audit-v1.cjs",
+        "audit:enterprise:20-staff": "node ./scripts/enterprise-20-staff-audit-v1.cjs",
         "audit:soak:ha": "node ./scripts/enterprise-ha-soak-audit-v1.cjs",
         "audit:ha:postgres-replication": "node ./scripts/postgres-ha-replication-audit-v1.cjs",
         "audit:ha:postgres-promotion": "node ./scripts/postgres-ha-promotion-audit-v1.cjs",
