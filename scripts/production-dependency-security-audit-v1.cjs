@@ -26,8 +26,8 @@ for (const [name, expected] of Object.entries({
   'protobufjs': '7.6.5',
   'ws': '8.21.0',
   'form-data': '4.0.6',
-  'minimatch': '10.2.5',
-  'brace-expansion': '5.0.8',
+  'minimatch': '10.2.6',
+  'brace-expansion': '5.0.12',
   'uuid': '11.1.1',
 })) {
   if (overrides[name] !== expected) {
@@ -75,8 +75,20 @@ if (backendPackageJson.dependencies?.archiver !== backendArchiverCompatibilitySp
 if (backendPackageJson.engines?.node !== '>=20.19.0') {
   add('P1', 'backend/package.json', 'Backend Node >=20.19.0 is required for synchronous ESM interoperability.');
 }
-if (backendPackageJson.overrides?.['brace-expansion'] !== '5.0.8') {
-  add('P1', 'backend/package.json', 'Expected backend production dependency override brace-expansion@5.0.8.');
+if (backendPackageJson.overrides?.['brace-expansion'] !== '5.0.12') {
+  add('P1', 'backend/package.json', 'Expected backend production dependency override brace-expansion@5.0.12.');
+}
+if (backendPackageJson.overrides?.['body-parser'] !== '1.20.8') {
+  add('P1', 'backend/package.json', 'Expected backend Express parser override body-parser@1.20.8.');
+}
+if (backendPackageJson.overrides?.['csv-parse'] !== '7.0.2') {
+  add('P1', 'backend/package.json', 'Expected backend Casbin CSV parser override csv-parse@7.0.2.');
+}
+if (backendPackageJson.overrides?.minimatch !== '10.2.6') {
+  add('P1', 'backend/package.json', 'Expected backend production dependency override minimatch@10.2.6.');
+}
+if (backendPackageJson.overrides?.qs !== '6.16.0') {
+  add('P1', 'backend/package.json', 'Expected backend Express query parser override qs@6.16.0.');
 }
 
 if (packageJson.dependencies?.xlsx || packageJson.devDependencies?.xlsx || packageJson.optionalDependencies?.xlsx) {
@@ -267,12 +279,56 @@ async function auditSpreadsheetRuntimeCompatibility() {
   }
 }
 
+async function auditAuthorizationRuntimeCompatibility() {
+  try {
+    const backendPath = path.join(root, 'backend');
+    const casbin = require(require.resolve('casbin', { paths: [backendPath] }));
+    const csv = require(require.resolve('csv-parse/sync', { paths: [backendPath] }));
+    const parsed = csv.parse('p, sales, "orders,regional", read\n', {
+      skip_empty_lines: true,
+      trim: true,
+    });
+    if (
+      parsed.length !== 1
+      || parsed[0]?.[0] !== 'p'
+      || parsed[0]?.[2] !== 'orders,regional'
+      || parsed[0]?.[3] !== 'read'
+    ) {
+      add('P1', 'backend/package-lock.json', 'csv-parse 7 compatibility probe returned mismatched quoted policy fields.');
+    }
+
+    const model = casbin.newModelFromString(`
+[request_definition]
+r = sub, obj, act
+
+[policy_definition]
+p = sub, obj, act
+
+[policy_effect]
+e = some(where (p.eft == allow))
+
+[matchers]
+m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
+`);
+    const enforcer = await casbin.newEnforcer(model);
+    await enforcer.addPolicy('sales', 'orders', 'read');
+    const allowsDeclaredPolicy = await enforcer.enforce('sales', 'orders', 'read');
+    const rejectsUndeclaredPolicy = !(await enforcer.enforce('sales', 'orders', 'write'));
+    if (!allowsDeclaredPolicy || !rejectsUndeclaredPolicy) {
+      add('P1', 'backend/package-lock.json', 'Casbin compatibility probe did not preserve allow and deny behavior.');
+    }
+  } catch (error) {
+    add('P1', 'backend/package-lock.json', `Casbin/csv-parse runtime compatibility probe failed: ${error instanceof Error ? error.message : String(error)}`);
+  }
+}
+
 if (!fs.existsSync(path.join(root, 'docs/adr/0019-production-dependency-security.md'))) {
   add('P2', 'docs/adr/0019-production-dependency-security.md', 'Production dependency security ADR is missing.');
 }
 
 async function main() {
   await auditSpreadsheetRuntimeCompatibility();
+  await auditAuthorizationRuntimeCompatibility();
 
   if (findings.length) {
     console.error('Production Dependency Security Audit: FAIL');
@@ -287,6 +343,7 @@ async function main() {
   console.log('- Fixable production advisories are constrained through exact direct versions and compatibility-tested npm overrides.');
   console.log('- Spreadsheet import/export uses ExcelJS behind a shared size/type validation boundary.');
   console.log('- ExcelJS document and streaming write/read compatibility preserves text, numbers, formulas, and styles.');
+  console.log('- Casbin and csv-parse compatibility preserves quoted policy parsing plus explicit allow/deny behavior.');
 }
 
 main().catch((error) => {

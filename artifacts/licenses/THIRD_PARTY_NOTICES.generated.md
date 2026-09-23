@@ -1,6 +1,6 @@
 # Generated Third-Party Notices
 
-Generated: 2026-07-29T15:20:07.726Z
+Generated: 2026-09-23T10:14:00.720Z
 
 | Package | Version | License | Scope | Review |
 |---|---:|---|---|---|
@@ -346,8 +346,8 @@ Generated: 2026-07-29T15:20:07.726Z
 | bidi-js | 1.0.3 | MIT | transitive-development | allowed |
 | binary-extensions | 2.3.0 | MIT | transitive-development | allowed |
 | bluebird | 3.7.2 | MIT | transitive-production | allowed |
-| body-parser | 1.20.6 | MIT | transitive-production | allowed |
-| brace-expansion | 5.0.8 | MIT | transitive-production | allowed |
+| body-parser | 1.20.8 | MIT | transitive-production | allowed |
+| brace-expansion | 5.0.12 | MIT | transitive-production | allowed |
 | braces | 3.0.3 | MIT | transitive-development | allowed |
 | browserslist | 4.28.1 | MIT | transitive-development | allowed |
 | browserslist | 4.28.5 | MIT | transitive-development | allowed |
@@ -408,7 +408,7 @@ Generated: 2026-07-29T15:20:07.726Z
 | css.escape | 1.5.1 | MIT | transitive-development | allowed |
 | cssesc | 3.0.0 | MIT | transitive-development | allowed |
 | csstype | 3.2.3 | MIT | transitive-production | allowed |
-| csv-parse | 5.6.0 | MIT | transitive-production | allowed |
+| csv-parse | 7.0.2 | MIT | transitive-production | allowed |
 | d3-array | 3.2.4 | ISC | transitive-production | allowed |
 | d3-color | 3.1.0 | ISC | transitive-production | allowed |
 | d3-ease | 3.0.1 | BSD-3-Clause | transitive-production | allowed |
@@ -506,7 +506,7 @@ Generated: 2026-07-29T15:20:07.726Z
 | expect | 29.7.0 | MIT | transitive-development | allowed |
 | express-rate-limit | 7.5.1 | MIT | direct-production | allowed |
 | express-validator | 7.3.2 | MIT | direct-production | allowed |
-| express | 4.22.2 | MIT | direct-production | allowed |
+| express | 4.22.3 | MIT | direct-production | allowed |
 | fast-csv | 4.3.6 | MIT | transitive-production | allowed |
 | fast-deep-equal | 3.1.3 | MIT | transitive-development | allowed |
 | fast-fifo | 1.3.2 | MIT | transitive-production | allowed |
@@ -729,9 +729,7 @@ Generated: 2026-07-29T15:20:07.726Z
 | mime | 2.6.0 | MIT | transitive-development | allowed |
 | mimic-fn | 2.1.0 | MIT | transitive-development | allowed |
 | min-indent | 1.0.1 | MIT | transitive-development | allowed |
-| minimatch | 10.2.5 | BlueOak-1.0.0 | transitive-production | manual-review |
 | minimatch | 10.2.6 | BlueOak-1.0.0 | transitive-production | manual-review |
-| minimatch | 3.1.5 | ISC | transitive-development | allowed |
 | minimist | 1.2.8 | MIT | transitive-production | allowed |
 | mkdirp | 0.5.6 | MIT | transitive-production | allowed |
 | mkdirp | 1.0.4 | MIT | transitive-development | allowed |
@@ -821,7 +819,7 @@ Generated: 2026-07-29T15:20:07.726Z
 | proxy-from-env | 2.1.0 | MIT | transitive-production | allowed |
 | punycode | 2.3.1 | MIT | transitive-development | allowed |
 | pure-rand | 6.1.0 | MIT | transitive-development | allowed |
-| qs | 6.15.3 | BSD-3-Clause | transitive-production | allowed |
+| qs | 6.16.0 | BSD-3-Clause | transitive-production | allowed |
 | queue-microtask | 1.2.3 | MIT | transitive-development | allowed |
 | range-parser | 1.2.1 | MIT | transitive-production | allowed |
 | rate-limit-redis | 4.3.1 | MIT | direct-production | allowed |

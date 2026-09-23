@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "generatedAt": "2026-07-29T15:20:07.726Z",
+  "generatedAt": "2026-09-23T10:14:00.720Z",
   "policy": {
     "allowed": [
       "MIT",
@@ -30,10 +30,10 @@
     ]
   },
   "summary": {
-    "total": 1026,
-    "production": 298,
-    "allowed": 1010,
-    "manualReview": 15,
+    "total": 1024,
+    "production": 297,
+    "allowed": 1009,
+    "manualReview": 14,
     "blocked": 1
   },
   "packages": [
@@ -5550,35 +5550,35 @@
     },
     {
       "name": "body-parser",
-      "version": "1.20.6",
+      "version": "1.20.8",
       "license": "MIT",
       "classification": "allowed",
       "scope": "transitive-production",
       "optional": false,
-      "resolved": "https://registry.npmjs.org/body-parser/-/body-parser-1.20.6.tgz",
-      "integrity": "sha512-p5tAzS57i5MV9fZFDj9LeIiTZEufbSe2eDozP+ElheSUq1m74CRq1jI4mYNDdVs9vQztXFLuk/Gd6BWTdwRJ5g==",
+      "resolved": "https://registry.npmjs.org/body-parser/-/body-parser-1.20.8.tgz",
+      "integrity": "sha512-JNcyFQ64OiijEkPzUBTCe+hyPXUD/3LEldGQ6iF5LR1w00mx9o7xtDWHXBY2iItjdCFGoilOLNQbH943ut7pHA==",
       "introducedByBomGridPoc": false,
       "sourceTrees": [
         "backend"
       ],
-      "licenseText": "artifacts/licenses/texts/body-parser@1.20.6.LICENSE.txt",
+      "licenseText": "artifacts/licenses/texts/body-parser@1.20.8.LICENSE.txt",
       "licenseSource": "package-manifest"
     },
     {
       "name": "brace-expansion",
-      "version": "5.0.8",
+      "version": "5.0.12",
       "license": "MIT",
       "classification": "allowed",
       "scope": "transitive-production",
       "optional": false,
-      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.8.tgz",
-      "integrity": "sha512-JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg==",
+      "resolved": "https://registry.npmjs.org/brace-expansion/-/brace-expansion-5.0.12.tgz",
+      "integrity": "sha512-YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ==",
       "introducedByBomGridPoc": false,
       "sourceTrees": [
         "backend",
         "frontend-root"
       ],
-      "licenseText": "artifacts/licenses/texts/brace-expansion@5.0.8.LICENSE.txt",
+      "licenseText": "artifacts/licenses/texts/brace-expansion@5.0.12.LICENSE.txt",
       "licenseSource": "package-manifest"
     },
     {
@@ -6561,18 +6561,18 @@
     },
     {
       "name": "csv-parse",
-      "version": "5.6.0",
+      "version": "7.0.2",
       "license": "MIT",
       "classification": "allowed",
       "scope": "transitive-production",
       "optional": false,
-      "resolved": "https://registry.npmjs.org/csv-parse/-/csv-parse-5.6.0.tgz",
-      "integrity": "sha512-l3nz3euub2QMg5ouu5U09Ew9Wf6/wQ8I++ch1loQ0ljmzhmfZYrH9fflS22i/PQEvsPvxCwxgz5q7UB8K1JO4Q==",
+      "resolved": "https://registry.npmjs.org/csv-parse/-/csv-parse-7.0.2.tgz",
+      "integrity": "sha512-uKZghv9UmPkMVLYy//KZ9HFAIJsl7wkhoEdIL0+rhuSY9pZQlhaeGEDPIe+/w7eh81MOql8Q/9+inAGWG6ZHYA==",
       "introducedByBomGridPoc": false,
       "sourceTrees": [
         "backend"
       ],
-      "licenseText": "artifacts/licenses/texts/csv-parse@5.6.0.LICENSE.txt",
+      "licenseText": "artifacts/licenses/texts/csv-parse@7.0.2.LICENSE.txt",
       "licenseSource": "package-manifest"
     },
     {
@@ -8142,18 +8142,18 @@
     },
     {
       "name": "express",
-      "version": "4.22.2",
+      "version": "4.22.3",
       "license": "MIT",
       "classification": "allowed",
       "scope": "direct-production",
       "optional": false,
-      "resolved": "https://registry.npmjs.org/express/-/express-4.22.2.tgz",
-      "integrity": "sha512-IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q==",
+      "resolved": "https://registry.npmjs.org/express/-/express-4.22.3.tgz",
+      "integrity": "sha512-Bdcs4+3qlpVlx2NRn6fgX2Ue2/gGRaPeawebgclM0ERSCqDpA+owF1fdPwjJUTAJWMTuAaxjDf+hzb0/4eKvvw==",
       "introducedByBomGridPoc": false,
       "sourceTrees": [
         "backend"
       ],
-      "licenseText": "artifacts/licenses/texts/express@4.22.2.LICENSE.txt",
+      "licenseText": "artifacts/licenses/texts/express@4.22.3.LICENSE.txt",
       "licenseSource": "package-manifest"
     },
     {
@@ -11764,23 +11764,6 @@
     },
     {
       "name": "minimatch",
-      "version": "10.2.5",
-      "license": "BlueOak-1.0.0",
-      "classification": "manual-review",
-      "scope": "transitive-production",
-      "optional": false,
-      "resolved": "https://registry.npmjs.org/minimatch/-/minimatch-10.2.5.tgz",
-      "integrity": "sha512-MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg==",
-      "introducedByBomGridPoc": false,
-      "sourceTrees": [
-        "backend",
-        "frontend-root"
-      ],
-      "licenseText": "artifacts/licenses/texts/minimatch@10.2.5.LICENSE.txt",
-      "licenseSource": "package-manifest"
-    },
-    {
-      "name": "minimatch",
       "version": "10.2.6",
       "license": "BlueOak-1.0.0",
       "classification": "manual-review",
@@ -11790,25 +11773,10 @@
       "integrity": "sha512-vpLQEs+VLCr1nU0BXS07maYoFwlDAH0gngQuuttxIwutDFEMHq2blX+8vpgxDdK3J1PwjCJiep77OitTZ4Ll1A==",
       "introducedByBomGridPoc": false,
       "sourceTrees": [
-        "backend"
+        "backend",
+        "frontend-root"
       ],
       "licenseText": "artifacts/licenses/texts/minimatch@10.2.6.LICENSE.txt",
-      "licenseSource": "package-manifest"
-    },
-    {
-      "name": "minimatch",
-      "version": "3.1.5",
-      "license": "ISC",
-      "classification": "allowed",
-      "scope": "transitive-development",
-      "optional": false,
-      "resolved": "https://registry.npmjs.org/minimatch/-/minimatch-3.1.5.tgz",
-      "integrity": "sha512-VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w==",
-      "introducedByBomGridPoc": false,
-      "sourceTrees": [
-        "backend"
-      ],
-      "licenseText": "artifacts/licenses/texts/minimatch@3.1.5.LICENSE.txt",
       "licenseSource": "package-manifest"
     },
     {
@@ -13256,18 +13224,18 @@
     },
     {
       "name": "qs",
-      "version": "6.15.3",
+      "version": "6.16.0",
       "license": "BSD-3-Clause",
       "classification": "allowed",
       "scope": "transitive-production",
       "optional": false,
-      "resolved": "https://registry.npmjs.org/qs/-/qs-6.15.3.tgz",
-      "integrity": "sha512-O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A==",
+      "resolved": "https://registry.npmjs.org/qs/-/qs-6.16.0.tgz",
+      "integrity": "sha512-h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA==",
       "introducedByBomGridPoc": false,
       "sourceTrees": [
         "backend"
       ],
-      "licenseText": "artifacts/licenses/texts/qs@6.15.3.LICENSE.txt",
+      "licenseText": "artifacts/licenses/texts/qs@6.16.0.LICENSE.txt",
       "licenseSource": "package-manifest"
     },
     {

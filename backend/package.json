@@ -41,7 +41,7 @@
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "exceljs": "4.4.0",
-    "express": "^4.22.2",
+    "express": "4.22.3",
     "express-rate-limit": "^7.1.5",
     "express-validator": "^7.3.2",
     "helmet": "^7.1.0",
@@ -76,7 +76,11 @@
       "archiver": "$archiver",
       "unzipper": "0.12.5"
     },
-    "brace-expansion": "5.0.8"
+    "brace-expansion": "5.0.12",
+    "body-parser": "1.20.8",
+    "csv-parse": "7.0.2",
+    "minimatch": "10.2.6",
+    "qs": "6.16.0"
   },
   "engines": {
     "node": ">=20.19.0"

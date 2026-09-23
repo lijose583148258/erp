@@ -264,9 +264,9 @@
         "zustand": "^5.0.14"
     },
     "overrides": {
-        "brace-expansion": "5.0.8",
+        "brace-expansion": "5.0.12",
         "form-data": "4.0.6",
-        "minimatch": "10.2.5",
+        "minimatch": "10.2.6",
         "protobufjs": "7.6.5",
         "uuid": "11.1.1",
         "ws": "8.21.0",

@@ -12,6 +12,8 @@ On 2026-07-26, the upstream ExcelJS 4.4.0 tree still resolved vulnerable Archive
 
 A direct `archiver@8.0.0` override made `npm audit` green but failed the real ExcelJS streaming API with `Archiver is not a function`, and its eager ESM load broke Jest. That result was rejected as a false green.
 
+On 2026-09-23, new advisories affected `brace-expansion`, Express' `body-parser`/`qs` chain, and Casbin's `csv-parse` dependency. Casbin 5.51.1 still declared `csv-parse@^5.5.6`, so a clean install could not reach the fixed parser without an explicit compatibility boundary.
+
 The project needs a repeatable gate that rejects production dependency advisories and prevents the no-fix spreadsheet parser from returning through future imports.
 
 ## Decision
@@ -23,12 +25,15 @@ Use exact production versions, remove unused runtime dependencies, and constrain
 - Pin ExcelJS exactly to `4.4.0`.
 - Keep official `archiver@8.0.0`, but expose its current classes through the repository-owned `backend/packages/archiver-exceljs-compat` legacy factory expected by ExcelJS 4.x. The adapter also bridges ExcelJS `StreamBuf` to a Node `PassThrough`; it does not buffer the complete worksheet.
 - Resolve ExcelJS' `archiver` dependency to that local compatibility package with an npm `$archiver` override. Override `unzipper@0.12.5` and `uuid@11.1.1`.
-- Override `protobufjs`, `ws`, `form-data`, `minimatch@10.2.5`, `brace-expansion@5.0.8`, and `uuid` to fixed versions in `package.json`.
+- Override `protobufjs`, `ws`, `form-data`, `minimatch@10.2.6`, `brace-expansion@5.0.12`, and `uuid` to fixed versions in `package.json`.
+- Pin Express to `4.22.3`; constrain its parser chain to `body-parser@1.20.8` and `qs@6.16.0` until the upstream 4.x lock naturally resolves the same fixed versions.
+- Constrain Casbin's parser chain to `csv-parse@7.0.2`. The production gate must parse quoted policy fields and execute an explicit Casbin allow/deny decision before this cross-major transitive override is accepted.
 - Require Node `>=20.19.0`, where synchronous `require(esm)` interoperability is enabled by default.
 - Load `exceljs/lib/doc/workbook` through the backend spreadsheet boundary so ordinary API startup and exports do not eagerly load the optional streaming writer.
 - Add `scripts/production-dependency-security-audit-v1.cjs`.
 - Require `npm audit --omit=dev --json` to have zero production vulnerabilities.
 - Require the dependency gate to create, write, parse, and compare both document and streaming XLSX workbooks containing Chinese, Vietnamese, numbers, a formula, and styles. This prevents a forced major transitive override from becoming a security-only false green.
+- Require the dependency gate to load Casbin through the backend dependency tree, parse a quoted CSV policy field through the overridden parser, allow a declared policy, and reject an undeclared policy.
 - Reject direct or indirect application usage of the no-fix `xlsx` package.
 - Add `utils/spreadsheetSecurity.ts` and `utils/spreadsheetIO.ts`; require spreadsheet imports to validate extension and size before workbook parsing.
 - Build the license/SBOM inventory from both the root and backend lockfiles. When a package manifest omits SPDX metadata, only an exact recognized package LICENSE text may supply the effective classification, while preserving the original declaration and evidence source.
@@ -39,6 +44,6 @@ Production advisories are now actively constrained instead of silently accepted 
 
 Spreadsheet import/export keeps the current user workflow while moving away from the no-fix SheetJS package. The boundary still treats uploaded spreadsheets as untrusted input: files are user-triggered, extension-limited, and capped to the configured client-side size limit before parsing.
 
-The compatibility overrides are an explicit temporary maintenance boundary, not permission to auto-upgrade major versions. Any change to ExcelJS, Archiver, Unzipper, Minimatch, Brace Expansion, or UUID must rerun the runtime probe, frontend build, backend tests, production audit, and full license gate.
+The compatibility overrides are an explicit temporary maintenance boundary, not permission to auto-upgrade major versions. Any change to ExcelJS, Archiver, Unzipper, Minimatch, Brace Expansion, UUID, Casbin, CSV Parse, Express, Body Parser, or QS must rerun the relevant runtime probe, frontend build, backend tests, production audit, and full license gate.
 
 The isolated compatibility proof passed on the signed official Node 20.20.2 Windows binary (archive SHA-256 `dc3700fdd57a63eedb8fd7e3c7baaa32e6a740a1b904167ff4204bc68ed8bf77`) and the local Node 24 runtime. Node 22 remains enforced by CI and production image validation.

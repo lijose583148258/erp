@@ -42,7 +42,7 @@
   ],
   "chunks": [
     {
-      "fileName": "assets/icons-CjEAFD3u.js",
+      "fileName": "assets/icons-Bvv4UMgw.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": [
@@ -51,7 +51,7 @@
       ]
     },
     {
-      "fileName": "assets/motion-D9EjDc5S.js",
+      "fileName": "assets/motion-BGzKV0Q3.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": [
@@ -70,7 +70,7 @@
       ]
     },
     {
-      "fileName": "assets/charts-Cznaxl4x.js",
+      "fileName": "assets/charts-CNtioQjc.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": [
@@ -103,7 +103,7 @@
       ]
     },
     {
-      "fileName": "assets/spreadsheet-BuxPIMRj.js",
+      "fileName": "assets/spreadsheet-sOwHKhNy.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": [
@@ -111,32 +111,33 @@
       ]
     },
     {
-      "fileName": "assets/index-B77udzQI.js",
+      "fileName": "assets/index-CC20aKzK.js",
       "isEntry": true,
       "dynamicImports": [
-        "assets/AIAssistant-BH2MwJ0a.js",
-        "assets/AISettings-CqlQIwGq.js",
-        "assets/Dashboard-SAGpfHXd.js",
-        "assets/CRM-Da0h_MPo.js",
-        "assets/RiskControl-DiVYP2bY.js",
-        "assets/Shipping-dLpLRIFD.js",
-        "assets/RMA-EfyRGvH6.js",
-        "assets/Samples-BticNLRU.js",
-        "assets/SalesOrders-DjAZ-ARy.js",
-        "assets/TeamManagement-Cl04WOHd.js",
-        "assets/AuditLogs-B82zlw7c.js",
-        "assets/Settings-DnjCfsfZ.js",
-        "assets/Assets-D4od5S_F.js",
-        "assets/ProductionWorkspace-DkVqKEqJ.js",
-        "assets/DealerAnalytics-BzGeOvHP.js",
-        "assets/Procurement-CzPfEWCj.js",
-        "assets/BarterWorkspaceView--K6jv_fG.js",
-        "assets/Contracts-CA6Vwyt9.js",
-        "assets/FinanceAnalyticsWorkspaceV2-B222q93n.js",
-        "assets/AdjustmentCenterView-Dn44vesN.js",
-        "assets/CollectionCenterView-h4XWOL8l.js",
-        "assets/WarehouseWorkspace-CBKVE5he.js",
-        "assets/ReceiptDiscrepancyWorkbench-DB2ZHAXO.js"
+        "assets/AIAssistant-CxW9nP40.js",
+        "assets/AISettings-avGTNrHs.js",
+        "assets/Dashboard-DEOaSVpE.js",
+        "assets/CRM-BL-rq79F.js",
+        "assets/RiskControl-BldwpaTe.js",
+        "assets/Shipping-CeodEsbI.js",
+        "assets/RMA-CK9onZnU.js",
+        "assets/Samples-DILN3DlB.js",
+        "assets/SalesOrders-CYr42ah7.js",
+        "assets/TeamManagement-DiKslFZV.js",
+        "assets/AuditLogs-Dpv3Lwhi.js",
+        "assets/Settings-CNqsyzQI.js",
+        "assets/Assets-B5Q373-7.js",
+        "assets/MaterialMaster-CFBfERb9.js",
+        "assets/ProductionWorkspace-CX0tA4mS.js",
+        "assets/DealerAnalytics-5In4qqPW.js",
+        "assets/Procurement-Bk2oL-Up.js",
+        "assets/BarterWorkspaceView-I8WvnpJV.js",
+        "assets/Contracts-BiTkVdIH.js",
+        "assets/FinanceAnalyticsWorkspaceV2-qnaS1dUw.js",
+        "assets/AdjustmentCenterView-B6aD9GUk.js",
+        "assets/CollectionCenterView-BTF0Ciqx.js",
+        "assets/WarehouseWorkspace-Bou22sjQ.js",
+        "assets/ReceiptDiscrepancyWorkbench-CtbdVrOU.js"
       ],
       "packages": [
         "react-dom",
@@ -145,19 +146,19 @@
       ]
     },
     {
-      "fileName": "assets/AIAssistant-BH2MwJ0a.js",
+      "fileName": "assets/AIAssistant-CxW9nP40.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Dashboard-SAGpfHXd.js",
+      "fileName": "assets/Dashboard-DEOaSVpE.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/CRM-Da0h_MPo.js",
+      "fileName": "assets/CRM-BL-rq79F.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
@@ -169,157 +170,165 @@
       "packages": []
     },
     {
-      "fileName": "assets/RiskControl-DiVYP2bY.js",
+      "fileName": "assets/RiskControl-BldwpaTe.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Shipping-dLpLRIFD.js",
+      "fileName": "assets/Shipping-CeodEsbI.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/shipping.service-Bfi0ygOL.js",
+      "fileName": "assets/shipping.service-CMadynoX.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/RMA-EfyRGvH6.js",
+      "fileName": "assets/RMA-CK9onZnU.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Samples-BticNLRU.js",
+      "fileName": "assets/Samples-DILN3DlB.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/sample.service-CqAMeN-n.js",
+      "fileName": "assets/sample.service-74K1HC-l.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/SalesOrders-DjAZ-ARy.js",
+      "fileName": "assets/SalesOrders-CYr42ah7.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/smartFormService-CQJ_kBai.js",
+      "fileName": "assets/smartFormService-CL1L6LzF.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/TeamManagement-Cl04WOHd.js",
+      "fileName": "assets/TeamManagement-DiKslFZV.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/team.service-BPfMFms-.js",
+      "fileName": "assets/team.service-D6PmwHTS.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/AuditLogs-B82zlw7c.js",
+      "fileName": "assets/AuditLogs-Dpv3Lwhi.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Settings-DnjCfsfZ.js",
+      "fileName": "assets/Settings-CNqsyzQI.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/AISettings-CqlQIwGq.js",
+      "fileName": "assets/AISettings-avGTNrHs.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/aiConfig-CdOyeQoK.js",
+      "fileName": "assets/aiConfig-5YuIwaoS.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Assets-D4od5S_F.js",
+      "fileName": "assets/Assets-B5Q373-7.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/ProductionWorkspace-DkVqKEqJ.js",
+      "fileName": "assets/MaterialMaster-CFBfERb9.js",
+      "isEntry": false,
+      "dynamicImports": [
+        "assets/MaterialGovernancePanel-CZu7ngvA.js"
+      ],
+      "packages": []
+    },
+    {
+      "fileName": "assets/ProductionWorkspace-CX0tA4mS.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/asset.service-2M46Lyvd.js",
+      "fileName": "assets/asset.service-CbZWbHkv.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/DealerAnalytics-BzGeOvHP.js",
+      "fileName": "assets/DealerAnalytics-5In4qqPW.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Procurement-CzPfEWCj.js",
+      "fileName": "assets/Procurement-Bk2oL-Up.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/BarterWorkspaceView--K6jv_fG.js",
+      "fileName": "assets/BarterWorkspaceView-I8WvnpJV.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/procurement.service-DTyd0Z3k.js",
+      "fileName": "assets/procurement.service-CubLfrh_.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/Contracts-CA6Vwyt9.js",
+      "fileName": "assets/Contracts-BiTkVdIH.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/contract.service-CsgsBMae.js",
+      "fileName": "assets/contract.service-Cz40QHuy.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/tableRecognition-B-fA59bu.js",
+      "fileName": "assets/tableRecognition-B0f68zNM.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/DataTable-BTEEMb54.js",
+      "fileName": "assets/DataTable-C7R6L7bF.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/customer.impl-4TRsyFTd.js",
+      "fileName": "assets/customer.impl-pi10q4zM.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
@@ -331,25 +340,19 @@
       "packages": []
     },
     {
-      "fileName": "assets/FinanceAnalyticsWorkspaceV2-B222q93n.js",
+      "fileName": "assets/FinanceAnalyticsWorkspaceV2-qnaS1dUw.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/ReasonDialog-Z1GtRXzr.js",
+      "fileName": "assets/ReasonDialog-DKAhfjOV.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/useDialogFocus-BBzYGPS6.js",
-      "isEntry": false,
-      "dynamicImports": [],
-      "packages": []
-    },
-    {
-      "fileName": "assets/order.impl-BDH-TC8q.js",
+      "fileName": "assets/order.impl-CNkx_8bE.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
@@ -373,13 +376,19 @@
       "packages": []
     },
     {
-      "fileName": "assets/AdjustmentCenterView-Dn44vesN.js",
+      "fileName": "assets/AdjustmentCenterView-B6aD9GUk.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/adjustment.service-D_3CDM4E.js",
+      "fileName": "assets/adjustment.service-CI5qk0HL.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/MobileRecordCard-1Y3YvC4R.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
@@ -391,73 +400,85 @@
       "packages": []
     },
     {
-      "fileName": "assets/CollectionCenterView-h4XWOL8l.js",
+      "fileName": "assets/CollectionCenterView-BTF0Ciqx.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/dataTableAdapter-BHEJBodT.js",
+      "fileName": "assets/dataTableAdapter-W5bN8BJy.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/CollectionActionModal-CXadPdnp.js",
+      "fileName": "assets/CollectionActionModal-BtdgYCtd.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/collections.impl-7C6mZrO2.js",
+      "fileName": "assets/collections.impl-IYvaul74.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/WarehouseWorkspace-CBKVE5he.js",
+      "fileName": "assets/WarehouseWorkspace-Bou22sjQ.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/useUnsavedForm-C-Fti7SI.js",
+      "fileName": "assets/MaterialMasterCombobox-ByJseCyD.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/DocumentInputGuide-SJN6IGzI.js",
+      "fileName": "assets/material.service-CSh-IJ9b.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/ReceiptDiscrepancyWorkbench-DB2ZHAXO.js",
+      "fileName": "assets/useUnsavedForm-BxALtLcO.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/PageShell-FWEJlEbh.js",
+      "fileName": "assets/DocumentInputGuide-D6dGkqE3.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/receiptDiscrepancy.service-IwHjZYYh.js",
+      "fileName": "assets/ReceiptDiscrepancyWorkbench-CtbdVrOU.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/FormField-D62WuOtf.js",
+      "fileName": "assets/PageShell-DmHioOrD.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/EnterpriseDataGrid-CfBKOPLI.js",
+      "fileName": "assets/receiptDiscrepancy.service-CBVoVZEK.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/FormField-CZkdeIsD.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
+    },
+    {
+      "fileName": "assets/EnterpriseDataGrid-Hv5WxsF5.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": [
@@ -466,45 +487,51 @@
       ]
     },
     {
-      "fileName": "assets/tablePreferences-aRoY3W7O.js",
+      "fileName": "assets/ColumnVisibilityMenu-h_tCTVks.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/spreadsheetIO-F0M07Gxt.js",
+      "fileName": "assets/spreadsheetIO-DKvaUmzw.js",
       "isEntry": false,
       "dynamicImports": [
-        "assets/exceljs.min-DzKWhkvf.js",
-        "assets/exceljs.min-DzKWhkvf.js"
+        "assets/exceljs.min-DubbA21C.js",
+        "assets/exceljs.min-DubbA21C.js"
       ],
       "packages": []
     },
     {
-      "fileName": "assets/StatusBadge-Bssi4LuV.js",
+      "fileName": "assets/StatusBadge-5aEIQvbm.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/statusBadgeLogic-C6LO7Jk7.js",
+      "fileName": "assets/statusBadgeLogic-Cj_RWQQG.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/WorkspaceTaskNavigator-BKm_cd89.js",
+      "fileName": "assets/WorkspaceTaskNavigator-sWIELR_f.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": []
     },
     {
-      "fileName": "assets/exceljs.min-DzKWhkvf.js",
+      "fileName": "assets/exceljs.min-DubbA21C.js",
       "isEntry": false,
       "dynamicImports": [],
       "packages": [
         "exceljs"
       ]
+    },
+    {
+      "fileName": "assets/MaterialGovernancePanel-CZu7ngvA.js",
+      "isEntry": false,
+      "dynamicImports": [],
+      "packages": []
     }
   ],
   "packagesDetailed": [

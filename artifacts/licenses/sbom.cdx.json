@@ -1,10 +1,10 @@
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.5",
-  "serialNumber": "urn:uuid:477fd605-ea49-41f2-88fc-12938e144b03",
+  "serialNumber": "urn:uuid:a16b5f8c-fdbe-424e-82de-d14d0bcd34d3",
   "version": 1,
   "metadata": {
-    "timestamp": "2026-07-29T15:20:07.734Z",
+    "timestamp": "2026-09-23T10:14:00.730Z",
     "component": {
       "type": "application",
       "name": "chemerp-pro---chemical-trade-saas",
@@ -9968,9 +9968,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/body-parser@1.20.6",
+      "bom-ref": "pkg:npm/body-parser@1.20.8",
       "name": "body-parser",
-      "version": "1.20.6",
+      "version": "1.20.8",
       "licenses": [
         {
           "license": {
@@ -9978,11 +9978,11 @@
           }
         }
       ],
-      "purl": "pkg:npm/body-parser@1.20.6",
+      "purl": "pkg:npm/body-parser@1.20.8",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "p5tAzS57i5MV9fZFDj9LeIiTZEufbSe2eDozP+ElheSUq1m74CRq1jI4mYNDdVs9vQztXFLuk/Gd6BWTdwRJ5g=="
+          "content": "JNcyFQ64OiijEkPzUBTCe+hyPXUD/3LEldGQ6iF5LR1w00mx9o7xtDWHXBY2iItjdCFGoilOLNQbH943ut7pHA=="
         }
       ],
       "properties": [
@@ -9998,9 +9998,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/brace-expansion@5.0.8",
+      "bom-ref": "pkg:npm/brace-expansion@5.0.12",
       "name": "brace-expansion",
-      "version": "5.0.8",
+      "version": "5.0.12",
       "licenses": [
         {
           "license": {
@@ -10008,11 +10008,11 @@
           }
         }
       ],
-      "purl": "pkg:npm/brace-expansion@5.0.8",
+      "purl": "pkg:npm/brace-expansion@5.0.12",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "JZyDyq3D4AUifKTPOB7DELf6XsB3WdPuNxCtob1vFXPsSXhdAiHBWJ/tJ8HAc9aH84BK+5JFZLNkJKx3G9kzQg=="
+          "content": "YovQ3rzhaLMIrDjNDMkNS01tea93qhEhG5xy8f6+R0l+dw3Ki+5sCoIoI942iuLZTHWogWktgwVDhU09iNEimQ=="
         }
       ],
       "properties": [
@@ -11780,9 +11780,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/csv-parse@5.6.0",
+      "bom-ref": "pkg:npm/csv-parse@7.0.2",
       "name": "csv-parse",
-      "version": "5.6.0",
+      "version": "7.0.2",
       "licenses": [
         {
           "license": {
@@ -11790,11 +11790,11 @@
           }
         }
       ],
-      "purl": "pkg:npm/csv-parse@5.6.0",
+      "purl": "pkg:npm/csv-parse@7.0.2",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "l3nz3euub2QMg5ouu5U09Ew9Wf6/wQ8I++ch1loQ0ljmzhmfZYrH9fflS22i/PQEvsPvxCwxgz5q7UB8K1JO4Q=="
+          "content": "uKZghv9UmPkMVLYy//KZ9HFAIJsl7wkhoEdIL0+rhuSY9pZQlhaeGEDPIe+/w7eh81MOql8Q/9+inAGWG6ZHYA=="
         }
       ],
       "properties": [
@@ -14576,9 +14576,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/express@4.22.2",
+      "bom-ref": "pkg:npm/express@4.22.3",
       "name": "express",
-      "version": "4.22.2",
+      "version": "4.22.3",
       "licenses": [
         {
           "license": {
@@ -14586,11 +14586,11 @@
           }
         }
       ],
-      "purl": "pkg:npm/express@4.22.2",
+      "purl": "pkg:npm/express@4.22.3",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "IuL+Elrou2ZvCFHs18/CIzy2Nzvo25nZ1/D2eIZlz7c+QUayAcYoiM2BthCjs+EBHVpjYjcuLDAiCWgeIX3X1Q=="
+          "content": "Bdcs4+3qlpVlx2NRn6fgX2Ue2/gGRaPeawebgclM0ERSCqDpA+owF1fdPwjJUTAJWMTuAaxjDf+hzb0/4eKvvw=="
         }
       ],
       "properties": [
@@ -21146,36 +21146,6 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/minimatch@10.2.5",
-      "name": "minimatch",
-      "version": "10.2.5",
-      "licenses": [
-        {
-          "license": {
-            "id": "BlueOak-1.0.0"
-          }
-        }
-      ],
-      "purl": "pkg:npm/minimatch@10.2.5",
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "MULkVLfKGYDFYejP07QOurDLLQpcjk7Fw+7jXS2R2czRQzR56yHRveU5NDJEOviH+hETZKSkIk5c+T23GjFUMg=="
-        }
-      ],
-      "properties": [
-        {
-          "name": "ailaoda:scope",
-          "value": "transitive-production"
-        },
-        {
-          "name": "ailaoda:classification",
-          "value": "manual-review"
-        }
-      ]
-    },
-    {
-      "type": "library",
       "bom-ref": "pkg:npm/minimatch@10.2.6",
       "name": "minimatch",
       "version": "10.2.6",
@@ -21201,36 +21171,6 @@
         {
           "name": "ailaoda:classification",
           "value": "manual-review"
-        }
-      ]
-    },
-    {
-      "type": "library",
-      "bom-ref": "pkg:npm/minimatch@3.1.5",
-      "name": "minimatch",
-      "version": "3.1.5",
-      "licenses": [
-        {
-          "license": {
-            "id": "ISC"
-          }
-        }
-      ],
-      "purl": "pkg:npm/minimatch@3.1.5",
-      "hashes": [
-        {
-          "alg": "SHA-512",
-          "content": "VgjWUsnnT6n+NUk6eZq77zeFdpW2LWDzP6zFGrCbHXiYNul5Dzqk2HHQ5uFH2DNW5Xbp8+jVzaeNt94ssEEl4w=="
-        }
-      ],
-      "properties": [
-        {
-          "name": "ailaoda:scope",
-          "value": "transitive-development"
-        },
-        {
-          "name": "ailaoda:classification",
-          "value": "allowed"
         }
       ]
     },
@@ -23870,9 +23810,9 @@
     },
     {
       "type": "library",
-      "bom-ref": "pkg:npm/qs@6.15.3",
+      "bom-ref": "pkg:npm/qs@6.16.0",
       "name": "qs",
-      "version": "6.15.3",
+      "version": "6.16.0",
       "licenses": [
         {
           "license": {
@@ -23880,11 +23820,11 @@
           }
         }
       ],
-      "purl": "pkg:npm/qs@6.15.3",
+      "purl": "pkg:npm/qs@6.16.0",
       "hashes": [
         {
           "alg": "SHA-512",
-          "content": "O9gl3zCl5h5blw1KGUzQKhA5oUXSl8rwUIM5o0S3nCXMliSvy5Dzx7/DJcI+SwgICv+IneSZwhBh1oSyEHA71A=="
+          "content": "h6fhOIaRrID2CbEY2fqs+7t+UXZo+MLAnU5gRIq85uFtdiUPCdsApMlHhXogKVM4HM2DVbIjGNTTYH2OcmP1vA=="
         }
       ],
       "properties": [
