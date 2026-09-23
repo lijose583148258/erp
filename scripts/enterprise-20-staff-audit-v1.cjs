@@ -21,7 +21,7 @@ const production = createChemicalBomAuditContext({
 });
 
 const positions = [
-  ['owner', 'admin', '/dashboard/stats'],
+  ['owner', 'admin', '/dashboard'],
   ['sales_lead', 'manager', '/orders/stats'],
   ['sales_1', 'sales', '/customers?page=1&pageSize=20'],
   ['sales_2', 'sales', '/orders?page=1&pageSize=20'],
@@ -75,7 +75,7 @@ function person(job) {
 
 function requireSuccess(response, label) {
   if (!response?.ok || !response?.json?.data) {
-    throw new Error(label + ': HTTP ' + response?.status + ' ' + String(response?.json?.message || '').slice(0, 160));
+    throw new Error(label + ': HTTP ' + response?.status + ' ' + String(response?.json?.errorCode || response?.json?.message || '').slice(0, 160));
   }
   return response.json.data;
 }
@@ -96,7 +96,7 @@ async function step(name, jobs, action) {
   }
 }
 
-async function createSalesCase(job, index) {
+async function createSalesCase(job, index, productMaterialId) {
   const actor = person(job);
   const name = 'E20-CHEM-CUSTOMER-' + runKey + '-' + index;
   const customer = requireSuccess(await primary.apiFetch('/customers', {
@@ -113,7 +113,8 @@ async function createSalesCase(job, index) {
   }, actor.token), 'create customer');
   const order = await primary.createOrder(actor.token, {
     customerId: Number(customer.id),
-    items: [{ productName: 'E20-TEST-WATERBORNE-RESIN-' + runKey, specification: 'synthetic test only', quantity: 100, unit: 'kg', unitPrice: 5.25 }],
+    items: [{ materialId: productMaterialId, productName: 'E20-TEST-WATERBORNE-RESIN-' + runKey,
+      specification: 'synthetic test only', quantity: 100, unit: 'kg', unitPrice: 5.25 }],
     paymentTerms: 30, notes: '20-staff sandbox ' + runKey,
   });
   const own = await primary.getOrder(actor.token, order.id);
@@ -152,8 +153,17 @@ async function main() {
     return { evidence: { completed: reads.length, statuses: reads.map((row) => row.status) } };
   });
 
+  const releasedProduct = await step('release_finished_good_before_sales_confirmation', ['sales_lead'], async () => {
+    const material = await ensureReleasedMaterial({
+      request: (endpoint, options) => primary.apiFetch(endpoint, options, person('sales_lead').token),
+      code: 'E20-FG-' + runKey, name: 'E20-TEST-WATERBORNE-RESIN-' + runKey,
+      category: 'finished_good', shelfLifeDays: 180,
+    });
+    return { id: material.id, evidence: { materialId: material.id, code: material.code, status: material.status } };
+  });
   const cases = await step('four_sales_people_create_customers_and_orders', ['sales_1', 'sales_2', 'sales_3', 'sales_4'], async () => {
-    const tasks = await Promise.allSettled([1, 2, 3, 4].map((number) => createSalesCase('sales_' + number, number)));
+    if (!releasedProduct?.id) throw new Error('finished-good material must be released before sales orders');
+    const tasks = await Promise.allSettled([1, 2, 3, 4].map((number) => createSalesCase('sales_' + number, number, releasedProduct.id)));
     const failures = tasks.flatMap((task, index) => task.status === 'rejected' ? ['sales_' + (index + 1) + ': ' + task.reason?.message] : []);
     if (failures.length) throw new Error(failures.join('; '));
     return { items: tasks.map((task) => task.value), evidence: { customerIds: tasks.map((task) => task.value.customer.id), orderIds: tasks.map((task) => task.value.order.id) } };
@@ -163,7 +173,8 @@ async function main() {
       const statuses = [];
       for (const item of cases.items) {
         const response = await primary.apiFetch('/orders/' + item.order.id + '/status', { method: 'PATCH', data: { status: 'confirmed' } }, person('sales_lead').token);
-        statuses.push({ orderId: item.order.id, status: response.status });
+        statuses.push({ orderId: item.order.id, status: response.status,
+          errorCode: response.json?.errorCode, message: response.json?.message });
       }
       if (statuses.some((row) => row.status !== 200)) throw new Error('confirmation failed: ' + JSON.stringify(statuses));
       return { evidence: statuses };
@@ -328,6 +339,76 @@ async function main() {
       return { evidence: { shipmentId: shipment.id, receiptCount: signed.receipts?.length || 0, ledgerStatus: ledger.status } };
     });
   }
+
+  await step('20_independent_browser_sessions_visit_their_workspaces', positions.map((p) => p.job), async () => {
+    const { chromium } = require('playwright');
+    const browser = await chromium.launch({
+      headless: true,
+      ...(process.env.BROWSER_AUDIT_EXECUTABLE_PATH ? { executablePath: process.env.BROWSER_AUDIT_EXECUTABLE_PATH } : {}),
+      args: ['--no-sandbox'],
+    });
+    const screenshotDir = path.join(path.dirname(reportPath), 'staff20-screenshots');
+    fs.mkdirSync(screenshotDir, { recursive: true });
+    const routeForJob = (job) => {
+      if (job.startsWith('sales_')) return 'crm';
+      if (job.startsWith('buyer_')) return 'procurement';
+      if (job.startsWith('production_') || job === 'quality') return 'production';
+      if (job.startsWith('warehouse_')) return 'warehouse';
+      if (job === 'logistics') return 'shipping';
+      if (job.startsWith('finance_') || job === 'collections') return 'collections';
+      return 'dashboard';
+    };
+    const results = [];
+    try {
+      for (let i = 0; i < positions.length; i += 4) {
+        const batch = await Promise.allSettled(positions.slice(i, i + 4).map(async (p, offset) => {
+          const session = person(p.job);
+          const context = await browser.newContext({
+            viewport: { width: (i + offset) % 3 === 0 ? 390 : 1366, height: 800 },
+          });
+          try {
+            const page = await context.newPage();
+            const uncaught = [];
+            page.on('pageerror', (error) => uncaught.push(String(error.message || error).slice(0, 160)));
+            await page.addInitScript(({ token, user }) => {
+              for (const key of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(key, token);
+              for (const key of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
+              localStorage.setItem('ailao.language', 'zh');
+            }, { token: session.token, user: session.user });
+            const route = routeForJob(p.job);
+            const base = (i + offset) % 2 ? secondaryUrl : primaryUrl;
+            await page.goto(base + '/#' + route, { waitUntil: 'domcontentloaded', timeout: 30000 });
+            await page.waitForFunction(() =>
+              document.body?.innerText.length > 100 && !document.querySelector('input[type="password"]'),
+            null, { timeout: 20000 });
+            const search = page.locator('input[type="search"]:visible').first();
+            if (await search.count() && await search.isEnabled()) {
+              await search.fill('E20-SYNTHETIC-NO-RESULTS');
+              await search.fill('');
+            }
+            if (uncaught.length) throw new Error('uncaught browser error: ' + uncaught[0]);
+            const screenshot = path.join(screenshotDir, p.job + '.png');
+            await page.screenshot({ path: screenshot, fullPage: false });
+            return { job: p.job, route, url: base, screenshot: path.relative(path.dirname(reportPath), screenshot) };
+          } finally {
+            await context.close();
+          }
+        }));
+        for (let offset = 0; offset < batch.length; offset += 1) {
+          const item = batch[offset];
+          if (item.status === 'fulfilled') results.push(item.value);
+          else results.push({ job: positions[i + offset].job, error: String(item.reason?.message || item.reason).slice(0, 300) });
+        }
+      }
+    } finally {
+      await browser.close();
+    }
+    if (results.length !== 20 || results.some((row) => row.error)) {
+      throw new Error('browser session failures: ' + JSON.stringify(results.filter((row) => row.error)));
+    }
+    return { evidence: { completed: results.length, routes: results.map(({ job, route }) => ({ job, route })),
+      screenshotFolder: path.relative(path.dirname(reportPath), screenshotDir) } };
+  });
 
   report.finishedAt = new Date().toISOString();
   report.summary = {
