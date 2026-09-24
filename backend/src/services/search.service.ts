@@ -155,6 +155,19 @@ export class MeilisearchProvider {
     return this.getTaskUid(created.payload);
   }
 
+  /**
+   * Meilisearch accepts index creation asynchronously.  Two application
+   * replicas can both receive a create task before either task is applied, so
+   * callers need a definitive read-back when one of those tasks loses the
+   * race.
+   */
+  async indexExists(index: SearchIndex) {
+    const result = await this.requestResult(`/indexes/${encodeURIComponent(getMeiliIndexName(index))}`);
+    if (result.response.ok) return true;
+    if (result.response.status === 404) return false;
+    throw this.requestError(result.response.status, result.payload);
+  }
+
   async getIndexStats(index: SearchIndex): Promise<MeilisearchIndexStats> {
     return this.request(`/indexes/${encodeURIComponent(getMeiliIndexName(index))}/stats`) as Promise<MeilisearchIndexStats>;
   }

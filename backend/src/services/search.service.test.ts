@@ -260,4 +260,21 @@ describe('search service boundary', () => {
     const provider = new MeilisearchProvider('http://search:7700/', 'master-key');
     await expect(provider.ensureIndex('customers')).resolves.toBeNull();
   });
+
+  it('confirms a concurrently created index with a read-back', async () => {
+    global.fetch = jest.fn(async (...args: Parameters<typeof fetch>) => {
+      const [url] = args;
+      if (String(url).endsWith('/indexes/ailaoda_customers')) {
+        return new Response(JSON.stringify({ uid: 'ailaoda_customers', primaryKey: 'id' }), { status: 200 });
+      }
+      if (String(url).endsWith('/indexes/ailaoda_orders')) {
+        return new Response(JSON.stringify({ code: 'index_not_found' }), { status: 404 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    }) as typeof fetch;
+
+    const provider = new MeilisearchProvider('http://search:7700/', 'master-key');
+    await expect(provider.indexExists('customers')).resolves.toBe(true);
+    await expect(provider.indexExists('orders')).resolves.toBe(false);
+  });
 });

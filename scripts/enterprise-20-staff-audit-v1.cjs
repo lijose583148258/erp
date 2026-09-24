@@ -322,6 +322,7 @@ async function main() {
       const item = cases.items[0];
       const shipment = requireSuccess(await primary.apiFetch('/shipping', {
         method: 'POST', data: { customerId: Number(item.customer.id), orderId: Number(item.order.id),
+          materialId: Number(releasedProduct.id),
           productName: 'E20-TEST-WATERBORNE-RESIN-' + runKey, quantity: 100, unit: 'kg',
           batchNo: productionOutcome.batchNo, carrier: 'E20-CARRIER', trackingNo: 'E20-' + runKey },
       }, person('logistics').token), 'create shipment');

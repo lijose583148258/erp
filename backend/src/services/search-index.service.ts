@@ -330,7 +330,18 @@ export class SearchIndexService {
     for (const index of Object.keys(searchableAttributes) as SearchIndex[]) {
       await runAcrossSearchProviders(async provider => {
         const createTaskUid = await provider.ensureIndex(index);
-        if (createTaskUid !== null) await provider.waitForTask(createTaskUid);
+        if (createTaskUid !== null) {
+          try {
+            await provider.waitForTask(createTaskUid);
+          } catch (error) {
+            // Concurrent replicas can each enqueue a create task after seeing
+            // a missing index. Meilisearch marks the losing task as failed,
+            // even though the winning task created the exact index. Read it
+            // back before treating that expected race as idempotent.
+            if (!await provider.indexExists(index)) throw error;
+            logger.info(`[SearchIndexService] ${index} was created by a concurrent replica`);
+          }
+        }
         const settingsTaskUid = await provider.updateSearchableAttributes(index, searchableAttributes[index]);
         if (settingsTaskUid !== null) await provider.waitForTask(settingsTaskUid);
       });

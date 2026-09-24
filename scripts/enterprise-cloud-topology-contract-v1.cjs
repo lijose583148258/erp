@@ -5,6 +5,7 @@ const workflow = fs.readFileSync('.github/workflows/enterprise-cloud-sandbox.yml
 const releaseWorkflow = fs.readFileSync('.github/workflows/enterprise-release-certification.yml', 'utf8');
 const compose = fs.readFileSync('ops/cloud-sandbox/docker-compose.yml', 'utf8');
 const aggregateScript = fs.readFileSync('scripts/enterprise-cloud-business-audit-summary-v1.cjs', 'utf8');
+const staffAudit = fs.readFileSync('scripts/enterprise-20-staff-audit-v1.cjs', 'utf8');
 
 assert.match(
   compose,
@@ -111,6 +112,11 @@ assert.match(
   workflow,
   /run_audit unsaved-changes[\s\S]+run_audit decimal-shadow[\s\S]+Human ERP workflow failures/,
   'The grouped human-flow step must execute every nested audit before returning failure.',
+);
+assert.match(
+  staffAudit,
+  /materialId:\s*Number\(releasedProduct\.id\)[\s\S]{0,260}batchNo:\s*productionOutcome\.batchNo/,
+  'The 20-staff logistics chain must bind the approved finished-good material before issuing its production batch.',
 );
 
 console.log('Enterprise Cloud Topology Contract: PASS');

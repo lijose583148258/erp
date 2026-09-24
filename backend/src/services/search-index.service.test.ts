@@ -41,11 +41,15 @@ const mockPrisma = {
 };
 
 const mockProvider = {
-  ensureIndex: jest.fn(async () => null),
+  ensureIndex: jest.fn(async (index: 'customers' | 'orders') => index === 'customers' ? 99 : null),
+  indexExists: jest.fn(async () => true),
   updateSearchableAttributes: jest.fn(async () => 10),
   deleteAllDocuments: jest.fn(async () => 12),
   upsertDocuments: jest.fn(async () => 11),
-  waitForTask: jest.fn(async (taskUid: number) => ({ status: 'succeeded', taskUid })),
+  waitForTask: jest.fn(async (taskUid: number) => {
+    if (taskUid === 99) throw new Error('MEILISEARCH_TASK_FAILED: Index `ailaoda_customers` already exists.');
+    return { status: 'succeeded', taskUid };
+  }),
   getIndexStats: jest.fn(async (index: 'customers' | 'orders') => ({
     numberOfDocuments: index === 'customers' ? mockCustomerRows.length : mockOrderRows.length,
     isIndexing: false,
@@ -87,13 +91,14 @@ describe('SearchIndexService startup lifecycle', () => {
     process.env = originalEnv;
   });
 
-  it('creates/configures both indexes, rebuilds documents, and turns readiness green only after stats verification', async () => {
+  it('recovers an index-create race, rebuilds documents, and turns readiness green only after stats verification', async () => {
     expect(SearchIndexService.getStatus()).toMatchObject({ ready: false, initialization: { status: 'idle' } });
 
     await SearchIndexService.initialize();
 
     expect(mockProvider.ensureIndex).toHaveBeenCalledWith('customers');
     expect(mockProvider.ensureIndex).toHaveBeenCalledWith('orders');
+    expect(mockProvider.indexExists).toHaveBeenCalledWith('customers');
     expect(mockProvider.updateSearchableAttributes).toHaveBeenCalledTimes(2);
     expect(mockProvider.deleteAllDocuments).toHaveBeenCalledTimes(2);
     expect(mockProvider.upsertDocuments).toHaveBeenCalledTimes(2);
