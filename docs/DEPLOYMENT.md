@@ -244,7 +244,20 @@ SEARCH_DRIVER=meilisearch
 MEILISEARCH_URL=http://meilisearch:7700
 MEILISEARCH_API_KEY=<strong search key>
 SEARCH_INDEX_PREFIX=ailaoda
+SEARCH_REINDEX_ON_STARTUP=true
+SEARCH_STARTUP_TIMEOUT_MS=120000
+SEARCH_MIN_READY_SUCCESSES=1
 ```
+
+When external search is enabled, application startup explicitly creates the
+customer and order indexes, applies searchable attributes, clears stale
+documents, and (by default) rebuilds both indexes from the database. Candidate
+search remains on the Prisma path while this lifecycle is running or failed.
+Internal readiness stays false for search until the configured number of
+Meilisearch endpoints report the exact rebuilt customer/order document counts.
+In a multi-instance deployment,
+set `SEARCH_REINDEX_ON_STARTUP=true` on one instance and `false` on followers;
+followers wait for the shared indexes instead of launching duplicate rebuilds.
 
 Optional local Meilisearch rehearsal service:
 

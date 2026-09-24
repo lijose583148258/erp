@@ -270,6 +270,9 @@ services:
       MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:?required}
       SEARCH_REQUEST_TIMEOUT_MS: "2000"
       SEARCH_MIN_WRITE_SUCCESSES: "1"
+      SEARCH_MIN_READY_SUCCESSES: "2"
+      SEARCH_REINDEX_ON_STARTUP: "true"
+      SEARCH_STARTUP_TIMEOUT_MS: "120000"
       SEARCH_RESULT_CACHE_TTL_SECONDS: "5"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: ailaoda-erp-crm
@@ -299,6 +302,7 @@ services:
     environment:
       <<: *app-environment
       OTEL_SERVICE_INSTANCE_ID: github-sandbox-secondary
+      SEARCH_REINDEX_ON_STARTUP: "false"
     ports:
       - "5008:5001"
 

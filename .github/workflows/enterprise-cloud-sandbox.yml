@@ -336,6 +336,48 @@ jobs:
             curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" | tee "cloud-evidence/ready-${port}.json"
           done
 
+      - name: Verify Meilisearch initialization, rebuild and readiness
+        id: search_readiness
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          for port in 5006 5008; do
+            ready=0
+            for attempt in {1..60}; do
+              output="cloud-evidence/internal-ready-${port}.json"
+              if curl --fail --silent --show-error \
+                  -H "Authorization: Bearer ${METRICS_BEARER_TOKEN}" \
+                  "http://127.0.0.1:${port}/internal/ready" > "${output}" \
+                && INTERNAL_READY_PATH="${output}" EXPECT_REINDEX="$([[ "${port}" == "5006" ]] && echo 1 || echo 0)" node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync(process.env.INTERNAL_READY_PATH, 'utf8'));
+          const search = body?.degradable?.search;
+          const rebuilt = search?.lastReindex?.indexes;
+          const expectReindex = process.env.EXPECT_REINDEX === '1';
+          const valid = body?.status === 'ready'
+            && search?.ready === true
+            && search?.initialization?.status === 'ready'
+            && Number(search?.endpointCount || 0) >= 2
+            && !search?.lastError
+            && (!expectReindex || (
+              Number.isInteger(rebuilt?.customers?.documents)
+              && Number.isInteger(rebuilt?.orders?.documents)
+              && Number(search?.lastReindex?.readiness?.readyProviders || 0) >= 2
+            ));
+          if (!valid) process.exit(1);
+          NODE
+              then
+                ready=1
+                break
+              fi
+              echo "Waiting for Meilisearch indexes on app ${port} (attempt ${attempt}/60)"
+              sleep 2
+            done
+            test "${ready}" = "1"
+          done
+
       - name: Simulate human ERP workflows
         id: human_workflows
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}

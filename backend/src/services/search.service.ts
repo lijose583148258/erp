@@ -11,9 +11,23 @@ export type MeilisearchTask = {
   status?: string;
   error?: { message?: string } | null;
 };
+export type MeilisearchIndexStats = {
+  numberOfDocuments?: number;
+  isIndexing?: boolean;
+};
 
 const EXTERNAL_SEARCH_DRIVERS = new Set<SearchDriver>(['meilisearch', 'elasticsearch']);
 const inFlightSearches = new Map<string, Promise<number[]>>();
+// An external index may exist before it has been rebuilt from the transactional
+// database.  Keep reads on the authoritative Prisma path until its lifecycle
+// service has verified every configured replica.
+let externalSearchReady = false;
+
+export const setExternalSearchReady = (ready: boolean) => {
+  externalSearchReady = ready;
+};
+
+export const isExternalSearchReady = () => externalSearchReady;
 
 const getConfiguredDriver = (): SearchDriver => {
   const driver = String(process.env.SEARCH_DRIVER || 'prisma').trim().toLowerCase();
@@ -123,6 +137,28 @@ export class MeilisearchProvider {
       .filter(id => Number.isSafeInteger(id) && id > 0);
   }
 
+  async ensureIndex(index: SearchIndex) {
+    const indexName = getMeiliIndexName(index);
+    const existing = await this.requestResult(`/indexes/${encodeURIComponent(indexName)}`);
+    if (existing.response.ok) return null;
+    if (existing.response.status !== 404) throw this.requestError(existing.response.status, existing.payload);
+
+    const created = await this.requestResult('/indexes', {
+      method: 'POST',
+      body: JSON.stringify({ uid: indexName, primaryKey: 'id' }),
+    });
+    if (!created.response.ok) {
+      const errorCode = this.errorCode(created.payload);
+      if (created.response.status === 400 && errorCode === 'index_already_exists') return null;
+      throw this.requestError(created.response.status, created.payload);
+    }
+    return this.getTaskUid(created.payload);
+  }
+
+  async getIndexStats(index: SearchIndex): Promise<MeilisearchIndexStats> {
+    return this.request(`/indexes/${encodeURIComponent(getMeiliIndexName(index))}/stats`) as Promise<MeilisearchIndexStats>;
+  }
+
   async upsertDocuments(index: SearchIndex, documents: Array<Record<string, unknown>>) {
     if (documents.length === 0) return null;
     const response = await this.request(
@@ -131,6 +167,14 @@ export class MeilisearchProvider {
         method: 'POST',
         body: JSON.stringify(documents),
       },
+    );
+    return this.getTaskUid(response);
+  }
+
+  async deleteAllDocuments(index: SearchIndex) {
+    const response = await this.request(
+      `/indexes/${encodeURIComponent(getMeiliIndexName(index))}/documents`,
+      { method: 'DELETE' },
     );
     return this.getTaskUid(response);
   }
@@ -160,11 +204,23 @@ export class MeilisearchProvider {
   }
 
   private async request(pathname: string, init: RequestInit = {}) {
+    const result = await this.requestResult(pathname, init);
+    if (!result.response.ok) throw this.requestError(result.response.status, result.payload);
+    return result.payload;
+  }
+
+  private async requestResult(pathname: string, init: RequestInit = {}) {
     const url = new URL(pathname, this.endpoint.replace(/\/$/, ''));
     const headers: Record<string, string> = { ...(init.headers as Record<string, string> || {}) };
     if (init.body !== undefined && !headers['content-type']) headers['content-type'] = 'application/json';
     if (this.apiKey) headers.Authorization = `Bearer ${this.apiKey}`;
-    const response = await fetch(url, { ...init, headers });
+    const configuredTimeoutMs = Number(process.env.SEARCH_ADMIN_REQUEST_TIMEOUT_MS || 5_000);
+    const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1_000, configuredTimeoutMs) : 5_000;
+    const response = await fetch(url, {
+      ...init,
+      headers,
+      signal: init.signal || AbortSignal.timeout(timeoutMs),
+    });
     const text = await response.text();
     let payload: unknown = null;
     if (text) {
@@ -174,13 +230,21 @@ export class MeilisearchProvider {
         payload = { raw: text.slice(0, 300) };
       }
     }
-    if (!response.ok) {
-      const message = typeof payload === 'object' && payload && 'message' in payload
-        ? String((payload as { message?: unknown }).message || '')
-        : '';
-      throw new Error(`MEILISEARCH_REQUEST_FAILED_${response.status}${message ? `: ${message}` : ''}`);
-    }
-    return payload;
+    return { response, payload };
+  }
+
+  private errorCode(payload: unknown) {
+    return typeof payload === 'object' && payload && 'code' in payload
+      ? String((payload as { code?: unknown }).code || '')
+      : '';
+  }
+
+  private requestError(status: number, payload: unknown) {
+    const message = typeof payload === 'object' && payload && 'message' in payload
+      ? String((payload as { message?: unknown }).message || '')
+      : '';
+    const code = this.errorCode(payload);
+    return new Error(`MEILISEARCH_REQUEST_FAILED_${status}${code ? `_${code}` : ''}${message ? `: ${message}` : ''}`);
   }
 
   private getTaskUid(payload: unknown) {
@@ -233,6 +297,10 @@ export const buildCustomerSearchWhereAsync = async (input: unknown): Promise<Pri
   }
 
   const providers = createExternalSearchProviders();
+  if (providers.length > 0 && !isExternalSearchReady()) {
+    recordSearchMetric('not_ready', 'customers');
+    return buildCustomerSearchWhere(term);
+  }
   for (const provider of providers) {
     try {
       const ids = await searchExternalIds(provider, 'customers', term);
@@ -254,6 +322,10 @@ export const buildOrderSearchWhereAsync = async (input: unknown): Promise<Prisma
   }
 
   const providers = createExternalSearchProviders();
+  if (providers.length > 0 && !isExternalSearchReady()) {
+    recordSearchMetric('not_ready', 'orders');
+    return buildOrderSearchWhere(term);
+  }
   for (const provider of providers) {
     try {
       const ids = await searchExternalIds(provider, 'orders', term);

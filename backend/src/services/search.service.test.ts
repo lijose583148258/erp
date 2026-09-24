@@ -6,6 +6,7 @@ import {
   getSearchStatus,
   MeilisearchProvider,
   normalizeSearchTerm,
+  setExternalSearchReady,
 } from './search.service';
 import { renderPrometheusMetrics } from '../middleware/metricsMiddleware';
 
@@ -26,6 +27,8 @@ describe('search service boundary', () => {
     delete process.env.SEARCH_API_KEY;
     delete process.env.SEARCH_REQUEST_TIMEOUT_MS;
     delete process.env.SEARCH_RESULT_CACHE_TTL_SECONDS;
+    delete process.env.SEARCH_TASK_TIMEOUT_MS;
+    setExternalSearchReady(true);
     global.fetch = originalFetch;
   });
 
@@ -140,6 +143,19 @@ describe('search service boundary', () => {
     expect(renderPrometheusMetrics()).toContain('ailaoda_search_operations_total{action="invalid",index="customers"}');
   });
 
+  it('keeps transactional search visible while an external index is rebuilding', async () => {
+    global.fetch = jest.fn(async () => new Response(JSON.stringify({ hits: [] }), { status: 200 })) as typeof fetch;
+    process.env.SEARCH_DRIVER = 'meilisearch';
+    process.env.SEARCH_ENDPOINT = 'http://search:7700';
+    setExternalSearchReady(false);
+
+    const where = await buildCustomerSearchWhereAsync('Rebuild Safe') as { OR: unknown[] };
+
+    expect(where.OR).toContainEqual({ name: { contains: 'Rebuild Safe' } });
+    expect(global.fetch).not.toHaveBeenCalled();
+    expect(renderPrometheusMetrics()).toContain('ailaoda_search_operations_total{action="not_ready",index="customers"}');
+  });
+
   it('fails over to a secondary Meilisearch endpoint before Prisma fallback', async () => {
     const calls: string[] = [];
     global.fetch = jest.fn(async (...args: Parameters<typeof fetch>) => {
@@ -187,13 +203,61 @@ describe('search service boundary', () => {
     const provider = new MeilisearchProvider('http://search:7700/', 'master-key');
 
     await expect(provider.upsertDocuments('customers', [{ id: 7, name: 'Acme' }])).resolves.toBe(42);
+    await expect(provider.deleteAllDocuments('customers')).resolves.toBe(42);
     await expect(provider.updateSearchableAttributes('customers', ['name'])).resolves.toBe(42);
     await expect(provider.waitForTask(42)).resolves.toMatchObject({ status: 'succeeded' });
 
     expect(calls[0].url).toBe('http://search:7700/indexes/erp_customers/documents?primaryKey=id');
     expect(calls[0].init?.body).toBe('[{"id":7,"name":"Acme"}]');
-    expect(calls[1].url).toBe('http://search:7700/indexes/erp_customers/settings/searchable-attributes');
-    expect(calls[2].url).toBe('http://search:7700/tasks/42');
+    expect(calls[1].url).toBe('http://search:7700/indexes/erp_customers/documents');
+    expect(calls[1].init?.method).toBe('DELETE');
+    expect(calls[2].url).toBe('http://search:7700/indexes/erp_customers/settings/searchable-attributes');
+    expect(calls[3].url).toBe('http://search:7700/tasks/42');
     expect((calls[0].init?.headers as Record<string, string>).Authorization).toBe('Bearer master-key');
+  });
+
+  it('creates a missing index explicitly and exposes document readiness stats', async () => {
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    global.fetch = jest.fn(async (...args: Parameters<typeof fetch>) => {
+      const [url, init] = args;
+      calls.push({ url: String(url), init });
+      if (String(url).endsWith('/indexes/ailaoda_customers') && (!init?.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ message: 'missing', code: 'index_not_found' }), { status: 404 });
+      }
+      if (String(url).endsWith('/indexes') && init?.method === 'POST') {
+        return new Response(JSON.stringify({ taskUid: 71 }), { status: 202 });
+      }
+      if (String(url).endsWith('/tasks/71')) {
+        return new Response(JSON.stringify({ status: 'succeeded', taskUid: 71 }), { status: 200 });
+      }
+      if (String(url).endsWith('/indexes/ailaoda_customers/stats')) {
+        return new Response(JSON.stringify({ numberOfDocuments: 42, isIndexing: false }), { status: 200 });
+      }
+      return new Response('unexpected request', { status: 500 });
+    }) as typeof fetch;
+
+    const provider = new MeilisearchProvider('http://search:7700/', 'master-key');
+    const taskUid = await provider.ensureIndex('customers');
+    expect(taskUid).toBe(71);
+    if (taskUid === null) throw new Error('missing index creation task');
+    await expect(provider.waitForTask(taskUid)).resolves.toMatchObject({ status: 'succeeded' });
+    await expect(provider.getIndexStats('customers')).resolves.toEqual({ numberOfDocuments: 42, isIndexing: false });
+
+    expect(calls[0].url).toBe('http://search:7700/indexes/ailaoda_customers');
+    expect(calls[1].url).toBe('http://search:7700/indexes');
+    expect(calls[1].init?.body).toBe('{"uid":"ailaoda_customers","primaryKey":"id"}');
+  });
+
+  it('treats a concurrent index creation as idempotent', async () => {
+    global.fetch = jest.fn(async (...args: Parameters<typeof fetch>) => {
+      const [url, init] = args;
+      if (String(url).endsWith('/indexes/ailaoda_customers') && (!init?.method || init.method === 'GET')) {
+        return new Response(JSON.stringify({ code: 'index_not_found' }), { status: 404 });
+      }
+      return new Response(JSON.stringify({ code: 'index_already_exists', message: 'already exists' }), { status: 400 });
+    }) as typeof fetch;
+
+    const provider = new MeilisearchProvider('http://search:7700/', 'master-key');
+    await expect(provider.ensureIndex('customers')).resolves.toBeNull();
   });
 });

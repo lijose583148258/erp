@@ -17,7 +17,7 @@ import { mountApiRoutes } from './routes/apiRegistry';
 import { BackupService } from './services/backup.service';
 import { fileStorage, getFileStorageStatus } from './services/file-storage.service';
 import { cacheService } from './services/cache.service';
-import { getSearchStatus } from './services/search.service';
+import { SearchIndexService } from './services/search-index.service';
 import { createCsrfBoundary } from './security/csrfBoundary';
 import { getJwtSecretStatus } from './security/secretManagement';
 import { hasValidMetricsBearerToken } from './security/metricsAccess';
@@ -158,7 +158,7 @@ app.get(['/api/system/health-details', '/api/v1/system/health-details'], authent
     cache: cacheService.status(),
     authTokens: getAuthTokenStoreStatus(),
     rateLimits: getRateLimitStoreStatus(),
-    search: getSearchStatus(),
+    search: SearchIndexService.getStatus(),
     objectStorage: getFileStorageStatus(),
     realtime: getRealtimeNotificationStatus(),
     telemetry: getTelemetryStatus(),
@@ -200,7 +200,7 @@ const readReadiness = async () => {
     degradable: ['search', 'objectStorage', 'telemetry'],
   };
   const degradable = {
-    search: getSearchStatus(),
+    search: SearchIndexService.getStatus(),
     objectStorage: getFileStorageStatus(),
     telemetry: getTelemetryStatus(),
   };
@@ -279,7 +279,7 @@ const readHealth = async () => {
     cache,
     authTokens: getAuthTokenStoreStatus(),
     rateLimits: getRateLimitStoreStatus(),
-    search: getSearchStatus(),
+    search: SearchIndexService.getStatus(),
     objectStorage: getFileStorageStatus(),
     realtime: getRealtimeNotificationStatus(),
     telemetry: getTelemetryStatus(),
@@ -479,6 +479,9 @@ const startShutdownSignalWatcher = () => {
 const startServer = async () => {
   try {
     await configureRuntimeDatabase();
+    void SearchIndexService.initialize().catch(error => {
+      logger.error('External search initialization failed; Prisma fallback remains available', error);
+    });
     BackupService.init();
     dailyBackupTimer = setInterval(() => {
       logger.info('Starting daily backup...');

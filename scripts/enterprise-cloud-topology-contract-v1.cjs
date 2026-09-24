@@ -63,6 +63,7 @@ assert.match(
 );
 
 const businessAuditIds = [
+  'search_readiness',
   'human_workflows',
   'staff_20',
   'shared_session',
@@ -95,6 +96,16 @@ assert.match(
   workflow,
   /id: business_audit_verdict[\s\S]{0,160}if: always\(\)[\s\S]{0,160}BUSINESS_AUDIT_STEPS_JSON: \$\{\{ toJSON\(steps\) \}\}[\s\S]{0,120}enterprise-cloud-business-audit-summary-v1\.cjs/,
   'Cloud workflow must issue one final business-audit verdict after all audit steps have executed.',
+);
+assert.match(
+  workflow,
+  /Verify Meilisearch initialization, rebuild and readiness[\s\S]+internal\/ready[\s\S]+search\?\.ready === true[\s\S]+lastReindex\?\.readiness\?\.readyProviders/,
+  'Cloud readiness must wait for both initialized Meilisearch replicas and the primary startup rebuild.',
+);
+assert.match(
+  compose,
+  /SEARCH_MIN_READY_SUCCESSES:\s+"2"[\s\S]+SEARCH_REINDEX_ON_STARTUP:\s+"true"[\s\S]+app-secondary:[\s\S]+SEARCH_REINDEX_ON_STARTUP:\s+"false"/,
+  'One app must own startup reindex while both apps require both Meilisearch endpoints to become ready.',
 );
 assert.match(
   workflow,
