@@ -6,6 +6,7 @@ const releaseWorkflow = fs.readFileSync('.github/workflows/enterprise-release-ce
 const compose = fs.readFileSync('ops/cloud-sandbox/docker-compose.yml', 'utf8');
 const aggregateScript = fs.readFileSync('scripts/enterprise-cloud-business-audit-summary-v1.cjs', 'utf8');
 const staffAudit = fs.readFileSync('scripts/enterprise-20-staff-audit-v1.cjs', 'utf8');
+const minioSource = fs.readFileSync('ops/cloud-sandbox/minio-source/Dockerfile', 'utf8');
 
 assert.match(
   compose,
@@ -34,19 +35,31 @@ assert.doesNotMatch(
 );
 assert.match(
   compose,
-  /image:\s+quay\.io\/minio\/minio:RELEASE\.2025-04-22T22-12-26Z/,
-  'Cloud sandbox MinIO server image must use the pinned official Quay registry image; Docker Hub minio/minio is not reliable in GitHub runners.',
+  /image:\s+&minio-source-image ailaoda\/minio-sandbox:source-2025-04-v1/,
+  'Cloud MinIO must be built locally from pinned official source, not withdrawn binary images.',
 );
 assert.match(
   compose,
-  /image:\s+quay\.io\/minio\/mc:RELEASE\.2025-04-16T18-13-26Z/,
-  'Cloud sandbox MinIO client image must use the pinned official Quay registry image; Docker Hub minio/mc is not reliable in GitHub runners.',
+  /minio-init:[\s\S]{0,120}image: \*minio-source-image[\s\S]{0,120}build: \*minio-source-build/,
+  'MinIO initialization must use the same verified source-built fixture containing mc.',
 );
 assert.doesNotMatch(
   compose,
-  /image:\s+minio\/(?:minio|mc):/,
-  'Cloud sandbox must not pull MinIO images from Docker Hub.',
+  /image:\s+(?:quay\.io\/)?minio\/(?:minio|mc):/,
+  'Cloud sandbox must not fall back to unavailable MinIO binary registries.',
 );
+assert.equal((compose.match(/pull_policy: never/g) || []).length, 3, 'All three MinIO services must use the locally built image');
+for (const sha of ['0d7408fc9969caf07de6a8c3a84f9fbb10a6739e', 'b00526b153a31b36767991a4f5ce2cced435ee8e']) {
+  assert(minioSource.includes(`git fetch --depth=1 origin ${sha}`));
+  assert(minioSource.includes(`test "$(git rev-parse HEAD)" = ${sha}`));
+}
+assert.match(minioSource, /https:\/\/github\.com\/minio\/minio\.git/);
+assert.match(minioSource, /https:\/\/github\.com\/minio\/mc\.git/);
+assert.equal((minioSource.match(/^FROM .+@sha256:[a-f0-9]{64}/gm) || []).length, 2, 'Both base images must use verified immutable digests');
+assert.equal((minioSource.match(/go mod verify/g) || []).length, 2, 'Both Go dependency graphs must be verified');
+assert.doesNotMatch(minioSource, /GOSUMDB=off|GOINSECURE|curl\s+.*--insecure|git config.*sslVerify.*false/);
+assert.equal((workflow.match(/docker compose build minio-primary/g) || []).length, 2, 'Both cloud jobs must build MinIO before starting dependencies');
+assert.match(releaseWorkflow, /docker compose build minio-primary[\s\S]{0,100}docker compose up/);
 assert.match(
   releaseWorkflow,
   /-\s+'ops\/cloud-sandbox\/\*\*'/,
@@ -121,5 +134,5 @@ assert.match(
 
 console.log('Enterprise Cloud Topology Contract: PASS');
 console.log('- PostgreSQL host binding is collision-resistant and shared consistently by Compose and audit URLs.');
-console.log('- MinIO server and client images are pinned to quay.io so cloud runners can pull the enterprise object-storage topology.');
+console.log('- MinIO server and client are built from verified upstream commits and pinned base images, with no binary registry fallback.');
 console.log('- Business audits continue after individual failures and emit one aggregate verdict at the end.');

@@ -144,6 +144,10 @@ jobs:
       - name: Pull fixed dependency images
         run: docker compose pull --ignore-buildable
 
+      - name: Build pinned MinIO source fixture
+        timeout-minutes: 10
+        run: docker compose build minio-primary
+
       - name: Start dependency topology
         run: docker compose up -d --wait --wait-timeout 180
 
@@ -306,6 +310,7 @@ jobs:
         run: |
           mkdir -p cloud-evidence
           docker compose pull --ignore-buildable
+          docker compose build minio-primary
           docker compose up -d --wait --wait-timeout 180
 
       - name: Rehearse SQLite to PostgreSQL cutover and SQLite rollback
