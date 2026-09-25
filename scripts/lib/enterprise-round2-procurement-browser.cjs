@@ -3,6 +3,7 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
+const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 
 async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal) {
   const folder = path.join(path.dirname(reportPath), `${runId}-purchase-browser`);
@@ -21,6 +22,7 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
   const browser = launched.browser;
   const pages = [];
   const runtimeErrors = [];
+  const fontEvidence = [];
   const abort = () => { void browser.close().catch(() => {}); };
   signal.addEventListener('abort', abort, { once: true });
   const read = async instance => dataOf(await request(`/procurement/orders/${order.id}/revisions`, { actor: actors.buyer1, instance, signal }));
@@ -49,6 +51,7 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
       await page.getByTestId('procurement-desk-orders').click();
       await page.getByTestId(`purchase-order-revise-${order.id}`).click();
       await page.getByTestId('purchase-revision-dialog').waitFor();
+      fontEvidence.push(await verifyRenderedCjk(page, '#purchase-revision-title'));
       await page.getByTestId('purchase-revision-quantity').fill(index ? '80' : '120');
       await page.getByTestId('purchase-revision-price').fill(index ? '9' : '11');
       await page.getByTestId('purchase-revision-reason').fill(index ? '采购员乙协商变更' : '采购员甲协商变更');
@@ -89,10 +92,11 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
     assert.equal(readbacks[0].history.filter(entry => entry.action === 'STATUS_CHANGE').length, 1);
     assert.deepEqual(runtimeErrors, []);
     return { orderId: order.id, actorIds: [actors.buyer1.id, actors.buyer2.id], first, stale, rebased, approval,
-      conflictText, historyText, readbacks, persisted, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps };
+      conflictText, historyText, readbacks, persisted, fontEvidence, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps };
   } catch (error) {
+    if (error.fontEvidence) fontEvidence.push(error.fontEvidence);
     for (let index = 0; index < pages.length; index++) await pages[index].screenshot({ path: path.join(folder, `failure-${index}.png`) }).catch(() => {});
-    error.evidence = { folder, orderId: order.id, steps, runtimeErrors };
+    error.evidence = { folder, orderId: order.id, steps, runtimeErrors, fontEvidence };
     throw error;
   } finally {
     signal.removeEventListener('abort', abort);

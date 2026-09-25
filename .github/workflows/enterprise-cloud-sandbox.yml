@@ -32,6 +32,8 @@ on:
       - 'scripts/enterprise-20-staff-audit-v1.cjs'
       - 'scripts/enterprise-round2-*.cjs'
       - 'scripts/lib/enterprise-round2-runner.cjs'
+      - 'scripts/lib/enterprise-round2-procurement*.cjs'
+      - 'scripts/lib/browser-cjk-font-guard.cjs'
       - 'scripts/config/enterprise-round2-v1.json'
       - 'backend/src/services/barter/**'
       - 'backend/src/services/production-cost-ledger.service.ts'
@@ -308,6 +310,19 @@ jobs:
 
       - name: Verify cloud runner Chrome
         run: google-chrome --version
+
+      - name: Install Chinese glyph coverage for real browser evidence
+        id: browser_fonts
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig
+          fc-cache -f
+          fc-match 'sans-serif:lang=zh-cn' | tee cloud-evidence/chinese-font-match.txt
+          fc-match 'sans-serif:lang=zh-cn' | grep -qi 'NotoSansCJK'
 
       - name: Start dependency topology
         run: |

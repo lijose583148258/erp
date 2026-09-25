@@ -111,6 +111,27 @@ export DATABASE_URL=fixture
   }
 });
 
+test('font preparation failure remains fatal only at the final aggregate even with a green conclusion', () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, 'enterprise-cloud-business-audit-summary-v1.cjs'), 'utf8');
+  const ids = [...source.matchAll(/\['([a-z0-9_]+)',/g)].map(match => match[1]).filter(id => id !== 'round2_business');
+  assert(ids.includes('browser_fonts'));
+  for (const outcome of ['failure', 'skipped', 'cancelled', 'success']) {
+    const steps = Object.fromEntries(ids.map(id => [id, { outcome: 'success', conclusion: 'success' }]));
+    steps.browser_fonts = { outcome, conclusion: 'success' };
+    let report; let exitCode = 0;
+    vm.runInNewContext(source, {
+      require: name => name === 'node:fs' ? { mkdirSync() {}, writeFileSync(_path, data) { report = JSON.parse(data); } } : require(name),
+      process: { env: { BUSINESS_AUDIT_STEPS_JSON: JSON.stringify(steps) }, exit(code) { exitCode = code; } },
+      console: { log() {}, error() {} },
+    });
+    assert.equal(report.summary.expected, ids.length);
+    assert.equal(report.summary.failed, outcome === 'success' ? 0 : 1);
+    assert.equal(exitCode, outcome === 'success' ? 0 : 1);
+    assert.equal(report.audits.filter(item => item.id !== 'browser_fonts').every(item => item.status === 'passed'), true);
+  }
+});
+
 const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
 const { seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
 const fixtureOptions = () => ({
@@ -176,4 +197,19 @@ test('PO revisions have additive database upgrade paths and explicit cloud brows
   assert.doesNotMatch(upgrade.sql, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
   const workflow = fs.readFileSync(path.join(root, '.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
   assert.match(workflow, /id: round2_business[\s\S]{0,350}ROUND2_BROWSER: "true"/);
+});
+
+test('CJK raster evidence rejects tofu/blank glyphs even when DOM Chinese text is correct', () => {
+  const { assertCjkRasterEvidence } = require('./lib/browser-cjk-font-guard.cjs');
+  const glyphs = Array.from('采购版本变更数量审批').map((character, index) => ({ character, signature: `glyph-${index}`, inkPixels: 100 }));
+  const evidence = { missingSignatures: ['tofu', 'tofu-other'], glyphs };
+  assert.equal(assertCjkRasterEvidence(evidence), evidence);
+  assert.throws(() => assertCjkRasterEvidence({ ...evidence, glyphs: glyphs.map(glyph => ({ ...glyph, signature: 'tofu' })) }), /missing-glyph/);
+  assert.throws(() => assertCjkRasterEvidence({ ...evidence, glyphs: glyphs.map(glyph => ({ ...glyph, signature: 'same' })) }), /identical glyphs/);
+  assert.throws(() => assertCjkRasterEvidence({ ...evidence, glyphs: glyphs.map(glyph => ({ ...glyph, inkPixels: 0 })) }), /blank/);
+  assert.throws(() => assertCjkRasterEvidence({ ...evidence, missingSignatures: [] }), /reference signatures/);
+  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  assert.match(workflow, /apt-get install[^\n]*fonts-noto-cjk/);
+  assert.match(workflow, /id: browser_fonts\s+continue-on-error: true/);
+  assert.match(fs.readFileSync(path.join(__dirname, 'enterprise-cloud-business-audit-summary-v1.cjs'), 'utf8'), /\['browser_fonts',/);
 });
