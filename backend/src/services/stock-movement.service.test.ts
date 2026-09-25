@@ -51,6 +51,18 @@ describe('stock movement concurrency and idempotency', () => {
     }])).toThrow(StockMovementConflictError);
   });
 
+  it('does not silently skip valuation when a shipping actor is missing', async () => {
+    const tx = {
+      stockEntry: { findFirst: jest.fn(async () => null), create: jest.fn() },
+      material: { findUnique: jest.fn(async () => activeMaterial) },
+    } as any;
+    await expect(StockMovementService.postStockEntry({
+      sourceType: 'shipping_issue', sourceRef: 'SHIP1',
+      lines: [{ locationId: 1, materialId: 7, productName: 'Resin A', batchNo: 'B1', quantityDelta: -10, unit: 'kg' }],
+    }, tx)).rejects.toThrow('requires an accountable actor');
+    expect(tx.stockEntry.create).not.toHaveBeenCalled();
+  });
+
   it('treats material identity as part of the idempotency signature', () => {
     const governedResult = {
       ...existingResult,

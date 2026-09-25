@@ -23,6 +23,10 @@ const expectedAudits = [
   ['postgres_cutover_verdict', 'PostgreSQL cutover same-window verdict'],
   ['enterprise_pilot_verdict', 'Enterprise pilot technical verdict'],
 ];
+// An unfinished 12-chain run cannot masquerade as baseline success.
+if (process.env.ROUND2_REQUESTED === 'true') {
+  expectedAudits.push(['round2_business', 'Round 2 complete business-chain evidence']);
+}
 
 const outputPath = path.resolve(
   process.env.ENTERPRISE_CLOUD_BUSINESS_AUDIT_REPORT_PATH

@@ -2,7 +2,19 @@ name: Enterprise Cloud Sandbox
 
 on:
   workflow_call:
+    inputs:
+      round2:
+        description: Run the incomplete second-round business acceptance gate
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      round2:
+        description: Run Round 2 (missing business-chain evidence intentionally fails the final gate)
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/enterprise-cloud-sandbox.yml'
@@ -18,6 +30,11 @@ on:
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
       - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
       - 'scripts/enterprise-20-staff-audit-v1.cjs'
+      - 'scripts/enterprise-round2-*.cjs'
+      - 'scripts/lib/enterprise-round2-runner.cjs'
+      - 'scripts/config/enterprise-round2-v1.json'
+      - 'backend/src/services/barter/**'
+      - 'backend/src/services/production-cost-ledger.service.ts'
       - 'scripts/browser-ui-ux-audit-v2.cjs'
       - 'scripts/lib/browser-ui-ux-audit-report.cjs'
       - 'app/useAppShell.tsx'
@@ -600,6 +617,15 @@ jobs:
         continue-on-error: true
         run: npm run audit:concurrency:consistency
 
+      - name: Exercise Round 2 inventory, payment and barter business acceptance
+        id: round2_business
+        if: ${{ always() && steps.app_readiness.outcome == 'success' && inputs.round2 == true }}
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+        run: npm run audit:enterprise:round2
+
       - name: Exercise PostgreSQL logical backup restore
         id: postgres_backup_restore
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}
@@ -628,6 +654,7 @@ jobs:
         id: business_audit_verdict
         if: always()
         env:
+          ROUND2_REQUESTED: ${{ inputs.round2 || false }}
           BUSINESS_AUDIT_STEPS_JSON: ${{ toJSON(steps) }}
         run: node ./scripts/enterprise-cloud-business-audit-summary-v1.cjs
 

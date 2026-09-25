@@ -2,6 +2,7 @@ import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { addMoney, multiplyMoney, prorateMoney, roundMoney } from '../utils/money';
+import { StockMovementConflictError } from './stock-movement.errors';
 
 export type InventoryCostLedgerSourceType =
   | 'production_completion'
@@ -24,6 +25,7 @@ export interface InventoryCostLedgerInput {
   costAmountDelta?: number | null;
   note?: string | null;
   createdBy: number;
+  requireReconciledQuantity?: boolean;
 }
 
 export interface InventoryCostLedgerRecord {
@@ -119,6 +121,11 @@ export const calculateInventoryCostDelta = (
   return 0;
 };
 
+// Prorate the remaining carrying amount directly. Multiplying an already
+// rounded unit cost (100 / 3 => 33.33) would strand cents on final depletion.
+export const calculateInventoryIssueCost = (quantityDelta: number, quantityOnHand: number, carryingAmount: number) =>
+  quantityOnHand > 0 ? prorateMoney(carryingAmount, quantityDelta, quantityOnHand) : 0;
+
 const mapLedgerRecord = (record: any): InventoryCostLedgerRecord => ({
   id: Number(record.id),
   ledgerNo: record.ledgerNo,
@@ -190,7 +197,12 @@ const insertLedgerRow = async (tx: any, input: InventoryCostLedgerInput) => {
   const quantityAfter = roundQuantity(input.quantityAfter);
 
   const costSnapshot = await getBatchCostSnapshot(tx, input.batchId);
-  const costAmountDelta = calculateInventoryCostDelta(
+  if (input.requireReconciledQuantity && quantityBefore !== costSnapshot.totalQuantityDelta) {
+    throw new StockMovementConflictError(`STOCK_COST_RECONCILIATION_REQUIRED:${batch.batchNo}`);
+  }
+  const costAmountDelta = input.costAmountDelta == null && quantityDelta < 0 && costSnapshot.totalQuantityDelta > 0
+    ? calculateInventoryIssueCost(quantityDelta, costSnapshot.totalQuantityDelta, costSnapshot.totalCostAmountDelta)
+    : calculateInventoryCostDelta(
     quantityDelta,
     input.costAmountDelta,
     costSnapshot.currentUnitCost,
@@ -305,6 +317,7 @@ export class ProductionCostLedgerService {
     costAmountDelta?: number | null;
     note?: string | null;
     createdBy: number;
+    requireReconciledQuantity?: boolean;
   }) {
     return insertLedgerRow(tx, {
       batchId: input.batchId,
@@ -316,6 +329,7 @@ export class ProductionCostLedgerService {
       costAmountDelta: input.costAmountDelta ?? null,
       note: input.note || null,
       createdBy: input.createdBy,
+      requireReconciledQuantity: input.requireReconciledQuantity,
     });
   }
 

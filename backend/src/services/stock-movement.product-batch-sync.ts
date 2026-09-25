@@ -68,8 +68,6 @@ export const syncProductBatchForOperationalStock = async (
     };
   }
 
-  const quantityBefore = Number(batch.stockQuantity || 0);
-
   if (line.quantityDelta < 0) {
     const updated = await tx.productBatch.updateMany({
       where: {
@@ -87,10 +85,16 @@ export const syncProductBatchForOperationalStock = async (
     if (updated.count !== 1) {
       throw new Error(`Insufficient product batch stock for ${line.productName} / ${line.batchNo}`);
     }
+    // The first read can predate another writer. This transaction now owns the
+    // row lock; derive the ledger boundary from the persisted post-update value.
+    const persisted = await tx.productBatch.findUniqueOrThrow({
+      where: { id: batch.id }, select: { stockQuantity: true },
+    });
+    const quantityAfter = Number(persisted.stockQuantity);
     return {
       batchId: batch.id,
-      quantityBefore,
-      quantityAfter: quantityBefore + line.quantityDelta,
+      quantityBefore: quantityAfter - line.quantityDelta,
+      quantityAfter,
     };
   }
 
@@ -106,7 +110,7 @@ export const syncProductBatchForOperationalStock = async (
   });
   return {
     batchId: updated.id,
-    quantityBefore,
+    quantityBefore: Number(updated.stockQuantity || 0) - line.quantityDelta,
     quantityAfter: Number(updated.stockQuantity || 0),
   };
 };

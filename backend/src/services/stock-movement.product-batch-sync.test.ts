@@ -1,6 +1,35 @@
 import { syncProductBatchForOperationalStock } from './stock-movement.product-batch-sync';
 
 describe('governed product batch synchronization', () => {
+  it('synchronizes shipping and derives boundaries from the locked post-update state', async () => {
+    const tx = { productBatch: {
+      findUnique: jest.fn(async () => ({ id: 11, materialId: 7, stockQuantity: 100 })),
+      updateMany: jest.fn(async () => ({ count: 1 })),
+      findUniqueOrThrow: jest.fn(async () => ({ stockQuantity: 30 })),
+    } } as any;
+    await expect(syncProductBatchForOperationalStock(tx, 'shipping_issue', {
+      locationId: 1, materialId: 7, productName: 'Resin', batchNo: 'B1', quantityDelta: -60, unit: 'kg',
+    })).resolves.toEqual({ batchId: 11, quantityBefore: 90, quantityAfter: 30 });
+    expect(tx.productBatch.updateMany).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 11, stockQuantity: { gte: 60 } } }));
+  });
+
+  it('does not change global batch quantity during an internal transfer', async () => {
+    const tx = { productBatch: { findUnique: jest.fn() } } as any;
+    await expect(syncProductBatchForOperationalStock(tx, 'warehouse_transfer', {
+      locationId: 1, materialId: 7, productName: 'Resin', batchNo: 'B1', quantityDelta: -10,
+    })).resolves.toBeNull();
+    expect(tx.productBatch.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('rejects shipping when batch stock cannot cover the physical movement', async () => {
+    const tx = { productBatch: {
+      findUnique: jest.fn(async () => ({ id: 11, materialId: 7, stockQuantity: 40 })),
+      updateMany: jest.fn(async () => ({ count: 0 })),
+    } } as any;
+    await expect(syncProductBatchForOperationalStock(tx, 'shipping_issue', {
+      locationId: 1, materialId: 7, productName: 'Resin', batchNo: 'B1', quantityDelta: -60,
+    })).rejects.toThrow('Insufficient product batch stock');
+  });
   it('uses the material shelf life instead of the legacy one-year default', async () => {
     const create = jest.fn(async ({ data }) => ({ id: 11, stockQuantity: data.stockQuantity }));
     const tx = {

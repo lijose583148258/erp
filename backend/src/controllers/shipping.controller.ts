@@ -8,6 +8,7 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
+import { StockMovementConflictError } from '../services/stock-movement.errors';
 import { resolveShipmentIdentity } from '../services/shipment-material-identity';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createShippingReceiptEvent } from './shipping-receipt-event.controller';
@@ -223,7 +224,7 @@ export class ShippingController {
                     details: error.details,
                 });
             }
-            const statusCode = message.startsWith('No available stock') ? 409 : 500;
+            const statusCode = error instanceof StockMovementConflictError || message.startsWith('No available stock') ? 409 : resolveShipmentStatusCode(message);
             return res.status(statusCode).json({ success: false, message: statusCode === 409 ? message : '服务器内部错误' });
         }
     }
@@ -404,7 +405,7 @@ export class ShippingController {
         } catch (error) {
             logger.error('更新物流状态错误:', error);
             const message = error instanceof Error ? error.message : '服务器内部错误';
-            const statusCode = message.startsWith('No available stock') ? 409 : 500;
+            const statusCode = error instanceof StockMovementConflictError || message.startsWith('No available stock') ? 409 : resolveShipmentStatusCode(message);
             res.status(statusCode).json({ success: false, message });
         }
     }

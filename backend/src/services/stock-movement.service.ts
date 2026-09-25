@@ -74,6 +74,10 @@ export class StockMovementService {
         return existingPostedEntry;
       }
 
+      if ((input.sourceType === 'shipping_issue' || input.sourceType.startsWith('barter_')) && !input.createdBy) {
+        throw new Error('Valued outbound/barter posting requires an accountable actor');
+      }
+
       await assertMaterialReleaseReadiness(tx, {
         entityType: 'stock_entry',
         entityId: sourceRef,
@@ -324,7 +328,9 @@ export class StockMovementService {
           line.unitCost === null ? null : multiplyMoney(line.quantityDelta, line.unitCost)
         );
 
-        if (batchSync && explicitCostAmountDelta !== null && input.createdBy) {
+        // Shipping consumes the batch's carrying cost, not the selling price.
+        // Keep batch, physical stock and valuation inside the same transaction.
+        if (batchSync && (explicitCostAmountDelta !== null || input.sourceType === 'shipping_issue' || input.sourceType === 'barter_issue') && input.createdBy) {
           await ProductionCostLedgerService.recordInventoryMovement(tx, {
             batchId: batchSync.batchId,
             sourceRef: String(entry.entryNo || entryNo),
@@ -334,6 +340,7 @@ export class StockMovementService {
             costAmountDelta: explicitCostAmountDelta,
             note: input.note || `Stock valuation from ${input.sourceType}`,
             createdBy: input.createdBy,
+            requireReconciledQuantity: input.sourceType === 'shipping_issue' || input.sourceType.startsWith('barter_'),
           });
         }
 
