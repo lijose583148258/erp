@@ -70,8 +70,8 @@ export const PurchaseOrderWorkspace = ({
   ].filter(Boolean).join(' · ') || '币种/汇率/税费/背靠背可稍后补充';
 
   return (
-  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-    <div className={`${isReceiptMode ? 'lg:col-span-12' : 'lg:col-span-8'} app-card p-6`}>
+  <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-12">
+    <div className={`${isReceiptMode ? 'xl:col-span-12' : 'xl:col-span-8'} app-card min-w-0 p-6`}>
       {isReceiptMode ? (
         <div className="mb-4 rounded-[28px] border border-emerald-100 bg-emerald-50/70 px-5 py-4 text-xs font-bold leading-6 text-emerald-800 dark:border-emerald-900/40 dark:bg-emerald-950/20 dark:text-emerald-200">
           当前是收货职责区，只显示可收货订单队列。新增采购单请切回“采购订单”职责区，收货批次会从订单行右侧按钮进入并保存后回读。
@@ -110,7 +110,7 @@ export const PurchaseOrderWorkspace = ({
     </div>
 
     {!isReceiptMode ? (
-    <div className="lg:col-span-4 app-card mb-28 flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 lg:sticky lg:top-6 lg:mb-0">
+    <div className="app-card mb-28 flex min-w-0 max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 xl:sticky xl:top-6 xl:col-span-4 xl:mb-0">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
         <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">{t.addPurchase}</h3>
         <Plus size={16} className="text-slate-400" />

@@ -47,8 +47,8 @@ export const SupplierWorkspace = ({
   ].filter(Boolean).join(' · ') || '可稍后补充';
 
   return (
-  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-    <div className="lg:col-span-8 app-card p-6">
+  <div className="grid min-w-0 grid-cols-1 gap-6 xl:grid-cols-12">
+    <div className="app-card min-w-0 p-6 xl:col-span-8">
       <section data-testid="procurement-supplier-boundary" className="mb-4 rounded-[28px] border border-blue-100 bg-blue-50/80 p-4 shadow-sm dark:border-blue-900/50 dark:bg-blue-950/30">
         <div className="flex items-start gap-3">
           <div className="mt-0.5 rounded-2xl bg-white p-2 text-blue-600 shadow-sm dark:bg-slate-900 dark:text-blue-300">
@@ -81,7 +81,7 @@ export const SupplierWorkspace = ({
       />
     </div>
 
-    <div className="lg:col-span-4 app-card flex max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 lg:sticky lg:top-6">
+    <div className="app-card flex min-w-0 max-h-[calc(100vh-8rem)] flex-col overflow-hidden p-0 xl:sticky xl:top-6 xl:col-span-4">
       <div className="flex items-center justify-between border-b border-slate-100 px-6 py-5 dark:border-slate-800">
         <h3 className="text-sm font-black uppercase tracking-widest text-slate-700 dark:text-slate-200">{t.addSupplier}</h3>
         <Plus size={16} className="text-slate-400" />

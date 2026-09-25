@@ -4,6 +4,7 @@ const assert = require('node:assert/strict');
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
 const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
+const { verifyProcurementToolbarLayouts } = require('./procurement-toolbar-layout-audit.cjs');
 
 async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal) {
   const folder = path.join(path.dirname(reportPath), `${runId}-purchase-browser`);
@@ -23,6 +24,7 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
   const pages = [];
   const runtimeErrors = [];
   const fontEvidence = [];
+  const layoutEvidence = [];
   const abort = () => { void browser.close().catch(() => {}); };
   signal.addEventListener('abort', abort, { once: true });
   const read = async instance => dataOf(await request(`/procurement/orders/${order.id}/revisions`, { actor: actors.buyer1, instance, signal }));
@@ -48,6 +50,7 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
         localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
       }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
       await page.goto(`${urls[index]}/#procurement`, { waitUntil: 'domcontentloaded' });
+      if (index === 0) layoutEvidence.push(...await verifyProcurementToolbarLayouts(page, folder));
       await page.getByTestId('procurement-desk-orders').click();
       await page.getByTestId(`purchase-order-revise-${order.id}`).click();
       await page.getByTestId('purchase-revision-dialog').waitFor();
@@ -92,11 +95,12 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
     assert.equal(readbacks[0].history.filter(entry => entry.action === 'STATUS_CHANGE').length, 1);
     assert.deepEqual(runtimeErrors, []);
     return { orderId: order.id, actorIds: [actors.buyer1.id, actors.buyer2.id], first, stale, rebased, approval,
-      conflictText, historyText, readbacks, persisted, fontEvidence, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps };
+      conflictText, historyText, readbacks, persisted, fontEvidence, layoutEvidence, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps };
   } catch (error) {
     if (error.fontEvidence) fontEvidence.push(error.fontEvidence);
+    if (error.layoutEvidence) layoutEvidence.push(...error.layoutEvidence);
     for (let index = 0; index < pages.length; index++) await pages[index].screenshot({ path: path.join(folder, `failure-${index}.png`) }).catch(() => {});
-    error.evidence = { folder, orderId: order.id, steps, runtimeErrors, fontEvidence };
+    error.evidence = { folder, orderId: order.id, steps, runtimeErrors, fontEvidence, layoutEvidence };
     throw error;
   } finally {
     signal.removeEventListener('abort', abort);

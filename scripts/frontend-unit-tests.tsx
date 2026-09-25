@@ -45,6 +45,7 @@ import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientSta
 import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
 import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
 import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
+import { readStringArrayPreference } from '../components/ui/tablePreferences';
 
 type FrontendUnitTest = {
   name: string;
@@ -52,6 +53,26 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'fresh and invalid table preferences keep default columns; saved nonempty choices remain intact',
+    run: () => {
+      const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+      let stored: string | null = null;
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => stored } } });
+      const defaults = ['supplier', 'category', 'riskLevel'];
+      try {
+        for (const value of [null, '', '[]', '{}', 'invalid', '[null]', '[""]', '[1]']) {
+          stored = value;
+          assert.deepEqual(readStringArrayPreference('columns', defaults), defaults);
+        }
+        stored = '["riskLevel","advanced"]';
+        assert.deepEqual(readStringArrayPreference('columns', defaults), ['riskLevel', 'advanced']);
+      } finally {
+        if (original) Object.defineProperty(globalThis, 'window', original);
+        else Reflect.deleteProperty(globalThis, 'window');
+      }
+    },
+  },
   {
     name: 'authenticated shell keeps repair tools but removes decorative click effects',
     run: () => {
