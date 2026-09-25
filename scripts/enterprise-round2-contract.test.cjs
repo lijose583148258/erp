@@ -88,3 +88,78 @@ test('requested cloud Round2 is mandatory even when continue-on-error makes its 
   assert.match(workflow, /id: round2_business[\s\S]{0,150}always\(\)[\s\S]{0,150}continue-on-error: true/);
   assert.match(workflow, /ROUND2_REQUESTED: \$\{\{ inputs.round2 \|\| false \}\}/);
 });
+
+test('actual workflow shell runs all nine human audits under Actions bash -e after failures', () => {
+  const { spawnSync } = require('node:child_process');
+  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  const section = workflow.split('      - name: Simulate human ERP workflows')[1].split('\n      - name:')[0];
+  const script = section.split('        run: |')[1].split('\n').map(line => line.replace(/^ {10}/, '')).join('\n');
+  const bash = process.platform === 'win32' ? 'C:/Program Files/Git/bin/bash.exe' : 'bash';
+  for (const failAt of [1, 7, 9]) {
+    // Only substitute business commands, not run_audit or the workflow's shell options.
+    const stub = `calls=0
+npm() { calls=$((calls+1)); echo "EXECUTED:$calls:$*"; if (( calls == ${failAt} )); then return 23; fi; }
+env() { while [[ "$1" == *=* ]]; do shift; done; "$@"; }
+export DATABASE_URL=fixture
+`;
+    const result = spawnSync(bash, ['--noprofile', '--norc', '-e', '-o', 'pipefail', '-c', stub + script], { encoding: 'utf8', timeout: 10000, windowsHide: true });
+    assert.ifError(result.error);
+    assert.equal(result.status, 1, result.stderr);
+    assert.equal((result.stdout.match(/^EXECUTED:/gm) || []).length, 9, result.stdout);
+    assert.match(result.stdout, /EXECUTED:8:run audit:collection:human-flow/);
+    assert.match(result.stdout, /Human ERP workflow failures: .*:23/);
+  }
+});
+
+const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
+const { seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
+const fixtureOptions = () => ({
+  data: { ...createShippingAuditData('contract'), materialId: 1 },
+  report: { linkedShipment: { shipmentNo: 'SHP-contract' } },
+  unwrapList: payload => payload.json.data,
+  timebox: async (_page, _name, _timeout, action) => action(),
+  timeouts: { api: 1000, readBack: 1000 },
+});
+
+test('shipping browser fixture seeds explicit carrying cost through the stock API', async () => {
+  const options = fixtureOptions();
+  let seeded;
+  options.apiFetch = async (_page, route, request) => {
+    if (route === '/warehouses') return { ok: true, json: { data: [{ locations: [{ id: 2, code: 'LOC-FG' }] }] } };
+    assert.equal(route, '/warehouses/stock-balances');
+    seeded = request.data;
+    return { ok: true };
+  };
+  await seedShipmentStock(options);
+  assert.equal(seeded.unitCost, 10);
+  assert.equal(options.report.seededStock.costAmount, 240);
+  options.data.unitCost = undefined;
+  await assert.rejects(seedShipmentStock(options), /explicit nonnegative unitCost/);
+});
+
+test('shipping browser readback rejects quantity-only and duplicate cost evidence', async () => {
+  const options = fixtureOptions();
+  const { data } = options;
+  const batch = { id: 9, productName: data.linkedProduct, batchNo: data.batchNo, stockQuantity: 12 };
+  const costRow = { sourceRef: 'STK-contract', quantityDelta: -12, costAmountDelta: -120 };
+  const ledger = { summary: { totalQuantityDelta: 12, currentQuantity: 12, currentCostAmount: 120 }, items: [costRow] };
+  options.apiFetch = async (_page, route) => {
+    let result;
+    if (route.startsWith('/warehouses/stock-balances?')) result = [{ ...batch, locationCode: 'LOC-FG', quantity: 12 }];
+    else if (route.startsWith('/warehouses/stock-entries?')) result = [{ sourceType: 'shipping_issue', sourceRef: 'SHP-contract', entryNo: 'STK-contract', movements: [{ ...batch, quantityDelta: -12 }] }];
+    else if (route.startsWith('/assets/batches?')) result = [batch];
+    else if (route === '/production/batches/9/cost-ledger?pageSize=100') result = ledger;
+    else throw new Error(`Unexpected route ${route}`);
+    return { ok: true, json: { data: result } };
+  };
+  await verifyShippingIssue(options);
+  assert.equal(options.report.issueEvidence.costAmount, 120);
+  ledger.summary.currentCostAmount = 240;
+  await assert.rejects(verifyShippingIssue(options), /cost conservation mismatch/);
+  ledger.summary.currentCostAmount = 120;
+  batch.stockQuantity = 24;
+  await assert.rejects(verifyShippingIssue(options), /batch quantity mismatch/);
+  batch.stockQuantity = 12;
+  ledger.items.push(costRow);
+  await assert.rejects(verifyShippingIssue(options), /exactly one matching issue/);
+});

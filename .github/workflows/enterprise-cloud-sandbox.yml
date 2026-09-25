@@ -93,6 +93,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify business audit failure isolation and fixture valuation
+        run: npm run test:contract:enterprise-round2
+
       - name: Upload source evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -412,8 +415,14 @@ jobs:
             local name="$1"
             shift
             echo "::group::${name}"
-            "$@"
-            local status=$?
+            local status=0
+            # Actions invokes bash with -e; `set -uo pipefail` does not clear it.
+            # Test the command explicitly so one audit cannot skip later audits.
+            if "$@"; then
+              status=0
+            else
+              status=$?
+            fi
             echo "::endgroup::"
             if (( status != 0 )); then
               failures+=("${name}:${status}")

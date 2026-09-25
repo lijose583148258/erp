@@ -89,6 +89,9 @@ async function seedShipmentStock({
   timeouts,
 }) {
   return timebox(page, 'seed-linked-shipment-stock', timeouts.api, async () => {
+    if (!Number.isFinite(data.unitCost) || data.unitCost < 0) {
+      throw new Error('shipping stock fixture requires an explicit nonnegative unitCost');
+    }
     const location = await resolveLocation({
       page,
       apiFetch,
@@ -103,6 +106,7 @@ async function seedShipmentStock({
         productName: data.linkedProduct,
         batchNo: data.batchNo,
         quantity: data.stockQuantity,
+        unitCost: data.unitCost,
         unit: 'kg',
         sourceRef: `shipping-browser-audit:${runId}`,
         reason: 'shipping_browser_seed_stock',
@@ -116,6 +120,8 @@ async function seedShipmentStock({
       productName: data.linkedProduct,
       batchNo: data.batchNo,
       quantity: data.stockQuantity,
+      unitCost: data.unitCost,
+      costAmount: data.stockQuantity * data.unitCost,
     };
   });
 }
@@ -274,12 +280,41 @@ async function verifyShippingIssue({
       : null;
     if (!movement) throw new Error(`shipping issue entry missing matching movement: ${shipmentNo}`);
 
+    const batchPayload = await apiFetch(page, `/assets/batches?keyword=${encodeURIComponent(data.batchNo)}&pageSize=100`);
+    if (!batchPayload.ok) throw new Error(`batch readback failed: ${batchPayload.status}`);
+    const batches = unwrapList(batchPayload).filter(item => (
+      String(item.batchNo) === data.batchNo && String(item.productName) === data.linkedProduct
+    ));
+    if (batches.length !== 1 || Number(batches[0].stockQuantity) !== expectedRemaining) {
+      throw new Error(`shipping batch quantity mismatch: expected one batch with ${expectedRemaining}`);
+    }
+    const costPayload = await apiFetch(page, `/production/batches/${batches[0].id}/cost-ledger?pageSize=100`);
+    if (!costPayload.ok) throw new Error(`cost ledger readback failed: ${costPayload.status}`);
+    const ledger = costPayload.json?.data;
+    const expectedCost = Math.round(expectedRemaining * data.unitCost * 100) / 100;
+    const expectedIssueCost = -Math.round(data.quantity * data.unitCost * 100) / 100;
+    if (Number(ledger?.summary?.totalQuantityDelta) !== expectedRemaining
+      || Number(ledger?.summary?.currentQuantity) !== expectedRemaining
+      || Number(ledger?.summary?.currentCostAmount) !== expectedCost) {
+      throw new Error(`shipping cost conservation mismatch: expected ${expectedRemaining} / ${expectedCost}`);
+    }
+    const costRows = (ledger.items || []).filter(item => item.sourceRef === entries[0].entryNo);
+    if (costRows.length !== 1 || Number(costRows[0].quantityDelta) !== -Number(data.quantity)
+      || Number(costRows[0].costAmountDelta) !== expectedIssueCost) {
+      throw new Error('shipping cost ledger missing exactly one matching issue');
+    }
+
     report.issueEvidence = {
       sourceRef: shipmentNo,
       entryNo: entries[0].entryNo,
       entryCount: entries.length,
       remainingQuantity,
       locationCode: fgBalance.locationCode,
+      batchId: batches[0].id,
+      batchQuantity: Number(batches[0].stockQuantity),
+      costQuantity: Number(ledger.summary.totalQuantityDelta),
+      costAmount: Number(ledger.summary.currentCostAmount),
+      issueCostAmount: Number(costRows[0].costAmountDelta),
     };
   });
 }
