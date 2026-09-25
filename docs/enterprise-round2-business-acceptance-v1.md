@@ -86,3 +86,25 @@
 - 新回归测试按真实 Actions shell 参数启动 Bash，分别注入第 1、7、9 项失败，均要求 9 项全部执行且最后非零。云端 source job 同样运行该契约，避免静态正则检查冒充可执行证据。
 - 发货测试夹具通过原库存 API 显式记入 24 kg × 10 的测试成本，不补写历史真实数据、不放松出库一致性保护。浏览器实际发货 12 kg 后，进一步回读库位、批次、成本数量与金额，并要求恰好一条 -12 kg / -120 成本出库记录。
 - 证据：`output/review/round2-cloud-36089142015/`、`output/review/human-workflow-errexit-before.json`。新增修复尚须以重新提交后的云端结果验收。
+
+### d1ab4ad 的独立浏览器复测
+
+- 每条链单独创建新的 SQLite 数据库、随机端口、上传/日志目录，重新构建前后端；未使用已有业务数据库。
+- 发货：`output/round2/1790320231031-c36cd253/output/playwright/shipping-audit-report-v1.json`，实际浏览器 OCR 建单、发货、签收凭证上传与签收事件回读通过。库存/批次/成本数量均 12 kg，成本余额 120，出库成本 -120 且凭证恰好一张；人工查看 `shipping-final.png` 确认签收 12/12、剩余 0。
+- 回款：`output/round2/1790320339229-23b07230/output/playwright/collection-center-human-flow-browser-audit-report-v1.json`，被旧工作流截断的回款工作台链已单独运行通过。该结果不是第二轮重复提交、数据库重启与外部事件唯一性的证明。
+- 裁决框架现为 10 项通过，其中包含真实 Bash 故障注入与发货成本反例测试。
+
+### PO 并发修改的现状边界
+
+核对 `backend/src/routes/procurement.routes.ts`、`services/procurement.service.ts` 和采购工作台后，现有入口为新建、状态流转、收货及 B2B 关联；不存在对已建 PO 数量/单价/交期的版本化修改入口。因此不能拿状态流转的比较更新保护，替代 `po-stale-edit-conflict` 的改价/改量验收。
+
+下一实现必须同时覆盖：服务端原子版本校验、浏览器携带原版本、冲突后展示差异而非自动覆盖、已审批变更重新审批、已收货/已入账明细禁止原地改写，以及同事务前后值审计。预售的关联补单还需独立保存待补数量与履约责任，单有 PO 关联销售单字段不等于待补闭环。
+
+### 企业云最终回读：36105906037
+
+- 运行链接：https://github.com/lijose583148258/erp/actions/runs/36105906037 ，实际执行提交 `d1ab4adc9c83b0e809af78a283ac93d56deebb65`。
+- 21 项汇总 **20 通过 / 1 失败**；唯一失败是显式启用的第二轮完整证据门禁。20 项原有基线全部通过，不能表述成完整企业验收通过。
+- PostgreSQL 双实例第二轮 **8 通过 / 0 失败 / 29 未执行 / 0 条完整链通过**。保留 incomplete 和非零退出，不为了让 CI 变绿删除待测项。
+- 云端发货成本回读：库位 12 kg、批次 12 kg、成本数量 12 kg、成本余额 120、唯一出库凭证成本 -120。回款人机流程、搜索/对象存储切换、数据库切换窗口裁决均通过。
+- 工作流日志确认 `collection-human-flow` 和最后的 `decimal-shadow` 已执行，不再被前序失败的 shell 语义截断。
+- 下载证据位于 `output/review/round2-cloud-36105906037/`；日志为 `output/review/round2-job-107978290675.log`。本段记录不改变实际受测提交，也不把后续文档提交视为受测业务代码。
