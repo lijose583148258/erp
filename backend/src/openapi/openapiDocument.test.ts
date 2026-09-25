@@ -251,6 +251,18 @@ describe('OpenAPI contract foundation', () => {
       .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, nullable: true }));
   });
 
+  it('documents purchase revision preconditions and both review routes', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      expect(document.paths[`${prefix}/procurement/orders/{id}`]?.patch?.responses['409']).toBeDefined();
+      expect(document.paths[`${prefix}/procurement/orders/{id}/revisions`]?.get?.security).toBeDefined();
+      expect(document.paths[`${prefix}/procurement/orders/{id}/status`]?.patch?.description).toContain('revision > 0');
+    }
+    const schema = document.components.schemas.ProcurementPurchaseOrderRevisionRequest;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(['expectedRevision', 'expectedUpdatedAt', 'quantity', 'price', 'taxAmount', 'eta', 'reason']);
+  });
+
   it('resolves every local schema reference after composing the document', () => {
     const document = buildOpenApiDocument();
     const schemaNames = new Set(Object.keys(document.components.schemas));

@@ -20,6 +20,7 @@ import { createPurchaseOrder } from '../services/procurement-order.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createSupplierRecord } from '../services/procurement-supplier.service';
 import { changePurchaseOrderStatus } from '../services/procurement-status.service';
+import { revisePurchaseOrder } from '../services/procurement-revision.service';
 import {
   getB2BStatusForSalesOrder,
   linkPurchaseOrderToSalesOrder,
@@ -361,6 +362,38 @@ export class ProcurementController {
     }
   }
 
+  async reviseOrder(req: AuthRequest, res: Response) {
+    try {
+      if (!canViewProcurementOrders(req)) return rejectProcurementScope(res);
+      const order = await withDbRetry(() => prisma.$transaction(tx => revisePurchaseOrder(
+        tx, Number(req.params.id), req.body, req.user!.userId,
+      )), { label: 'revisePurchaseOrder' });
+      return res.json({ success: true, data: mapPurchaseOrder(order), message: '采购新版本已保存，须重新审批' });
+    } catch (error) {
+      logger.error('采购版本修改失败:', error);
+      return res.status(getProcurementErrorStatus(error)).json({ success: false,
+        message: error instanceof AppError ? error.message : '采购版本修改失败',
+        errorCode: error instanceof AppError ? error.errorCode : undefined,
+        details: error instanceof AppError ? error.details : undefined });
+    }
+  }
+
+  async getOrderRevisions(req: AuthRequest, res: Response) {
+    try {
+      const order = await prisma.purchaseOrder.findFirst({ where: mergeWhereAnd(
+        { id: Number(req.params.id) }, buildOperationalDataScopeWhere(req, PROCUREMENT_DATA_SCOPE),
+      ), include: { supplier: true, salesOrder: true } });
+      if (!order) return res.status(404).json({ success: false, message: '采购单不存在' });
+      const history = await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: order.id,
+        action: { in: ['REVISE', 'STATUS_CHANGE'] } }, orderBy: { id: 'desc' }, take: 100,
+        select: { id: true, userId: true, action: true, details: true, createdAt: true } });
+      return res.json({ success: true, data: { purchaseOrder: mapPurchaseOrder(order), history } });
+    } catch (error) {
+      logger.error('读取采购变更记录失败:', error);
+      return res.status(500).json({ success: false, message: '读取采购变更记录失败' });
+    }
+  }
+
   async updateOrderStatus(req: AuthRequest, res: Response) {
     try {
       if (!canViewProcurementOrders(req)) {
@@ -369,20 +402,13 @@ export class ProcurementController {
 
       const { id } = req.params;
       const nextStatus = normalizePurchaseStatus(req.body.status);
-      const order = await prisma.$transaction(tx => changePurchaseOrderStatus(tx, {
+      const order = await withDbRetry(() => prisma.$transaction(tx => changePurchaseOrderStatus(tx, {
         purchaseOrderId: Number(id),
         nextStatus,
         createdBy: req.user?.userId || null,
         enforceTransition: true,
-      }));
-
-      await writeAuditLog({
-        req,
-        action: 'STATUS_CHANGE',
-        resource: 'purchase_order',
-        resourceId: order.id,
-        details: `采购单 ${order.id} 状态更新为 ${nextStatus}`,
-      });
+        expectedRevision: req.body.expectedRevision,
+      })), { label: 'changePurchaseOrderStatus' });
 
       return res.json({
         success: true,
@@ -391,6 +417,9 @@ export class ProcurementController {
       });
     } catch (error) {
       logger.error('更新采购单状态错误:', error);
+      if (error instanceof AppError && error.details?.reason === 'PURCHASE_REVISION_CONFLICT') {
+        return res.status(409).json({ success: false, message: error.message, errorCode: error.errorCode, details: error.details });
+      }
       if (isMaterialReleaseReadinessError(error)) {
         return res.status(error.statusCode).json({
           success: false,

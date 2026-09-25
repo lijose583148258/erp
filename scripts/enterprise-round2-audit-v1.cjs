@@ -5,6 +5,7 @@ const catalog = require('./config/enterprise-round2-v1.json');
 const { createRound2Runner, synchronizedBurst } = require('./lib/enterprise-round2-runner.cjs');
 const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-user.cjs');
+const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
@@ -13,11 +14,12 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
   runId, commit: process.env.GITHUB_SHA || process.env.ROUND2_COMMIT || null,
   dirtySource: process.env.ROUND2_DIRTY || null, sourceHash: process.env.ROUND2_SOURCE_HASH || null, builtAt: process.env.ROUND2_BUILT_AT || null,
   provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite', appUrls: urls,
-  scope: 'API+database probes; not full workforce/browser acceptance',
+  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes and PO two-browser review; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
   loadCohort: '20 distinct warehouse actors, separate from the planned workforce',
 } });
-const implemented = ['stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
+const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked'];
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser');
 const actors = {};
 let prisma;
 
@@ -52,7 +54,7 @@ async function setup(signal) {
   for (const url of urls) assert(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname), 'Only isolated loopback sandboxes are supported');
   prisma = createAuditPrismaClient();
   const password = crypto.randomBytes(24).toString('base64url') + '!Aa1';
-  const definitions = [['admin', 'admin'], ['sales', 'sales'], ['finance1', 'finance'], ['finance2', 'finance'],
+  const definitions = [['admin', 'admin'], ['sales', 'sales'], ['finance1', 'finance'], ['finance2', 'finance'], ['buyer1', 'manager'], ['buyer2', 'manager'],
     ...Array.from({ length: 20 }, (_, index) => [`stock${index}`, 'warehouse'])];
   for (const [job, role] of definitions) {
     signal.throwIfAborted();
@@ -361,6 +363,11 @@ async function main() {
     return;
   }
   await runner.run('stock-20-contention', stockContention);
+  await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { purchaseRevisionBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
+    await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+  }
   await runner.run('transfer-shipping-contention', transferShipping);
   await runner.run('shipping-cost-conservation', shippingCost);
   await runner.run('payment-duplicate-verification', paymentVerification);

@@ -46,6 +46,7 @@ model PurchaseOrder {
   landedUnitCost   Float @default(0) @map("landed_unit_cost")
   eta           DateTime
   status        String   @default("pending")
+  revision      Int      @default(0)
   salesOrderRef String?  @map("sales_order_ref")
   salesOrderId  Int?     @map("sales_order_id")
   isB2B         Boolean  @default(false) @map("is_b2b")

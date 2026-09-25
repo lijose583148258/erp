@@ -1,6 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
-import { canTransitionPurchaseStatus, normalizePurchaseStatus } from './procurement-domain.service';
+import { canTransitionPurchaseStatus, mapPurchaseOrder, normalizePurchaseStatus } from './procurement-domain.service';
+import { purchaseRevisionConflict } from './procurement-revision.service';
 import {
   createPartialReceiptError,
   getPurchaseReceiptTotals,
@@ -18,6 +19,7 @@ export interface ChangePurchaseOrderStatusInput {
   nextStatus: string;
   createdBy?: number | null;
   enforceTransition?: boolean;
+  expectedRevision?: number;
 }
 
 export async function changePurchaseOrderStatus(
@@ -39,6 +41,14 @@ export async function changePurchaseOrderStatus(
 
   const nextStatus = normalizePurchaseStatus(input.nextStatus);
   const currentStatus = normalizePurchaseStatus(existing.status);
+  // Legacy callers may operate only on untouched revision 0. A revised PO must
+  // be explicitly reviewed; B2B status sync must not silently reapprove it.
+  if ((existing.revision > 0 || input.expectedRevision !== undefined)
+    && input.expectedRevision !== existing.revision) {
+    throw purchaseRevisionConflict(mapPurchaseOrder(existing));
+  }
+  if (currentStatus === nextStatus) return existing;
+  let claimedFromStatus = currentStatus;
   if (input.enforceTransition !== false && !canTransitionPurchaseStatus(currentStatus, nextStatus)) {
     throw new AppError('PURCHASE_STATUS_TRANSITION_NOT_ALLOWED', 409, ErrorCode.CONFLICT, {
       from: currentStatus,
@@ -55,7 +65,7 @@ export async function changePurchaseOrderStatus(
   }
 
   const claim = await tx.purchaseOrder.updateMany({
-    where: { id: existing.id, status: existing.status },
+    where: { id: existing.id, status: existing.status, revision: existing.revision },
     data: { status: nextStatus },
   });
 
@@ -70,6 +80,7 @@ export async function changePurchaseOrderStatus(
     }
 
     const latestStatus = normalizePurchaseStatus(latest.status);
+    if (latest.revision !== existing.revision) throw purchaseRevisionConflict(mapPurchaseOrder(latest));
     if (latestStatus === nextStatus) {
       return latest;
     }
@@ -82,7 +93,7 @@ export async function changePurchaseOrderStatus(
     }
 
     const retryClaim = await tx.purchaseOrder.updateMany({
-      where: { id: latest.id, status: latest.status },
+      where: { id: latest.id, status: latest.status, revision: existing.revision },
       data: { status: nextStatus },
     });
 
@@ -92,6 +103,7 @@ export async function changePurchaseOrderStatus(
         to: nextStatus,
       });
     }
+    claimedFromStatus = latestStatus;
   }
 
   const updated = await tx.purchaseOrder.findUnique({
@@ -123,6 +135,11 @@ export async function changePurchaseOrderStatus(
     if (totals.processedQuantity <= 0.000001) {
       await postProcurementReceiptIfMissing(tx, updated, input.createdBy || null);
     }
+  }
+
+  if (input.createdBy) {
+    await tx.auditLog.create({ data: { userId: input.createdBy, action: 'STATUS_CHANGE', resource: 'purchase_order', resourceId: updated.id,
+      details: JSON.stringify({ schema: 'purchase-status/v1', revision: updated.revision, from: claimedFromStatus, to: nextStatus }) } });
   }
 
   return updated;

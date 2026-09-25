@@ -163,3 +163,17 @@ test('shipping browser readback rejects quantity-only and duplicate cost evidenc
   ledger.items.push(costRow);
   await assert.rejects(verifyShippingIssue(options), /exactly one matching issue/);
 });
+
+test('PO revisions have additive database upgrade paths and explicit cloud browser coverage', () => {
+  const root = path.join(__dirname, '..');
+  const schema = fs.readFileSync(path.join(root, 'backend/prisma/models/procurement.prisma'), 'utf8');
+  const repair = fs.readFileSync(path.join(root, 'backend/src/database/runtime-schema-core-repair.ts'), 'utf8');
+  const { loadMigrations } = require('./postgres-schema-migrate-v1.cjs');
+  const upgrade = loadMigrations().find(item => item.id === '202609250001_purchase-order-revision');
+  assert.match(schema, /revision\s+Int\s+@default\(0\)/);
+  assert.match(repair, /'purchase_orders', 'revision', 'INTEGER NOT NULL DEFAULT 0'/);
+  assert.match(upgrade.sql, /ADD COLUMN IF NOT EXISTS "revision" INTEGER NOT NULL DEFAULT 0/);
+  assert.doesNotMatch(upgrade.sql, /\b(?:DROP|DELETE|TRUNCATE)\b/i);
+  const workflow = fs.readFileSync(path.join(root, '.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  assert.match(workflow, /id: round2_business[\s\S]{0,350}ROUND2_BROWSER: "true"/);
+});

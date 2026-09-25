@@ -15,13 +15,14 @@ const env = { ...process.env,
   NODE_ENV: 'production', AILAODA_DEPLOYMENT_MODE: 'local', DATABASE_URL: `file:${db.replace(/\\/g, '/')}`,
   AILAODA_RUNTIME_DB_PATH: db, JWT_SECRET: crypto.randomBytes(48).toString('hex'),
   LOG_DIR: path.join(sandbox, 'logs'), BACKUP_DIR: path.join(sandbox, 'backups'), UPLOAD_DIR: path.join(sandbox, 'uploads'),
-  SERVE_FRONTEND: 'false', CACHE_DRIVER: 'memory', SEARCH_DRIVER: 'prisma',
+  SERVE_FRONTEND: process.env.ROUND2_BROWSER === 'true' ? 'true' : 'false', CACHE_DRIVER: 'memory', SEARCH_DRIVER: 'prisma',
+  FRONTEND_DIST_DIR: path.join(sandbox, 'frontend'),
   SEARCH_ENDPOINT: '', SEARCH_ENDPOINTS: '', MEILISEARCH_URL: '', REDIS_URL: '',
   AUDIT_PRISMA_PROVIDER: 'sqlite', ROUND2_ALLOW_MUTATIONS: 'true', ROUND2_REPORT_PATH: reportPath,
 };
 try {
   env.ROUND2_COMMIT = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim();
-  env.ROUND2_DIRTY = String(Boolean(execFileSync('git', ['status', '--porcelain', '--', 'backend/src', 'scripts', 'package.json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()));
+  env.ROUND2_DIRTY = String(Boolean(execFileSync('git', ['status', '--porcelain', '--', 'backend/src', 'backend/prisma', 'scripts', 'pages', 'services', 'app', 'components', 'package.json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()));
 } catch { env.ROUND2_COMMIT = 'unknown'; env.ROUND2_DIRTY = 'unknown'; }
 function fingerprint(folder, hash) {
   for (const item of fs.readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -31,8 +32,7 @@ function fingerprint(folder, hash) {
   }
 }
 const sourceHash = crypto.createHash('sha256');
-fingerprint(path.join(root, 'backend', 'src'), sourceHash);
-fingerprint(path.join(root, 'scripts'), sourceHash);
+for (const folder of ['backend/src', 'backend/prisma/models', 'scripts', 'pages', 'services', 'app', 'components']) fingerprint(path.join(root, folder), sourceHash);
 env.ROUND2_SOURCE_HASH = sourceHash.digest('hex');
 
 function start(label, args, cwd = root, extraEnv = {}) {
@@ -81,6 +81,7 @@ async function stop() {
 async function main() {
   console.log(`Isolated Round2 evidence: ${sandbox}`);
   await command('build', [path.join(root, 'backend/node_modules/typescript/bin/tsc')], path.join(root, 'backend'));
+  if (env.ROUND2_BROWSER === 'true') await command('build-frontend', [path.join(root, 'node_modules/vite/bin/vite.js'), 'build', '--configLoader', 'native', '--outDir', env.FRONTEND_DIST_DIR], root, 180000);
   env.ROUND2_BUILT_AT = new Date().toISOString();
   await command('prepare', [path.join(root, 'backend/dist/database/manage-db.cli.js'), 'prepare'], root);
   const ports = [await freePort()];

@@ -210,6 +210,19 @@ export const openApiSchemas = {
       costAmountDelta: { type: 'number', nullable: true },
     },
   },
+  ProcurementPurchaseOrderRevisionRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['expectedRevision', 'expectedUpdatedAt', 'quantity', 'price', 'taxAmount', 'eta', 'reason'],
+    properties: {
+      expectedRevision: { type: 'integer', minimum: 0 },
+      expectedUpdatedAt: { type: 'string', format: 'date-time' },
+      quantity: { type: 'number', minimum: 0, exclusiveMinimum: true },
+      price: { type: 'number', minimum: 0 },
+      taxAmount: { type: 'number', minimum: 0, description: 'Explicit reviewed tax amount in CNY; not auto-recomputed from the tax rate.' },
+      eta: { type: 'string', format: 'date' },
+      reason: { type: 'string', minLength: 3, maxLength: 1000 },
+    },
+  },
   ProcurementPurchaseOrderCreateRequest: {
     type: 'object',
     additionalProperties: true,

@@ -638,6 +638,7 @@ jobs:
         timeout-minutes: 6
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
+          ROUND2_BROWSER: "true"
         run: npm run audit:enterprise:round2
 
       - name: Exercise PostgreSQL logical backup restore

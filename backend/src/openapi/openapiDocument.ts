@@ -44,6 +44,7 @@ const writeResponses = {
 };
 
 const secured = (requiresAuth: boolean) => (requiresAuth ? [{ bearerAuth: [] }] : undefined);
+const pathIdParameter = { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } };
 
 const queryParam = (name: string, schema: Record<string, unknown>, description: string) => ({
   name,
@@ -254,6 +255,27 @@ export const buildOpenApiDocument = () => {
           '201': { description: 'Purchase order commitment created.' },
         },
       },
+    };
+
+    paths[`${prefix}/procurement/orders/{id}`] = {
+      patch: {
+        tags: ['Procurement'], summary: 'Revise unreceived purchase terms with optimistic concurrency',
+        description: 'Requires procurement.write and procurement data scope. Both expectedRevision and expectedUpdatedAt must match. Only pending/approved orders without any receipt can change. Success increments revision, resets approval to pending and atomically records before/after audit. Stale writes return 409; the client must compare, never automatically overwrite. Supplier/material/unit/currency/FX/extra costs are not editable here.',
+        security: secured(true), parameters: [pathIdParameter],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProcurementPurchaseOrderRevisionRequest' } } } },
+        responses: { ...writeResponses, '404': { description: 'Purchase order not found.' } },
+      },
+    };
+    paths[`${prefix}/procurement/orders/{id}/revisions`] = {
+      get: { tags: ['Procurement'], summary: 'Read latest purchase version and up to 100 revision/status audit records',
+        security: secured(true), parameters: [pathIdParameter], responses: { ...jsonResponse, '404': { description: 'Purchase order not visible.' } } },
+    };
+    paths[`${prefix}/procurement/orders/{id}/status`] = {
+      patch: { tags: ['Procurement'], summary: 'Transition a reviewed purchase revision',
+        description: 'expectedRevision is mandatory once revision > 0. Legacy requests without a version may operate only on revision 0. Repeated same-state requests do not add audit events.',
+        security: secured(true), parameters: [pathIdParameter], requestBody: { required: true, content: { 'application/json': { schema: {
+          type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['pending', 'approved', 'in_transit', 'received', 'cancelled', 'confirmed', 'shipped', 'delivered'] }, expectedRevision: { type: 'integer', minimum: 0 } },
+        } } } }, responses: writeResponses },
     };
 
     paths[`${prefix}/collections/overdue`] = {
