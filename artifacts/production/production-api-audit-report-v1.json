@@ -1,0 +1,107 @@
+{
+  "name": "Production Mainline API Audit",
+  "version": "1.0",
+  "startTime": "2026-07-26T08:48:02.168Z",
+  "status": "passed",
+  "steps": [
+    {
+      "name": "get_identity_and_summary",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.517Z",
+      "bomCount": 18,
+      "workOrderCount": 3
+    },
+    {
+      "name": "reject_invalid_percentage_formula",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.534Z",
+      "message": "输入数据(body)格式错误"
+    },
+    {
+      "name": "create_bom",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.555Z",
+      "bomId": 19,
+      "bomType": "chemical_formula",
+      "formulationMode": "percentage"
+    },
+    {
+      "name": "read_back_chemical_bom",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.741Z",
+      "bomId": 19,
+      "formulaStatus": "active",
+      "items": 3,
+      "standardBatchSize": 1000
+    },
+    {
+      "name": "seed_raw_consumption_stock",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.821Z",
+      "materialCount": 3,
+      "rawLocationId": 1
+    },
+    {
+      "name": "create_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.837Z",
+      "workOrderId": 4
+    },
+    {
+      "name": "progress_step",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.849Z"
+    },
+    {
+      "name": "create_quality_check",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.859Z"
+    },
+    {
+      "name": "complete_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.915Z"
+    },
+    {
+      "name": "read_back_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.931Z",
+      "workOrderId": 4,
+      "workOrderStatus": "completed",
+      "bomId": 19,
+      "batchNo": "WO-4-BATCH-1785055682888-F49D6A4F0B"
+    },
+    {
+      "name": "read_back_batch_before_adjustment",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.943Z",
+      "batchId": 26,
+      "batchNo": "WO-4-BATCH-1785055682888-F49D6A4F0B",
+      "stockQuantity": 9.8
+    },
+    {
+      "name": "create_production_adjustment",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.963Z",
+      "adjustmentId": 1,
+      "adjustedStock": 8.8
+    },
+    {
+      "name": "read_back_adjusted_batch",
+      "status": "passed",
+      "time": "2026-07-26T08:48:02.995Z",
+      "adjustmentId": 1,
+      "batchId": 26,
+      "stockQuantity": 8.8
+    },
+    {
+      "name": "reverse_adjustment_and_recover_batch",
+      "status": "passed",
+      "time": "2026-07-26T08:48:03.045Z",
+      "adjustmentId": 1,
+      "batchId": 26,
+      "stockQuantity": 9.8
+    }
+  ],
+  "finishedAt": "2026-07-26T08:48:03.046Z"
+}

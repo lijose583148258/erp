@@ -6,26 +6,28 @@ import { getStatusBorderBadgeClassName } from '../../components/ui/statusBadgeLo
 import { WO_LABELS } from './productionWorkspaceConfig';
 
 export const SectionHeader = ({ title, subtitle }: { title: string; subtitle: string }) => (
-  <div className="flex items-center justify-between gap-4">
-    <h2 className="text-2xl font-black tracking-tighter italic uppercase flex items-center">
-      <div className="w-2 h-8 bg-blue-600 rounded-full mr-4" />
+  <div className="flex flex-col items-start gap-2 lg:flex-row lg:items-center lg:justify-between lg:gap-4">
+    <h2 className="flex items-center text-xl font-black tracking-tighter">
+      <div className="mr-3 h-7 w-1.5 rounded-full bg-blue-600" />
       {title}
     </h2>
-    <div className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400">{subtitle}</div>
+    <div className="max-w-2xl text-xs font-bold leading-5 text-slate-500 dark:text-slate-400">{subtitle}</div>
   </div>
 );
 
 export const StatCard = ({ title, value, color, icon }: { title: string; value: number | string; color: string; icon: React.ReactNode }) => (
-  <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-8 rounded-[40px] border border-white/50 dark:border-slate-800 shadow-[0_10px_40px_-10px_rgba(0,0,0,0.02)]">
-    <div className={`p-4 ${color} text-white rounded-[22px] shadow-xl shadow-current/20 w-fit mb-8`}>{icon}</div>
-    <p className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">{title}</p>
-    <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter mt-2">{value}</p>
+  <div className="flex items-center gap-3 rounded-[24px] border border-white/50 bg-white/80 p-3.5 shadow-[0_10px_30px_-14px_rgba(15,23,42,0.14)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/80">
+    <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-[16px] ${color} text-white shadow-lg shadow-current/15`}>{icon}</div>
+    <div className="min-w-0">
+      <p className="truncate text-xs font-black text-slate-500">{title}</p>
+      <p className="mt-0.5 text-2xl font-black leading-none tracking-tight text-slate-900 dark:text-white">{value}</p>
+    </div>
   </div>
 );
 
 export const SummaryChip = ({ label, value, dataTestId }: { label: string; value: string; dataTestId?: string }) => (
   <div data-testid={dataTestId} className="rounded-[20px] border border-slate-100 dark:border-slate-700 bg-white/80 dark:bg-slate-900/70 px-4 py-3">
-    <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{label}</div>
+    <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{label}</div>
     <div className="mt-2 text-sm font-black text-slate-900 dark:text-white">{value}</div>
   </div>
 );
@@ -39,6 +41,8 @@ export const Field = ({
   readOnly = false,
   dataTestId,
   error,
+  required = false,
+  hint,
 }: {
   label: string;
   value: string;
@@ -48,12 +52,17 @@ export const Field = ({
   readOnly?: boolean;
   dataTestId?: string;
   error?: string;
+  required?: boolean;
+  hint?: string;
 }) => {
   const errorId = dataTestId && error ? `${dataTestId}-error` : undefined;
 
   return (
     <label className="block">
-      <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
+      <span className="mb-2 flex items-center gap-2 text-xs font-black text-slate-500">
+        {label}
+        {required ? <span className="rounded bg-rose-50 px-1.5 py-0.5 text-[11px] text-rose-600 dark:bg-rose-950/40 dark:text-rose-300">必填</span> : null}
+      </span>
       <input
         data-testid={dataTestId}
         value={value}
@@ -63,10 +72,12 @@ export const Field = ({
         type={type}
         aria-invalid={Boolean(error)}
         aria-describedby={errorId}
+        aria-required={required}
         className={`w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border ${
           error ? 'border-rose-400 focus:ring-2 focus:ring-rose-100' : 'border-slate-100 dark:border-slate-700'
         }`}
       />
+      {hint ? <span className="mt-1.5 block text-xs font-bold leading-5 text-slate-400">{hint}</span> : null}
       {error ? <span id={errorId} className="mt-2 block text-xs font-bold text-rose-600 dark:text-rose-300">{error}</span> : null}
     </label>
   );
@@ -86,7 +97,7 @@ export const SelectField = ({
   dataTestId?: string;
 }) => (
   <label className="block">
-    <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
+    <span className="block text-xs font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span>
     <select data-testid={dataTestId} value={value} onChange={e => onChange(e.target.value)} className="w-full px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700">
       {options.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
     </select>
@@ -95,13 +106,13 @@ export const SelectField = ({
 
 export const TextareaField = ({ label, value, onChange, placeholder, dataTestId }: { label: string; value: string; onChange: (value: string) => void; placeholder: string; dataTestId?: string }) => (
   <label className="block">
-    {label ? <span className="block text-[10px] font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span> : null}
+    {label ? <span className="block text-xs font-black uppercase tracking-[0.25em] text-slate-400 mb-2">{label}</span> : null}
     <textarea data-testid={dataTestId} value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className="w-full min-h-24 px-4 py-3 rounded-2xl bg-slate-50 dark:bg-slate-800/70 text-sm font-bold text-slate-700 dark:text-slate-200 border border-slate-100 dark:border-slate-700" />
   </label>
 );
 
 export const Th = ({ children }: { children: React.ReactNode }) => (
-  <th className="px-4 py-4 text-[10px] font-black text-slate-400 uppercase tracking-[0.25em]">{children}</th>
+  <th className="px-4 py-4 text-xs font-black text-slate-400 uppercase tracking-[0.25em]">{children}</th>
 );
 
 export const Td = ({
@@ -158,10 +169,10 @@ export const OrderActionButtons = ({
   if (status === 'qc_pending') {
     return (
       <>
-        <button onClick={() => void onAction(workOrderId, 'completed')} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-[10px] font-black uppercase tracking-widest">
+        <button onClick={() => void onAction(workOrderId, 'completed')} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest">
           完工
         </button>
-        <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
+        <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
           取消
         </button>
       </>
@@ -171,10 +182,10 @@ export const OrderActionButtons = ({
   if (status === 'in_progress') {
     return (
       <>
-        <button onClick={() => void onAction(workOrderId, 'qc_pending')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">
+        <button onClick={() => void onAction(workOrderId, 'qc_pending')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest">
           送检
         </button>
-        <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
+        <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
           取消
         </button>
       </>
@@ -183,10 +194,10 @@ export const OrderActionButtons = ({
 
   return (
     <>
-      <button onClick={() => void onAction(workOrderId, 'in_progress')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-widest">
+      <button onClick={() => void onAction(workOrderId, 'in_progress')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest">
         开工
       </button>
-      <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-[10px] font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
+      <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
         取消
       </button>
     </>

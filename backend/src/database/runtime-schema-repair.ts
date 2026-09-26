@@ -8,6 +8,8 @@ import { repairReceiptSchema } from './runtime-schema-receipt-repair';
 import { repairReceivableSchema } from './runtime-schema-receivable-repair';
 import { repairStockSchema } from './runtime-schema-stock-repair';
 import { repairCommercialPlatformSchema } from './runtime-schema-commercial-repair';
+import { repairMaterialSchema } from './runtime-schema-material-repair';
+import { repairDecimalShadowSchema } from './runtime-schema-decimal-repair';
 
 export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   const report: SchemaRepairReport = { entries: [] };
@@ -20,6 +22,8 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
 
   await repairProductionSchema(report);
 
+  await repairMaterialSchema(report);
+
   await repairStockSchema(report);
 
   await repairAuthSchema(report);
@@ -27,6 +31,8 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   await repairBarterSchema(report);
 
   await repairReceivableSchema(report);
+
+  await repairDecimalShadowSchema(report);
 
   await repairCommercialPlatformSchema(report);
 

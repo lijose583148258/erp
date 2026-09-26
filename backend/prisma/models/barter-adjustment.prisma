@@ -41,6 +41,7 @@ model BarterAgreement {
 model BarterAgreementItem {
   id              Int      @id @default(autoincrement())
   agreementId     Int      @map("agreement_id")
+  materialId      Int?     @map("material_id")
   side            String
   itemName        String   @map("item_name")
   specification   String?
@@ -56,8 +57,10 @@ model BarterAgreementItem {
   createdAt       DateTime @default(now()) @map("created_at")
 
   agreement       BarterAgreement @relation(fields: [agreementId], references: [id], onDelete: Cascade)
+  material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
 
   @@index([agreementId])
+  @@index([materialId])
   @@index([side])
   @@map("barter_agreement_items")
 }
@@ -113,6 +116,7 @@ model BarterSettlement {
 model BarterItem {
   id              Int      @id @default(autoincrement())
   settlementId    Int      @map("settlement_id")
+  materialId      Int?     @map("material_id")
   side            String
   itemName        String   @map("item_name")
   specification   String?
@@ -128,8 +132,10 @@ model BarterItem {
   createdAt       DateTime @default(now()) @map("created_at")
 
   settlement      BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Cascade)
+  material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
 
   @@index([settlementId])
+  @@index([materialId])
   @@index([side])
   @@map("barter_items")
 }

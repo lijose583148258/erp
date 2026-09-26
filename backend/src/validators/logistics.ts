@@ -49,6 +49,8 @@ export const createShipmentSchema = z.object({
     value => (value === '' || value === null ? undefined : value),
     z.coerce.number().int().positive().optional().nullable()
   ),
+  orderItemId: z.coerce.number().int().positive().optional().nullable(),
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   productName: z.string().trim().min(1),
   quantity: z.coerce.number().positive(),
   unit: z.string().trim().optional(),

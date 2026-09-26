@@ -123,7 +123,7 @@ export const buildShipmentColumns = (
         accessor: (row) => (
             <div className="flex flex-col gap-2">
                 {row.signedReceiptUrl ? (
-                    <a data-testid={`shipment-receipt-link-${row.id}`} href={row.signedReceiptUrl} target="_blank" rel="noreferrer" className="flex items-center text-emerald-600 hover:scale-105 transition-transform">
+ <a data-testid={`shipment-receipt-link-${row.id}`} href={row.signedReceiptUrl} target="_blank" rel="noreferrer" className="flex items-center text-emerald-600 transition-transform">
                         <ImageIcon size={14} className="mr-1.5" />
                         <span className="text-xs font-bold">{t.viewReceipt}</span>
                     </a>

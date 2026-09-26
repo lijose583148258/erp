@@ -3,7 +3,29 @@ import { z } from 'zod';
 const adjustmentDomainSchema = z.enum(['finance', 'production', 'inventory']);
 const adjustmentTargetTypeSchema = z.enum(['order', 'productBatch', 'manual']);
 const productionWorkOrderStatusSchema = z.enum(['draft', 'planned', 'in_progress', 'qc_pending', 'completed', 'cancelled']);
-const productionQualityResultSchema = z.enum(['pending', 'pass', 'fail']);
+const productionQualityCharacteristicSchema = z.object({
+  code: z.string().trim().min(1).max(40),
+  name: z.string().trim().min(1).max(120),
+  valueType: z.enum(['numeric', 'text']).default('numeric'),
+  unit: z.string().trim().max(30).optional().nullable(),
+  lowerLimit: z.union([z.string().trim().min(1), z.number()]).optional().nullable(),
+  upperLimit: z.union([z.string().trim().min(1), z.number()]).optional().nullable(),
+  targetText: z.string().trim().max(200).optional().nullable(),
+  testMethod: z.string().trim().max(200).optional().nullable(),
+  required: z.boolean().default(true),
+  sortOrder: z.coerce.number().int().nonnegative().optional(),
+}).strict().superRefine((value, ctx) => {
+  if (value.valueType === 'numeric') {
+    const lower = value.lowerLimit === null || value.lowerLimit === undefined ? null : Number(value.lowerLimit);
+    const upper = value.upperLimit === null || value.upperLimit === undefined ? null : Number(value.upperLimit);
+    if (lower !== null && !Number.isFinite(lower)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['lowerLimit'], message: '下限必须是有效数字' });
+    if (upper !== null && !Number.isFinite(upper)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['upperLimit'], message: '上限必须是有效数字' });
+    if (lower !== null && upper !== null && lower > upper) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['upperLimit'], message: '上限不能小于下限' });
+    if (lower === null && upper === null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['lowerLimit'], message: '数值型检验项至少填写一个上下限' });
+  } else if (!value.targetText) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetText'], message: '文本型检验项必须填写合格目标' });
+  }
+});
 
 export const createAdjustmentSchema = z.object({
   domain: adjustmentDomainSchema,
@@ -41,6 +63,7 @@ export const createAdjustmentSchema = z.object({
 });
 
 const productionBomItemSchema = z.object({
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   materialName: z.string().trim().optional().nullable(),
   materialCode: z.string().trim().optional().nullable(),
   ingredientRole: z.string().trim().optional().nullable(),
@@ -55,11 +78,11 @@ const productionBomItemSchema = z.object({
   yieldContribution: z.coerce.number().nonnegative().max(100).optional().nullable(),
   notes: z.string().trim().optional().nullable(),
 }).strict().superRefine((value, ctx) => {
-  if (!value.materialName && !value.materialCode) {
+  if (!value.materialId && !value.materialName && !value.materialCode) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['materialCode'],
-      message: '物料名称或保密代号/编码至少填写一个',
+      message: '请选择统一物料，或至少填写物料名称/保密代号',
     });
   }
 
@@ -82,12 +105,14 @@ const productionStepInputSchema = z.object({
 }).strict();
 
 export const createProductionBomSchema = z.object({
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   productName: z.string().trim().min(1),
   version: z.string().trim().optional().nullable(),
   bomType: z.string().trim().optional().nullable(),
   status: z.string().trim().optional().nullable(),
   formulationMode: z.string().trim().optional().nullable(),
   outputUnit: z.string().trim().min(1),
+  shelfLifeDays: z.coerce.number().int().min(1).max(3650),
   standardBatchSize: z.coerce.number().positive().optional().nullable(),
   batchSizeUnit: z.string().trim().optional().nullable(),
   density: z.coerce.number().positive().optional().nullable(),
@@ -96,6 +121,7 @@ export const createProductionBomSchema = z.object({
   effectiveTo: z.string().trim().optional().nullable(),
   processJson: z.string().trim().optional().nullable(),
   qualitySpecJson: z.string().trim().optional().nullable(),
+  qualityCharacteristics: z.array(productionQualityCharacteristicSchema).max(100).optional(),
   notes: z.string().trim().optional().nullable(),
   items: z.array(productionBomItemSchema).optional(),
 }).strict().superRefine((value, ctx) => {
@@ -137,6 +163,18 @@ export const createProductionBomSchema = z.object({
       path: ['formulationMode'],
       message: '化工配方必须指定配方模式',
     });
+  }
+
+  if (value.bomType === 'chemical_formula' && value.status !== 'draft' && !value.qualityCharacteristics?.length) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['qualityCharacteristics'],
+      message: '受控化工配方至少需要 1 个结构化质检项目',
+    });
+  }
+  const qualityCodes = (value.qualityCharacteristics || []).map(item => item.code.trim().toUpperCase());
+  if (new Set(qualityCodes).size !== qualityCodes.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['qualityCharacteristics'], message: '质检项目编码不能重复' });
   }
 
   if (value.standardBatchSize !== undefined && value.standardBatchSize !== null && !value.batchSizeUnit) {
@@ -247,8 +285,24 @@ export const updateProductionStepSchema = z.object({
 }).strict().refine(value => Object.keys(value).length > 0, { message: '至少提供一个可更新字段' });
 
 export const createProductionQualityCheckSchema = z.object({
-  result: productionQualityResultSchema,
+  sampleNo: z.string().trim().min(1).max(80),
   defectRate: z.coerce.number().nonnegative().optional().nullable(),
   note: z.string().trim().optional().nullable(),
-  checkedBy: z.string().trim().optional().nullable(),
+  measurements: z.array(z.object({
+    characteristicId: z.coerce.number().int().positive(),
+    measuredNumeric: z.union([z.string().trim().min(1), z.number()]).optional().nullable(),
+    measuredText: z.string().trim().max(500).optional().nullable(),
+    instrumentNo: z.string().trim().max(100).optional().nullable(),
+    note: z.string().trim().max(1000).optional().nullable(),
+  }).strict()).min(1).max(100),
+}).strict().superRefine((value, ctx) => {
+  const ids = value.measurements.map(item => item.characteristicId);
+  if (new Set(ids).size !== ids.length) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['measurements'], message: '同一检验项目不能重复提交' });
+  }
+});
+
+export const reviewProductionQualityCheckSchema = z.object({
+  decision: z.enum(['release', 'reject']),
+  reviewNote: z.string().trim().min(1).max(1000),
 }).strict();

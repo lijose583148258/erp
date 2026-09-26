@@ -3,7 +3,7 @@ import prisma from '../config/database';
 export type RepairAction = 'created' | 'exists' | 'added' | 'skipped' | 'dropped' | 'updated';
 
 export interface SchemaRepairEntry {
-  kind: 'table' | 'column' | 'index' | 'seed';
+  kind: 'table' | 'column' | 'index' | 'trigger' | 'seed';
   target: string;
   action: RepairAction;
 }
@@ -47,21 +47,32 @@ export const indexExists = async (indexName: string) => {
   return rows.length > 0;
 };
 
+export const triggerExists = async (triggerName: string) => {
+  const rows = await prisma.$queryRawUnsafe<Array<{ name: string }>>(
+    'SELECT name FROM sqlite_master WHERE type = ? AND name = ?',
+    'trigger',
+    triggerName,
+  );
+  return rows.length > 0;
+};
+
 const KNOWN_TABLES = new Set([
-  'orders', 'customers', 'suppliers', 'payment_records', 'shipments', 'purchase_orders',
+  'orders', 'order_items', 'customers', 'suppliers', 'payment_records', 'shipments', 'purchase_orders',
   'users',
   'purchase_receipts', 'shipment_receipts', 'receipt_discrepancy_cases',
   'receipt_discrepancy_actions', 'receipt_tolerance_rules',
   'barter_settlements', 'barter_items', 'barter_valuation_snapshots',
   'barter_offset_postings', 'barter_reversal_logs', 'contracts',
   'contract_milestones', 'product_batches', 'adjustment_records',
-  'production_boms', 'production_bom_items', 'production_work_orders',
+  'production_boms', 'production_bom_items', 'production_work_orders', 'production_quality_checks',
+  'production_quality_characteristics', 'production_quality_measurements', 'batch_genealogy_edges',
   'inventory_cost_ledgers',
   'warehouses', 'locations', 'stock_balances', 'stock_entries', 'stock_movements',
   'auth_roles', 'auth_permissions', 'auth_role_permissions', 'auth_policy_migrations',
   'receivable_adjustments',
   'workflow_definitions', 'workflow_instances', 'workflow_tasks', 'workflow_actions',
   'notifications', 'business_events', 'alert_rules', 'bi_sales_daily',
+  'materials', 'material_aliases',
 ]);
 
 export const columnExists = async (tableName: string, columnName: string) => {
@@ -113,6 +124,38 @@ export const createIndexIfMissing = async (
 
   await prisma.$executeRawUnsafe(createSql);
   report.entries.push({ kind: 'index', target: indexName, action: 'created' });
+};
+
+const normalizeSchemaSql = (value: string) =>
+  value.trim().replace(/;\s*$/, '').replace(/\s+/g, ' ').toLowerCase();
+
+export const ensureTriggerDefinition = async (
+  report: SchemaRepairReport,
+  triggerName: string,
+  createSql: string,
+) => {
+  if (!/^[a-z][a-z0-9_]{2,127}$/.test(triggerName)) {
+    throw new Error(`Schema repair rejected unsafe trigger name '${triggerName}'`);
+  }
+  const rows = await prisma.$queryRawUnsafe<Array<{ sql: string | null }>>(
+    'SELECT sql FROM sqlite_master WHERE type = ? AND name = ? LIMIT 1',
+    'trigger',
+    triggerName,
+  );
+  const currentSql = rows[0]?.sql || '';
+  if (!currentSql) {
+    await prisma.$executeRawUnsafe(createSql);
+    report.entries.push({ kind: 'trigger', target: triggerName, action: 'created' });
+    return;
+  }
+  if (normalizeSchemaSql(currentSql) === normalizeSchemaSql(createSql)) {
+    report.entries.push({ kind: 'trigger', target: triggerName, action: 'exists' });
+    return;
+  }
+
+  await prisma.$executeRawUnsafe(`DROP TRIGGER "${triggerName}"`);
+  await prisma.$executeRawUnsafe(createSql);
+  report.entries.push({ kind: 'trigger', target: triggerName, action: 'updated' });
 };
 
 export const dropIndexIfExists = async (

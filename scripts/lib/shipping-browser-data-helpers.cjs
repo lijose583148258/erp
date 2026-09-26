@@ -89,6 +89,9 @@ async function seedShipmentStock({
   timeouts,
 }) {
   return timebox(page, 'seed-linked-shipment-stock', timeouts.api, async () => {
+    if (!Number.isFinite(data.unitCost) || data.unitCost < 0) {
+      throw new Error('shipping stock fixture requires an explicit nonnegative unitCost');
+    }
     const location = await resolveLocation({
       page,
       apiFetch,
@@ -99,9 +102,11 @@ async function seedShipmentStock({
       method: 'POST',
       data: {
         locationId: Number(location.id),
+        materialId: Number(data.materialId),
         productName: data.linkedProduct,
         batchNo: data.batchNo,
         quantity: data.stockQuantity,
+        unitCost: data.unitCost,
         unit: 'kg',
         sourceRef: `shipping-browser-audit:${runId}`,
         reason: 'shipping_browser_seed_stock',
@@ -115,6 +120,8 @@ async function seedShipmentStock({
       productName: data.linkedProduct,
       batchNo: data.batchNo,
       quantity: data.stockQuantity,
+      unitCost: data.unitCost,
+      costAmount: data.stockQuantity * data.unitCost,
     };
   });
 }
@@ -146,6 +153,7 @@ async function createConfirmedShippingOrder({
         customerId: Number(customer.id),
         items: [
           {
+            materialId: Number(data.materialId),
             productName: data.linkedProduct,
             specification: 'AUTO-SHIPPING',
             quantity: data.quantity,
@@ -195,13 +203,43 @@ async function createLinkedShipment({
     if (!report.order?.id || !report.order?.customerId) {
       throw new Error('confirmed order missing before linked shipment creation');
     }
+    // Read persisted line identity; order-level linkage alone cannot prove delivery.
+    // This fixture is in kg and must never guess a line or add unlike quantities.
+    const orderPayload = await apiFetch(page, `/orders/${report.order.id}`);
+    if (!orderPayload.ok) throw new Error(`shipping order line readback failed: ${orderPayload.status}`);
+    const order = orderPayload.json?.data;
+    if (Number(order?.id) !== Number(report.order.id)
+      || Number(order?.customerId) !== Number(report.order.customerId)) {
+      throw new Error('shipping order line readback identity mismatch');
+    }
+    const unitKey = value => String(value || '').trim().toLowerCase();
+    const materialId = Number(data.materialId);
+    const matches = (Array.isArray(order.items) ? order.items : []).filter(item => (
+      Number(item.materialId) === materialId && unitKey(item.unit) === 'kg'
+    ));
+    if (!Number.isSafeInteger(materialId) || materialId <= 0 || matches.length !== 1) {
+      throw new Error('shipping fixture requires exactly one persisted material/unit order line');
+    }
+    const line = matches[0];
+    const orderItemId = Number(line.id);
+    const quantity = Number(data.quantity);
+    if (!Number.isSafeInteger(orderItemId) || orderItemId <= 0
+      || typeof line.productName !== 'string' || !line.productName.trim()) {
+      throw new Error('shipping fixture order line identity is incomplete');
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0
+      || !Number.isFinite(Number(line.quantity)) || quantity > Number(line.quantity)) {
+      throw new Error('shipping fixture quantity must fit the single persisted order line');
+    }
     const payload = await apiFetch(page, '/shipping', {
       method: 'POST',
       data: {
         customerId: Number(report.order.customerId),
         orderId: Number(report.order.id),
-        productName: data.linkedProduct,
-        quantity: data.quantity,
+        orderItemId,
+        materialId,
+        productName: line.productName,
+        quantity,
         unit: 'kg',
         batchNo: data.batchNo,
         carrier: data.carrier,
@@ -212,8 +250,15 @@ async function createLinkedShipment({
       throw new Error(`linked shipment create failed: ${payload.status}`);
     }
     const shipment = payload.json?.data;
+    if (!shipment?.id || Number(shipment.orderId) !== Number(order.id)
+      || Number(shipment.orderItemId) !== orderItemId
+      || Number(shipment.quantity) !== quantity || unitKey(shipment.unit) !== 'kg') {
+      throw new Error('linked shipment create did not preserve the persisted order line/quantity/unit');
+    }
+    report.order.orderItemId = String(orderItemId);
     report.linkedShipment = {
       id: String(shipment.id),
+      orderItemId: String(shipment.orderItemId),
       shipmentNo: shipment.shipmentNo,
       trackingNo: shipment.trackingNo,
       status: shipment.status,
@@ -271,12 +316,41 @@ async function verifyShippingIssue({
       : null;
     if (!movement) throw new Error(`shipping issue entry missing matching movement: ${shipmentNo}`);
 
+    const batchPayload = await apiFetch(page, `/assets/batches?keyword=${encodeURIComponent(data.batchNo)}&pageSize=100`);
+    if (!batchPayload.ok) throw new Error(`batch readback failed: ${batchPayload.status}`);
+    const batches = unwrapList(batchPayload).filter(item => (
+      String(item.batchNo) === data.batchNo && String(item.productName) === data.linkedProduct
+    ));
+    if (batches.length !== 1 || Number(batches[0].stockQuantity) !== expectedRemaining) {
+      throw new Error(`shipping batch quantity mismatch: expected one batch with ${expectedRemaining}`);
+    }
+    const costPayload = await apiFetch(page, `/production/batches/${batches[0].id}/cost-ledger?pageSize=100`);
+    if (!costPayload.ok) throw new Error(`cost ledger readback failed: ${costPayload.status}`);
+    const ledger = costPayload.json?.data;
+    const expectedCost = Math.round(expectedRemaining * data.unitCost * 100) / 100;
+    const expectedIssueCost = -Math.round(data.quantity * data.unitCost * 100) / 100;
+    if (Number(ledger?.summary?.totalQuantityDelta) !== expectedRemaining
+      || Number(ledger?.summary?.currentQuantity) !== expectedRemaining
+      || Number(ledger?.summary?.currentCostAmount) !== expectedCost) {
+      throw new Error(`shipping cost conservation mismatch: expected ${expectedRemaining} / ${expectedCost}`);
+    }
+    const costRows = (ledger.items || []).filter(item => item.sourceRef === entries[0].entryNo);
+    if (costRows.length !== 1 || Number(costRows[0].quantityDelta) !== -Number(data.quantity)
+      || Number(costRows[0].costAmountDelta) !== expectedIssueCost) {
+      throw new Error('shipping cost ledger missing exactly one matching issue');
+    }
+
     report.issueEvidence = {
       sourceRef: shipmentNo,
       entryNo: entries[0].entryNo,
       entryCount: entries.length,
       remainingQuantity,
       locationCode: fgBalance.locationCode,
+      batchId: batches[0].id,
+      batchQuantity: Number(batches[0].stockQuantity),
+      costQuantity: Number(ledger.summary.totalQuantityDelta),
+      costAmount: Number(ledger.summary.currentCostAmount),
+      issueCostAmount: Number(costRows[0].costAmountDelta),
     };
   });
 }

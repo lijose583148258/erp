@@ -3,6 +3,7 @@ import { ClipboardPaste, CopyPlus, Plus, Rows4, Trash2 } from 'lucide-react';
 import { SalesOrderItem } from '../../types';
 import type { SalesOrderFormData } from './useSalesOrders';
 import type { SalesOrderLineErrors } from './salesOrderFormHelpers';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 
 type Props = {
     t: Record<string, string>;
@@ -26,7 +27,7 @@ type Props = {
 };
 
 const baseInputClass =
-    'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none transition focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900';
+ 'w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs font-bold outline-none transition-[border-color,box-shadow] duration-150 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900';
 
 const rowsPerPage = 50;
 const hasLineError = (errors: string[], keyword: string) => errors.some(error => error.includes(keyword));
@@ -82,11 +83,12 @@ const SalesOrderLineGrid: React.FC<Props> = ({
         <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5 dark:border-slate-800 dark:bg-slate-900/70">
             <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                 <div>
-                    <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-                        {t.orderLineGridTitle || '订单明细 Excel 网格'}
+                    <div className="text-xs font-black uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">第 2 步 · 选择商品并录入数量价格</div>
+                    <h3 className="mt-1 text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                        {t.orderLineGridTitle || '订单商品明细'}
                     </h3>
                     <p className="mt-1.5 text-sm text-slate-500">
-                        {t.orderLineGridHint || '这里专门录明细行，按行连续输入、复制、粘贴，不再把订单头字段混进来。'}
+                        {t.orderLineGridHint || '每行先确认“卖什么”，再依次填写规格、数量和单价；保存订单不会立即扣减库存。'}
                     </p>
                     {errorCount > 0 && (
                         <div data-testid="sales-order-line-error-summary" className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
@@ -98,7 +100,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                     <button
                         type="button"
                         onClick={() => addOrderItem()}
-                        className="inline-flex min-h-11 items-center rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition hover:bg-blue-700"
+                        className="inline-flex min-h-11 items-center rounded-xl bg-blue-600 px-4 py-2.5 text-xs font-black text-white shadow-sm transition-colors hover:bg-blue-700 motion-reduce:transition-none"
                     >
                         <Plus size={14} className="mr-2" />
                         {t.addLine || '新增行'}
@@ -153,11 +155,56 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                 </div>
             )}
 
-            <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
-                <table className="w-full min-w-[960px] table-fixed border-collapse">
+ <div data-mobile-card-list className="space-y-3 lg:hidden" aria-label="销售订单商品明细卡片">
+                {visibleItems.map(({ item, index }) => {
+                    const currentLineErrors = lineErrors[index] || [];
+                    const lineAmount = (Number(item.quantity || 0) * Number(item.unitPrice || 0)) - Number(item.discount || 0) + Number(item.taxAmount || 0);
+                    return (
+                        <section key={`sales-line-mobile-${index}`} className={`rounded-2xl border p-4 ${currentLineErrors.length ? 'border-rose-300 bg-rose-50/60 dark:border-rose-900/60 dark:bg-rose-950/10' : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900'}`}>
+                            <div className="mb-3 flex items-center justify-between">
+                                <div className="text-xs font-black uppercase tracking-[0.16em] text-slate-500">第 {index + 1} 行</div>
+                                <div className="rounded-lg bg-slate-100 px-3 py-1.5 font-mono text-xs font-black text-slate-800 dark:bg-slate-800 dark:text-white">{formatPrice(lineAmount)}</div>
+                            </div>
+                            <MaterialMasterCombobox
+                                value={item.productName}
+                                selectedMaterialId={item.materialId || null}
+                                label="销售物料"
+                                compactStatus
+                                dataTestId={`sales-order-mobile-line-${index}-product`}
+                                allowedCategories={['raw_material', 'finished_good', 'semi_finished', 'packaging']}
+                                onTextChange={(value) => updateOrderItem(index, { productName: value, materialId: null })}
+                                onClearSelection={() => updateOrderItem(index, { materialId: null })}
+                                onSelect={(material) => updateOrderItem(index, { materialId: material.id, sku: material.code, productName: material.nameZh, packagingSpec: material.specification || '', unit: material.baseUnit })}
+                            />
+                            <div className="mt-4 grid grid-cols-2 gap-3">
+                                <label className="text-xs font-black text-slate-600 dark:text-slate-300">数量
+                                    <input type="number" inputMode="decimal" value={item.quantity} onChange={(event) => updateOrderItem(index, { quantity: Number(event.target.value) || 0 })} className={`${baseInputClass} mt-1.5`} />
+                                </label>
+                                <label className="text-xs font-black text-slate-600 dark:text-slate-300">单位
+                                    <input value={item.unit} onChange={(event) => updateOrderItem(index, { unit: event.target.value, materialId: item.materialId || null })} readOnly={Boolean(item.materialId)} className={`${baseInputClass} mt-1.5 read-only:bg-slate-100 dark:read-only:bg-slate-800`} />
+                                </label>
+                                <label className="text-xs font-black text-slate-600 dark:text-slate-300">单价
+                                    <input type="number" inputMode="decimal" value={item.unitPrice} onChange={(event) => updateOrderItem(index, { unitPrice: Number(event.target.value) || 0 })} className={`${baseInputClass} mt-1.5`} />
+                                </label>
+                                <label className="text-xs font-black text-slate-600 dark:text-slate-300">规格 / 包装
+                                    <input value={item.packagingSpec} onChange={(event) => updateOrderItem(index, { packagingSpec: event.target.value })} readOnly={Boolean(item.materialId)} className={`${baseInputClass} mt-1.5 read-only:bg-slate-100 dark:read-only:bg-slate-800`} />
+                                </label>
+                            </div>
+                            {currentLineErrors.length ? <div className="mt-3 rounded-xl bg-white px-3 py-2 text-xs font-bold text-rose-600 dark:bg-slate-950">{currentLineErrors.join('；')}</div> : null}
+                            <div className="mt-4 flex justify-end gap-2">
+                                <button type="button" onClick={() => duplicateOrderItem(index)} className="min-h-11 rounded-xl border border-slate-200 px-4 text-xs font-black dark:border-slate-700">复制</button>
+                                <button type="button" onClick={() => removeOrderItem(index)} className="min-h-11 rounded-xl border border-rose-300 px-4 text-xs font-black text-rose-600">删除</button>
+                            </div>
+                        </section>
+                    );
+                })}
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800 lg:block" aria-label="销售订单商品明细表">
+ <table aria-label="销售订单商品明细表" className="w-full min-w-[1080px] table-fixed border-collapse">
                     <colgroup>
                         <col className="w-10" />
-                        <col className="w-44" />
+                        <col className="w-64" />
                         <col className="w-48" />
                         <col className="w-24" />
                         <col className="w-20" />
@@ -184,18 +231,27 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                             const errorId = `sales-order-line-${index}-errors`;
 
                             return (
-                                <tr key={`${index}-${item.productName}-${item.batchNo || ''}`} className={`border-b align-top last:border-b-0 ${currentLineErrors.length ? 'border-rose-200 bg-rose-50/60 dark:border-rose-900/50 dark:bg-rose-950/10' : 'border-slate-100 dark:border-slate-800'}`}>
-                                    <td className="px-3 py-3 text-xs font-black text-slate-400">{index + 1}</td>
-                                    <td className="px-3 py-3">
-                                        <input
+                                <tr key={`sales-line-${index}`} className={`border-b align-top last:border-b-0 ${currentLineErrors.length ? 'border-rose-200 bg-rose-50/60 dark:border-rose-900/50 dark:bg-rose-950/10' : 'border-slate-100 bg-white dark:border-slate-800 dark:bg-slate-900'}`}>
+                                    <td className="sticky left-0 z-10 bg-inherit px-3 py-3 text-xs font-black text-slate-400">{index + 1}</td>
+                                    <td className="sticky left-10 z-10 bg-inherit px-3 py-3">
+                                        <MaterialMasterCombobox
                                             value={item.productName}
-                                            onChange={(event) => updateOrderItem(index, { productName: event.target.value })}
-                                            maxLength={120}
-                                            placeholder={t.productName || '产品名称'}
-                                            data-testid={`sales-order-line-${index}-product`}
-                                            aria-invalid={hasLineError(currentLineErrors, '商品名称')}
-                                            aria-describedby={currentLineErrors.length ? errorId : undefined}
-                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '商品名称') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            selectedMaterialId={item.materialId || null}
+                                            hideLabel
+                                            compactStatus
+                                            label="销售物料"
+                                            dataTestId={`sales-order-line-${index}-product`}
+                                            allowedCategories={['raw_material', 'finished_good', 'semi_finished', 'packaging']}
+                                            error={hasLineError(currentLineErrors, '商品名称') ? currentLineErrors.find(error => error.includes('商品名称')) : undefined}
+                                            onTextChange={(value) => updateOrderItem(index, { productName: value, materialId: null })}
+                                            onClearSelection={() => updateOrderItem(index, { materialId: null })}
+                                            onSelect={(material) => updateOrderItem(index, {
+                                                materialId: material.id,
+                                                sku: material.code,
+                                                productName: material.nameZh,
+                                                packagingSpec: material.specification || '',
+                                                unit: material.baseUnit,
+                                            })}
                                         />
                                         {currentLineErrors.length > 0 && (
                                             <div id={errorId} data-testid={`sales-order-line-${index}-errors`} className="mt-2 space-y-1 rounded-xl border border-rose-200 bg-white px-3 py-2 text-[11px] font-bold text-rose-600 dark:border-rose-900/50 dark:bg-slate-950 dark:text-rose-200">
@@ -237,14 +293,15 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             <input
                                                 value={item.packagingSpec}
                                                 onChange={(event) => updateOrderItem(index, { packagingSpec: event.target.value })}
+                                                readOnly={Boolean(item.materialId)}
                                                 maxLength={120}
                                                 placeholder={t.phPackaging || '包装规格'}
                                                 data-testid={`sales-order-line-${index}-packaging`}
-                                                className={baseInputClass}
+                                                className={`${baseInputClass} read-only:bg-slate-100 dark:read-only:bg-slate-800`}
                                             />
                                         )}
                                         {item.isDimensional && (
-                                            <div className="mt-2 flex gap-3 text-[10px] font-bold text-slate-400">
+                                            <div className="mt-2 flex gap-3 text-xs font-bold text-slate-400">
                                                 <span>{t.totalVol || '总体积'} {item.totalVolume || 0}</span>
                                                 <span>{t.totalWeight || '总重量'} {item.totalWeight || 0}</span>
                                             </div>
@@ -266,11 +323,12 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                         <input
                                             value={item.unit}
                                             onChange={(event) => updateOrderItem(index, { unit: event.target.value })}
+                                            readOnly={Boolean(item.materialId)}
                                             maxLength={20}
                                             data-testid={`sales-order-line-${index}-unit`}
                                             aria-invalid={hasLineError(currentLineErrors, '单位')}
                                             aria-describedby={currentLineErrors.length ? errorId : undefined}
-                                            className={`${baseInputClass} ${hasLineError(currentLineErrors, '单位') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
+                                            className={`${baseInputClass} read-only:bg-slate-100 dark:read-only:bg-slate-800 ${hasLineError(currentLineErrors, '单位') ? 'border-rose-300 bg-rose-50 focus:border-rose-400 focus:ring-rose-100 dark:border-rose-800 dark:bg-rose-950/20' : ''}`}
                                         />
                                     </td>
                                     <td className="px-3 py-3">
@@ -318,7 +376,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                         <button
                                             type="button"
                                             onClick={() => updateOrderItem(index, { isDimensional: !item.isDimensional })}
-                                            className={`rounded-[16px] px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] ${
+                                            className={`rounded-[16px] px-3 py-2 text-xs font-black uppercase tracking-[0.16em] ${
                                                 item.isDimensional
                                                     ? 'bg-indigo-600 text-white'
                                                     : 'border border-slate-200 bg-white text-slate-500 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200'
@@ -327,7 +385,7 @@ const SalesOrderLineGrid: React.FC<Props> = ({
                                             {item.isDimensional ? (t.dimensionMode || '尺寸') : (t.standardMode || '常规')}
                                         </button>
                                     </td>
-                                    <td className="px-3 py-3">
+                                    <td className="sticky right-0 z-10 bg-inherit px-3 py-3 shadow-[-8px_0_12px_-12px_rgba(15,23,42,0.45)]">
                                         <div className="flex gap-2">
                                             <button
                                                 type="button"
@@ -387,10 +445,13 @@ const SalesOrderLineGrid: React.FC<Props> = ({
             <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
                 {summaryItems.map((item) => (
                     <div key={item.label} className="rounded-[22px] border border-slate-100 bg-slate-50 px-4 py-4 dark:border-slate-800 dark:bg-slate-800/60">
-                        <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
+                        <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{item.label}</div>
                         <div className="mt-2 text-sm font-black text-slate-800 dark:text-slate-100">{item.value}</div>
                     </div>
                 ))}
+            </div>
+            <div className="mt-4 rounded-xl border border-blue-100 bg-blue-50/60 px-4 py-3 text-xs font-bold leading-5 text-slate-600 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-slate-300">
+                保存结果：生成待确认销售订单和商品行，不立即扣库存；订单确认后由发货单选择批次并过账扣减。
             </div>
         </div>
     );

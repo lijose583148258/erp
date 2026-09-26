@@ -28,6 +28,8 @@ model User {
   adjustmentsApproved AdjustmentRecord[] @relation("AdjustmentApprover")
   productionBomsCreated ProductionBom[] @relation("ProductionBomCreator")
   productionWorkOrdersCreated ProductionWorkOrder[] @relation("ProductionWorkOrderCreator")
+  productionQualityInspections ProductionQualityCheck[] @relation("ProductionQualityInspector")
+  productionQualityReviews ProductionQualityCheck[] @relation("ProductionQualityReviewer")
   inventoryCostLedgersCreated InventoryCostLedger[] @relation("InventoryCostLedgerCreator")
   stockEntriesCreated StockEntry[] @relation("StockEntryCreator")
   collectionPromises CollectionPromise[]

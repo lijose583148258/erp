@@ -10,6 +10,7 @@ function createShippingAuditData(runId) {
     customerName: `SHIP-BROWSER-CUS-${runId}`,
     batchNo: `SHIP-BROWSER-BATCH-${runId}`,
     stockQuantity: 24,
+    unitCost: 10,
     carrier: `AUDIT-CARRIER-${runId.slice(-4)}`,
     quantity: 12,
   };

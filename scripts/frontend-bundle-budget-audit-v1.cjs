@@ -4,6 +4,7 @@ const zlib = require('zlib');
 
 const root = process.cwd();
 const assetsDir = path.join(root, 'dist', 'assets');
+const inventoryPath = path.join(root, 'dist', 'frontend-bundle-inventory.json');
 const findings = [];
 
 const KiB = 1024;
@@ -37,8 +38,8 @@ function assertBudget(file, category, actual, budget) {
   }
 }
 
-function classify(name) {
-  if (/^index-[\w-]+\.js$/.test(name)) return { category: 'entry JS', budget: budgets.entryJs };
+function classify(name, entryFiles) {
+  if (entryFiles.has(`assets/${name}`)) return { category: 'entry JS', budget: budgets.entryJs };
   if (/^index-[\w-]+\.css$/.test(name)) return { category: 'app CSS', budget: budgets.appCss };
   if (/^spreadsheet-[\w-]+\.js$/.test(name)) return { category: 'spreadsheet JS', budget: budgets.spreadsheetJs };
   if (/^(charts|icons|motion|http)-[\w-]+\.js$/.test(name)) return { category: 'shared vendor JS', budget: budgets.sharedJs };
@@ -49,6 +50,19 @@ function classify(name) {
 if (!fs.existsSync(assetsDir)) {
   add('P1', 'dist/assets', 'Build assets are missing. Run npm run build before bundle budget audit.');
 } else {
+  let inventory = null;
+  try {
+    inventory = JSON.parse(fs.readFileSync(inventoryPath, 'utf8'));
+  } catch (error) {
+    add('P1', 'dist/frontend-bundle-inventory.json', `Bundle inventory is missing or invalid: ${error.message}`);
+  }
+  const inventoryChunks = Array.isArray(inventory?.chunks) ? inventory.chunks : [];
+  const entryFiles = new Set(
+    inventoryChunks
+      .filter((chunk) => chunk?.isEntry === true && typeof chunk.fileName === 'string')
+      .map((chunk) => chunk.fileName),
+  );
+  const bundledPackages = new Set(Array.isArray(inventory?.packages) ? inventory.packages : []);
   const files = fs.readdirSync(assetsDir)
     .filter((name) => /\.(js|css)$/.test(name))
     .sort();
@@ -71,10 +85,10 @@ if (!fs.existsSync(assetsDir)) {
     totalGzip += gzip;
     largest.push({ name, raw, gzip });
 
-    if (/^index-[\w-]+\.js$/.test(name)) entryCount += 1;
+    if (entryFiles.has(`assets/${name}`)) entryCount += 1;
     if (/^spreadsheet-[\w-]+\.js$/.test(name)) spreadsheetCount += 1;
 
-    const classification = classify(name);
+    const classification = classify(name, entryFiles);
     if (classification) {
       assertBudget(`dist/assets/${name}`, classification.category, { raw, gzip }, classification.budget);
     }
@@ -87,6 +101,20 @@ if (!fs.existsSync(assetsDir)) {
   }
   if (spreadsheetCount !== 1) {
     add('P2', 'dist/assets', `Expected one isolated spreadsheet chunk, found ${spreadsheetCount}.`);
+  }
+
+  if (process.env.VITE_BOM_GRID_LAB_ENABLED !== 'true') {
+    for (const candidate of ['@revolist/revogrid', 'react-data-grid']) {
+      if (bundledPackages.has(candidate)) {
+        add('P1', 'dist/frontend-bundle-inventory.json', `Formal production bundle contains experimental grid package ${candidate}.`);
+      }
+    }
+    const leakedFixture = fs.readdirSync(assetsDir).find((name) => (
+      /^(acrylic-emulsion-|paste-300-rows-|expected-save-payload-)/.test(name)
+    ));
+    if (leakedFixture) {
+      add('P1', `dist/assets/${leakedFixture}`, 'Formal production bundle contains BOM Grid Lab golden fixture data.');
+    }
   }
 
   largest.sort((a, b) => b.raw - a.raw);

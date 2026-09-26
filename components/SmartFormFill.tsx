@@ -121,7 +121,7 @@ const SmartFormFill: React.FC<SmartFormFillProps> = ({
                     </div>
                     <div>
                         <h3 className="font-black text-slate-800 dark:text-white">{t.smartFill}</h3>
-                        <p className="text-[10px] text-slate-400 font-bold">{t.voiceTip}</p>
+                        <p className="text-xs text-slate-400 font-bold">{t.voiceTip}</p>
                     </div>
                 </div>
                 <button
@@ -315,7 +315,7 @@ const ExtractedDataPreview: React.FC<{
                 <span className="font-bold text-sm text-emerald-700 dark:text-emerald-400">
                     已识别 {filledFields.length} 项信息
                 </span>
-                <span className="ml-auto text-[10px] font-bold text-emerald-500 bg-emerald-100 dark:bg-emerald-800 px-2 py-0.5 rounded-lg">
+                <span className="ml-auto text-xs font-bold text-emerald-500 bg-emerald-100 dark:bg-emerald-800 px-2 py-0.5 rounded-lg">
                     {Math.round((data.confidence || 0) * 100)}% 置信度
                 </span>
             </div>
@@ -325,7 +325,7 @@ const ExtractedDataPreview: React.FC<{
                     <div key={field.key} className="bg-white dark:bg-slate-800 rounded-xl p-2 flex items-center">
                         <span className="mr-2">{field.icon}</span>
                         <div className="flex-1 min-w-0">
-                            <p className="text-[10px] text-slate-400 font-bold">{field.label}</p>
+                            <p className="text-xs text-slate-400 font-bold">{field.label}</p>
                             <p className="text-sm font-bold text-slate-800 dark:text-white truncate">
                                 {field.prefix}{(data as any)[field.key]}{field.suffix}
                             </p>

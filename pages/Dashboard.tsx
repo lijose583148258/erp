@@ -10,8 +10,8 @@ import { dashboardService, DashboardOverview } from '../services/dashboard.servi
 import { isCanceledApiError } from '../utils/api';
 
 const StatCard = ({ title, value, sub, icon: Icon, color, trend }: any) => (
-  <div className="bg-white dark:bg-slate-900 p-6 lg:p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:shadow-slate-100 dark:hover:shadow-none transition-all duration-300 group overflow-hidden relative active-shrink">
-    <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50 dark:bg-slate-800/50 rounded-full -mr-8 -mt-8 transition-transform group-hover:scale-150 duration-700"></div>
+  <div className="bg-white dark:bg-slate-900 p-6 lg:p-8 rounded-2xl border border-slate-100 dark:border-slate-800 shadow-sm hover:shadow-xl hover:shadow-slate-100 dark:hover:shadow-none transition-colors group overflow-hidden relative ">
+    <div className="absolute top-0 right-0 w-24 h-24 bg-slate-50 dark:bg-slate-800/50 rounded-full -mr-8 -mt-8 "></div>
     <div className="relative z-10">
       <div className="flex items-center justify-between mb-6">
         <div className={`p-4 rounded-[20px] ${color} shadow-lg shadow-slate-200/50 dark:shadow-none`}>
@@ -37,9 +37,9 @@ const StatCard = ({ title, value, sub, icon: Icon, color, trend }: any) => (
 const QuickAction = ({ icon: Icon, label, color, onClick }: any) => (
   <button
     onClick={onClick}
-    className="flex flex-col items-center justify-center p-5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl hover:border-blue-200 dark:hover:border-blue-800 transition-all active-shrink group"
+    className="flex flex-col items-center justify-center p-5 bg-white dark:bg-slate-900 border border-slate-100 dark:border-slate-800 rounded-2xl hover:border-blue-200 dark:hover:border-blue-800 transition-colors group"
   >
-    <div className={`p-4 rounded-[20px] ${color} text-white mb-3 shadow-md group-hover:scale-110 transition-transform`}>
+    <div className={`p-4 rounded-[20px] ${color} text-white mb-3 shadow-md `}>
       <Icon size={24} />
     </div>
     <span className="text-xs font-extrabold text-slate-600 dark:text-slate-300 uppercase tracking-tight">{label}</span>
@@ -170,7 +170,7 @@ const Dashboard = () => {
   }, []);
 
   return (
-    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+    <div className="space-y-8 ">
       {/* System Status Ticker */}
       <div className="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 border border-blue-100 dark:border-blue-900/20 rounded-2xl p-5 flex items-center justify-between px-6 lg:px-8">
         <div className="flex items-center gap-5">
@@ -238,7 +238,7 @@ const Dashboard = () => {
                 </BarChart>
               </ResponsiveContainer>
             ) : (
-              <div className="h-full w-full rounded-[28px] border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center justify-center text-xs font-black uppercase  text-slate-400">
+              <div className="h-full w-full rounded-[28px] border border-dashed border-slate-200 dark:border-slate-800 bg-slate-50/60 dark:bg-slate-900/40 flex items-center justify-center text-xs font-black uppercase text-slate-400">
                 {t.loading || 'Loading'}
               </div>
             )}
@@ -252,7 +252,7 @@ const Dashboard = () => {
           </div>
           <div className="space-y-4">
             {tasks.map((event, i) => (
-              <div key={i} className="flex items-center gap-4 p-4 bg-white dark:bg-slate-800 rounded-[24px] shadow-sm hover:translate-x-1 transition-transform">
+              <div key={i} className="flex items-center gap-4 p-4 bg-white dark:bg-slate-800 rounded-[24px] shadow-sm ">
                 <div className={`w-2 h-12 rounded-full ${event.color.split(' ')[0]} flex-shrink-0`}></div>
                 <div className="flex-1 min-w-0">
                   <div className="flex justify-between items-center mb-1">

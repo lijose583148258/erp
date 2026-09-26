@@ -2,13 +2,14 @@
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
-import { ProductionService, ProductionQualityResult, ProductionWorkOrderStatus } from '../services/production.service';
+import { ProductionService, ProductionWorkOrderStatus } from '../services/production.service';
 import { ProductionCompletionValidationError } from '../services/production-mutation.service';
 import { createProductionAuditLog, toNumber } from './production.helpers';
 import { canUseAnyOperationalDataScope, canUseOperationalDataScope } from '../utils/recordAccess';
 
 const resolveProductionStatusCode = (message: string) => {
-  if (message.toLowerCase().includes('not found')) return 404;
+  if (message.includes('_NOT_FOUND') || message.toLowerCase().includes('not found')) return 404;
+  if (message.startsWith('QC_') || message.startsWith('WORK_ORDER_')) return 409;
   if (
     message.includes('cannot') ||
     message.includes('Invalid') ||
@@ -62,12 +63,14 @@ export class ProductionController {
     try {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
       const {
+        materialId,
         productName,
         version,
         bomType,
         status,
         formulationMode,
         outputUnit,
+        shelfLifeDays,
         standardBatchSize,
         batchSizeUnit,
         density,
@@ -76,6 +79,7 @@ export class ProductionController {
         effectiveTo,
         processJson,
         qualitySpecJson,
+        qualityCharacteristics = [],
         notes,
         items = [],
       } = req.body;
@@ -84,12 +88,14 @@ export class ProductionController {
       }
 
       const created = await ProductionService.createBom({
+        materialId: toNumber(materialId) ?? null,
         productName: String(productName),
         version: version ? String(version) : null,
         bomType: bomType ? String(bomType) : null,
         status: status ? String(status) : null,
         formulationMode: formulationMode ? String(formulationMode) : null,
         outputUnit: String(outputUnit),
+        shelfLifeDays: Number(shelfLifeDays),
         standardBatchSize: standardBatchSize !== undefined ? toNumber(standardBatchSize) : null,
         batchSizeUnit: batchSizeUnit ? String(batchSizeUnit) : null,
         density: density !== undefined ? toNumber(density) : null,
@@ -98,6 +104,7 @@ export class ProductionController {
         effectiveTo: effectiveTo ? String(effectiveTo) : null,
         processJson: processJson ? String(processJson) : null,
         qualitySpecJson: qualitySpecJson ? String(qualitySpecJson) : null,
+        qualityCharacteristics: Array.isArray(qualityCharacteristics) ? qualityCharacteristics : [],
         notes: notes ? String(notes) : null,
         items: Array.isArray(items) ? items : [],
       }, req.user!.userId);
@@ -108,7 +115,8 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to create production bom', error);
       const message = error instanceof Error ? error.message : 'Failed to create production bom';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      const status = message.startsWith('BOM_MATERIAL_') ? 409 : resolveProductionStatusCode(message);
+      res.status(status).json({ success: false, message } as ApiResponse);
     }
   }
 
@@ -140,7 +148,7 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to preview consumption', error);
       const message = error instanceof Error ? error.message : 'Failed to preview consumption';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
   async getBatchCostLedger(req: AuthRequest, res: Response) {
@@ -160,6 +168,18 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to load batch cost ledger', error);
       res.status(500).json({ success: false, message: 'Failed to load batch cost ledger' } as ApiResponse);
+    }
+  }
+
+  async getBatchTrace(req: AuthRequest, res: Response) {
+    try {
+      if (!canReadProduction(req)) return rejectProductionRead(res);
+      const data = await ProductionService.getBatchTrace(Number(req.params.batchId));
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to load batch trace', error);
+      const message = error instanceof Error ? error.message : 'Failed to load batch trace';
+      return res.status(message.includes('not found') ? 404 : 500).json({ success: false, message } as ApiResponse);
     }
   }
 
@@ -265,17 +285,14 @@ export class ProductionController {
     try {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
       const { id } = req.params;
-      const { result, defectRate, note, checkedBy } = req.body;
-      if (!result) {
-        return res.status(400).json({ success: false, message: 'Missing result' } as ApiResponse);
-      }
+      const { sampleNo, defectRate, note, measurements } = req.body;
 
       const created = await ProductionService.createQualityCheck(Number(id), {
-        result: String(result) as ProductionQualityResult,
+        sampleNo: String(sampleNo),
         defectRate: toNumber(defectRate) ?? null,
         note: note ? String(note) : null,
-        checkedBy: checkedBy ? String(checkedBy) : null,
-      });
+        measurements,
+      }, { userId: req.user!.userId, username: req.user!.username });
 
       await createProductionAuditLog(req, 'CREATE_PRODUCTION_QC', {
         workOrderId: Number(id),
@@ -287,7 +304,33 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to create production qc', error);
       const message = error instanceof Error ? error.message : 'Failed to create production qc';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
+    }
+  }
+
+  async reviewQualityCheck(req: AuthRequest, res: Response) {
+    try {
+      if (!canWriteProduction(req)) return rejectProductionWrite(res);
+      const workOrderId = Number(req.params.id);
+      const qualityCheckId = Number(req.params.checkId);
+      const { decision, reviewNote } = req.body;
+      const updated = await ProductionService.reviewQualityCheck(
+        workOrderId,
+        qualityCheckId,
+        { decision, reviewNote },
+        { userId: req.user!.userId, username: req.user!.username },
+      );
+      await createProductionAuditLog(req, 'REVIEW_PRODUCTION_QC', {
+        workOrderId,
+        checkNo: updated.checkNo,
+        decision,
+        result: updated.result,
+      }, updated.id);
+      return res.json({ success: true, data: updated } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to review production qc', error);
+      const message = error instanceof Error ? error.message : 'Failed to review production qc';
+      return res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
 }

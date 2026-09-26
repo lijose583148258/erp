@@ -23,6 +23,7 @@ import { ProcurementInputGuide } from './procurement/ProcurementInputGuide';
 import { ProcurementStats } from './procurement/ProcurementStats';
 import { PurchaseOrderWorkspace } from './procurement/PurchaseOrderWorkspace';
 import { PurchaseReceiptDrawer } from './procurement/PurchaseReceiptDrawer';
+import { PurchaseRevisionDialog } from './procurement/PurchaseRevisionDialog';
 import { SupplierWorkspace } from './procurement/SupplierWorkspace';
 import {
   calculatePurchaseCostPreview,
@@ -59,6 +60,7 @@ const Procurement = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [b2bLinks, setB2bLinks] = useState<Record<string, { linked: boolean; purchaseOrder?: PurchaseOrder }>>({});
   const [receiptDrawerOrder, setReceiptDrawerOrder] = useState<PurchaseOrder | null>(null);
+  const [revisionOrder, setRevisionOrder] = useState<PurchaseOrder | null>(null);
   const [receiptBundle, setReceiptBundle] = useState<PurchaseReceiptBundle | null>(null);
   const [isReceiptLoading, setIsReceiptLoading] = useState(false);
   const [isReceiptSubmitting, setIsReceiptSubmitting] = useState(false);
@@ -184,13 +186,14 @@ const Procurement = () => {
       return;
     }
     try {
-      const updatedOrder = await procurementService.updateOrderStatus(order.id, status);
+      const updatedOrder = await procurementService.updateOrderStatus(order.id, status, order.revision ?? 0);
+      localWriteVersionRef.current += 1;
       setOrders(prev => prev.map(item => item.id === order.id ? updatedOrder : item));
       if (status === 'approved') notify('success', t.paymentVerified || '采购单已审核');
       if (status === 'in_transit') notify('success', t.activeTransit || '采购单已发运');
       if (status === 'received') notify('success', `${getOrderStatusLabel(status)} / ${language === 'en' ? 'stock received' : language === 'vi' ? 'đã nhập kho' : '已入库'}`);
-    } catch {
-      notify('error', t.connectionFailed || 'Purchase status update failed');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : (t.connectionFailed || 'Purchase status update failed'));
     }
   };
 
@@ -261,6 +264,8 @@ const Procurement = () => {
 
   const renderPurchaseOrderActions = (order: PurchaseOrder) => (
     <div className="flex justify-end gap-2">
+      <button type="button" data-testid={`purchase-order-revise-${order.id}`} onClick={() => setRevisionOrder(order)}
+        title="采购版本与变更" className="rounded-full border px-3 py-2 text-xs font-bold">版本 {order.revision ?? 0}</button>
       {order.status === 'pending' && canWriteProcurement && (
         <button
           data-testid={`purchase-order-approve-${order.id}`}
@@ -388,6 +393,7 @@ const Procurement = () => {
       setIsPurchaseSubmitting(true);
       const createdOrder = await procurementService.createOrder({
         supplierId: supplier.id,
+        materialId: newOrder.materialId || undefined,
         supplierName: getSupplierLabel(supplier) || supplier.supplierDisplayName || supplier.name,
         supplierNameZh: supplier.nameZh,
         supplierNameEn: supplier.nameEn,
@@ -514,6 +520,12 @@ const Procurement = () => {
       {isLoading && (
         <div className="text-xs text-slate-400 font-bold">{t.loading || '加载中…'}</div>
       )}
+
+      {revisionOrder && <PurchaseRevisionDialog key={revisionOrder.id} order={revisionOrder} canWrite={canWriteProcurement}
+        onClose={() => setRevisionOrder(null)} onSaved={updated => {
+          localWriteVersionRef.current += 1;
+          setOrders(prev => prev.map(item => item.id === updated.id ? updated : item));
+        }} />}
 
       {receiptDrawerOrder && (
         <PurchaseReceiptDrawer

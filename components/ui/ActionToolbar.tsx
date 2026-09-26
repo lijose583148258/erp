@@ -67,7 +67,7 @@ export const ActionToolbar: React.FC<Props> = ({
               className="min-h-8 min-w-[8rem] flex-1 bg-transparent text-sm font-bold outline-none placeholder:text-slate-400"
             />
             {typeof resultCount === 'number' ? (
-              <span className="rounded-full bg-white px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900">
+              <span className="rounded-full bg-white px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-900">
                 {resultCountLabel || resultCount}
               </span>
             ) : null}

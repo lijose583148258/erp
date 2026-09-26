@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
@@ -39,6 +41,15 @@ import {
 } from '../pages/production/productionWorkspaceSave';
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
+import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
+import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
+import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
+import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
+import { readStringArrayPreference } from '../components/ui/tablePreferences';
+import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
+import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
+import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
+import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData';
 
 type FrontendUnitTest = {
   name: string;
@@ -46,6 +57,205 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'barter reference loading respects finance and explicit custom-role permissions',
+    run: async () => {
+      const called: string[] = [];
+      const loaders = Object.fromEntries(['customers', 'suppliers', 'orders'].map(key => [key, async () => {
+        called.push(key); return [key];
+      }])) as any;
+      assert.deepEqual(await loadBarterReferenceData({ role: 'finance' } as any, loaders), [[], ['suppliers'], ['orders']]);
+      assert.deepEqual(called, ['suppliers', 'orders']);
+      called.length = 0;
+      assert.deepEqual(await loadBarterReferenceData({ role: 'admin', permissions: ['barter.read'] } as any, loaders), [[], [], []]);
+      assert.deepEqual(called, []);
+      assert.deepEqual(await loadBarterReferenceData({ role: 'sales' } as any, loaders), [['customers'], [], ['orders']]);
+      assert.deepEqual(await loadBarterReferenceData({ role: 'admin' } as any, loaders), [['customers'], ['suppliers'], ['orders']]);
+      await assert.rejects(loadBarterReferenceData({ role: 'finance' } as any, {
+        ...loaders, orders: async () => { throw new Error('read outage'); },
+      }), /read outage/);
+    },
+  },
+  {
+    name: 'shipment drafts bind a persisted order line and never sum mixed units',
+    run: () => {
+      const order: any = { id: '9', customerId: '4', status: 'shipped', items: [
+        { id: 11, materialId: 21, productName: 'Resin', unit: 'kg', quantity: 100 },
+        { id: 12, materialId: 22, productName: 'Catalyst', unit: 'drum', quantity: 2 },
+      ], fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 11, unit: 'kg', orderedQuantity: 100, acceptedQuantity: 40, unallocatedQuantity: 60 },
+        { orderItemId: 12, unit: 'drum', orderedQuantity: 2, acceptedQuantity: 0, unallocatedQuantity: 2 },
+      ] } };
+      assert.equal(getEligibleShipmentLines(order).length, 2);
+      const draft = { orderItemId: '12', quantity: '2', batchNo: ' CAT-02 ' };
+      const payload = buildSalesOrderShipmentPayload(order, draft);
+      assert.equal(payload.orderItemId, '12'); assert.equal(payload.materialId, '22');
+      assert.equal(payload.quantity, 2); assert.equal(payload.unit, 'drum'); assert.equal(payload.batchNo, 'CAT-02');
+      for (const quantity of ['0', '-1', '3', 'NaN', 'Infinity', '']) {
+        assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, quantity }));
+      }
+      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, batchNo: '' }));
+      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, orderItemId: '99' }));
+      order.fulfillment.lines[1].unallocatedQuantity = 0;
+      assert.deepEqual(getEligibleShipmentLines(order).map(line => line.orderItemId), [11]);
+      order.fulfillment.lines[0].unit = 'drum'; assert.equal(getEligibleShipmentLines(order).length, 0);
+    },
+  },
+  {
+    name: 'shipment eligibility fails closed on stale status, missing identity and unproven fulfillment',
+    run: () => {
+      const valid: any = { id: '9', customerId: '4', status: 'delivered', items: [
+        { id: 11, materialId: 21, productName: 'Micro', unit: 'kg', quantity: 1e-7 },
+      ], fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 11, unit: 'kg', orderedQuantity: 1e-7, acceptedQuantity: 0, unallocatedQuantity: 1e-7 },
+      ] } };
+      assert.equal(buildSalesOrderShipmentPayload(valid, { orderItemId: '11', quantity: '0.0000001', batchNo: 'B' }).quantity, 1e-7);
+      for (const status of ['pending', 'cancelled', 'completed']) assert.equal(getEligibleShipmentLines({ ...valid, status }).length, 0);
+      for (const mutate of [
+        (o: any) => { delete o.fulfillment; },
+        (o: any) => { o.fulfillment.needsReview = true; },
+        (o: any) => { o.fulfillment.fullyDelivered = true; },
+        (o: any) => { delete o.items[0].id; },
+        (o: any) => { o.items[0].materialId = null; },
+        (o: any) => { o.items.push({ ...o.items[0] }); },
+        (o: any) => { o.fulfillment.lines.push({ ...o.fulfillment.lines[0] }); },
+        (o: any) => { o.fulfillment.lines[0].unallocatedQuantity = NaN; },
+      ]) { const altered = structuredClone(valid); mutate(altered); assert.equal(getEligibleShipmentLines(altered).length, 0); }
+    },
+  },
+  {
+    name: 'active sales operating table renders separate line quantities and owed amounts',
+    run: () => {
+      const labels = JSON.parse(fs.readFileSync(path.resolve('i18n/operatingTable/zh-CN.json'), 'utf8'));
+      const columns = createSalesOrderOperatingColumns(labels);
+      const row = { id: 1, fulfillmentStatus: 'partially_delivered', fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 1, productName: 'Resin', unit: 'kg', orderedQuantity: 100, allocatedQuantity: 40, dispatchedQuantity: 40, acceptedQuantity: 40, outstandingQuantity: 60, unallocatedQuantity: 60 },
+        { orderItemId: 2, productName: 'Catalyst', unit: 'drum', orderedQuantity: 2, allocatedQuantity: 0, dispatchedQuantity: 0, acceptedQuantity: 0, outstandingQuantity: 2, unallocatedQuantity: 2 },
+      ] } };
+      const status = renderToStaticMarkup(<>{columns.find(column => column.key === 'status')!.render!(row)}</>);
+      assert.match(status, /部分交付/); assert.match(status, /待交 60 kg/); assert.match(status, /待交 2 drum/);
+      const quantities = renderToStaticMarkup(<>{columns.find(column => column.key === 'quantityProgress')!.render!(row)}</>);
+      assert.match(quantities, /Resin/); assert.match(quantities, /Catalyst/); assert.doesNotMatch(quantities, />102</);
+      assert(fs.readFileSync(path.resolve('pages/SalesOrders.tsx'), 'utf8').includes('fulfillment: order.fulfillment'));
+    },
+  },
+  {
+    name: 'sales fulfillment preserves quantity-based API axis and never trusts delivered shipment counts',
+    run: () => {
+      const partial = { status: 'delivered', fulfillmentStatus: 'partially_delivered', shipments: [{ status: 'delivered' }] };
+      assert.equal(deriveOrderFulfillmentStatus(partial as never), 'partially_delivered');
+      assert.notEqual(deriveOrderFulfillmentStatus({ status: 'shipped', shipments: [{ status: 'delivered' }] } as never), 'delivered');
+      assert.notEqual(deriveOrderFulfillmentStatus({ status: 'delivered' } as never), 'delivered');
+    },
+  },
+  {
+    name: 'fresh and invalid table preferences keep default columns; saved nonempty choices remain intact',
+    run: () => {
+      const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+      let stored: string | null = null;
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => stored } } });
+      const defaults = ['supplier', 'category', 'riskLevel'];
+      try {
+        for (const value of [null, '', '[]', '{}', 'invalid', '[null]', '[""]', '[1]']) {
+          stored = value;
+          assert.deepEqual(readStringArrayPreference('columns', defaults), defaults);
+        }
+        stored = '["riskLevel","advanced"]';
+        assert.deepEqual(readStringArrayPreference('columns', defaults), ['riskLevel', 'advanced']);
+      } finally {
+        if (original) Object.defineProperty(globalThis, 'window', original);
+        else Reflect.deleteProperty(globalThis, 'window');
+      }
+    },
+  },
+  {
+    name: 'authenticated shell keeps repair tools but removes decorative click effects',
+    run: () => {
+      const appSource = fs.readFileSync(path.join(process.cwd(), 'App.tsx'), 'utf8');
+      const panelSource = fs.readFileSync(
+        path.join(process.cwd(), 'components/materials/MaterialReadinessRepairPanel.tsx'),
+        'utf8',
+      );
+      assert.match(
+        appSource,
+        /<MaterialReadinessRepairPanel\s*\/>[\s\S]*?<CommandPalette/,
+      );
+      assert.doesNotMatch(appSource, /ClickSpark|animate-in[\s\S]*duration-500/);
+      assert.ok(panelSource.includes("window.location.hash = '#materials'"));
+      assert.ok(!panelSource.includes("window.location.hash = '#/materials'"));
+      assert.ok(panelSource.includes('duration-150'));
+      assert.ok(panelSource.includes('motion-reduce:animate-none'));
+    },
+  },
+  {
+    name: 'shipping OCR requires explicit canonical material confirmation before creation',
+    run: () => {
+      const hookSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/useShippingOcr.ts'), 'utf8');
+      const panelSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/ShippingOcrPanel.tsx'), 'utf8');
+      const auditSource = fs.readFileSync(path.join(process.cwd(), 'scripts/shipping-browser-audit-v1.cjs'), 'utf8');
+      assert.ok(hookSource.includes('if (!ocrMaterial)'));
+      assert.ok(hookSource.includes('materialId: String(ocrMaterial.id)'));
+      assert.ok(panelSource.includes('dataTestId="shipping-ocr-material-input"'));
+      assert.ok(panelSource.includes('disabled={!ocrMaterial}'));
+      assert.ok(auditSource.includes("selectMaterialCombobox(page, 'shipping-ocr-material-input'"));
+    },
+  },
+  {
+    name: 'material readiness errors preserve row identity and human repair guidance',
+    run: () => {
+      const parsed = parseMaterialReadinessDetails({
+        contract: 'material-release-readiness/v1',
+        entityType: 'sales_order',
+        entityId: '42',
+        action: 'confirm',
+        issueCount: 1,
+        issues: [{
+          lineKey: '9',
+          rowNumber: 2,
+          materialId: 7,
+          materialCode: 'RM-0007',
+          displayName: '丙烯酸',
+          reason: 'unit_mismatch',
+          requestedUnit: 'L',
+          baseUnit: 'kg',
+        }],
+        repairRoute: '/materials',
+        retryableAfterRepair: true,
+      });
+      assert.ok(parsed);
+      assert.equal(parsed.issues[0].rowNumber, 2);
+      assert.equal(getMaterialReadinessIssueLabel(parsed.issues[0]), '单位不一致：当前 L，主数据 kg');
+      assert.equal(parseMaterialReadinessDetails({ contract: 'unknown', issues: [] }), null);
+    },
+  },
+  {
+    name: 'canonical material master is a lazy, permission-scoped production module',
+    run: () => {
+      assert.ok(MODULE_ORDER.includes('materials'));
+      assert.equal(moduleRegistry.materials.group, 'production');
+      assert.equal(MENU_PERMISSION_BY_MODULE.materials, 'materials.read');
+      assert.deepEqual(moduleRegistry.materials.roles, ['admin', 'manager']);
+    },
+  },
+  {
+    name: 'notification queue deduplicates messages and limits viewport obstruction',
+    run: () => {
+      const first = enqueueNotification([], { id: '1', type: 'success', message: '已保存' });
+      const replaced = enqueueNotification(first, { id: '2', type: 'success', message: '已保存' });
+      assert.deepEqual(replaced.map((item) => item.id), ['2']);
+
+      const bounded = ['A', 'B', 'C', 'D'].reduce(
+        (state, message, index) => enqueueNotification(state, {
+          id: String(index),
+          type: 'info',
+          message,
+        }),
+        [] as ReturnType<typeof enqueueNotification>,
+      );
+      assert.equal(bounded.length, MAX_VISIBLE_NOTIFICATIONS);
+      assert.deepEqual(bounded.map((item) => item.message), ['B', 'C', 'D']);
+    },
+  },
   {
     name: 'sales order update payload maps payment terms to the backend contract',
     run: () => {
@@ -91,14 +301,17 @@ const tests: FrontendUnitTest[] = [
         productName: '',
         outputUnit: '',
         formulationMode: 'percentage',
+        shelfLifeDaysInput: '0',
         standardBatchSizeInput: '0',
         percentageSummary: 99,
         effectiveItemCount: 2,
         bomType: 'chemical_formula',
       });
+      assert.equal(bom.shelfLifeDays, 0);
       assert.equal(bom.standardBatchSize, 0);
       assert.equal(bom.errors.productName, '请填写产品名称');
       assert.equal(bom.errors.outputUnit, '请填写输出单位');
+      assert.ok(bom.errors.shelfLifeDays);
       assert.ok(bom.errors.standardBatchSize);
       assert.ok(bom.errors.percentage);
       assert.ok(bom.errors.items);
@@ -107,10 +320,13 @@ const tests: FrontendUnitTest[] = [
       assert.equal(workOrder.targetQuantity, 0);
       assert.ok(workOrder.errors.targetQuantity);
 
-      const quality = validateQualityForm({ result: 'fail', defectRateInput: '101', checkedBy: '' });
-      assert.equal(quality.defectRateValue, 101);
-      assert.ok(quality.errors.defectRate);
-      assert.ok(quality.errors.checkedBy);
+      const quality = validateQualityForm({
+        sampleNo: '',
+        characteristics: [{ id: 1, code: 'SOLIDS', name: '固含量', valueType: 'numeric', required: true }],
+        measurementValues: { 1: 'not-a-number' },
+      });
+      assert.ok(quality.errors.sampleNo);
+      assert.ok(quality.errors.measurements);
 
       const adjustment = validateAdjustmentForm({ hasBatch: false, quantityInput: '-1', reason: '' });
       assert.equal(adjustment.quantity, -1);

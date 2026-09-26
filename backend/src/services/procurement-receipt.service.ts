@@ -14,6 +14,7 @@ export const PARTIAL_RECEIPT_MESSAGE = '采购单已有部分收货，必须继�
 
 type PurchaseOrderForReceipt = {
   id: number;
+  materialId?: number | null;
   supplierId?: number | null;
   supplier?: Record<string, unknown> | null;
   salesOrder?: Record<string, unknown> | null;
@@ -204,6 +205,7 @@ export async function postProcurementReceiptIfMissing(
     createdBy: createdBy || null,
     lines: [{
       locationId: receiptLocationId,
+      materialId: order.materialId || null,
       productName: order.item,
       batchNo: sourceRef,
       quantityDelta: Number(order.quantity || 0),
@@ -380,6 +382,7 @@ export async function createPurchaseReceiptBatch(
       createdBy: input.createdBy || null,
       lines: [{
         locationId: receiptLocationId,
+        materialId: order.materialId || null,
         productName: order.item,
         batchNo,
         quantityDelta: acceptedQuantity,

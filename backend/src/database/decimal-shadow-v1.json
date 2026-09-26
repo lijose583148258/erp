@@ -1,0 +1,92 @@
+{
+  "version": "2026-08-01-receivables-decimal-shadow-v1",
+  "tables": [
+    {
+      "table": "orders",
+      "insertTrigger": "orders_decimal_shadow_insert_v1",
+      "updateTrigger": "orders_decimal_shadow_update_v1",
+      "postgresTrigger": "orders_decimal_shadow_write_v1",
+      "fields": [
+        {
+          "legacyColumn": "final_amount",
+          "shadowColumn": "final_amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        },
+        {
+          "legacyColumn": "paid_amount",
+          "shadowColumn": "paid_amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        },
+        {
+          "legacyColumn": "receivable_adjustment_amount",
+          "shadowColumn": "receivable_adjustment_amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        }
+      ]
+    },
+    {
+      "table": "payment_records",
+      "insertTrigger": "payment_records_decimal_shadow_insert_v1",
+      "updateTrigger": "payment_records_decimal_shadow_update_v1",
+      "postgresTrigger": "payment_records_decimal_shadow_write_v1",
+      "fields": [
+        {
+          "legacyColumn": "amount",
+          "shadowColumn": "amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        },
+        {
+          "legacyColumn": "exchange_rate",
+          "shadowColumn": "exchange_rate_decimal",
+          "precision": 18,
+          "scale": 8,
+          "kind": "exchange_rate"
+        },
+        {
+          "legacyColumn": "base_amount",
+          "shadowColumn": "base_amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        }
+      ]
+    },
+    {
+      "table": "receivable_adjustments",
+      "insertTrigger": "receivable_adjustments_decimal_shadow_insert_v1",
+      "updateTrigger": "receivable_adjustments_decimal_shadow_update_v1",
+      "postgresTrigger": "receivable_adjustments_decimal_shadow_write_v1",
+      "fields": [
+        {
+          "legacyColumn": "amount",
+          "shadowColumn": "amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        },
+        {
+          "legacyColumn": "exchange_rate",
+          "shadowColumn": "exchange_rate_decimal",
+          "precision": 18,
+          "scale": 8,
+          "kind": "exchange_rate"
+        },
+        {
+          "legacyColumn": "base_amount",
+          "shadowColumn": "base_amount_decimal",
+          "precision": 18,
+          "scale": 2,
+          "kind": "money"
+        }
+      ]
+    }
+  ]
+}

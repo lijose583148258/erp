@@ -67,7 +67,7 @@ export function WarehouseCreateDialogs({
     <>
       {showCreateWarehouse && (
         <div data-testid="warehouse-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={closeWarehouse}>
-          <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+ <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 motion-safe:animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mb-6">新建仓库</h3>
             {!canWrite && (
               <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
@@ -109,8 +109,8 @@ export function WarehouseCreateDialogs({
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button data-testid="warehouse-create-cancel" onClick={closeWarehouse} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
-              <button data-testid="warehouse-create-confirm" onClick={handleCreateWarehouse} disabled={!canWrite || warehouseCreating} aria-busy={warehouseCreating} className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">{warehouseCreating ? '创建中...' : '创建'}</button>
+ <button data-testid="warehouse-create-cancel" onClick={closeWarehouse} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">取消</button>
+ <button data-testid="warehouse-create-confirm" onClick={handleCreateWarehouse} disabled={!canWrite || warehouseCreating} aria-busy={warehouseCreating} className="flex-1 py-3 bg-gradient-to-r from-amber-500 to-orange-600 text-white rounded-xl font-black text-sm shadow-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50">{warehouseCreating ? '创建中...' : '创建'}</button>
             </div>
           </div>
         </div>
@@ -118,7 +118,7 @@ export function WarehouseCreateDialogs({
 
       {showCreateLocation && (
         <div data-testid="warehouse-location-create-modal" className="fixed inset-0 z-[200] bg-slate-950/60 backdrop-blur-md flex items-center justify-center" onClick={closeLocation}>
-          <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 animate-in zoom-in-95 duration-300" onClick={e => e.stopPropagation()}>
+ <div className="bg-white dark:bg-slate-900 rounded-[28px] p-8 w-full max-w-md shadow-2xl border border-white/40 dark:border-slate-800 motion-safe:animate-in zoom-in-95 duration-150" onClick={e => e.stopPropagation()}>
             <h3 className="text-xl font-black text-slate-900 dark:text-white mb-2">新建库位</h3>
             <p className="text-sm text-slate-400 font-bold mb-6">在「{selectedWarehouse?.name}」下创建</p>
             {locationErrors.warehouse ? <p className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-bold text-rose-700">{locationErrors.warehouse}</p> : null}
@@ -165,8 +165,8 @@ export function WarehouseCreateDialogs({
               </div>
             </div>
             <div className="flex gap-3 mt-6">
-              <button data-testid="warehouse-location-create-cancel" onClick={closeLocation} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 active:scale-95 transition-all">取消</button>
-              <button data-testid="warehouse-location-create-confirm" onClick={handleCreateLocation} disabled={!canWrite || locationCreating} aria-busy={locationCreating} className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-sm shadow-lg active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-50">{locationCreating ? '创建中...' : '创建'}</button>
+ <button data-testid="warehouse-location-create-cancel" onClick={closeLocation} className="flex-1 py-3 bg-slate-100 dark:bg-slate-800 text-slate-600 rounded-xl font-black text-sm hover:bg-slate-200 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">取消</button>
+ <button data-testid="warehouse-location-create-confirm" onClick={handleCreateLocation} disabled={!canWrite || locationCreating} aria-busy={locationCreating} className="flex-1 py-3 bg-gradient-to-r from-blue-500 to-indigo-600 text-white rounded-xl font-black text-sm shadow-lg transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50">{locationCreating ? '创建中...' : '创建'}</button>
             </div>
           </div>
         </div>

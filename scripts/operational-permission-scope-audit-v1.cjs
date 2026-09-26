@@ -213,6 +213,7 @@ function bomPayload() {
     bomType: 'chemical_formula',
     formulationMode: 'percentage',
     outputUnit: 'kg',
+    shelfLifeDays: 365,
     standardBatchSize: 100,
     batchSizeUnit: 'kg',
     items: [

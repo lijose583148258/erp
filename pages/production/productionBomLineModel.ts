@@ -1,4 +1,5 @@
 export type BomItemDraft = {
+  materialId?: number | null;
   materialName: string;
   materialCode: string;
   ingredientRole: string;
@@ -99,6 +100,7 @@ export const normalizeDosageValue = (value?: string): DosageModeValue => {
   return alias || 'fixed';
 };
 export const createEmptyItem = (): BomItemDraft => ({
+  materialId: null,
   materialName: '',
   materialCode: '',
   ingredientRole: 'other',
@@ -219,6 +221,7 @@ export const parseBomPasteText = (
     });
     if (normalizedQuantity.notice) conversionNotices.add(normalizedQuantity.notice);
     return {
+      materialId: null,
       materialName: parts[0] || '',
       materialCode: parts[1] || '',
       ingredientRole: normalizeRoleValue(parts[2]),

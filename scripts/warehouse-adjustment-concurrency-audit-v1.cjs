@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 
 const baseUrl = String(process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/$/, '');
 const username = String(process.env.AILAODA_LOAD_USERNAME || process.env.WAREHOUSE_AUDIT_USERNAME || '').trim();
@@ -64,11 +65,20 @@ const main = async () => {
   if (!location?.id) throw new Error('No writable warehouse location was returned.');
 
   const productName = `ADJUST-CONCURRENCY-${runId}`;
+  const materialCode = `ADJUST-MAT-${runId}`;
   const batchNo = `BATCH-${runId}`;
+  const material = await ensureReleasedMaterial({
+    request: (endpoint, options = {}) => request(endpoint, { ...options, token }),
+    code: materialCode,
+    name: productName,
+    unit: 'kg',
+    category: 'raw_material',
+  });
+  record('create-released-material', 'passed', { materialId: Number(material.id), materialCode });
   const inbound = await request('/warehouses/stock-balances', {
     method: 'POST', token,
     data: {
-      locationId: Number(location.id), productName, batchNo, quantity: 100, unit: 'kg',
+      locationId: Number(location.id), materialId: Number(material.id), productName, batchNo, quantity: 100, unit: 'kg',
       sourceRef: `ADJUST-SEED-${runId}`, reason: 'concurrency_audit',
     },
   });

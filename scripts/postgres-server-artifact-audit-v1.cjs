@@ -34,6 +34,14 @@ function requireExists(file) {
   }
 }
 
+function listFilesRecursive(rootDir) {
+  if (!fs.existsSync(rootDir)) return [];
+  return fs.readdirSync(rootDir, { withFileTypes: true }).flatMap((entry) => {
+    const filePath = path.join(rootDir, entry.name);
+    return entry.isDirectory() ? listFilesRecursive(filePath) : [filePath];
+  });
+}
+
 const manifest = requireIncludes('output/postgres-server-artifact/manifest.json', [
   '"artifact": "postgres-server"',
   '"prismaProvider": "postgresql"',
@@ -63,6 +71,29 @@ if (database.includes('require("@prisma/client")')) {
   });
 }
 
+const residualDefaultClientImports = listFilesRecursive(resolve('output/postgres-server-artifact/backend/dist'))
+  .filter(filePath => filePath.endsWith('.js'))
+  .filter(filePath => /require\((["'])@prisma\/client\1\)/.test(fs.readFileSync(filePath, 'utf8')));
+for (const filePath of residualDefaultClientImports) {
+  findings.push({
+    severity: 'P0',
+    file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+    message: 'PostgreSQL server artifact runtime must not import the default SQLite Prisma client package.',
+  });
+}
+try {
+  const artifactMoney = require(resolve('output/postgres-server-artifact/backend/dist/utils/money.js'));
+  if (artifactMoney.addMoney('0.10', '0.20') !== 0.3) {
+    throw new Error('unexpected Decimal result');
+  }
+} catch (error) {
+  findings.push({
+    severity: 'P0',
+    file: 'output/postgres-server-artifact/backend/dist/utils/money.js',
+    message: `generated PostgreSQL Prisma client Decimal runtime smoke failed: ${error instanceof Error ? error.message : String(error)}`,
+  });
+}
+
 requireIncludes('output/postgres-server-artifact/backend/dist/config/runtime.js', [
   "AILAODA_PRISMA_PROVIDER !== 'postgresql'",
   'PostgreSQL DATABASE_URL is configured',
@@ -76,6 +107,8 @@ requireIncludes('output/postgres-server-artifact/backend/prisma/schema.prisma', 
 requireIncludes('scripts/build-postgres-server-artifact-v1.cjs', [
   'audit:db:postgres-artifact',
   'require("../../prisma/generated-client")',
+  'patchedRuntimeImportCount',
+  'residualDefaultClientImports',
   'AILAODA_PRISMA_PROVIDER',
   "packageMetadata.type = 'commonjs'",
   'npm ci --omit=dev --ignore-scripts',

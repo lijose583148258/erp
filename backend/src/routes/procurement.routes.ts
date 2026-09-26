@@ -4,6 +4,7 @@ import { authenticate, authorizePermission } from '../middleware/auth';
 import { validateZod } from '../middleware/validateZod';
 import {
   createPurchaseOrderSchema,
+  revisePurchaseOrderSchema,
   createPurchaseReceiptSchema,
   createSupplierSchema,
   idParamSchema,
@@ -21,6 +22,8 @@ router.post('/suppliers', authorizePermission('procurement.write'), validateZod(
 
 router.get('/orders', authorizePermission('procurement.read'), procurementController.getOrders);
 router.post('/orders', authorizePermission('procurement.write'), validateZod(createPurchaseOrderSchema), procurementController.createOrder);
+router.patch('/orders/:id', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(revisePurchaseOrderSchema), procurementController.reviseOrder);
+router.get('/orders/:id/revisions', authorizePermission('procurement.read'), validateZod(idParamSchema, 'params'), procurementController.getOrderRevisions);
 router.patch('/orders/:id/status', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(purchaseStatusUpdateSchema), procurementController.updateOrderStatus);
 router.get('/orders/:id/receipts', authorizePermission('procurement.read'), validateZod(idParamSchema, 'params'), procurementController.getOrderReceipts);
 router.post('/orders/:id/receipts', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(createPurchaseReceiptSchema), procurementController.createReceipt);

@@ -1,7 +1,7 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../../config/database';
 import type { BarterListQuery } from './barter.types';
-import { roundMoney } from './barter.calculations';
+import { calculatePostedBarterTotals } from './barter.calculations';
 import { toDisplayName } from './barter.formatters';
 
 export async function getBarterSummary(where: Prisma.BarterSettlementWhereInput = {}) {
@@ -22,12 +22,7 @@ export async function getBarterSummary(where: Prisma.BarterSettlementWhereInput 
   const postedCount = settlements.filter(item => item.status === 'posted').length;
   const reversedCount = settlements.filter(item => item.status === 'reversed').length;
 
-  const totalOffset = settlements.reduce((sum, settlement) => {
-    const postingSum = settlement.offsetPostings.reduce((postingTotal, posting) => postingTotal + Number(posting.offsetAmount), 0);
-    return sum + postingSum;
-  }, 0);
-
-  const totalCashDifference = settlements.reduce((sum, settlement) => sum + Number(settlement.cashDifference), 0);
+  const { totalOffset, totalCashDifference } = calculatePostedBarterTotals(settlements);
 
   return {
     settlementCount,
@@ -35,8 +30,8 @@ export async function getBarterSummary(where: Prisma.BarterSettlementWhereInput 
     approvedCount,
     postedCount,
     reversedCount,
-    totalOffset: roundMoney(totalOffset),
-    totalCashDifference: roundMoney(totalCashDifference),
+    totalOffset,
+    totalCashDifference,
   };
 }
 

@@ -96,8 +96,10 @@ export async function collectRuntimeResourceChecks(
   const serviceWorker = await fetchRuntimeText(appUrl, '/sw.js', requestTimeoutMs);
   checks.push({
     ...serviceWorker,
-    name: 'service-worker-disabled',
-    ok: serviceWorker.status === 404,
+    name: 'service-worker',
+    ok: serviceWorker.ok
+      && serviceWorker.text.includes("self.addEventListener('install'")
+      && serviceWorker.text.includes('NEVER_CACHE_PREFIXES'),
   });
 
   const assetPaths = Array.from(home.text.matchAll(/(?:src|href)="([^"]+\.(?:js|css))"/g))

@@ -23,6 +23,9 @@ const snapshot = read('postgres-migration-snapshot-v1.json');
 const manifest = read('postgres-migration-import-manifest-v1.json');
 const importReport = read('postgres-migration-import-v1.json');
 const rollbackReport = read('postgres-migration-rollback-v1.json');
+const decimalSource = read('decimal-shadow-reconcile-v1-sqlite-source.json');
+const decimalTarget = read('decimal-shadow-reconcile-v1-postgres-import.json');
+const decimalRollback = read('decimal-shadow-reconcile-v1-sqlite-rollback.json');
 const mismatches = [];
 for (const report of [source, target, rollback]) if (report.status !== 'passed') mismatch(mismatches, 'fingerprint-status', { label: report.label, status: report.status });
 for (const [table, count] of Object.entries(source.counts || {})) {
@@ -51,12 +54,58 @@ if (snapshot.totalRowCount !== expectedRows) mismatch(mismatches, 'snapshot-tota
 if (manifest.snapshot?.checksumSha256 !== snapshot.checksumSha256) mismatch(mismatches, 'snapshot-manifest-checksum', { snapshot: snapshot.checksumSha256, manifest: manifest.snapshot?.checksumSha256 });
 if (importReport.summary?.importedRowCount !== expectedRows || !importReport.summary?.verificationPassed) mismatch(mismatches, 'postgres-import', { importedRows: importReport.summary?.importedRowCount, verificationPassed: importReport.summary?.verificationPassed });
 if (!rollbackReport.integrity?.verified) mismatch(mismatches, 'sqlite-rollback-integrity', { integrity: rollbackReport.integrity || null });
+for (const [label, decimalReport, expectedProvider] of [
+  ['source', decimalSource, 'sqlite'],
+  ['postgres', decimalTarget, 'postgresql'],
+  ['rollback', decimalRollback, 'sqlite'],
+]) {
+  const tableCount = Array.isArray(decimalReport.tables) ? decimalReport.tables.length : 0;
+  const fieldCount = (decimalReport.tables || []).reduce((sum, table) => sum + (table.fields || []).length, 0);
+  const tablesPassed = (decimalReport.tables || []).every(table => table.passed === true);
+  if (
+    decimalReport.status !== 'passed'
+    || decimalReport.provider !== expectedProvider
+    || tableCount !== 3
+    || fieldCount !== 9
+    || Number(decimalReport.summary?.nullShadowRows) !== 0
+    || Number(decimalReport.summary?.mismatchRows) !== 0
+    || !tablesPassed
+  ) {
+    mismatch(mismatches, 'decimal-shadow-reconcile', {
+      label,
+      status: decimalReport.status,
+      provider: decimalReport.provider,
+      expectedProvider,
+      tableCount,
+      fieldCount,
+      nullShadowRows: decimalReport.summary?.nullShadowRows,
+      mismatchRows: decimalReport.summary?.mismatchRows,
+      tablesPassed,
+    });
+  }
+}
+if (
+  decimalSource.contractVersion !== decimalTarget.contractVersion
+  || decimalSource.contractVersion !== decimalRollback.contractVersion
+) {
+  mismatch(mismatches, 'decimal-shadow-contract-version', {
+    source: decimalSource.contractVersion,
+    postgres: decimalTarget.contractVersion,
+    rollback: decimalRollback.contractVersion,
+  });
+}
 const status = mismatches.length ? 'failed' : 'passed';
 const report = {
-  name: 'Enterprise release certification verdict', version: 2, status, evidenceClass: profile,
+  name: 'Enterprise release certification verdict', version: 3, status, evidenceClass: profile,
   productionEligible: status === 'passed' && profile === 'real-snapshot', syntheticEligible: status === 'passed' && profile === 'synthetic-scale', expectedRows,
   sourceRows: source.totalRows, targetRows: target.totalRows, rollbackRows: rollback.totalRows,
   snapshot: { checksumSha256: snapshot.checksumSha256, totalRows: snapshot.totalRowCount, tableCount: snapshot.tableCount },
+  decimalShadow: {
+    contractVersion: decimalSource.contractVersion,
+    source: decimalSource.summary,
+    postgres: decimalTarget.summary,
+    rollback: decimalRollback.summary,
+  },
   critical: { source: source.critical, target: target.critical, rollback: rollback.critical }, mismatches, generatedAt: new Date().toISOString(),
 };
 report.sha256 = crypto.createHash('sha256').update(JSON.stringify(report)).digest('hex');

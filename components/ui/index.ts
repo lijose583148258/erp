@@ -13,3 +13,4 @@ export { ReasonDialog } from './ReasonDialog';
 export { StatusBadge } from './StatusBadge';
 export { getStatusBorderBadgeClassName, getStatusLabel, getStatusTone, isHighRiskStatus } from './statusBadgeLogic';
 export { StickyActionBar } from './StickyActionBar';
+export { ColumnVisibilityMenu } from './ColumnVisibilityMenu';

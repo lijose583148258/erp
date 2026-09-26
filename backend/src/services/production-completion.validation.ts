@@ -27,6 +27,7 @@ export class ProductionCompletionValidationError extends Error {
 
 type BomValidationItem = {
   id?: number | null;
+  materialId?: number | null;
   materialCode?: string | null;
   materialName?: string | null;
   ingredientRole?: string | null;
@@ -40,6 +41,7 @@ type BomValidationItem = {
 };
 
 type StockValidationSnapshot = {
+  materialId?: number | null;
   productName?: string | null;
   batchNo?: string | null;
   unit?: string | null;
@@ -113,6 +115,12 @@ const getToleranceRateForBomItem = (item: BomValidationItem) => {
 };
 
 const bomItemMatchesStock = (bomItem: BomValidationItem, stock: StockValidationSnapshot | null | undefined) => {
+  const bomMaterialId = Number(bomItem.materialId || 0);
+  const stockMaterialId = Number(stock?.materialId || 0);
+  if (bomMaterialId > 0 || stockMaterialId > 0) {
+    return bomMaterialId > 0 && stockMaterialId > 0 && bomMaterialId === stockMaterialId;
+  }
+
   const itemTokens = [
     normalizeMaterialToken(bomItem.materialCode),
     normalizeMaterialToken(bomItem.materialName),

@@ -8,6 +8,7 @@ const barterSideSchema = z.enum(['our', 'counterparty']);
 
 const barterItemSchema = z.object({
   side: barterSideSchema,
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   itemName: z.string().trim().min(1),
   specification: z.string().trim().optional(),
   unit: z.string().trim().min(1),

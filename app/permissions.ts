@@ -53,6 +53,8 @@ export type FrontendPermission =
   | 'assets.write'
   | 'production.read'
   | 'production.write'
+  | 'production.quality.inspect'
+  | 'production.quality.release'
   | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
@@ -65,6 +67,9 @@ export type FrontendPermission =
   | 'procurement.read'
   | 'procurement.write'
   | 'procurement.b2b.read'
+  | 'materials.read'
+  | 'materials.write'
+  | 'materials.govern'
   | 'commercial.read'
   | 'commercial.workflow.manage'
   | 'commercial.notification.write'
@@ -89,6 +94,7 @@ export const MENU_PERMISSION_BY_MODULE: Record<string, FrontendPermission> = {
   rma: 'rma.read',
   team: 'team.read',
   assets: 'assets.read',
+  materials: 'materials.read',
   production: 'production.read',
   warehouse: 'warehouse.read',
   procurement: 'procurement.read',
@@ -150,6 +156,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.inspect',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -162,6 +170,9 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
+    'materials.govern',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -219,6 +230,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -231,6 +243,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -264,6 +278,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'rma.read',
     'rma.write',
     'procurement.b2b.read',
+    'materials.read',
   ],
   warehouse: [
     'dashboard.read',
@@ -280,6 +295,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.write',
     'production.read',
     'production.write',
+    'production.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
@@ -291,6 +307,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.read',
     'procurement.write',
     'procurement.b2b.read',
+    'materials.read',
   ],
   finance: [
     'dashboard.read',
@@ -323,6 +340,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'adjustments.reverse',
     'procurement.suppliers.read',
     'procurement.read',
+    'materials.read',
   ],
 };
 

@@ -10,7 +10,7 @@ services:
       - postgres-primary-data:/var/lib/postgresql/data
       - ./postgres-init-replication.sh:/docker-entrypoint-initdb.d/10-replication.sh:ro
     ports:
-      - "55432:5432"
+      - "${POSTGRES_HOST_PORT:-55432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ailaoda -d ailaoda"]
       interval: 2s
@@ -134,7 +134,10 @@ services:
       - "26381:26379"
 
   minio-primary:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: &minio-source-image ailaoda/minio-sandbox:source-2025-04-v1
+    build: &minio-source-build
+      context: ./minio-source
+    pull_policy: never
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
@@ -149,7 +152,9 @@ services:
       retries: 30
 
   minio-secondary:
-    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    image: *minio-source-image
+    build: *minio-source-build
+    pull_policy: never
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?required}
@@ -164,7 +169,9 @@ services:
       retries: 30
 
   minio-init:
-    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    image: *minio-source-image
+    build: *minio-source-build
+    pull_policy: never
     depends_on:
       minio-primary:
         condition: service_healthy
@@ -270,6 +277,9 @@ services:
       MEILISEARCH_API_KEY: ${MEILI_MASTER_KEY:?required}
       SEARCH_REQUEST_TIMEOUT_MS: "2000"
       SEARCH_MIN_WRITE_SUCCESSES: "1"
+      SEARCH_MIN_READY_SUCCESSES: "2"
+      SEARCH_REINDEX_ON_STARTUP: "true"
+      SEARCH_STARTUP_TIMEOUT_MS: "120000"
       SEARCH_RESULT_CACHE_TTL_SECONDS: "5"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4318
       OTEL_SERVICE_NAME: ailaoda-erp-crm
@@ -299,6 +309,7 @@ services:
     environment:
       <<: *app-environment
       OTEL_SERVICE_INSTANCE_ID: github-sandbox-secondary
+      SEARCH_REINDEX_ON_STARTUP: "false"
     ports:
       - "5008:5001"
 

@@ -3,6 +3,18 @@ import type { CurrentUser, Currency, Language, Notification, Theme } from '../ty
 
 type ClientStateSetter<T> = T | ((current: T) => T);
 
+export const MAX_VISIBLE_NOTIFICATIONS = 3;
+
+export const enqueueNotification = (
+  notifications: Notification[],
+  incoming: Notification,
+): Notification[] => {
+  const withoutDuplicate = notifications.filter(
+    (notification) => notification.type !== incoming.type || notification.message !== incoming.message,
+  );
+  return [...withoutDuplicate, incoming].slice(-MAX_VISIBLE_NOTIFICATIONS);
+};
+
 type ClientState = {
   isBootstrappingSession: boolean;
   isLoggedIn: boolean;
@@ -72,7 +84,7 @@ export const useClientStateStore = create<ClientState>((set) => ({
   })),
   setCurrency: (value) => set({ currency: value }),
   addNotification: (notification) => set((state) => ({
-    notifications: [...state.notifications, notification],
+    notifications: enqueueNotification(state.notifications, notification),
   })),
   dismissNotification: (id) => set((state) => ({
     notifications: state.notifications.filter((notification) => notification.id !== id),

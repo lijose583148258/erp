@@ -33,6 +33,9 @@ model Shipment {
   id              Int       @id @default(autoincrement())
   shipmentNo      String    @unique @map("shipment_no")
   orderId         Int?      @map("order_id")
+  orderItemId     Int?      @map("order_item_id")
+  materialId      Int?      @map("material_id")
+  productBatchId  Int?      @map("product_batch_id")
   customerId      Int       @map("customer_id")
   productName     String    @map("product_name")
   quantity        Float
@@ -51,6 +54,9 @@ model Shipment {
 
   // 关联
   order           Order?    @relation(fields: [orderId], references: [id])
+  orderItem       OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: SetNull)
+  material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  productBatch    ProductBatch? @relation(fields: [productBatchId], references: [id], onDelete: SetNull)
   customer        Customer  @relation(fields: [customerId], references: [id])
   creator         User      @relation(fields: [createdBy], references: [id])
   receipts        ShipmentReceipt[]
@@ -60,6 +66,10 @@ model Shipment {
   batchNo         String?   @map("batch_no")
 
   @@index([orderId])
+  @@index([orderItemId])
+  @@index([materialId])
+  @@index([productBatchId])
+  @@index([batchNo])
   @@index([customerId])
   @@index([status])
   @@map("shipments")

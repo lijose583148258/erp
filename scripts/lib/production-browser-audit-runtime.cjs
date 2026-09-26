@@ -13,6 +13,7 @@ function createProductionBrowserAuditRuntime({ appUrl, auditAccount, report, rep
   async function seedAuthToken(page) {
     const session = await loginUiAuditUser(page, appUrl, {
       account: auditAccount,
+      persistInitScript: false,
       storage: {
         'ailao.activeTab': 'production',
         'ailao.language': 'zh',

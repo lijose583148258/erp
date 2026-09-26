@@ -12,9 +12,12 @@ import { useSalesOrders } from './sales-orders/useSalesOrders';
 import SalesOrderHistoryModal from './sales-orders/SalesOrderHistoryModal';
 import SalesOrderPaymentModal from './sales-orders/SalesOrderPaymentModal';
 import SalesOrderEditorModal from './sales-orders/SalesOrderEditorModal';
+import SalesOrderShipmentModal from './sales-orders/SalesOrderShipmentModal';
+import { getEligibleShipmentLines } from './sales-orders/salesOrderShipmentHelpers';
 import CollectionActionModal from '../components/collections/CollectionActionModal';
 import { OrderStatus, CommissionStatus, type SalesOrder } from '../types';
 import { useAppContext } from '../app/AppContext';
+import { can } from '../app/permissions';
 import { getOperatingTableLabels } from '../i18n/operatingTable';
 
 const makeSalesOrderTestId = (id: unknown) => String(id ?? 'unknown').replace(/[^a-zA-Z0-9_-]/g, '-');
@@ -22,7 +25,7 @@ type SalesOrderDesk = 'orders' | 'payments' | 'fulfillment' | 'commission' | 'pr
 type OperatingSalesOrderRow = SalesOrderOperatingRow & { sourceOrder: SalesOrder };
 
 const toOperatingSalesOrderRow = (order: SalesOrder): OperatingSalesOrderRow => {
-    const orderedQuantity = (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const orderedQuantity = order.items?.length === 1 ? Number(order.items[0].quantity || 0) : undefined;
     const productSummary = (order.items || [])
         .map((item) => [item.productName, item.packagingSpec].filter(Boolean).join(' '))
         .filter(Boolean)
@@ -42,7 +45,8 @@ const toOperatingSalesOrderRow = (order: SalesOrder): OperatingSalesOrderRow => 
         paidAmount: Number(order.paidAmount || 0),
         currency: order.currency,
         orderedQuantity,
-        shippedQuantity: order.fulfillmentStatus === 'delivered' ? orderedQuantity : 0,
+        shippedQuantity: order.fulfillment?.lines.length === 1 ? order.fulfillment.lines[0].dispatchedQuantity : undefined,
+        fulfillment: order.fulfillment,
         quantityUnit: order.items?.[0]?.unit,
         orderStatus: order.status,
         fulfillmentStatus: order.fulfillmentStatus,
@@ -235,7 +239,7 @@ const SalesOrders = () => {
                 </div>
                 <div className="flex gap-4">
                     {activeDesk === 'orders' && state.canCreateOrder && (
-                        <button data-testid="sales-order-create-button" onClick={state.openCreateModal} className="flex items-center px-10 py-4 bg-blue-600 text-white rounded-[28px] font-black text-sm shadow-2xl hover:bg-blue-700 transition-all active:scale-95">
+ <button data-testid="sales-order-create-button" onClick={state.openCreateModal} className="flex items-center px-10 py-4 bg-blue-600 text-white rounded-[28px] font-black text-sm shadow-2xl hover:bg-blue-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
                             <Pencil size={20} className="mr-3" /> {t.newOrder}
                         </button>
                     )}
@@ -337,11 +341,6 @@ const SalesOrders = () => {
                         {showFulfillmentActions && !state.isManagerView && state.canCreateOrder && (
                             <>
                                 {order.status === OrderStatus.PENDING && <button aria-label={t.confirmOrder || '确认订单'} onClick={(e) => { e.stopPropagation(); state.handleStatusUpdate(order.id, OrderStatus.CONFIRMED); }} className="min-h-11 min-w-11 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title={t.confirmOrder || '确认订单'}><Check size={16} /></button>}
-                                {order.status === OrderStatus.CONFIRMED && (
-                                    <button aria-label={t.quickShip || '快速发货'} onClick={(e) => { e.stopPropagation(); state.handleQuickShip(order); }} className="min-h-11 min-w-11 p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title={t.quickShip || '快速发货'}>
-                                        <Truck size={16} />
-                                    </button>
-                                )}
                                 {order.fulfillmentStatus === 'delivered' && order.financialStatus === 'paid' && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
                                     <button aria-label={t.completeOrder || '完成订单'} onClick={(e) => { e.stopPropagation(); state.handleManualComplete(order.id); }} className="min-h-11 min-w-11 p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title={t.completeOrder || '完成订单'}>
                                         <CheckCircle2 size={16} />
@@ -349,11 +348,27 @@ const SalesOrders = () => {
                                 )}
                             </>
                         )}
+                        {showFulfillmentActions && can(currentUser, 'shipping.write') && getEligibleShipmentLines(order).length > 0 && (
+                            <button type="button" data-testid={`sales-order-ship-${makeSalesOrderTestId(order.id)}`} aria-label={t.quickShip || '快速发货'} onClick={(e) => { e.stopPropagation(); state.handleQuickShip(order); }} className="min-h-11 min-w-11 p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title={t.quickShip || '快速发货'}>
+                                <Truck size={16} />
+                            </button>
+                        )}
                     </div>
                     );
                 }}
             />
             </div>
+
+            {state.shipmentOrderId && (
+                <SalesOrderShipmentModal
+                    key={state.shipmentOrderId}
+                    orderId={state.shipmentOrderId}
+                    canWrite={can(currentUser, 'shipping.write')}
+                    language={state.language}
+                    onClose={state.closeShipmentDraft}
+                    onCreated={state.handleShipmentCreated}
+                />
+            )}
 
             <SalesOrderHistoryModal
                 isOpen={state.isHistoryOpen}

@@ -34,11 +34,11 @@ export function CRMCustomerPoolTimeline({ history, latest, currentPool, loading 
   return (
     <div className="pt-6 border-t border-slate-100 dark:border-slate-800 space-y-4">
       <div className="flex items-center justify-between gap-3">
-        <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em] flex items-center">
+        <h5 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em] flex items-center">
           <History size={14} className="mr-2" />
           客户池审计
         </h5>
-        <span className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+        <span className="text-xs font-black uppercase tracking-widest text-slate-400">
           {history.length} events
         </span>
       </div>
@@ -47,19 +47,19 @@ export function CRMCustomerPoolTimeline({ history, latest, currentPool, loading 
         <div className="rounded-[28px] border border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-800/40 p-4">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Current Pool</div>
+              <div className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Current Pool</div>
               <div className="mt-2 text-sm font-black uppercase tracking-[0.18em] text-slate-900 dark:text-white">
                 {currentMeta?.label || 'UNKNOWN'}
               </div>
             </div>
             {currentMeta && (
-              <div className={`px-3 py-2 rounded-2xl border text-[10px] font-black uppercase tracking-widest ${currentMeta.tone}`}>
+              <div className={`px-3 py-2 rounded-2xl border text-xs font-black uppercase tracking-widest ${currentMeta.tone}`}>
                 <currentMeta.icon size={14} className="inline mr-1" />
                 {currentMeta.label}
               </div>
             )}
           </div>
-          <div className="mt-4 grid grid-cols-2 gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+          <div className="mt-4 grid grid-cols-2 gap-2 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
             <div className="rounded-2xl bg-white/70 dark:bg-slate-900/60 p-3">
               <div className="opacity-60">更新时间</div>
               <div className="mt-2 text-[11px] text-slate-800 dark:text-slate-200">{formatTime(currentPool?.poolUpdatedAt)}</div>
@@ -69,19 +69,19 @@ export function CRMCustomerPoolTimeline({ history, latest, currentPool, loading 
               <div className="mt-2 text-[11px] text-slate-800 dark:text-slate-200">{currentPool?.poolUpdatedBy || '--'}</div>
             </div>
           </div>
-          <div className="mt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+          <div className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
             Reason: <span className="text-slate-700 dark:text-slate-200">{currentPool?.poolReason || '--'}</span>
           </div>
-          <div className="mt-3 text-[10px] font-black uppercase tracking-[0.16em] text-slate-500">
+          <div className="mt-3 text-xs font-black uppercase tracking-[0.16em] text-slate-500">
             Salesperson: <span className="text-slate-700 dark:text-slate-200">{currentPool?.salespersonId || '--'}</span>
           </div>
         </div>
 
         <div className="rounded-[28px] border border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 p-4">
           <div className="flex items-center justify-between gap-3 mb-3">
-            <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">Recent Actions</div>
+            <div className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">Recent Actions</div>
             {latest && (
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400 flex items-center">
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400 flex items-center">
                 <Clock3 size={12} className="mr-1" />
                 {formatTime(latest.createdAt)}
               </div>
@@ -107,7 +107,7 @@ export function CRMCustomerPoolTimeline({ history, latest, currentPool, loading 
                           <div className="text-xs font-black text-slate-900 dark:text-white uppercase tracking-[0.14em]">
                             {entry.action}
                           </div>
-                          <div className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">
+                          <div className="mt-1 text-xs font-black uppercase tracking-[0.18em] text-slate-400">
                             {entry.previousPoolState || '--'} → {entry.nextPoolState || '--'}
                           </div>
                         </div>
@@ -120,7 +120,7 @@ export function CRMCustomerPoolTimeline({ history, latest, currentPool, loading 
                       <div className="mt-2 text-[11px] text-slate-600 dark:text-slate-300 leading-relaxed">
                         {entry.reason || 'No reason provided'}
                       </div>
-                      <div className="mt-2 flex flex-wrap items-center gap-3 text-[10px] font-black uppercase tracking-[0.14em] text-slate-400">
+                      <div className="mt-2 flex flex-wrap items-center gap-3 text-xs font-black uppercase tracking-[0.14em] text-slate-400">
                         <span>{entry.operatorName}</span>
                         <span>{entry.operatorRole}</span>
                         <span>{formatTime(entry.createdAt)}</span>

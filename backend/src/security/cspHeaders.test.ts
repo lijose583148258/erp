@@ -11,9 +11,13 @@ describe('CSP headers', () => {
     }));
 
     expect(directives['script-src']).toEqual(["'self'"]);
-    expect(directives['style-src']).toEqual(["'self'"]);
-    expect(directives['style-src-elem']).toEqual(["'self'"]);
+    expect(directives['style-src']?.[0]).toBe("'self'");
+    expect(directives['style-src-elem']?.[0]).toBe("'self'");
+    expect(directives['style-src']?.[1]).toMatch(/^'nonce-[A-Za-z0-9+/=]+'$/);
+    expect(directives['style-src-elem']?.[1]).toBe(directives['style-src']?.[1]);
     expect(directives['style-src-attr']).toEqual(["'unsafe-inline'"]);
+    expect(directives['style-src']).not.toContain("'unsafe-inline'");
+    expect(directives['style-src-elem']).not.toContain("'unsafe-inline'");
     expect(csp).not.toContain("'unsafe-eval'");
   });
 });

@@ -8,6 +8,7 @@ export type BarterAgreementStatus = 'draft' | 'active' | 'partial' | 'completed'
 
 export interface BarterItemInput {
   side: BarterSide;
+  materialId?: number | null;
   itemName: string;
   specification?: string | null;
   unit: string;

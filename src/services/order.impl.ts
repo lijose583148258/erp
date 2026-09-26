@@ -91,7 +91,7 @@ const mapOrderResponse = (value: unknown): SalesOrder => {
         id: toStringValue(item.id),
         orderNo: toOptionalString(item.orderNo),
         contractId: toOptionalString(item.contractId),
-        customerId: toStringValue(item.customerId),
+        customerId: toStringValue(item.customerId ?? customer.id),
         customerName,
         customerNameZh,
         customerNameEn,

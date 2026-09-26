@@ -51,6 +51,7 @@ export const repairCoreSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'shipments', 'signed_receipt_url', 'TEXT');
 
   await addColumnIfMissing(report, 'purchase_orders', 'currency', `TEXT NOT NULL DEFAULT 'CNY'`);
+  await addColumnIfMissing(report, 'purchase_orders', 'revision', 'INTEGER NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'purchase_orders', 'exchange_rate', 'REAL NOT NULL DEFAULT 1.0');
   await addColumnIfMissing(report, 'purchase_orders', 'tax_rate', 'REAL NOT NULL DEFAULT 0');
   await addColumnIfMissing(report, 'purchase_orders', 'tax_amount', 'REAL NOT NULL DEFAULT 0');

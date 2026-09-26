@@ -76,6 +76,7 @@ const getEntryCount = async (sourceRef, sourceType) => {
     productName: `QA Glue Formula ${stamp}`,
     version: 'qa-coverage-v1',
     outputUnit: 'kg',
+    shelfLifeDays: 365,
     bomType: 'formula',
     formulationMode: 'chemical_formula',
     standardBatchSize: 100,

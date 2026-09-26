@@ -2,7 +2,19 @@ name: Enterprise Cloud Sandbox
 
 on:
   workflow_call:
+    inputs:
+      round2:
+        description: Run the incomplete second-round business acceptance gate
+        required: false
+        type: boolean
+        default: false
   workflow_dispatch:
+    inputs:
+      round2:
+        description: Run Round 2 (missing business-chain evidence intentionally fails the final gate)
+        required: false
+        type: boolean
+        default: false
   pull_request:
     paths:
       - '.github/workflows/enterprise-cloud-sandbox.yml'
@@ -14,8 +26,41 @@ on:
       - 'backend/src/routes/warehouse.routes.ts'
       - 'scripts/cloud-postgres-*.cjs'
       - 'scripts/postgres-*.cjs'
+      - 'scripts/decimal-shadow-*.cjs'
       - 'scripts/run-postgres-import-rehearsal-v1.cjs'
       - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
+      - 'scripts/enterprise-20-staff-audit-v1.cjs'
+      - 'scripts/enterprise-round2-*.cjs'
+      - 'scripts/lib/enterprise-round2-runner.cjs'
+      - 'scripts/lib/enterprise-round2-procurement*.cjs'
+      - 'scripts/lib/enterprise-round2-barter*.cjs'
+      - 'pages/BarterWorkspaceView.tsx'
+      - 'pages/barter/**'
+      - 'scripts/lib/browser-cjk-font-guard.cjs'
+      - 'scripts/lib/procurement-toolbar-layout-audit.cjs'
+      - 'pages/procurement/**'
+      - 'components/ui/tablePreferences.ts'
+      - 'scripts/sales-partial-fulfillment-audit-v1.cjs'
+      - 'backend/src/utils/orderFulfillment*.ts'
+      - 'backend/src/utils/orderCommercialState.ts'
+      - 'backend/src/services/order-fulfillment.service.ts'
+      - 'backend/src/services/shipment-order-guard.service.ts'
+      - 'backend/src/services/shipment-material-identity.ts'
+      - 'backend/src/services/order-status-transition.service.ts'
+      - 'backend/src/services/order-workspace.service.ts'
+      - 'backend/src/controllers/order.controller.ts'
+      - 'backend/src/controllers/shipping-controller.helpers.ts'
+      - 'backend/src/controllers/shipping.controller.ts'
+      - 'pages/SalesOrders.tsx'
+      - 'components/operatingTable/salesOrderOperatingTable.tsx'
+      - 'utils/orderCommercialState.ts'
+      - 'i18n/operatingTable/**'
+      - 'scripts/config/enterprise-round2-v1.json'
+      - 'backend/src/services/barter/**'
+      - 'backend/src/services/production-cost-ledger.service.ts'
+      - 'scripts/browser-ui-ux-audit-v2.cjs'
+      - 'scripts/lib/browser-ui-ux-audit-report.cjs'
+      - 'app/useAppShell.tsx'
       - 'ops/cloud-sandbox/**'
       - 'package.json'
       - 'package-lock.json'
@@ -71,6 +116,9 @@ jobs:
             exit 1
           fi
 
+      - name: Verify business audit failure isolation and fixture valuation
+        run: npm run test:contract:enterprise-round2
+
       - name: Upload source evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -121,6 +169,10 @@ jobs:
 
       - name: Pull fixed dependency images
         run: docker compose pull --ignore-buildable
+
+      - name: Build pinned MinIO source fixture
+        timeout-minutes: 10
+        run: docker compose build minio-primary
 
       - name: Start dependency topology
         run: docker compose up -d --wait --wait-timeout 180
@@ -220,6 +272,14 @@ jobs:
           emit_secret JWT_SECRET
           emit_secret METRICS_BEARER_TOKEN
 
+          postgres_host_port="$(python - <<'PY'
+          import socket
+
+          with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+              sock.bind(("127.0.0.1", 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
           audit_username="cloud_ha_admin_${GITHUB_RUN_ID}_${GITHUB_RUN_ATTEMPT}"
           audit_password="$(openssl rand -hex 24)Aa1!"
           audit_password_file="${RUNNER_TEMP}/ailaoda-cloud-audit-password"
@@ -244,8 +304,9 @@ jobs:
             printf 'CONCURRENCY_FINANCE_PASSWORD_FILE=%s\n' "${audit_password_file}"
             printf 'CONCURRENCY_MANAGER_USERNAME=cloud_ha_manager_%s_%s\n' "${GITHUB_RUN_ID}" "${GITHUB_RUN_ATTEMPT}"
             printf 'CONCURRENCY_MANAGER_PASSWORD_FILE=%s\n' "${audit_password_file}"
-            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
-            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:55432/ailaoda?schema=public\n' "${postgres_password}"
+            printf 'POSTGRES_HOST_PORT=%s\n' "${postgres_host_port}"
+            printf 'DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:%s/ailaoda?schema=public\n' "${postgres_password}" "${postgres_host_port}"
+            printf 'AUDIT_DATABASE_URL=postgresql://ailaoda:%s@127.0.0.1:%s/ailaoda?schema=public\n' "${postgres_password}" "${postgres_host_port}"
           } >> "${GITHUB_ENV}"
 
       - name: Setup Node
@@ -259,19 +320,36 @@ jobs:
           npm ci
           npm --prefix backend ci
 
+      - name: Verify collision-resistant cloud topology contract
+        run: npm run test:contract:cloud-topology
+
       - name: Remove stale generated runtime evidence
         shell: bash
         run: |
-          rm -rf output/audit output/playwright cloud-evidence
-          mkdir -p output/audit output/playwright cloud-evidence
+          rm -rf output/audit output/playwright output/ui-ux-audit cloud-evidence
+          mkdir -p output/audit output/playwright output/ui-ux-audit cloud-evidence
 
       - name: Verify cloud runner Chrome
         run: google-chrome --version
+
+      - name: Install Chinese glyph coverage for real browser evidence
+        id: browser_fonts
+        continue-on-error: true
+        timeout-minutes: 3
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig
+          fc-cache -f
+          fc-match 'sans-serif:lang=zh-cn' | tee cloud-evidence/chinese-font-match.txt
+          fc-match 'sans-serif:lang=zh-cn' | grep -qi 'NotoSansCJK'
 
       - name: Start dependency topology
         run: |
           mkdir -p cloud-evidence
           docker compose pull --ignore-buildable
+          docker compose build minio-primary
           docker compose up -d --wait --wait-timeout 180
 
       - name: Rehearse SQLite to PostgreSQL cutover and SQLite rollback
@@ -295,10 +373,12 @@ jobs:
           DATABASE_URL="${sqlite_url}" POSTGRES_URL="${postgres_url}" POSTGRES_IMPORT_MODE=empty-only \
             npm run run:db:postgres-import-rehearsal
           node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-target
+          AUDIT_DATABASE_URL="${postgres_url}" DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-import npm run audit:db:decimal-shadow
 
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs mutate
           DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
+          DATABASE_URL="${sqlite_url}" AUDIT_DATABASE_URL="${sqlite_url}" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback npm run audit:db:decimal-shadow
 
       - name: Build PostgreSQL application image
         run: |
@@ -308,6 +388,7 @@ jobs:
         run: docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
 
       - name: Verify application readiness
+        id: app_readiness
         shell: bash
         run: |
           set -euo pipefail
@@ -316,19 +397,102 @@ jobs:
             curl --fail --silent --show-error --retry 30 --retry-delay 2 --retry-all-errors "http://127.0.0.1:${port}/api/v1/ready" | tee "cloud-evidence/ready-${port}.json"
           done
 
-      - name: Simulate human ERP workflows
+      - name: Verify Meilisearch initialization, rebuild and readiness
+        id: search_readiness
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          npm run audit:ui:unsaved-changes
-          npm run audit:ui:complex-input-governance
-          npm run audit:orders:browser
-          npm run audit:procurement:browser
-          npm run audit:warehouse:transfer:browser
-          npm run audit:shipping:browser
-          npm run audit:collection:human-flow
+          for port in 5006 5008; do
+            ready=0
+            for attempt in {1..60}; do
+              output="cloud-evidence/internal-ready-${port}.json"
+              if curl --fail --silent --show-error \
+                  -H "Authorization: Bearer ${METRICS_BEARER_TOKEN}" \
+                  "http://127.0.0.1:${port}/internal/ready" > "${output}" \
+                && INTERNAL_READY_PATH="${output}" EXPECT_REINDEX="$([[ "${port}" == "5006" ]] && echo 1 || echo 0)" node - <<'NODE'
+          const fs = require('fs');
+          const body = JSON.parse(fs.readFileSync(process.env.INTERNAL_READY_PATH, 'utf8'));
+          const search = body?.degradable?.search;
+          const rebuilt = search?.lastReindex?.indexes;
+          const expectReindex = process.env.EXPECT_REINDEX === '1';
+          const valid = body?.status === 'ready'
+            && search?.ready === true
+            && search?.initialization?.status === 'ready'
+            && Number(search?.endpointCount || 0) >= 2
+            && !search?.lastError
+            && (!expectReindex || (
+              Number.isInteger(rebuilt?.customers?.documents)
+              && Number.isInteger(rebuilt?.orders?.documents)
+              && Number(search?.lastReindex?.readiness?.readyProviders || 0) >= 2
+            ));
+          if (!valid) process.exit(1);
+          NODE
+              then
+                ready=1
+                break
+              fi
+              echo "Waiting for Meilisearch indexes on app ${port} (attempt ${attempt}/60)"
+              sleep 2
+            done
+            test "${ready}" = "1"
+          done
+
+      - name: Simulate human ERP workflows
+        id: human_workflows
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -uo pipefail
+          failures=()
+          run_audit() {
+            local name="$1"
+            shift
+            echo "::group::${name}"
+            local status=0
+            # Actions invokes bash with -e; `set -uo pipefail` does not clear it.
+            # Test the command explicitly so one audit cannot skip later audits.
+            if "$@"; then
+              status=0
+            else
+              status=$?
+            fi
+            echo "::endgroup::"
+            if (( status != 0 )); then
+              failures+=("${name}:${status}")
+              echo "::error::${name} failed with exit code ${status}"
+            fi
+          }
+          run_audit unsaved-changes npm run audit:ui:unsaved-changes
+          run_audit complex-input-governance npm run audit:ui:complex-input-governance
+          run_audit ui-ux env UI_UX_AUDIT_ROUTES="#crm,#orders,#production,#warehouse,#procurement" \
+            UI_UX_AUDIT_TIMEOUT_MS=300000 \
+            UI_UX_AUDIT_SCREENSHOT_MODE=viewport \
+            npm run test:browser:ui-ux
+          run_audit orders-browser npm run audit:orders:browser
+          run_audit procurement-browser npm run audit:procurement:browser
+          run_audit warehouse-transfer-browser npm run audit:warehouse:transfer:browser
+          run_audit shipping-browser npm run audit:shipping:browser
+          run_audit collection-human-flow npm run audit:collection:human-flow
+          run_audit decimal-shadow env AUDIT_DATABASE_URL="${DATABASE_URL}" \
+            DECIMAL_SHADOW_AUDIT_LABEL=cloud-postgres-human-flows npm run audit:db:decimal-shadow
+          if (( ${#failures[@]} > 0 )); then
+            printf 'Human ERP workflow failures: %s\n' "${failures[*]}"
+            exit 1
+          fi
+
+      - name: Simulate 20 distinct chemical trading and factory staff
+        id: staff_20
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        run: npm run audit:enterprise:20-staff
 
       - name: Verify shared session across app instances
+        id: shared_session
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: |
           node - <<'NODE'
           const { ensureUiAuditUser } = require('./scripts/lib/ui-audit-user.cjs');
@@ -365,6 +529,9 @@ jobs:
           NODE
 
       - name: Verify telemetry ingestion
+        id: telemetry_ingestion
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -373,17 +540,29 @@ jobs:
           grep -E "Traces|ResourceSpans|ailaoda-erp-crm" cloud-evidence/otel-collector.log > cloud-evidence/otel-trace-proof.txt
 
       - name: Verify AI isolation red team
+        id: ai_isolation
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:ai:isolation
 
       - name: Verify governed AI runtime
+        id: ai_runtime
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:ai:governed-runtime
 
       - name: Verify order import scope and credit governance
+        id: order_import_governance
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:orders:import-governance-api
         env:
           ORDER_IMPORT_GOVERNANCE_REPORT_PATH: cloud-evidence/order-import-governance-api-audit-v1.json
 
       - name: Verify order import retention lifecycle
+        id: order_import_retention
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
@@ -437,47 +616,107 @@ jobs:
           test "${linked_compacted_count}" -ge 1
 
       - name: Verify core order and finance collection write boundaries
+        id: order_write_scope
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:orders:write-scope-api
         env:
           ORDER_WRITE_SCOPE_REPORT_PATH: cloud-evidence/order-write-scope-governance-api-audit-v1.json
 
       - name: Run dual-instance load gate
+        id: ha_load
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:load:ha
         env:
           AILAODA_LOAD_REQUESTS: "1000"
           AILAODA_LOAD_CONCURRENCY: "25"
 
       - name: Verify warehouse adjustment idempotency and optimistic concurrency
+        id: warehouse_adjustment
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:warehouse:adjustment-concurrency
         env:
           WAREHOUSE_ADJUSTMENT_REPORT_PATH: cloud-evidence/warehouse-adjustment-concurrency-audit-v1.json
 
       - name: Run short HA soak gate
+        id: ha_soak
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:soak:ha
         env:
           HA_SOAK_DURATION_MS: "45000"
           HA_SOAK_CONCURRENCY: "8"
 
       - name: Exercise Redis Sentinel controlled failover
+        id: redis_failover
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: node ./scripts/cloud-redis-sentinel-failover-audit-v1.cjs
 
       - name: Exercise search and object storage failover
+        id: degradable_failover
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: node ./scripts/cloud-degradable-dependency-failover-audit-v1.cjs
 
       - name: Reconcile concurrent business writes
+        id: concurrent_writes
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: npm run audit:concurrency:consistency
 
+      - name: Verify partial sales delivery and remaining obligation
+        id: sales_partial_fulfillment
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+        run: node ./scripts/sales-partial-fulfillment-audit-v1.cjs
+
+      - name: Exercise Round 2 inventory, payment and barter business acceptance
+        id: round2_business
+        if: ${{ always() && steps.app_readiness.outcome == 'success' && inputs.round2 == true }}
+        continue-on-error: true
+        timeout-minutes: 6
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+          ROUND2_BROWSER: "true"
+        run: npm run audit:enterprise:round2
+
       - name: Exercise PostgreSQL logical backup restore
+        id: postgres_backup_restore
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: node ./scripts/cloud-postgres-backup-restore-audit-v1.cjs
 
       - name: Exercise PostgreSQL streaming promotion
+        id: postgres_promotion
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: node ./scripts/cloud-postgres-promotion-audit-v1.cjs
 
       - name: Issue PostgreSQL cutover same-window verdict
+        id: postgres_cutover_verdict
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: node ./scripts/cloud-postgres-cutover-window-verdict-v1.cjs
 
       - name: Issue enterprise pilot technical verdict
+        id: enterprise_pilot_verdict
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
         run: node ./scripts/cloud-enterprise-pilot-verdict-v1.cjs
+
+      - name: Aggregate enterprise business audit outcomes
+        id: business_audit_verdict
+        if: always()
+        env:
+          ROUND2_REQUESTED: ${{ inputs.round2 || false }}
+          BUSINESS_AUDIT_STEPS_JSON: ${{ toJSON(steps) }}
+        run: node ./scripts/enterprise-cloud-business-audit-summary-v1.cjs
 
       - name: Capture application evidence
         if: always()
@@ -487,6 +726,7 @@ jobs:
           docker compose --profile application logs --no-color > cloud-evidence/application-compose.log 2>&1 || true
           cp -r output/audit cloud-evidence/audit 2>/dev/null || true
           cp -r output/playwright cloud-evidence/playwright 2>/dev/null || true
+          cp -r output/ui-ux-audit cloud-evidence/ui-ux-audit 2>/dev/null || true
           node -e 'const fs=require("fs"); fs.mkdirSync("cloud-evidence",{recursive:true}); const failed=process.env.JOB_STATUS!=="success"; fs.writeFileSync("cloud-evidence/application-audit-summary.json",JSON.stringify({name:"Enterprise cloud application audit",status:failed?"failed":"passed",commit:process.env.GITHUB_SHA,runId:process.env.GITHUB_RUN_ID,checkedAt:new Date().toISOString()},null,2)+"\n")'
         env:
           JOB_STATUS: ${{ job.status }}

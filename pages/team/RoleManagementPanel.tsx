@@ -530,7 +530,7 @@ const RoleManagementPanel: React.FC<RoleManagementPanelProps> = ({ roles, onRole
                               <span className="flex items-center gap-2 text-sm font-black">
                                 {permission.label || permission.code}
                                 {isHighRiskPermission(permission) && (
-                                  <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-black text-amber-800 dark:bg-amber-950 dark:text-amber-200">
+                                  <span className="rounded-md bg-amber-100 px-1.5 py-0.5 text-xs font-black text-amber-800 dark:bg-amber-950 dark:text-amber-200">
                                     {text.highRisk}
                                   </span>
                                 )}

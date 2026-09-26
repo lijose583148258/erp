@@ -74,6 +74,7 @@ const parseContacts = (value: unknown): Contact[] => {
 export interface PurchaseOrder {
   id: string;
   supplierId: string;
+  materialId?: string;
   supplierName: string;
   supplierNameZh?: string;
   supplierNameEn?: string;
@@ -101,6 +102,24 @@ export interface PurchaseOrder {
   isB2B?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  revision?: number;
+}
+
+export interface PurchaseRevisionInput {
+  expectedRevision: number;
+  expectedUpdatedAt: string;
+  quantity: number;
+  price: number;
+  taxAmount: number;
+  eta: string;
+  reason: string;
+}
+export interface PurchaseRevisionHistory {
+  id: number;
+  userId: number;
+  action: string;
+  details: string;
+  createdAt: string;
 }
 
 export interface PurchaseReceipt {
@@ -215,6 +234,7 @@ const mapOrder = (value: unknown): PurchaseOrder => {
   ...item,
   id: toStringValue(item.id),
   supplierId: toStringValue(item.supplierId),
+  materialId: toOptionalString(item.materialId) || '',
   supplierName: toStringValue(item.supplierName),
   supplierNameZh: toOptionalString(item.supplierNameZh),
   supplierNameEn: toOptionalString(item.supplierNameEn),
@@ -236,6 +256,7 @@ const mapOrder = (value: unknown): PurchaseOrder => {
   landedUnitCost: toNumberValue(item.landedUnitCost),
   eta: toStringValue(item.eta),
   status: (item.status || 'pending') as PurchaseOrder['status'],
+  revision: toNumberValue(item.revision),
   salesOrderRef: toStringValue(item.salesOrderRef),
   salesOrderId: toOptionalString(item.salesOrderId) || '',
   isB2B: Boolean(item.isB2B),
@@ -297,6 +318,7 @@ export const procurementService = {
   async createOrder(order: Partial<PurchaseOrder>): Promise<PurchaseOrder> {
     const payload = {
       supplierId: Number(order.supplierId),
+      materialId: order.materialId ? Number(order.materialId) : undefined,
       supplierName: order.supplierName,
       supplierNameZh: order.supplierNameZh,
       supplierNameEn: order.supplierNameEn,
@@ -324,9 +346,19 @@ export const procurementService = {
     return mapOrder(response.data);
   },
 
-  async updateOrderStatus(id: string, status: PurchaseOrder['status']): Promise<PurchaseOrder> {
-    const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/status`, { status });
+  async updateOrderStatus(id: string, status: PurchaseOrder['status'], expectedRevision?: number): Promise<PurchaseOrder> {
+    const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/status`, { status, expectedRevision });
     return mapOrder(response.data);
+  },
+
+  async reviseOrder(id: string, input: PurchaseRevisionInput): Promise<PurchaseOrder> {
+    const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}`, input);
+    return mapOrder(response.data);
+  },
+
+  async getOrderRevisions(id: string): Promise<{ purchaseOrder: PurchaseOrder; history: PurchaseRevisionHistory[] }> {
+    const response = await api.get<unknown, ApiDataResponse<{ purchaseOrder: unknown; history: PurchaseRevisionHistory[] }>>(`/procurement/orders/${id}/revisions`);
+    return { purchaseOrder: mapOrder(response.data.purchaseOrder), history: response.data.history };
   },
 
   async getOrderReceipts(id: string): Promise<PurchaseReceiptBundle> {

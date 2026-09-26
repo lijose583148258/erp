@@ -84,7 +84,7 @@ export const renderAdjustmentDelta = (
     const value = Number(record.amountDelta || 0);
     return (
       <span
-        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+        className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border ${
           value >= 0
             ? 'bg-emerald-50 text-emerald-700 border-emerald-100'
             : 'bg-rose-50 text-rose-700 border-rose-100'
@@ -100,7 +100,7 @@ export const renderAdjustmentDelta = (
   const value = Number(record.quantityDelta || 0);
   return (
     <span
-      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border ${
+      className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-black uppercase tracking-widest border ${
         value >= 0
           ? 'bg-blue-50 text-blue-700 border-blue-100'
           : 'bg-rose-50 text-rose-700 border-rose-100'

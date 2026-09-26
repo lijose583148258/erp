@@ -1,4 +1,8 @@
-import { buildOrderItemsAndTotals } from './order-item-normalization';
+import {
+  buildOrderItemsAndTotals,
+  calculateOrderFinalAmount,
+  calculateOrderOutstanding,
+} from './order-item-normalization';
 
 describe('order item normalization', () => {
   it('persists packagingSpec into the canonical specification column', () => {
@@ -32,5 +36,22 @@ describe('order item normalization', () => {
     }]);
 
     expect(result.orderItems[0].specification).toBe('canonical-spec');
+  });
+
+  it('rounds each monetary line with decimal half-up rules before summing the order', () => {
+    const result = buildOrderItemsAndTotals([
+      { productName: 'Resin A', quantity: 1, unitPrice: 1.005 },
+      { productName: 'Resin B', quantity: 3, unitPrice: 0.1 },
+      { productName: 'Resin C', quantity: 1, unitPrice: 0.2 },
+    ]);
+
+    expect(result.orderItems.map(item => item.totalPrice)).toEqual([1.01, 0.3, 0.2]);
+    expect(result.totalAmount).toBe(1.51);
+  });
+
+  it('calculates discount and paid balances without binary-float drift', () => {
+    expect(calculateOrderFinalAmount(0.3, 0.1)).toBe(0.2);
+    expect(calculateOrderOutstanding(0.3, 0.1)).toBe(0.2);
+    expect(calculateOrderOutstanding(0.3, 0.30000000000000004)).toBe(0);
   });
 });

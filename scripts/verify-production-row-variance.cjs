@@ -49,6 +49,7 @@ const createOneLineWorkOrder = async ({ userId, code, allowedVarianceRate }) => 
     productName: `QA Variance Glue ${code}`,
     version: 'qa-row-variance-v1',
     outputUnit: 'kg',
+    shelfLifeDays: 365,
     bomType: 'formula',
     formulationMode: 'chemical_formula',
     standardBatchSize: 100,

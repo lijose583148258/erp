@@ -164,7 +164,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900 dark:text-white">{formatPrice(row.amount)}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${paymentBadge(row.status)}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${paymentBadge(row.status)}`}>
                       {paymentStatusLabelMap[row.status] || row.status}
                     </span>
                   </div>
@@ -199,7 +199,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900">{row.promiseNo}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
                       {promiseStatusLabelMap[row.status] || row.status}
                     </span>
                   </div>
@@ -232,7 +232,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900">{row.disputeNo}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
                       {disputeStatusLabelMap[row.status] || row.status}
                     </span>
                   </div>
@@ -267,7 +267,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900 dark:text-white">{holdScopeLabelMap[row.scope] || row.scope}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${row.status ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${row.status ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
                       {row.status ? '生效中' : '已释放'}
                     </span>
                   </div>
@@ -297,7 +297,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <div className="text-sm font-black text-slate-900 dark:text-white">{row.title}</div>
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
+                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
                     {milestoneStatusLabelMap[row.status] || row.status}
                   </span>
                 </div>
@@ -360,7 +360,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
             { label: '剩余未收', value: formatPrice(detail.outstandingAmount), accent: true },
           ].map((item) => (
             <div key={item.label} className={`rounded-[20px] border px-4 py-3 ${item.accent ? 'border-rose-100 bg-rose-50/70 text-rose-700' : 'border-slate-100 bg-slate-50/70 text-slate-600'} dark:border-slate-800 dark:bg-slate-800/30`}>
-              <div className="text-[10px] font-black uppercase tracking-[0.14em] opacity-70">{item.label}</div>
+              <div className="text-xs font-black uppercase tracking-[0.14em] opacity-70">{item.label}</div>
               <div className="mt-1 text-sm font-black">{item.value}</div>
             </div>
           ))}

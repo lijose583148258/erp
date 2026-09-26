@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const REPORT_PATH = path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json');
@@ -68,17 +68,17 @@ async function clickWhenStable(locator, attempts = 5) {
   throw lastError;
 }
 
-async function seedLogin(page) {
+async function seedLogin(page, account) {
   await loginUiAuditUser(page, APP_URL, {
-    account: {
-      username: 'ui_unsaved_admin',
-      password: 'AuditSmoke12345!',
-      role: 'admin',
-    },
+    account,
     storage: {
       'ailao.language': 'zh',
     },
   });
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
+}
+
+async function prepareAuditPage(page) {
   await page.addInitScript(() => {
     Object.keys(localStorage)
       .filter((key) => key.startsWith('ailao.salesOrderDraft.'))
@@ -388,42 +388,49 @@ async function verifyWarehouseForms(page) {
 async function main() {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   let browser;
+  let context;
   try {
+    const accounts = await ensureUiAuditAccounts('unsaved_changes', ['admin']);
     const launched = await launchBrowserWithGuard({ recordStep, retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     report.launcher = launched.launcher;
-    const salesPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(salesPage);
+    context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+
+    const bootstrapPage = await context.newPage();
+    await seedLogin(bootstrapPage, accounts.admin);
+    await bootstrapPage.close();
+
+    const newAuditPage = async () => {
+      const page = await context.newPage();
+      await prepareAuditPage(page);
+      return page;
+    };
+
+    const salesPage = await newAuditPage();
     await verifySalesOrder(salesPage);
     await salesPage.close();
 
-    const crmPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(crmPage);
+    const crmPage = await newAuditPage();
     await verifyCrmCreate(crmPage);
     await crmPage.close();
 
-    const productionPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(productionPage);
+    const productionPage = await newAuditPage();
     await verifyProductionBom(productionPage);
     await productionPage.close();
 
-    const workOrderPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(workOrderPage);
+    const workOrderPage = await newAuditPage();
     await verifyProductionWorkOrder(workOrderPage);
     await workOrderPage.close();
 
-    const productionBatchesPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(productionBatchesPage);
+    const productionBatchesPage = await newAuditPage();
     await verifyProductionBatchSubTabClean(productionBatchesPage);
     await productionBatchesPage.close();
 
-    const adjustmentPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(adjustmentPage);
+    const adjustmentPage = await newAuditPage();
     await verifyAdjustment(adjustmentPage);
     await adjustmentPage.close();
 
-    const warehousePage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(warehousePage);
+    const warehousePage = await newAuditPage();
     await verifyWarehouseForms(warehousePage);
     await warehousePage.close();
 
@@ -433,8 +440,7 @@ async function main() {
       ['adjustment', 'adjustment-create-form'],
       ['warehouse', 'warehouse-tab-overview'],
     ]) {
-      const cleanPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-      await seedLogin(cleanPage);
+      const cleanPage = await newAuditPage();
       await verifyCleanNavigation(cleanPage, moduleId, readyTestId);
       await cleanPage.close();
     }
@@ -448,6 +454,7 @@ async function main() {
   } finally {
     report.finishedAt = new Date().toISOString();
     fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    if (context) await context.close();
     if (browser) await browser.close();
   }
 }

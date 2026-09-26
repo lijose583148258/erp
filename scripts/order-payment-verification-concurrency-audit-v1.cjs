@@ -1,5 +1,7 @@
 const path = require('path');
 const { createAuditRuntime, ensureDir } = require('./lib/audit-runtime-utils.cjs');
+const { applyAuditDatabaseContext } = require('./lib/audit-runtime-context.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -7,9 +9,8 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'order-payment-verification-concurrenc
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}_${Math.random().toString(36).slice(2, 7)}`;
 const STEP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 20_000;
-const ADMIN = { username: 'admin', password: 'admin123' };
-
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
+let ADMIN;
+applyAuditDatabaseContext(process.env);
 const { PrismaClient } = require(path.join(process.cwd(), 'backend', 'node_modules', '@prisma', 'client'));
 
 const report = {
@@ -55,32 +56,13 @@ async function loginAdmin() {
   });
 }
 
-async function ensureAlternateCreator(prisma, token, adminUserId) {
-  const existing = await prisma.user.findFirst({
-    where: {
-      id: { not: Number(adminUserId) },
-      isActive: true,
-    },
+async function ensureAlternateCreator(prisma, account) {
+  const existing = await prisma.user.findUnique({
+    where: { username: account.username },
     select: { id: true, username: true },
-    orderBy: { id: 'asc' },
   });
-  if (existing) return existing;
-
-  const username = `pay_audit_${RUN_ID}`.slice(0, 48);
-  const response = await runtime.apiFetch('/team', {
-    method: 'POST',
-    data: {
-      username,
-      password: 'Audit12345',
-      email: `${username}@example.com`,
-      role: 'sales',
-      segment: 'direct',
-    },
-  }, token);
-  runtime.expectStatus(response, [201], 'create alternate order creator');
-  const user = runtime.dataOf(response);
-  runtime.expect(Boolean(user?.id), 'created alternate creator has no id', response.json);
-  return { id: Number(user.id), username: user.username || username };
+  runtime.expect(Boolean(existing?.id), 'isolated alternate creator was not persisted', { username: account.username });
+  return existing;
 }
 
 async function createOrderFixture({ prisma, token, alternateCreator, label, finalAmount }) {
@@ -412,8 +394,10 @@ async function main() {
   ensureDir(OUTPUT_DIR);
   const prisma = new PrismaClient();
   try {
+    const accounts = await ensureUiAuditAccounts('payment_verification', ['admin', 'sales']);
+    ADMIN = accounts.admin;
     const admin = await loginAdmin();
-    const alternateCreator = await ensureAlternateCreator(prisma, admin.token, admin.user.id);
+    const alternateCreator = await ensureAlternateCreator(prisma, accounts.sales);
     report.seed = {
       verifierUserId: Number(admin.user.id),
       alternateCreatorId: Number(alternateCreator.id),

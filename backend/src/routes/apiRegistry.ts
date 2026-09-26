@@ -24,6 +24,7 @@ import receiptDiscrepancyRoutes from './receipt-discrepancy.routes';
 import roleRoutes from './role.routes';
 import commercialPlatformRoutes from './commercial-platform.routes';
 import aiRoutes from './ai.routes';
+import materialRoutes from './material.routes';
 
 export type ApiRouteModule = {
   path: string;
@@ -59,6 +60,7 @@ export const API_ROUTE_MODULES: ApiRouteModule[] = [
   { path: '/roles', router: roleRoutes, tag: 'Roles', summary: 'Role permissions, role audit diffs, and authorization policy endpoints.', requiresAuth: true },
   { path: '/commercial', router: commercialPlatformRoutes, tag: 'Commercial Platform', summary: 'Commercial platform readiness, workflow, BI, alert, and notification APIs.', requiresAuth: true },
   { path: '/ai', router: aiRoutes, tag: 'AI', summary: 'Governed AI assistant status and safe-context assistance.', requiresAuth: true },
+  { path: '/materials', router: materialRoutes, tag: 'Materials', summary: 'Canonical material master data, multilingual aliases, compliance identity, and lifecycle.', requiresAuth: true },
 ];
 
 export const API_PREFIXES = ['/api', '/api/v1'] as const;

@@ -2,6 +2,7 @@ function createProcurementBrowserAuditHelpers({
   appUrl,
   captureScreenshot,
   forbiddenMojibake,
+  getAuditAccount,
   getAuthToken,
   loginUiAuditUser,
   readBackTimeout,
@@ -91,6 +92,7 @@ function createProcurementBrowserAuditHelpers({
   async function seedLoginState(page) {
     return withTimebox(page, 'seed-login-state', timeouts.login, async () => {
       const { token } = await loginUiAuditUser(page, appUrl, {
+        account: getAuditAccount(),
         defaultStorage: {
           'ailao.activeTab': 'procurement',
           'ailao.language': 'zh',
@@ -108,8 +110,10 @@ function createProcurementBrowserAuditHelpers({
     await card.waitFor({ state: 'visible', timeout: timeouts.route });
     const fields = await card.locator('input[type="password"]').all();
     if (fields.length < 3) throw new Error(`force password change inputs missing: ${fields.length}`);
+    const account = getAuditAccount();
+    if (!account?.password) throw new Error('procurement audit account is unavailable');
     const nextPassword = `ProcurementAudit${runId.slice(-6)}!`;
-    await fields[0].fill('admin123');
+    await fields[0].fill(account.password);
     await fields[1].fill(nextPassword);
     await fields[2].fill(nextPassword);
     await page.getByTestId('force-password-change-submit').click();
