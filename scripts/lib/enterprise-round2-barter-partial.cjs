@@ -1,9 +1,6 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const { expect } = require('playwright/test');
-const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
-const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 const cents = value => Math.round(Number(value) * 100);
 const total = (rows, key) => rows.reduce((sum, row) => sum + Number(row[key]), 0);
 
@@ -67,6 +64,12 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
   signal.addEventListener('abort', abortBrowser, { once: true });
   async function browserReadback(label, executed, remaining, status) {
     if (process.env.ROUND2_BROWSER !== 'true') return;
+    // The source-evidence job executes assertion contracts before npm install.
+    // Load browser dependencies only in the actual browser path; missing dependencies
+    // must still fail that path rather than silently skipping its evidence.
+    const { expect } = require('playwright/test');
+    const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
+    const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
     if (!browser) {
       browser = (await launchBrowserWithGuard({ launchTimeoutMs: 15000, totalTimeoutMs: 30000, maxAttemptsPerStrategy: 1 })).browser;
       page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });

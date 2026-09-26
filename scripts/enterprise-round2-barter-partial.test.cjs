@@ -1,6 +1,21 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { assertPartialBarterStage } = require('./lib/enterprise-round2-barter-partial.cjs');
+const fs = require('node:fs');
+const vm = require('node:vm');
+const { isBuiltin } = require('node:module');
+
+test('source-gate barter assertions load with built-ins only, before npm install', () => {
+  const loaded = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve('./lib/enterprise-round2-barter-partial.cjs'), 'utf8'), {
+    module: loaded,
+    require(name) {
+      assert(isBuiltin(name), `Source gate must not eagerly load ${name}`);
+      return require(name);
+    },
+  });
+  loaded.exports.assertPartialBarterStage(fixture(), expected);
+});
 
 const expected = { executed: 800, remaining: 1200, outgoingStock: 60, incomingStock: 80, verifiedPayments: 1, status: 'partial' };
 function fixture() {
