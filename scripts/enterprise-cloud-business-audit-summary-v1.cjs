@@ -3,6 +3,7 @@ const path = require('node:path');
 
 const expectedAudits = [
   ['browser_fonts', 'Chinese font coverage for browser evidence'],
+  ['sales_partial_fulfillment', 'Partial sales delivery, remaining obligation and completion guard'],
   ['search_readiness', 'Meilisearch initialization, rebuild and readiness'],
   ['human_workflows', 'Human ERP workflows'],
   ['staff_20', '20 distinct chemical trading and factory staff'],

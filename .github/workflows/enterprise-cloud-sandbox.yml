@@ -37,6 +37,21 @@ on:
       - 'scripts/lib/procurement-toolbar-layout-audit.cjs'
       - 'pages/procurement/**'
       - 'components/ui/tablePreferences.ts'
+      - 'scripts/sales-partial-fulfillment-audit-v1.cjs'
+      - 'backend/src/utils/orderFulfillment*.ts'
+      - 'backend/src/utils/orderCommercialState.ts'
+      - 'backend/src/services/order-fulfillment.service.ts'
+      - 'backend/src/services/shipment-order-guard.service.ts'
+      - 'backend/src/services/shipment-material-identity.ts'
+      - 'backend/src/services/order-status-transition.service.ts'
+      - 'backend/src/services/order-workspace.service.ts'
+      - 'backend/src/controllers/order.controller.ts'
+      - 'backend/src/controllers/shipping-controller.helpers.ts'
+      - 'backend/src/controllers/shipping.controller.ts'
+      - 'pages/SalesOrders.tsx'
+      - 'components/operatingTable/salesOrderOperatingTable.tsx'
+      - 'utils/orderCommercialState.ts'
+      - 'i18n/operatingTable/**'
       - 'scripts/config/enterprise-round2-v1.json'
       - 'backend/src/services/barter/**'
       - 'backend/src/services/production-cost-ledger.service.ts'
@@ -648,6 +663,15 @@ jobs:
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}
         continue-on-error: true
         run: npm run audit:concurrency:consistency
+
+      - name: Verify partial sales delivery and remaining obligation
+        id: sales_partial_fulfillment
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+        run: node ./scripts/sales-partial-fulfillment-audit-v1.cjs
 
       - name: Exercise Round 2 inventory, payment and barter business acceptance
         id: round2_business

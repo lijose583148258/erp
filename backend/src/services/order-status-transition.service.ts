@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
+import { OrderFulfillmentIncompleteError, readOrderFulfillment } from './order-fulfillment.service';
 
 type OrderStatusClient = Pick<Prisma.TransactionClient, 'order' | 'orderItem' | 'material'>;
 
@@ -17,12 +18,20 @@ export async function compareAndSetOrderStatus(
       AND: [
         { id: input.orderId, status: input.expectedStatus },
         input.requiredWhere || {},
+        ...(input.targetStatus === 'completed' ? [{ paymentStatus: 'paid' }] : []),
       ],
     },
     data: { status: input.targetStatus },
   });
 
   if (result.count !== 1) return false;
+
+  // Must run inside the caller's transaction: a failed quantity check rolls the
+  // row claim back, including both manual status and dedicated completion APIs.
+  if (['delivered', 'completed'].includes(input.targetStatus)) {
+    const fulfillment = await readOrderFulfillment(db, input.orderId);
+    if (!fulfillment.fullyDelivered) throw new OrderFulfillmentIncompleteError(fulfillment);
+  }
 
   // Claim the order row first. Any readiness failure then rolls the surrounding
   // transaction back, while concurrent item replacement cannot slip between

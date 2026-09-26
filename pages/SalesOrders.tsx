@@ -22,7 +22,7 @@ type SalesOrderDesk = 'orders' | 'payments' | 'fulfillment' | 'commission' | 'pr
 type OperatingSalesOrderRow = SalesOrderOperatingRow & { sourceOrder: SalesOrder };
 
 const toOperatingSalesOrderRow = (order: SalesOrder): OperatingSalesOrderRow => {
-    const orderedQuantity = (order.items || []).reduce((sum, item) => sum + Number(item.quantity || 0), 0);
+    const orderedQuantity = order.items?.length === 1 ? Number(order.items[0].quantity || 0) : undefined;
     const productSummary = (order.items || [])
         .map((item) => [item.productName, item.packagingSpec].filter(Boolean).join(' '))
         .filter(Boolean)
@@ -42,7 +42,8 @@ const toOperatingSalesOrderRow = (order: SalesOrder): OperatingSalesOrderRow => 
         paidAmount: Number(order.paidAmount || 0),
         currency: order.currency,
         orderedQuantity,
-        shippedQuantity: order.fulfillmentStatus === 'delivered' ? orderedQuantity : 0,
+        shippedQuantity: order.fulfillment?.lines.length === 1 ? order.fulfillment.lines[0].dispatchedQuantity : undefined,
+        fulfillment: order.fulfillment,
         quantityUnit: order.items?.[0]?.unit,
         orderStatus: order.status,
         fulfillmentStatus: order.fulfillmentStatus,

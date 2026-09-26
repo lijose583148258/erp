@@ -1,6 +1,17 @@
 import { compareAndSetOrderStatus } from './order-status-transition.service';
 
 describe('compareAndSetOrderStatus', () => {
+  it.each(['delivered', 'completed'])('rejects early %s after claiming the row so the caller rolls back atomically', async targetStatus => {
+    const updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    const findUnique = jest.fn().mockResolvedValue({ items: [{ id: 1, quantity: 100, unit: 'kg' }],
+      shipments: [{ orderItemId: 1, quantity: 40, unit: 'kg', status: 'delivered',
+        receipts: [{ acceptedQuantity: 40, rejectedQuantity: 0, unit: 'kg' }] }] });
+    const db = { order: { updateMany, findUnique } } as never;
+    await expect(compareAndSetOrderStatus(db, { orderId: 42, expectedStatus: 'shipped', targetStatus }))
+      .rejects.toMatchObject({ message: 'ORDER_FULFILLMENT_INCOMPLETE', details: { lines: [{ outstandingQuantity: 60 }] } });
+    expect(updateMany.mock.invocationCallOrder[0]).toBeLessThan(findUnique.mock.invocationCallOrder[0]);
+    if (targetStatus === 'completed') expect(updateMany.mock.calls[0][0].where.AND).toContainEqual({ paymentStatus: 'paid' });
+  });
   it('updates only the expected current status', async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
     const db = {

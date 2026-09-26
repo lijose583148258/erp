@@ -10,6 +10,7 @@ import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
 import { buildOrderSearchWhereAsync } from './search.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT } from './order-fulfillment.service';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
@@ -47,6 +48,7 @@ const ORDER_DETAIL_INCLUDE = {
     items: true,
     shipments: {
         select: {
+            ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
             id: true,
             shipmentNo: true,
             status: true,
@@ -227,8 +229,10 @@ export const OrderWorkspaceService = {
                     notes: true,
                     createdAt: true,
                     updatedAt: true,
+                    items: true,
                     shipments: {
                         select: {
+                            ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
                             status: true,
                             shippedAt: true,
                             deliveredAt: true,
@@ -351,8 +355,10 @@ export const OrderWorkspaceService = {
                 creator: { select: { username: true } },
                 contract: { select: { contractNo: true } },
                 _count: { select: { items: true } },
+                items: true,
                 shipments: {
                     select: {
+                        ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
                         status: true,
                         shippedAt: true,
                         deliveredAt: true,

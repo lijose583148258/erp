@@ -89,38 +89,6 @@ export class ShippingController {
             const { customerId, orderId, orderItemId, materialId, productName, quantity, unit = '件', packageType, carrier, trackingNo, batchNo } = req.body;
             const normalizedOrderId = orderId ? Number(orderId) : null;
 
-            if (normalizedOrderId) {
-                const linkedOrder = await prisma.order.findUnique({
-                    where: { id: normalizedOrderId },
-                    select: {
-                        id: true,
-                        status: true,
-                        customerId: true,
-                        shipmentHold: true,
-                    },
-                });
-
-                if (!linkedOrder) {
-                    return res.status(404).json({ success: false, message: '关联订单不存在' });
-                }
-
-                if (linkedOrder.status === 'cancelled') {
-                    return res.status(409).json({ success: false, message: '已取消订单不能创建发货单' });
-                }
-
-                if (!['confirmed', 'shipped'].includes(linkedOrder.status)) {
-                    return res.status(409).json({ success: false, message: '订单尚未确认，不能创建发货单' });
-                }
-
-                if (linkedOrder.customerId !== Number(customerId)) {
-                    return res.status(409).json({ success: false, message: '发货客户必须与关联订单客户一致' });
-                }
-
-                if (linkedOrder.shipmentHold) {
-                    return res.status(409).json({ success: false, message: '订单处于发货拦截状态，不能创建发货单' });
-                }
-            }
-
             const shipmentNo = buildBusinessNo('SHP');
 
             const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => {

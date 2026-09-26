@@ -22,7 +22,7 @@ const env = { ...process.env,
 };
 try {
   env.ROUND2_COMMIT = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim();
-  env.ROUND2_DIRTY = String(Boolean(execFileSync('git', ['status', '--porcelain', '--', 'backend/src', 'backend/prisma', 'scripts', 'pages', 'services', 'app', 'components', 'package.json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()));
+  env.ROUND2_DIRTY = String(Boolean(execFileSync('git', ['status', '--porcelain', '--', 'backend/src', 'backend/prisma', 'scripts', 'pages', 'services', 'src', 'utils', 'i18n', 'types.ts', 'app', 'components', 'package.json'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim()));
 } catch { env.ROUND2_COMMIT = 'unknown'; env.ROUND2_DIRTY = 'unknown'; }
 function fingerprint(folder, hash) {
   for (const item of fs.readdirSync(folder, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
@@ -32,7 +32,8 @@ function fingerprint(folder, hash) {
   }
 }
 const sourceHash = crypto.createHash('sha256');
-for (const folder of ['backend/src', 'backend/prisma/models', 'scripts', 'pages', 'services', 'app', 'components']) fingerprint(path.join(root, folder), sourceHash);
+for (const folder of ['backend/src', 'backend/prisma/models', 'scripts', 'pages', 'services', 'src', 'utils', 'i18n', 'app', 'components']) fingerprint(path.join(root, folder), sourceHash);
+sourceHash.update('types.ts\0').update(fs.readFileSync(path.join(root, 'types.ts')));
 env.ROUND2_SOURCE_HASH = sourceHash.digest('hex');
 
 function start(label, args, cwd = root, extraEnv = {}) {
@@ -89,7 +90,8 @@ async function main() {
   const urls = ports.map(port => `http://127.0.0.1:${port}`);
   const servers = ports.map((port, index) => start(`app-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) }));
   await Promise.all(servers.map((child, index) => ready(child, urls[index])));
-  const audit = start('audit', [path.join(root, 'scripts/enterprise-round2-audit-v1.cjs')], root,
+  const auditScript = process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);
   try {

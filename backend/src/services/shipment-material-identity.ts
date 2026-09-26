@@ -1,6 +1,7 @@
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
 import type { TransactionClient } from './stock-movement.service';
 import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
+import { claimShipmentOrder } from './shipment-order-guard.service';
 
 export type ShipmentIdentityInput = {
   customerId: number;
@@ -31,6 +32,11 @@ export async function resolveShipmentIdentity(tx: TransactionClient, input: Ship
   if (input.orderItemId && !orderItem) throw new Error('SHIPMENT_ORDER_ITEM_NOT_FOUND');
   if (orderItem && input.orderId && orderItem.orderId !== input.orderId) throw new Error('SHIPMENT_ORDER_ITEM_ORDER_MISMATCH');
   if (orderItem && orderItem.order.customerId !== input.customerId) throw new Error('SHIPMENT_ORDER_ITEM_CUSTOMER_MISMATCH');
+  const linkedOrderId = orderItem?.orderId ?? input.orderId;
+  if (linkedOrderId) await claimShipmentOrder(tx, {
+    orderId: linkedOrderId, customerId: input.customerId,
+    orderItemId: orderItem?.id, quantity: input.quantity,
+  });
   if (orderItem) {
     const alreadyAllocated = await tx.shipment.aggregate({
       where: { orderItemId: orderItem.id, status: { not: 'exception' } },

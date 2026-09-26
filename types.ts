@@ -55,6 +55,7 @@ export type OrderFulfillmentStatus =
   | 'pending_release'
   | 'ready_to_ship'
   | 'in_transit'
+  | 'partially_delivered'
   | 'delivered'
   | 'cancelled';
 
@@ -287,6 +288,13 @@ export interface SalesOrder {
   status: OrderStatus;
   paymentStatus: 'unpaid' | 'partial' | 'paid' | 'overdue';
   fulfillmentStatus?: OrderFulfillmentStatus;
+  fulfillment?: {
+    fullyDelivered: boolean;
+    needsReview: boolean;
+    lines: Array<{ orderItemId: number; productName: string; unit: string; orderedQuantity: number;
+      allocatedQuantity: number; dispatchedQuantity: number; acceptedQuantity: number;
+      outstandingQuantity: number; unallocatedQuantity: number }>;
+  };
   financialStatus?: OrderFinancialStatus;
   commissionAmount?: number;
   commissionRateSubmitted?: number;

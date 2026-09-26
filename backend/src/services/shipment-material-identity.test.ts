@@ -3,10 +3,15 @@ import { resolveShipmentIdentity } from './shipment-material-identity';
 const activeMaterial = {
   id: 9, code: 'FG-0009', nameZh: '成品乳液', baseUnit: 'kg', status: 'active', isTemporary: false, shelfLifeDays: 365,
 };
+const confirmedOrder = () => ({
+  updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+  findUnique: jest.fn().mockResolvedValue({ status: 'confirmed', customerId: 1, shipmentHold: false }),
+});
 
 describe('shipment material identity', () => {
   it('inherits the order-line identity and binds the exact product batch', async () => {
     const tx = {
+      order: confirmedOrder(),
       orderItem: { findUnique: jest.fn().mockResolvedValue({ id: 3, orderId: 2, materialId: 9, productName: '旧名称', quantity: 20, unit: 'kg', order: { customerId: 1 } }) },
       shipment: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 5 } }) },
       material: {
@@ -30,6 +35,7 @@ describe('shipment material identity', () => {
 
   it('rejects aggregate shipment quantity above the linked order line', async () => {
     const tx = {
+      order: confirmedOrder(),
       orderItem: { findUnique: jest.fn().mockResolvedValue({ id: 3, orderId: 2, materialId: 9, productName: '成品乳液', quantity: 12.5, unit: 'kg', order: { customerId: 1 } }) },
       shipment: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 10 } }) },
     } as any;
@@ -39,6 +45,7 @@ describe('shipment material identity', () => {
 
   it('rejects a quarantined finished-goods batch before shipment persistence', async () => {
     const tx = {
+      order: confirmedOrder(),
       orderItem: { findUnique: jest.fn().mockResolvedValue({ id: 3, orderId: 2, materialId: 9, productName: '成品乳液', quantity: 20, unit: 'kg', order: { customerId: 1 } }) },
       shipment: { aggregate: jest.fn().mockResolvedValue({ _sum: { quantity: 0 } }) },
       material: {

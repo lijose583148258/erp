@@ -46,6 +46,8 @@ import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
 import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
 import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
 import { readStringArrayPreference } from '../components/ui/tablePreferences';
+import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
+import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
 
 type FrontendUnitTest = {
   name: string;
@@ -53,6 +55,31 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'active sales operating table renders separate line quantities and owed amounts',
+    run: () => {
+      const labels = JSON.parse(fs.readFileSync(path.resolve('i18n/operatingTable/zh-CN.json'), 'utf8'));
+      const columns = createSalesOrderOperatingColumns(labels);
+      const row = { id: 1, fulfillmentStatus: 'partially_delivered', fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 1, productName: 'Resin', unit: 'kg', orderedQuantity: 100, allocatedQuantity: 40, dispatchedQuantity: 40, acceptedQuantity: 40, outstandingQuantity: 60, unallocatedQuantity: 60 },
+        { orderItemId: 2, productName: 'Catalyst', unit: 'drum', orderedQuantity: 2, allocatedQuantity: 0, dispatchedQuantity: 0, acceptedQuantity: 0, outstandingQuantity: 2, unallocatedQuantity: 2 },
+      ] } };
+      const status = renderToStaticMarkup(<>{columns.find(column => column.key === 'status')!.render!(row)}</>);
+      assert.match(status, /部分交付/); assert.match(status, /待交 60 kg/); assert.match(status, /待交 2 drum/);
+      const quantities = renderToStaticMarkup(<>{columns.find(column => column.key === 'quantityProgress')!.render!(row)}</>);
+      assert.match(quantities, /Resin/); assert.match(quantities, /Catalyst/); assert.doesNotMatch(quantities, />102</);
+      assert(fs.readFileSync(path.resolve('pages/SalesOrders.tsx'), 'utf8').includes('fulfillment: order.fulfillment'));
+    },
+  },
+  {
+    name: 'sales fulfillment preserves quantity-based API axis and never trusts delivered shipment counts',
+    run: () => {
+      const partial = { status: 'delivered', fulfillmentStatus: 'partially_delivered', shipments: [{ status: 'delivered' }] };
+      assert.equal(deriveOrderFulfillmentStatus(partial as never), 'partially_delivered');
+      assert.notEqual(deriveOrderFulfillmentStatus({ status: 'shipped', shipments: [{ status: 'delivered' }] } as never), 'delivered');
+      assert.notEqual(deriveOrderFulfillmentStatus({ status: 'delivered' } as never), 'delivered');
+    },
+  },
   {
     name: 'fresh and invalid table preferences keep default columns; saved nonempty choices remain intact',
     run: () => {

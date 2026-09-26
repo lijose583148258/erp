@@ -132,6 +132,29 @@ test('font preparation failure remains fatal only at the final aggregate even wi
   }
 });
 
+test('partial fulfillment audit is independent and fatal at aggregation, without claiming the 37 obligations', () => {
+  const vm = require('node:vm');
+  const source = fs.readFileSync(path.join(__dirname, 'enterprise-cloud-business-audit-summary-v1.cjs'), 'utf8');
+  const ids = [...source.matchAll(/\['([a-z0-9_]+)',/g)].map(match => match[1]).filter(id => id !== 'round2_business');
+  assert(ids.includes('sales_partial_fulfillment'));
+  for (const outcome of ['failure', 'skipped', 'cancelled', 'success']) {
+    const steps = Object.fromEntries(ids.map(id => [id, { outcome: 'success', conclusion: 'success' }]));
+    steps.sales_partial_fulfillment = { outcome, conclusion: 'success' };
+    let report; let exitCode = 0;
+    vm.runInNewContext(source, {
+      require: name => name === 'node:fs' ? { mkdirSync() {}, writeFileSync(_path, data) { report = JSON.parse(data); } } : require(name),
+      process: { env: { BUSINESS_AUDIT_STEPS_JSON: JSON.stringify(steps) }, exit(code) { exitCode = code; } },
+      console: { log() {}, error() {} },
+    });
+    assert.equal(exitCode, outcome === 'success' ? 0 : 1);
+    assert.equal(report.summary.failed, outcome === 'success' ? 0 : 1);
+  }
+  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  assert.match(workflow, /id: sales_partial_fulfillment[\s\S]{0,170}always\(\)[\s\S]{0,160}continue-on-error: true/);
+  assert.match(workflow, /run: node \.\/scripts\/sales-partial-fulfillment-audit-v1.cjs/);
+  assert.equal(validateCatalog(catalog).length, 37);
+});
+
 const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
 const { seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
 const fixtureOptions = () => ({
