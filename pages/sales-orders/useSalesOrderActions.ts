@@ -1,6 +1,6 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { useState, type Dispatch, type SetStateAction } from 'react';
 import { orderService } from '../../src/services/order.service';
-import { CommissionStatus, OrderStatus, type SalesOrder } from '../../types';
+import { CommissionStatus, OrderStatus, type SalesOrder, type Shipment } from '../../types';
 import { invalidateSalesOrderWorkspaceState, type NotifyFn } from './useSalesOrderWorkspaceData';
 
 type UseSalesOrderActionsOptions = {
@@ -16,6 +16,7 @@ export const useSalesOrderActions = ({
     setOrders,
     upsertOrder,
 }: UseSalesOrderActionsOptions) => {
+    const [shipmentOrderId, setShipmentOrderId] = useState<string | null>(null);
     const handleCommissionAudit = async (id: string, status: CommissionStatus) => {
         if (!canAuditCommission) {
             notify('error', '权限不足：仅管理员和业务经理可审核佣金。');
@@ -39,15 +40,14 @@ export const useSalesOrderActions = ({
     };
 
     const handleQuickShip = (order: SalesOrder) => {
-        const params = new URLSearchParams({
-            sourceOrderId: order.id,
-            customerId: String(order.customerId),
-            orderNo: order.id,
-            productName: order.items[0]?.productName || '',
-            quantity: String(order.items.reduce((sum, item) => sum + (item.quantity || 0), 0)),
-        });
-        window.location.hash = '#/shipping?' + params.toString();
-        notify('info', '正在跳转到发货单创建页面，已携带订单信息。');
+        // Open a line-bound draft and re-read current quantities in the form.
+        // URL quantities and sums across heterogeneous units are not authority.
+        setShipmentOrderId(String(order.id));
+    };
+
+    const handleShipmentCreated = (order: SalesOrder, _shipment: Shipment) => {
+        invalidateSalesOrderWorkspaceState();
+        upsertOrder(order);
     };
 
     const handleManualComplete = async (id: string) => {
@@ -65,6 +65,9 @@ export const useSalesOrderActions = ({
         handleCommissionAudit,
         handleStatusUpdate,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft: () => setShipmentOrderId(null),
+        handleShipmentCreated,
         handleManualComplete,
     };
 };

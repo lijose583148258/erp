@@ -48,6 +48,7 @@ import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '.
 import { readStringArrayPreference } from '../components/ui/tablePreferences';
 import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
 import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
+import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
 
 type FrontendUnitTest = {
   name: string;
@@ -55,6 +56,53 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'shipment drafts bind a persisted order line and never sum mixed units',
+    run: () => {
+      const order: any = { id: '9', customerId: '4', status: 'shipped', items: [
+        { id: 11, materialId: 21, productName: 'Resin', unit: 'kg', quantity: 100 },
+        { id: 12, materialId: 22, productName: 'Catalyst', unit: 'drum', quantity: 2 },
+      ], fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 11, unit: 'kg', orderedQuantity: 100, acceptedQuantity: 40, unallocatedQuantity: 60 },
+        { orderItemId: 12, unit: 'drum', orderedQuantity: 2, acceptedQuantity: 0, unallocatedQuantity: 2 },
+      ] } };
+      assert.equal(getEligibleShipmentLines(order).length, 2);
+      const draft = { orderItemId: '12', quantity: '2', batchNo: ' CAT-02 ' };
+      const payload = buildSalesOrderShipmentPayload(order, draft);
+      assert.equal(payload.orderItemId, '12'); assert.equal(payload.materialId, '22');
+      assert.equal(payload.quantity, 2); assert.equal(payload.unit, 'drum'); assert.equal(payload.batchNo, 'CAT-02');
+      for (const quantity of ['0', '-1', '3', 'NaN', 'Infinity', '']) {
+        assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, quantity }));
+      }
+      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, batchNo: '' }));
+      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, orderItemId: '99' }));
+      order.fulfillment.lines[1].unallocatedQuantity = 0;
+      assert.deepEqual(getEligibleShipmentLines(order).map(line => line.orderItemId), [11]);
+      order.fulfillment.lines[0].unit = 'drum'; assert.equal(getEligibleShipmentLines(order).length, 0);
+    },
+  },
+  {
+    name: 'shipment eligibility fails closed on stale status, missing identity and unproven fulfillment',
+    run: () => {
+      const valid: any = { id: '9', customerId: '4', status: 'delivered', items: [
+        { id: 11, materialId: 21, productName: 'Micro', unit: 'kg', quantity: 1e-7 },
+      ], fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 11, unit: 'kg', orderedQuantity: 1e-7, acceptedQuantity: 0, unallocatedQuantity: 1e-7 },
+      ] } };
+      assert.equal(buildSalesOrderShipmentPayload(valid, { orderItemId: '11', quantity: '0.0000001', batchNo: 'B' }).quantity, 1e-7);
+      for (const status of ['pending', 'cancelled', 'completed']) assert.equal(getEligibleShipmentLines({ ...valid, status }).length, 0);
+      for (const mutate of [
+        (o: any) => { delete o.fulfillment; },
+        (o: any) => { o.fulfillment.needsReview = true; },
+        (o: any) => { o.fulfillment.fullyDelivered = true; },
+        (o: any) => { delete o.items[0].id; },
+        (o: any) => { o.items[0].materialId = null; },
+        (o: any) => { o.items.push({ ...o.items[0] }); },
+        (o: any) => { o.fulfillment.lines.push({ ...o.fulfillment.lines[0] }); },
+        (o: any) => { o.fulfillment.lines[0].unallocatedQuantity = NaN; },
+      ]) { const altered = structuredClone(valid); mutate(altered); assert.equal(getEligibleShipmentLines(altered).length, 0); }
+    },
+  },
   {
     name: 'active sales operating table renders separate line quantities and owed amounts',
     run: () => {

@@ -203,14 +203,43 @@ async function createLinkedShipment({
     if (!report.order?.id || !report.order?.customerId) {
       throw new Error('confirmed order missing before linked shipment creation');
     }
+    // Read persisted line identity; order-level linkage alone cannot prove delivery.
+    // This fixture is in kg and must never guess a line or add unlike quantities.
+    const orderPayload = await apiFetch(page, `/orders/${report.order.id}`);
+    if (!orderPayload.ok) throw new Error(`shipping order line readback failed: ${orderPayload.status}`);
+    const order = orderPayload.json?.data;
+    if (Number(order?.id) !== Number(report.order.id)
+      || Number(order?.customerId) !== Number(report.order.customerId)) {
+      throw new Error('shipping order line readback identity mismatch');
+    }
+    const unitKey = value => String(value || '').trim().toLowerCase();
+    const materialId = Number(data.materialId);
+    const matches = (Array.isArray(order.items) ? order.items : []).filter(item => (
+      Number(item.materialId) === materialId && unitKey(item.unit) === 'kg'
+    ));
+    if (!Number.isSafeInteger(materialId) || materialId <= 0 || matches.length !== 1) {
+      throw new Error('shipping fixture requires exactly one persisted material/unit order line');
+    }
+    const line = matches[0];
+    const orderItemId = Number(line.id);
+    const quantity = Number(data.quantity);
+    if (!Number.isSafeInteger(orderItemId) || orderItemId <= 0
+      || typeof line.productName !== 'string' || !line.productName.trim()) {
+      throw new Error('shipping fixture order line identity is incomplete');
+    }
+    if (!Number.isFinite(quantity) || quantity <= 0
+      || !Number.isFinite(Number(line.quantity)) || quantity > Number(line.quantity)) {
+      throw new Error('shipping fixture quantity must fit the single persisted order line');
+    }
     const payload = await apiFetch(page, '/shipping', {
       method: 'POST',
       data: {
         customerId: Number(report.order.customerId),
         orderId: Number(report.order.id),
-        materialId: Number(data.materialId),
-        productName: data.linkedProduct,
-        quantity: data.quantity,
+        orderItemId,
+        materialId,
+        productName: line.productName,
+        quantity,
         unit: 'kg',
         batchNo: data.batchNo,
         carrier: data.carrier,
@@ -221,8 +250,15 @@ async function createLinkedShipment({
       throw new Error(`linked shipment create failed: ${payload.status}`);
     }
     const shipment = payload.json?.data;
+    if (!shipment?.id || Number(shipment.orderId) !== Number(order.id)
+      || Number(shipment.orderItemId) !== orderItemId
+      || Number(shipment.quantity) !== quantity || unitKey(shipment.unit) !== 'kg') {
+      throw new Error('linked shipment create did not preserve the persisted order line/quantity/unit');
+    }
+    report.order.orderItemId = String(orderItemId);
     report.linkedShipment = {
       id: String(shipment.id),
+      orderItemId: String(shipment.orderItemId),
       shipmentNo: shipment.shipmentNo,
       trackingNo: shipment.trackingNo,
       status: shipment.status,

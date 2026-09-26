@@ -230,6 +230,8 @@ export interface CollectionPromiseSnapshot {
 }
 
 export interface SalesOrderItem {
+  /** Persisted line identity; absent for unsaved order drafts. */
+  id?: number | string;
   materialId?: number | null;
   sku: string;
   productName: string;

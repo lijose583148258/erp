@@ -94,6 +94,9 @@ export const useSalesOrders = () => {
         handleCommissionAudit,
         handleStatusUpdate,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft,
+        handleShipmentCreated,
         handleManualComplete,
     } = useSalesOrderActions({
         canAuditCommission,
@@ -438,6 +441,9 @@ export const useSalesOrders = () => {
         refreshSelectedOrder,
         updateDimensionalItem,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft,
+        handleShipmentCreated,
         handleManualComplete,
     };
 };

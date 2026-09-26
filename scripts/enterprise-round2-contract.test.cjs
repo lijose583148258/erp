@@ -156,13 +156,84 @@ test('partial fulfillment audit is independent and fatal at aggregation, without
 });
 
 const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
-const { seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
+const { createLinkedShipment, seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
 const fixtureOptions = () => ({
   data: { ...createShippingAuditData('contract'), materialId: 1 },
   report: { linkedShipment: { shipmentNo: 'SHP-contract' } },
   unwrapList: payload => payload.json.data,
   timebox: async (_page, _name, _timeout, action) => action(),
   timeouts: { api: 1000, readBack: 1000 },
+});
+
+function linkedFixtureOptions() {
+  const options = fixtureOptions();
+  options.report.order = { id: '7', customerId: '8' };
+  const order = { id: 7, customerId: 8, items: [
+    { id: 91, materialId: 1, productName: options.data.linkedProduct, quantity: 12, unit: ' KG ' },
+    { id: 92, materialId: 2, productName: 'unrelated', quantity: 500, unit: 'kg' },
+    { id: 93, materialId: 1, productName: 'different unit', quantity: 500, unit: 'L' },
+  ] };
+  const calls = [];
+  options.apiFetch = async (_page, route, request) => {
+    calls.push({ route, request });
+    if (route === '/orders/7') return { ok: true, json: { data: order } };
+    assert.equal(route, '/shipping');
+    return { ok: true, json: { data: { id: 10, shipmentNo: 'SHP-contract', ...request.data } } };
+  };
+  return { options, order, calls };
+}
+
+test('shipping fixture binds a persisted material/unit line before POST, never a display-name guess', async () => {
+  const { options, order, calls } = linkedFixtureOptions();
+  options.data.linkedProduct = 'not the persisted canonical name';
+  await createLinkedShipment(options);
+  assert.deepEqual(calls.map(call => call.route), ['/orders/7', '/shipping']);
+  const submitted = calls[1].request.data;
+  assert.equal(submitted.orderItemId, 91);
+  assert.equal(submitted.productName, order.items[0].productName);
+  assert.equal(submitted.materialId, 1);
+  assert.equal(submitted.quantity, 12);
+  assert.equal(submitted.unit, 'kg');
+  assert.equal(options.report.order.orderItemId, '91');
+  assert.equal(options.report.linkedShipment.orderItemId, '91');
+});
+
+test('shipping fixture rejects absent, ambiguous, cross-unit and oversized lines without POST', async () => {
+  const cases = [
+    order => { order.items = []; },
+    order => { order.items.push({ ...order.items[0], id: 94 }); },
+    order => { delete order.items[0].id; },
+    order => { order.items[0].materialId = null; },
+    order => { order.items[0].unit = 'L'; },
+    order => { order.items[0].quantity = 6; },
+    order => { order.items[0].quantity = 'not a quantity'; },
+    order => { order.customerId = 9; },
+    order => { order.id = 9; },
+    (_order, options) => { options.data.quantity = 0; },
+    (_order, options) => { options.data.quantity = NaN; },
+    (_order, options) => { options.data.quantity = 13; },
+  ];
+  for (const mutate of cases) {
+    const { options, order, calls } = linkedFixtureOptions();
+    mutate(order, options);
+    await assert.rejects(createLinkedShipment(options), /shipping (fixture|order line readback)/);
+    assert.deepEqual(calls.map(call => call.route), ['/orders/7']);
+  }
+});
+
+test('shipping fixture rejects failed order readback and missing persisted shipment linkage', async () => {
+  const failedRead = linkedFixtureOptions();
+  failedRead.options.apiFetch = async () => ({ ok: false, status: 503 });
+  await assert.rejects(createLinkedShipment(failedRead.options), /line readback failed: 503/);
+  const missingLink = linkedFixtureOptions();
+  const originalFetch = missingLink.options.apiFetch;
+  missingLink.options.apiFetch = async (...args) => {
+    const result = await originalFetch(...args);
+    if (args[1] === '/shipping') delete result.json.data.orderItemId;
+    return result;
+  };
+  await assert.rejects(createLinkedShipment(missingLink.options), /did not preserve/);
+  assert.equal(missingLink.options.report.order.orderItemId, undefined);
 });
 
 test('shipping browser fixture seeds explicit carrying cost through the stock API', async () => {
