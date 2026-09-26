@@ -49,6 +49,7 @@ import { readStringArrayPreference } from '../components/ui/tablePreferences';
 import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
 import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
 import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
+import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData';
 
 type FrontendUnitTest = {
   name: string;
@@ -56,6 +57,25 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'barter reference loading respects finance and explicit custom-role permissions',
+    run: async () => {
+      const called: string[] = [];
+      const loaders = Object.fromEntries(['customers', 'suppliers', 'orders'].map(key => [key, async () => {
+        called.push(key); return [key];
+      }])) as any;
+      assert.deepEqual(await loadBarterReferenceData({ role: 'finance' } as any, loaders), [[], ['suppliers'], ['orders']]);
+      assert.deepEqual(called, ['suppliers', 'orders']);
+      called.length = 0;
+      assert.deepEqual(await loadBarterReferenceData({ role: 'admin', permissions: ['barter.read'] } as any, loaders), [[], [], []]);
+      assert.deepEqual(called, []);
+      assert.deepEqual(await loadBarterReferenceData({ role: 'sales' } as any, loaders), [['customers'], [], ['orders']]);
+      assert.deepEqual(await loadBarterReferenceData({ role: 'admin' } as any, loaders), [['customers'], ['suppliers'], ['orders']]);
+      await assert.rejects(loadBarterReferenceData({ role: 'finance' } as any, {
+        ...loaders, orders: async () => { throw new Error('read outage'); },
+      }), /read outage/);
+    },
+  },
   {
     name: 'shipment drafts bind a persisted order line and never sum mixed units',
     run: () => {

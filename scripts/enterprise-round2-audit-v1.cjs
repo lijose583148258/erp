@@ -6,6 +6,7 @@ const { createRound2Runner, synchronizedBurst } = require('./lib/enterprise-roun
 const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-user.cjs');
 const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
+const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barter-partial.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
@@ -14,11 +15,11 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
   runId, commit: process.env.GITHUB_SHA || process.env.ROUND2_COMMIT || null,
   dirtySource: process.env.ROUND2_DIRTY || null, sourceHash: process.env.ROUND2_SOURCE_HASH || null, builtAt: process.env.ROUND2_BUILT_AT || null,
   provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite', appUrls: urls,
-  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes and PO two-browser review; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
+  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes, PO two-browser review and finance barter readback; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
   loadCohort: '20 distinct warehouse actors, separate from the planned workforce',
 } });
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
-  'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked'];
+  'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser');
 const actors = {};
 let prisma;
@@ -375,6 +376,9 @@ async function main() {
   await runner.run('barter-offset-cash-difference', barterDifference);
   await runner.run('barter-reversal-conservation', barterReversal);
   await runner.run('barter-consumed-receipt-reversal-blocked', barterConsumedReversal);
+  await runner.run('barter-partial-fulfillment', signal => barterPartialFulfillmentProbe({
+    request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial, urls, reportPath,
+  }, signal), { timeoutMs: 120000 });
 }
 
 main().catch(error => { runner.report.executionError = String(error.message || error); }).finally(async () => {

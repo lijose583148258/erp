@@ -88,8 +88,12 @@ async function main() {
   const ports = [await freePort()];
   do { ports[1] = await freePort(); } while (ports[1] === ports[0]);
   const urls = ports.map(port => `http://127.0.0.1:${port}`);
-  const servers = ports.map((port, index) => start(`app-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) }));
-  await Promise.all(servers.map((child, index) => ready(child, urls[index])));
+  // This harness tests business contention, not simultaneous SQLite WAL initialization.
+  // Both instances remain online for every audit; restart ambiguity is a separate unmet obligation.
+  for (const [index, port] of ports.entries()) {
+    const server = start(`app-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) });
+    await ready(server, urls[index]);
+  }
   const auditScript = process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });

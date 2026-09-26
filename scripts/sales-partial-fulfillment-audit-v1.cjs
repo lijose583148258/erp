@@ -171,6 +171,7 @@ async function main(){
   await expect(page.getByTestId('sales-order-shipment-create')).toBeDisabled();
   assert.equal(failedReadbacks,1);
   await page.getByRole('button',{name:'只重试读取',exact:true}).click();
+  await expect(page.getByTestId('sales-order-shipment-close')).toBeEnabled();
   await expect(page.getByTestId('sales-order-shipment-error')).toHaveCount(0);
   await page.unroute(readbackPattern,failFirstReadback);
   report.browserReadbackFault={injected503:failedReadbacks,recoveredBy:'GET-only retry; real POST count verified in database'};
