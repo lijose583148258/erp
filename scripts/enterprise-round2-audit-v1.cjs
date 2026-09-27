@@ -7,6 +7,7 @@ const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-user.cjs');
 const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
 const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barter-partial.cjs');
+const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
@@ -21,6 +22,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser');
+implemented.push('barter-negative-cash-adjustment');
 const actors = {};
 let prisma;
 
@@ -240,7 +242,7 @@ async function paymentVerification(signal) {
     readbacks: readbacks.map(row => ({ id: row.id, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus })) });
 }
 
-async function barterFixture(label, unequal, signal) {
+async function barterFixture(label, unequal, signal, { agreement: createAgreement = false, currency = 'CNY' } = {}) {
   const our = await stockFixture(label, signal);
   const incoming = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
     code: `${runId}-${label}-raw`, name: `${runId}-${label}-raw`, category: 'raw_material', unit: 'kg' });
@@ -253,16 +255,20 @@ async function barterFixture(label, unequal, signal) {
     customerId: buyer.id, items: [{ materialId: our.material.id, productName: our.material.nameZh, quantity: 10, unit: 'kg', unitPrice: 20 }], paymentTerms: 30,
   } }));
   const receivedBatch = `${runId}-${label}-incoming`;
-  const settlement = dataOf(await request('/barter/settlements', { actor: actors.sales, method: 'POST', signal, data: {
+  const payload = {
     counterpartyType: 'customer', counterpartyName: buyer.name, customerId: buyer.id, orderId: order.id,
-    settlementMode: unequal ? 'mixed' : 'barter', currency: 'CNY', note: runId,
+    settlementMode: unequal === 'negative' ? 'cash_refund' : unequal ? 'mixed' : 'barter', currency, note: runId,
     items: [
       { side: 'our', materialId: our.material.id, itemName: our.material.nameZh, unit: 'kg', quantity: 10, unitPrice: 20, sourceDocument: our.batchNo },
-      { side: 'counterparty', materialId: incoming.id, itemName: incoming.nameZh, unit: 'kg', quantity: 20, unitPrice: unequal ? 7.5 : 10, sourceDocument: receivedBatch },
+      { side: 'counterparty', materialId: incoming.id, itemName: incoming.nameZh, unit: 'kg', quantity: 20, unitPrice: unequal === 'negative' ? 12.5 : unequal ? 7.5 : 10, sourceDocument: receivedBatch },
     ],
-  } }));
+  };
+  const agreement = createAgreement ? dataOf(await request('/barter/agreements', { actor: actors.sales, method: 'POST', signal, data: payload })) : null;
+  const settlement = dataOf(await request(agreement ? `/barter/agreements/${agreement.id}/batches` : '/barter/settlements', {
+    actor: actors.sales, method: 'POST', signal, data: agreement ? { items: payload.items, note: runId } : payload,
+  }));
   dataOf(await request(`/barter/settlements/${settlement.id}/approve`, { actor: actors.admin, method: 'PATCH', signal, data: { note: runId } }));
-  return { our, incoming: { material: incoming, batchNo: receivedBatch }, settlement, order, offset: unequal ? 150 : 200 };
+  return { our, incoming: { material: incoming, batchNo: receivedBatch }, settlement, order, agreement, offset: unequal === 'negative' ? 200 : unequal ? 150 : 200 };
 }
 async function readBarter(ctx, signal) {
   const [our, incoming, settlement, order, api] = await Promise.all([
@@ -378,6 +384,9 @@ async function main() {
   await runner.run('barter-consumed-receipt-reversal-blocked', barterConsumedReversal);
   await runner.run('barter-partial-fulfillment', signal => barterPartialFulfillmentProbe({
     request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial, urls, reportPath,
+  }, signal), { timeoutMs: 120000 });
+  await runner.run('barter-negative-cash-adjustment', signal => barterNegativeCashProbe({
+    request, dataOf, actors, prisma, barterFixture, readBarter, runId, urls, reportPath,
   }, signal), { timeoutMs: 120000 });
 }
 

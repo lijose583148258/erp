@@ -77,6 +77,7 @@ export async function listBarterSettlements(query: BarterListQuery) {
         totalPartyAValue: true,
         totalPartyBValue: true,
         cashDifference: true,
+        cashObligation: true,
         currency: true,
         status: true,
         valuationDate: true,
@@ -166,6 +167,7 @@ export async function getBarterSettlement(id: number) {
       valuationSnapshots: { orderBy: { id: 'asc' } },
       offsetPostings: { orderBy: { id: 'asc' } },
       reversalLogs: { orderBy: { id: 'asc' } },
+      cashObligation: true,
     },
   });
 

@@ -103,6 +103,7 @@ model BarterSettlement {
   valuationSnapshots BarterValuationSnapshot[]
   offsetPostings     BarterOffsetPosting[]
   reversalLogs       BarterReversalLog[]
+  cashObligation     BarterCashObligation?
 
   @@index([agreementId])
   @@index([customerId])

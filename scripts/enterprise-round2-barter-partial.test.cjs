@@ -4,6 +4,11 @@ const { assertPartialBarterStage } = require('./lib/enterprise-round2-barter-par
 const fs = require('node:fs');
 const vm = require('node:vm');
 const { isBuiltin } = require('node:module');
+// This import must also remain usable in the source gate without installed packages.
+const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
+test('negative-cash probe is discoverable before browser dependencies are installed', () => {
+  assert.equal(typeof barterNegativeCashProbe, 'function');
+});
 
 test('source-gate barter assertions load with built-ins only, before npm install', () => {
   const loaded = { exports: {} };

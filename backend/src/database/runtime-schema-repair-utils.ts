@@ -62,6 +62,7 @@ const KNOWN_TABLES = new Set([
   'purchase_receipts', 'shipment_receipts', 'receipt_discrepancy_cases',
   'receipt_discrepancy_actions', 'receipt_tolerance_rules',
   'barter_settlements', 'barter_items', 'barter_valuation_snapshots',
+  'barter_cash_obligations',
   'barter_offset_postings', 'barter_reversal_logs', 'contracts',
   'contract_milestones', 'product_batches', 'adjustment_records',
   'production_boms', 'production_bom_items', 'production_work_orders', 'production_quality_checks',

@@ -28,6 +28,7 @@ import { barterInputBoundaries, barterInputEvidence, barterInputGuideSteps } fro
 import { BarterAgreementList } from './barter/BarterAgreementList';
 import { BarterInputRoadmap } from './barter/BarterInputRoadmap';
 import { BarterLedgerPanel } from './barter/BarterLedgerPanel';
+import { BarterRefundDialog } from './barter/BarterRefundDialog';
 import { loadBarterReferenceData } from './barter/loadBarterReferenceData';
 
 const BarterWorkspaceClean: React.FC = () => {
@@ -48,6 +49,7 @@ const BarterWorkspaceClean: React.FC = () => {
   const [activeBarterTab, setActiveBarterTab] = useState<BarterDeskTab>('agreement');
   const [reverseSettlement, setReverseSettlement] = useState<BarterSettlement | null>(null);
   const [reverseSubmitting, setReverseSubmitting] = useState(false);
+  const [refundSettlement, setRefundSettlement] = useState<BarterSettlement | null>(null);
 
   const [agreementForm, setAgreementForm] = useState({
     customerId: '',
@@ -539,9 +541,12 @@ const BarterWorkspaceClean: React.FC = () => {
           onApprove={(settlement) => void handleApprove(settlement)}
           onPost={(settlement) => void handlePost(settlement)}
           onReverse={(settlement) => void handleReverse(settlement)}
+          onRefund={setRefundSettlement}
         />
       </div>
 
+      {refundSettlement?.cashObligation && <BarterRefundDialog key={refundSettlement.id} settlement={refundSettlement}
+        onClose={() => setRefundSettlement(null)} onRecorded={() => { void loadBase(selectedAgreement?.id); }} />}
       <ReasonDialog
         open={Boolean(reverseSettlement)}
         title={reverseSettlement ? `冲销批次 ${reverseSettlement.settlementNo}` : '冲销批次'}

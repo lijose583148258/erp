@@ -10,6 +10,7 @@ import {
   type CreateBarterSettlementInput,
 } from '../services/barter.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
+import { recordBarterRefund } from '../services/barter/barter-cash.service';
 import {
   buildBarterDataScopeWhere,
   canUseAnyOperationalDataScope,
@@ -134,6 +135,23 @@ async function validateSalesBarterPayload(
 }
 
 export class BarterController {
+  async recordRefund(req: AuthRequest, res: Response) {
+    try {
+      const id = Number(req.params.id);
+      const meta = await loadSettlementMeta(id);
+      if (!meta || !canAccessBarterMeta(req, meta) || (meta.agreement && !canAccessBarterMeta(req, meta.agreement))) {
+        return res.status(404).json({ success: false, message: '未找到货抵批次，请刷新核对。' });
+      }
+      const data = await recordBarterRefund(id, req.user!.userId, req.body);
+      return res.json({ success: true, data });
+    } catch (error) {
+      const message = (error as { code?: string }).code === 'P2002'
+        ? '退款凭证或请求键已被使用，请勿重复登记。'
+        : error instanceof Error ? error.message : '登记退款失败';
+      return res.status(409).json({ success: false, message });
+    }
+  }
+
   private async writeAuditLog(req: AuthRequest, action: string, resourceId: number, details: string) {
     if (!req.user?.userId) return;
     try {

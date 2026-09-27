@@ -50,6 +50,8 @@ import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
 import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
 import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
 import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData';
+import { BarterAgreementList } from '../pages/barter/BarterAgreementList';
+import { BarterLedgerPanel } from '../pages/barter/BarterLedgerPanel';
 
 type FrontendUnitTest = {
   name: string;
@@ -57,6 +59,23 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'barter refund liability remains visible independently of completed offset and role write permission',
+    run: () => {
+      const settlement: any = { id: 1, settlementNo: 'BT-1', status: 'posted', cashDifference: -50, currency: 'USD',
+        cashObligation: { amount: 50, currency: 'USD', status: 'open', ownerId: 4 }, offsetPostings: [] };
+      const agreement: any = { id: 1, agreementNo: 'BA-1', status: 'completed', hasPendingRefund: true,
+        executedOffsetAmount: 200, remainingOffsetAmount: 0, settlements: [settlement] };
+      const formatPrice = (value: number) => `display-converted-${value}`;
+      assert.match(renderToStaticMarkup(<BarterAgreementList agreements={[agreement]} formatPrice={formatPrice} onSelect={() => {}} />), /差额待处理/);
+      const render = (canPost: boolean) => renderToStaticMarkup(<BarterLedgerPanel agreement={agreement} canApprove={false} canPost={canPost}
+        formatPrice={formatPrice} onApprove={() => {}} onPost={() => {}} onReverse={() => {}} onRefund={() => {}} />);
+      assert.match(render(true), /USD 50.00/); assert.match(render(true), /登记已完成退款/);
+      assert.doesNotMatch(render(false), /<button[^>]*>登记已完成退款/);
+      settlement.cashObligation.status = 'settled'; settlement.cashObligation.paymentReference = 'BANK-REF';
+      assert.match(render(true), /BANK-REF/); assert.doesNotMatch(render(true), /<button[^>]*>冲销<\/button>/);
+    },
+  },
   {
     name: 'barter reference loading respects finance and explicit custom-role permissions',
     run: async () => {

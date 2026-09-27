@@ -117,6 +117,7 @@ export async function listBarterAgreements(query: BarterAgreementListQuery) {
         supplier: { select: { name: true, nameZh: true, nameEn: true, nameVi: true } },
         order: { select: { orderNo: true } },
         _count: { select: { settlements: true } },
+        settlements: { select: { status: true, cashDifference: true, cashObligation: { select: { status: true } } } },
       },
     }),
   ]);
@@ -130,6 +131,7 @@ export async function listBarterAgreements(query: BarterAgreementListQuery) {
       customerDisplayName: toDisplayName(item.customer),
       supplierDisplayName: toDisplayName(item.supplier),
       batchCount: Number(item._count?.settlements || 0),
+      hasPendingRefund: item.settlements.some(row => row.status === 'posted' && row.cashDifference < 0 && row.cashObligation?.status !== 'settled'),
     })),
   };
 }
@@ -149,6 +151,7 @@ export async function getBarterAgreement(id: number) {
           items: { orderBy: { id: 'asc' } },
           offsetPostings: { orderBy: { id: 'asc' } },
           reversalLogs: { orderBy: { id: 'asc' } },
+          cashObligation: true,
           paymentRecord: { select: { id: true, amount: true, status: true, method: true, date: true } },
         },
       },
@@ -161,6 +164,7 @@ export async function getBarterAgreement(id: number) {
 
   return {
     ...agreement,
+    hasPendingRefund: agreement.settlements.some(row => row.status === 'posted' && row.cashDifference < 0 && row.cashObligation?.status !== 'settled'),
     customerDisplayName: toDisplayName(agreement.customer),
     supplierDisplayName: toDisplayName(agreement.supplier),
   };

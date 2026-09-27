@@ -1,4 +1,5 @@
 import prisma from '../config/database';
+import { createBarterCashObligation, voidBarterCashObligation } from './barter/barter-cash.service';
 import { CollectionStateService } from './collection-state.service';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
@@ -261,6 +262,7 @@ export class BarterService {
           status: true,
           finalAmount: true,
           paidAmount: true,
+          currency: true,
           receivableAdjustmentAmount: true,
         },
       });
@@ -271,6 +273,10 @@ export class BarterService {
 
       if (linkedOrder.status === 'cancelled') {
         throw new Error('已取消订单不能进行货抵过账。');
+      }
+
+      if (settlement.cashDifference < 0 && linkedOrder.currency.trim().toUpperCase() !== settlement.currency.trim().toUpperCase()) {
+        throw new Error('负差额货抵暂不支持跨币种核销，请使用与关联订单一致的币种。');
       }
 
       if (settlement.customerId && linkedOrder.customerId !== settlement.customerId) {
@@ -372,6 +378,7 @@ export class BarterService {
             customerId: true,
             status: true,
             finalAmount: true,
+            currency: true,
             receivableAdjustmentAmount: true,
           },
         });
@@ -382,6 +389,9 @@ export class BarterService {
 
         if (linkedOrder.status === 'cancelled') {
           throw new Error('已取消订单不能进行货抵过账。');
+        }
+        if (settlement.cashDifference < 0 && linkedOrder.currency.trim().toUpperCase() !== settlement.currency.trim().toUpperCase()) {
+          throw new Error('负差额货抵暂不支持跨币种核销，请使用与关联订单一致的币种。');
         }
 
         if (settlement.customerId && linkedOrder.customerId !== settlement.customerId) {
@@ -428,6 +438,7 @@ export class BarterService {
       }
 
       await postBarterStockEntries(settlement, tx, postedBy);
+      await createBarterCashObligation(tx, settlement, postedBy);
 
       await tx.barterOffsetPosting.create({
         data: {
@@ -476,6 +487,7 @@ export class BarterService {
         status: true,
         orderId: true,
         paymentRecordId: true,
+        cashDifference: true,
       },
     });
 
@@ -506,6 +518,8 @@ export class BarterService {
         }
         throw new Error(`Barter settlement status changed by another operation: ${settlement.status} -> ${latest.status}`);
       }
+
+      await voidBarterCashObligation(tx, settlement.id, reversedBy, settlement.status === 'posted' && settlement.cashDifference < 0);
 
       if (settlement.paymentRecordId) {
         await tx.paymentRecord.update({
