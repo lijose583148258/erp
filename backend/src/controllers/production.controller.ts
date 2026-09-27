@@ -248,7 +248,7 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to update production work order status', error);
       const message = error instanceof Error ? error.message : 'Failed to update production work order status';
-      res.status(resolveProductionStatusCode(message)).json({
+      res.status(error instanceof ProductionCompletionValidationError ? 409 : resolveProductionStatusCode(message)).json({
         success: false,
         message,
         issues: error instanceof ProductionCompletionValidationError ? error.issues : undefined,

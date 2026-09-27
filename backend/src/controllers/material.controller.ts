@@ -27,6 +27,7 @@ const errorStatus = (error: unknown) => {
 const governanceError = (error: unknown) => {
   const code = error instanceof Error ? error.message : String(error);
   const messages: Record<string, { status: number; message: string }> = {
+    MATERIAL_BOM_REVISION_FROZEN: { status: 409, message: '该 BOM 版本已被工单引用，物料关联已冻结。请创建新版本；不能回填或回滚改写在制及历史工单配方。' },
     MATERIAL_BACKFILL_DUPLICATE_SOURCE: { status: 400, message: '同一历史物料来源不能在一次回填中重复提交' },
     MATERIAL_BACKFILL_TARGET_NOT_FOUND: { status: 404, message: '目标物料不存在，请刷新后重新选择' },
     MATERIAL_BACKFILL_TARGET_NOT_ACTIVE: { status: 409, message: '只能关联已启用且非临时的正式物料' },

@@ -216,7 +216,7 @@ export function ProductionWorkOrderSection({
               </thead>
               <tbody className="divide-y divide-slate-50 dark:divide-slate-800/50">
                 {workOrders.map(order => (
-                  <tr key={order.id} onClick={() => setSelectedWorkOrderId(order.id)} className={`cursor-pointer transition-colors duration-150 motion-reduce:transition-none ${selectedWorkOrderId === order.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}>
+                  <tr key={order.id} data-testid={`production-work-order-row-${order.id}`} onClick={() => setSelectedWorkOrderId(order.id)} className={`cursor-pointer transition-colors duration-150 motion-reduce:transition-none ${selectedWorkOrderId === order.id ? 'bg-blue-50/30 dark:bg-blue-900/10' : 'hover:bg-blue-50/20 dark:hover:bg-blue-900/5'}`}>
                     <Td mono>{order.workOrderNo}</Td>
                     <Td><div className="font-bold text-slate-900 dark:text-white text-sm">{order.productName}</div><div className="text-[11px] text-slate-400 mt-1">{order.bom?.bomNo || '未绑定BOM'}</div></Td>
                     <Td>{Number(order.targetQuantity || 0).toLocaleString()}</Td>
@@ -238,6 +238,11 @@ export function ProductionWorkOrderSection({
                 <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">工单信息</div>
                 <div className="text-lg font-black text-slate-900 dark:text-white">{selectedWorkOrder.productName}</div>
                 <div className="text-sm font-bold text-slate-600 dark:text-slate-300">{selectedWorkOrder.workOrderNo}</div>
+                <div data-testid={`production-work-order-bom-${selectedWorkOrder.id}`} className="text-xs font-bold text-slate-600 dark:text-slate-300 break-words">
+                  {selectedWorkOrder.bom
+                    ? `绑定配方 ${selectedWorkOrder.bom.bomNo} · 版本 ${selectedWorkOrder.bom.version} · 工单引用后禁止治理改写物料关联`
+                    : '未绑定 BOM；不能据此推定已有配方版本冻结证据'}
+                </div>
                 <div className="text-xs text-slate-400">
                   目标 {selectedWorkOrder.targetQuantity} · 已产 {selectedWorkOrder.producedQuantity} · 损耗 {selectedWorkOrder.lossQuantity}
                 </div>

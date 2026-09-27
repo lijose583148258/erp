@@ -307,3 +307,17 @@ test('CJK raster evidence rejects tofu/blank glyphs even when DOM Chinese text i
   assert.match(workflow, /id: browser_fonts\s+continue-on-error: true/);
   assert.match(fs.readFileSync(path.join(__dirname, 'enterprise-cloud-business-audit-summary-v1.cjs'), 'utf8'), /\['browser_fonts',/);
 });
+test('BOM freeze probes are discoverable before runtime and browser dependencies are installed', () => {
+  const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
+  assert.equal(typeof bomFreezeProbe, 'function');
+  assert.equal(typeof bomHistoryBrowser, 'function');
+});
+
+test('BOM freeze write paths and browser readback changes trigger the cumulative cloud gate', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  const prPaths = workflow.split('  pull_request:')[1].split('  push:')[0];
+  for (const file of ['scripts/lib/enterprise-round2-bom-freeze.cjs', 'backend/src/services/production-bom-freeze*.ts',
+    'backend/src/services/production-mutation.service.ts', 'backend/src/services/material-governance.service.ts',
+    'backend/src/controllers/material.controller.ts', 'backend/src/controllers/production.controller.ts',
+    'pages/production/ProductionWorkOrderSection.tsx']) assert(prPaths.includes(`'${file}'`), `${file} no longer triggers cloud regression`);
+});

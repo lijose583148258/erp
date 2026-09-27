@@ -6,6 +6,7 @@ const baseline = require('./config/enterprise-regression-baseline-v1.json');
 const catalog = require('./config/enterprise-round2-v1.json');
 const { evaluateRegression, validateBaseline } = require('./lib/enterprise-regression.cjs');
 const { summarize, validateCatalog } = require('./lib/enterprise-round2-runner.cjs');
+const futureId = validateCatalog(catalog).find(id => !baseline.revisions.at(-1).round2Checks.includes(id));
 
 function fixture(profile = 'cloud') {
   const context = { version: 'enterprise-regression-run/v1', profile, key: 'unique-current-run', commit: 'a'.repeat(40), sourceHash: 'b'.repeat(64), startedAt: '2026-01-01T00:00:00.000Z' };
@@ -37,7 +38,7 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
 for (const status of ['failed', 'not_run', 'blocked', 'unsupported', 'running', 'timed_out']) test(`prior passed ID becomes ${status}: reject even if total pass count is replaced`, () => {
   const data = fixture();
   data.reports.round2.checks.find(c => c.id === 'po-stale-edit-conflict').status = status;
-  data.reports.round2.checks.find(c => c.id === 'bom-revision-freeze').status = 'passed';
+  data.reports.round2.checks.find(c => c.id === futureId).status = 'passed';
   data.reports.round2.summary = summarize(data.reports.round2, catalog); data.reports.round2.status = data.reports.round2.summary.status;
   const result = evaluateRegression(data); assert.equal(result.status, 'failed');
   assert.equal(result.checks.find(c => c.id === 'round2:po-stale-edit-conflict').status, 'failed');
@@ -66,17 +67,17 @@ for (const [label, mutate] of [
   ['skipped first-round search check', d => { d.steps.search_readiness.outcome = 'skipped'; }],
   ['round2 not requested and skipped', d => { d.steps.round2_business.outcome = 'skipped'; }],
   ['legacy process skipped', d => { d.steps.cash_legacy_upgrade.outcome = 'skipped'; }],
-  ['rewritten initial baseline', d => { d.baseline.revisions[0].round2Checks[0] = 'bom-revision-freeze'; }],
-  ['new pass not promoted', d => { d.reports.round2.checks.find(c => c.id === 'bom-revision-freeze').status = 'passed'; d.reports.round2.summary = summarize(d.reports.round2, catalog); }],
+  ['rewritten initial baseline', d => { d.baseline.revisions[0].round2Checks[0] = futureId; }],
+  ['new pass not promoted', d => { d.reports.round2.checks.find(c => c.id === futureId).status = 'passed'; d.reports.round2.summary = summarize(d.reports.round2, catalog); }],
 ]) test(`cumulative gate rejects ${label}`, () => {
   const data = fixture(); mutate(data); assert.equal(evaluateRegression(data).status, 'failed');
 });
 
 test('baseline revisions can only grow; accepted new IDs become mandatory', () => {
-  const data = fixture(); const next = structuredClone(data.baseline.revisions[0]); next.id = 'next-package';
-  next.round2Checks.push('bom-revision-freeze'); data.baseline.revisions.push(next);
+  const data = fixture(); const next = structuredClone(data.baseline.revisions.at(-1)); next.id = 'next-package';
+  next.round2Checks.push(futureId); data.baseline.revisions.push(next);
   assert.equal(evaluateRegression(data).status, 'failed');
-  data.reports.round2.checks.find(c => c.id === 'bom-revision-freeze').status = 'passed';
+  data.reports.round2.checks.find(c => c.id === futureId).status = 'passed';
   data.reports.round2.summary = summarize(data.reports.round2, catalog);
   assert.equal(evaluateRegression(data).status, 'passed');
   next.round2Checks.shift(); assert.throws(() => validateBaseline(data.baseline), /shrank/);

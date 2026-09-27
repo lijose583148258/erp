@@ -8,6 +8,7 @@ const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-u
 const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
 const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barter-partial.cjs');
 const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
+const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
 const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
@@ -24,6 +25,8 @@ const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser');
 implemented.push('barter-negative-cash-adjustment');
+implemented.push('bom-revision-freeze');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -390,6 +393,12 @@ async function main() {
   await runner.run('barter-negative-cash-adjustment', signal => barterNegativeCashProbe({
     request, dataOf, actors, prisma, barterFixture, readBarter, runId, urls, reportPath,
   }, signal), { timeoutMs: 120000 });
+  const bomContext = { request, dataOf, actors, prisma, runId, ensureReleasedMaterial, urls, reportPath };
+  const frozen = await runner.run('bom-revision-freeze', signal => bomFreezeProbe(bomContext, signal), { timeoutMs: 90000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 60000 });
+    else runner.block('bom-history-browser', 'BOM API chain did not complete; no browser pass can be inferred');
+  }
 }
 
 main().catch(error => { runner.report.executionError = String(error.message || error); }).finally(async () => {

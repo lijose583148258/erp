@@ -12,6 +12,8 @@ import {
 import { assertBomConsumptionCoverage } from './production-completion.validation';
 import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
 import { assertLatestQualityRelease } from './production-quality.service';
+import { lockBomRevisions } from './production-bom-freeze.service';
+import { withDbRetry } from '../utils/dbRetry';
 
 export { ProductionCompletionValidationError } from './production-completion.validation';
 
@@ -287,7 +289,8 @@ export class ProductionMutationService {
   }
 
   static async createWorkOrder(input: ProductionWorkOrderInput, createdBy: number) {
-    return prisma.$transaction(async tx => {
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      if (input.bomId) await lockBomRevisions(tx, [input.bomId]);
       const bom = input.bomId
         ? await tx.productionBom.findUnique({
           where: { id: input.bomId },
@@ -360,7 +363,7 @@ export class ProductionMutationService {
           qualityChecks: true,
         },
       });
-    });
+    }), { label: 'create-work-order-freeze-bom' });
   }
 
   static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: { stockBalanceId: number; quantity: number; }[]) {

@@ -3,6 +3,8 @@ import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { normalizeMaterialAlias, normalizeMaterialCode, type MaterialAuditContext } from './material-master.service';
+import { assertBomRevisionsUnused } from './production-bom-freeze.service';
+import { withDbRetry } from '../utils/dbRetry';
 
 export type BomBackfillSource = {
   materialName: string;
@@ -253,7 +255,7 @@ export class MaterialGovernanceService {
       return { run, idempotent: true };
     }
 
-    return prisma.$transaction(async tx => {
+    return withDbRetry(() => prisma.$transaction(async tx => {
       const sourceKeys = new Set<string>();
       mappings.forEach(mapping => {
         const key = buildBomBackfillSourceKey(mapping.source);
@@ -268,6 +270,7 @@ export class MaterialGovernanceService {
       const planned: Array<{
         mapping: BomBackfillMapping;
         itemIds: number[];
+        bomIds: number[];
         target: typeof targets[number];
       }> = [];
       let totalChanges = 0;
@@ -279,7 +282,7 @@ export class MaterialGovernanceService {
         }
         const rows = await tx.productionBomItem.findMany({
           where: sourceWhere(mapping.source),
-          select: { id: true },
+          select: { id: true, bomId: true },
           orderBy: { id: 'asc' },
           take: MAX_CHANGES_PER_RUN + 1,
         });
@@ -289,9 +292,10 @@ export class MaterialGovernanceService {
         }
         totalChanges += rows.length;
         if (totalChanges > MAX_CHANGES_PER_RUN) throw new Error('MATERIAL_BACKFILL_LIMIT_EXCEEDED');
-        planned.push({ mapping, itemIds: rows.map(row => row.id), target });
+        planned.push({ mapping, itemIds: rows.map(row => row.id), bomIds: rows.map(row => row.bomId), target });
       }
       if (totalChanges === 0) throw new Error('MATERIAL_BACKFILL_EMPTY');
+      await assertBomRevisionsUnused(tx, planned.flatMap(entry => entry.bomIds));
 
       const run = await tx.materialGovernanceRun.create({
         data: {
@@ -354,7 +358,7 @@ export class MaterialGovernanceService {
         include: { _count: { select: { changes: true } } },
       });
       return { run: completed, idempotent: false };
-    });
+    }), { label: 'material-bom-backfill' });
   }
 
   static async listRuns(input: { limit: number; offset: number }) {
@@ -373,7 +377,7 @@ export class MaterialGovernanceService {
   }
 
   static async rollbackRun(runId: number, audit: MaterialAuditContext) {
-    return prisma.$transaction(async tx => {
+    return withDbRetry(() => prisma.$transaction(async tx => {
       const run = await tx.materialGovernanceRun.findUnique({
         where: { id: runId },
         include: { changes: true },
@@ -383,6 +387,11 @@ export class MaterialGovernanceService {
       if (run.status === 'rolled_back') return { run, idempotent: true };
       if (run.status !== 'applied') throw new Error('MATERIAL_GOVERNANCE_RUN_NOT_APPLIED');
       if (!run.changes.length) throw new Error('MATERIAL_GOVERNANCE_RUN_EMPTY');
+      const affectedItems = await tx.productionBomItem.findMany({
+        where: { id: { in: run.changes.map(change => change.entityId) } },
+        select: { bomId: true },
+      });
+      await assertBomRevisionsUnused(tx, affectedItems.map(item => item.bomId));
 
       const grouped = new Map<string, number[]>();
       run.changes.forEach(change => {
@@ -417,6 +426,6 @@ export class MaterialGovernanceService {
         },
       });
       return { run: rolledBack, idempotent: false };
-    });
+    }), { label: 'material-bom-backfill-rollback' });
   }
 }

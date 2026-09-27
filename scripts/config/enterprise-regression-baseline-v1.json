@@ -1,21 +1,99 @@
 {
   "version": "enterprise-regression-baseline/v1",
-  "revisions": [{
-    "id": "39f27ee-reviewed-baseline",
-    "evidence": "https://github.com/lijose583148258/erp/actions/runs/36291827330",
-    "round2Checks": [
-      "stock-20-contention", "po-stale-edit-conflict", "po-reapproval-browser",
-      "transfer-shipping-contention", "shipping-cost-conservation", "payment-duplicate-verification",
-      "barter-dual-stock-posting-replay", "barter-offset-cash-difference", "barter-reversal-conservation",
-      "barter-consumed-receipt-reversal-blocked", "barter-partial-fulfillment", "barter-negative-cash-adjustment"
-    ],
-    "independentChecks": ["sales-partial-fulfillment", "barter-cash-legacy-upgrade"],
-    "cloudSteps": [
-      "browser_fonts", "sales_partial_fulfillment", "search_readiness", "human_workflows", "staff_20",
-      "shared_session", "telemetry_ingestion", "ai_isolation", "ai_runtime", "order_import_governance",
-      "order_import_retention", "order_write_scope", "ha_load", "warehouse_adjustment", "ha_soak",
-      "redis_failover", "degradable_failover", "concurrent_writes", "postgres_backup_restore",
-      "postgres_promotion", "postgres_cutover_verdict", "enterprise_pilot_verdict"
-    ]
-  }]
+  "revisions": [
+    {
+      "id": "39f27ee-reviewed-baseline",
+      "evidence": "https://github.com/lijose583148258/erp/actions/runs/36291827330",
+      "round2Checks": [
+        "stock-20-contention",
+        "po-stale-edit-conflict",
+        "po-reapproval-browser",
+        "transfer-shipping-contention",
+        "shipping-cost-conservation",
+        "payment-duplicate-verification",
+        "barter-dual-stock-posting-replay",
+        "barter-offset-cash-difference",
+        "barter-reversal-conservation",
+        "barter-consumed-receipt-reversal-blocked",
+        "barter-partial-fulfillment",
+        "barter-negative-cash-adjustment"
+      ],
+      "independentChecks": [
+        "sales-partial-fulfillment",
+        "barter-cash-legacy-upgrade"
+      ],
+      "cloudSteps": [
+        "browser_fonts",
+        "sales_partial_fulfillment",
+        "search_readiness",
+        "human_workflows",
+        "staff_20",
+        "shared_session",
+        "telemetry_ingestion",
+        "ai_isolation",
+        "ai_runtime",
+        "order_import_governance",
+        "order_import_retention",
+        "order_write_scope",
+        "ha_load",
+        "warehouse_adjustment",
+        "ha_soak",
+        "redis_failover",
+        "degradable_failover",
+        "concurrent_writes",
+        "postgres_backup_restore",
+        "postgres_promotion",
+        "postgres_cutover_verdict",
+        "enterprise_pilot_verdict"
+      ]
+    },
+    {
+      "id": "bom-reference-freeze-v1",
+      "evidence": "docs/production-bom-reference-freeze-v1.md; output/round2/1790525894120-2f4f9af5/enterprise-round2-v1.json",
+      "round2Checks": [
+        "stock-20-contention",
+        "po-stale-edit-conflict",
+        "po-reapproval-browser",
+        "transfer-shipping-contention",
+        "shipping-cost-conservation",
+        "payment-duplicate-verification",
+        "barter-dual-stock-posting-replay",
+        "barter-offset-cash-difference",
+        "barter-reversal-conservation",
+        "barter-consumed-receipt-reversal-blocked",
+        "barter-partial-fulfillment",
+        "barter-negative-cash-adjustment",
+        "bom-revision-freeze",
+        "bom-history-browser"
+      ],
+      "independentChecks": [
+        "sales-partial-fulfillment",
+        "barter-cash-legacy-upgrade"
+      ],
+      "cloudSteps": [
+        "browser_fonts",
+        "sales_partial_fulfillment",
+        "search_readiness",
+        "human_workflows",
+        "staff_20",
+        "shared_session",
+        "telemetry_ingestion",
+        "ai_isolation",
+        "ai_runtime",
+        "order_import_governance",
+        "order_import_retention",
+        "order_write_scope",
+        "ha_load",
+        "warehouse_adjustment",
+        "ha_soak",
+        "redis_failover",
+        "degradable_failover",
+        "concurrent_writes",
+        "postgres_backup_restore",
+        "postgres_promotion",
+        "postgres_cutover_verdict",
+        "enterprise_pilot_verdict"
+      ]
+    }
+  ]
 }
