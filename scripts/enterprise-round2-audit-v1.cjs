@@ -8,6 +8,7 @@ const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-u
 const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
 const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barter-partial.cjs');
 const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
+const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
@@ -24,6 +25,7 @@ const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser');
 implemented.push('barter-negative-cash-adjustment');
 const actors = {};
+runner.report.regression = readRegressionStamp();
 let prisma;
 
 async function request(endpoint, { actor = actors.admin, instance = 0, method = 'GET', data, signal } = {}) {

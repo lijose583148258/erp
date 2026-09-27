@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const expectedAudits = [
+  ['cumulative_regression', 'Cumulative completed-package regression (not full acceptance)'],
   ['browser_fonts', 'Chinese font coverage for browser evidence'],
   ['sales_partial_fulfillment', 'Partial sales delivery, remaining obligation and completion guard'],
   ['search_readiness', 'Meilisearch initialization, rebuild and readiness'],

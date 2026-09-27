@@ -6,6 +6,8 @@ const { spawn, execFileSync } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
+const cumulative = process.argv.includes('--cumulative');
+if (cumulative) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
@@ -35,6 +37,12 @@ const sourceHash = crypto.createHash('sha256');
 for (const folder of ['backend/src', 'backend/prisma/models', 'scripts', 'pages', 'services', 'src', 'utils', 'i18n', 'app', 'components']) fingerprint(path.join(root, folder), sourceHash);
 sourceHash.update('types.ts\0').update(fs.readFileSync(path.join(root, 'types.ts')));
 env.ROUND2_SOURCE_HASH = sourceHash.digest('hex');
+if (cumulative) {
+  const { beginRegression } = require('./lib/enterprise-regression.cjs');
+  env.REGRESSION_CONTEXT_PATH = path.join(sandbox, 'regression-context.json');
+  fs.writeFileSync(env.REGRESSION_CONTEXT_PATH, JSON.stringify(beginRegression(root, 'local'), null, 2));
+  env.REGRESSION_LEGACY_PATH = path.join(sandbox, 'legacy-upgrade.json');
+}
 
 function start(label, args, cwd = root, extraEnv = {}) {
   const log = fs.openSync(path.join(sandbox, `${label}.log`), 'wx');
@@ -93,6 +101,34 @@ async function main() {
   for (const [index, port] of ports.entries()) {
     const server = start(`app-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) });
     await ready(server, urls[index]);
+  }
+  if (cumulative) {
+    const salesPath = path.join(sandbox, 'sales-partial', 'report.json');
+    const executions = [];
+    for (const [label, script, target, args, allowed] of [
+      ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
+      ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
+      ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
+    ]) {
+      // A failing prior package must not truncate independent later packages.
+      const child = start(label, [path.join(root, script), ...args], root,
+        { APP_URL: urls[0], SECONDARY_APP_URL: urls[1], ROUND2_REPORT_PATH: target });
+      const timer = setTimeout(() => child.kill(), label === 'legacy-cash' ? 120000 : 300000);
+      try { const result = await child.completion; executions.push({ label, ...result, acceptable: allowed.includes(result.code) }); }
+      catch (error) { executions.push({ label, acceptable: false, error: error.message }); }
+      finally { clearTimeout(timer); }
+    }
+    const { evaluateRegression, headCommit, sourceFingerprint } = require('./lib/enterprise-regression.cjs');
+    const read = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
+    const result = evaluateRegression({ baseline: require('./config/enterprise-regression-baseline-v1.json'),
+      context: read(env.REGRESSION_CONTEXT_PATH), currentCommit: headCommit(root), currentSourceHash: sourceFingerprint(root),
+      reports: { round2: read(reportPath), sales: read(salesPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
+      executionErrors: executions.filter(e => !e.acceptable) });
+    result.executions = executions;
+    const file = path.join(sandbox, 'cumulative-regression.json'); fs.writeFileSync(file, JSON.stringify(result, null, 2));
+    console.log(JSON.stringify({ status: result.status, summary: result.summary, fullAcceptanceStatus: result.fullAcceptanceStatus, reportPath: file }));
+    process.exitCode = result.status !== 'passed' ? 1 : result.fullAcceptanceStatus !== 'passed' ? 2 : 0;
+    return;
   }
   const auditScript = process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,

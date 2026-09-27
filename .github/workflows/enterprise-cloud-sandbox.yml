@@ -4,14 +4,14 @@ on:
   workflow_call:
     inputs:
       round2:
-        description: Run the incomplete second-round business acceptance gate
+        description: Require all 37 second-round checks (completed checks always replay)
         required: false
         type: boolean
         default: false
   workflow_dispatch:
     inputs:
       round2:
-        description: Run Round 2 (missing business-chain evidence intentionally fails the final gate)
+        description: Require complete Round 2 (cumulative regression always runs)
         required: false
         type: boolean
         default: false
@@ -31,6 +31,11 @@ on:
       - 'scripts/warehouse-adjustment-concurrency-audit-v1.cjs'
       - 'scripts/enterprise-20-staff-audit-v1.cjs'
       - 'scripts/enterprise-round2-*.cjs'
+      - 'scripts/enterprise-cumulative-*.cjs'
+      - 'scripts/enterprise-regression-*.test.cjs'
+      - 'scripts/lib/enterprise-regression.cjs'
+      - 'scripts/config/enterprise-regression-baseline-v1.json'
+      - 'scripts/barter-cash-legacy-upgrade-audit.cjs'
       - 'scripts/lib/enterprise-round2-runner.cjs'
       - 'scripts/lib/enterprise-round2-procurement*.cjs'
       - 'scripts/lib/enterprise-round2-barter*.cjs'
@@ -329,6 +334,11 @@ jobs:
           rm -rf output/audit output/playwright output/ui-ux-audit cloud-evidence
           mkdir -p output/audit output/playwright output/ui-ux-audit cloud-evidence
 
+      - name: Open current-source cumulative regression window
+        run: |
+          echo "REGRESSION_CONTEXT_PATH=${GITHUB_WORKSPACE}/output/audit/enterprise-regression-context.json" >> "$GITHUB_ENV"
+          node scripts/enterprise-cumulative-regression-v1.cjs begin cloud
+
       - name: Verify cloud runner Chrome
         run: google-chrome --version
 
@@ -379,6 +389,14 @@ jobs:
           DATABASE_URL="${sqlite_url}" BACKUP_DIR="${source_backup_dir}" NODE_ENV=test npm run db:pg -- rollback
           DATABASE_URL="${sqlite_url}" node ./scripts/cloud-postgres-migration-fixture-v1.cjs verify-source
           DATABASE_URL="${sqlite_url}" AUDIT_DATABASE_URL="${sqlite_url}" AUDIT_PRISMA_PROVIDER=sqlite DECIMAL_SHADOW_AUDIT_LABEL=cloud-sqlite-rollback npm run audit:db:decimal-shadow
+
+      - name: Replay legacy negative cash upgrade guard
+        id: cash_legacy_upgrade
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          REGRESSION_LEGACY_PATH: output/audit/barter-cash-legacy-upgrade.json
+        run: node scripts/barter-cash-legacy-upgrade-audit.cjs --fixture
 
       - name: Build PostgreSQL application image
         run: |
@@ -678,7 +696,7 @@ jobs:
 
       - name: Exercise Round 2 inventory, payment and barter business acceptance
         id: round2_business
-        if: ${{ always() && steps.app_readiness.outcome == 'success' && inputs.round2 == true }}
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
         continue-on-error: true
         timeout-minutes: 6
         env:
@@ -709,6 +727,15 @@ jobs:
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}
         continue-on-error: true
         run: node ./scripts/cloud-enterprise-pilot-verdict-v1.cjs
+
+      - name: Reject regressions across all completed work packages
+        id: cumulative_regression
+        if: always()
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          BUSINESS_AUDIT_STEPS_JSON: ${{ toJSON(steps) }}
+        run: node scripts/enterprise-cumulative-regression-v1.cjs verify
 
       - name: Aggregate enterprise business audit outcomes
         id: business_audit_verdict

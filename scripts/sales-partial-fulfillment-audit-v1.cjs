@@ -2,6 +2,7 @@ const fs=require('node:fs');
 const crypto=require('node:crypto');
 const path=require('node:path');
 const assert=require('node:assert/strict');
+const {readRegressionStamp}=require('./lib/enterprise-regression.cjs');
 const {ensureUiAuditUser,createAuditPrismaClient,loginUiAuditUser}=require('./lib/ui-audit-user.cjs');
 const {ensureReleasedMaterial}=require('./lib/material-audit-fixture.cjs');
 const {launchBrowserWithGuard}=require('./lib/browser-launch-guard.cjs');
@@ -12,6 +13,7 @@ const urls=[process.env.APP_URL,process.env.SECONDARY_APP_URL].map(url=>String(u
 const runId=`partial-${Date.now()}`;
 const report={name:'Sales partial fulfillment regression',scope:'Two API instances; authorized admin browser creates a line-bound remainder shipment and dispatches; not complete presale/backorder/workforce acceptance',runId,
   commit:process.env.ROUND2_COMMIT||process.env.GITHUB_SHA,dirty:process.env.ROUND2_DIRTY,sourceHash:process.env.ROUND2_SOURCE_HASH,status:'failed',summary:{passedChecks:0,failedChecks:1,remainingChecks:0}};
+report.regression=readRegressionStamp();report.startedAt=new Date().toISOString();report.provider=process.env.AUDIT_PRISMA_PROVIDER||'sqlite';
 let prisma;let token;let browser;let page;
 async function request(endpoint,{method='GET',data,instance=0}={}){
   const response=await fetch(`${urls[instance]}/api${endpoint}`,{method,headers:{'content-type':'application/json',...(token?{authorization:`Bearer ${token}`}:{})},body:data===undefined?undefined:JSON.stringify(data),signal:AbortSignal.timeout(15000)});
