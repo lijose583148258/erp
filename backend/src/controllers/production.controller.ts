@@ -10,7 +10,7 @@ import { canUseAnyOperationalDataScope, canUseOperationalDataScope } from '../ut
 
 const resolveProductionStatusCode = (message: string) => {
   if (message.includes('_NOT_FOUND') || message.toLowerCase().includes('not found')) return 404;
-  if (message.startsWith('QC_') || message.startsWith('WORK_ORDER_')) return 409;
+  if (message.startsWith('QC_') || message.startsWith('WORK_ORDER_') || message.startsWith('BOM_UNIT_')) return 409;
   if (
     message.includes('cannot') ||
     message.includes('Invalid') ||

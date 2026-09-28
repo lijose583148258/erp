@@ -14,6 +14,7 @@ import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
 import { assertLatestQualityRelease } from './production-quality.service';
 import { lockBomRevisions } from './production-bom-freeze.service';
 import { withDbRetry } from '../utils/dbRetry';
+import { assertBomOutputUnit, assertBomPercentageUnits } from './production-unit-safety.service';
 import { lockQualityWorkOrder } from './production-quality-lock.service';
 import { StockMovementConflictError } from './stock-movement.errors';
 
@@ -163,6 +164,8 @@ export class ProductionMutationService {
     return prisma.$transaction(async tx => {
       const controlledBom = (input.status || 'draft') !== 'draft';
       const outputMaterial = await resolveFinishedGoodsMaterial(tx, input.materialId, controlledBom);
+      if (outputMaterial) assertBomOutputUnit(input.outputUnit, outputMaterial.baseUnit);
+      assertBomPercentageUnits({ outputUnit: input.outputUnit, items: draftItems });
       const materialIds = Array.from(new Set(
         draftItems
           .map(item => Number(item.materialId || 0))
@@ -298,10 +301,11 @@ export class ProductionMutationService {
       const bom = input.bomId
         ? await tx.productionBom.findUnique({
           where: { id: input.bomId },
-          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true },
+          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true, items: true },
         })
         : null;
       if (input.bomId && !bom) throw new Error(`Production BOM not found: ${input.bomId}`);
+      if (bom) assertBomPercentageUnits(bom);
       const batch = input.batchId
         ? await tx.productBatch.findUnique({
           where: { id: input.batchId },
@@ -309,6 +313,7 @@ export class ProductionMutationService {
         })
         : null;
       if (input.batchId && !batch) throw new Error(`Product batch not found: ${input.batchId}`);
+      if (bom && batch) assertBomOutputUnit(batch.unit, bom.outputUnit);
       const outputMaterialId = bom?.materialId ?? batch?.materialId ?? null;
       const outputProductName = bom?.productName ?? batch?.productName ?? input.productName;
       if (bom?.materialId && batch && batch.materialId !== bom.materialId) {
@@ -414,6 +419,8 @@ export class ProductionMutationService {
       }> = [];
 
       if (status === 'completed') {
+        if (workOrder.bom) assertBomPercentageUnits(workOrder.bom);
+        if (workOrder.bom && workOrder.productBatch) assertBomOutputUnit(workOrder.productBatch.unit, workOrder.bom.outputUnit);
         await assertLatestQualityRelease(tx, workOrder.id, workOrder.bom?.qualityCharacteristics.length || 0);
         const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
         if (netOutput > 0 && !workOrder.batchId) {
@@ -513,6 +520,7 @@ export class ProductionMutationService {
             if (!currentBatch) {
               throw new Error(`Product batch not found: ${workOrder.batchId}`);
             }
+            if (workOrder.bom) assertBomOutputUnit(currentBatch.unit, workOrder.bom.outputUnit);
             if (workOrder.materialId && currentBatch.materialId !== workOrder.materialId) {
               throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
             }

@@ -1,4 +1,5 @@
 import prisma from '../config/database';
+import { assertBomPercentageUnits } from './production-unit-safety.service';
 
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
@@ -300,6 +301,7 @@ export class ProductionQueryService {
       throw new Error(`Work order or BOM not found for ID: ${workOrderId}`);
     }
 
+    assertBomPercentageUnits(workOrder.bom);
     const targetQuantity = Number(workOrder.targetQuantity || 0);
     const suggestions = [];
 

@@ -240,7 +240,7 @@ export function ProductionBomSection({
               placeholder="kg / 吨"
               error={bomFormErrors.outputUnit}
               required
-              hint="表示 1 单位成品的计量单位"
+              hint="表示 1 单位成品；必须与所选物料主单位一致，不会自动换算单耗"
             />
             <Field
               dataTestId="production-bom-shelf-life-days"

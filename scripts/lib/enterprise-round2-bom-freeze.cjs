@@ -90,6 +90,7 @@ async function bomFreezeProbe(ctx, signal) {
       assert.equal(counter.status, 409); assert.deepEqual(await readBom(bom.id), finalBom);
       evidence.cases.push({ name: `first work order versus ${operation}`, race, finalBom, counter });
     }
+    evidence.history.unitSafety = await require('./enterprise-round2-unit-safety.cjs').unitSafetyProbe(ctx, signal);
     return evidence;
   } catch (error) { error.evidence ||= evidence; throw error; }
 }
@@ -102,6 +103,8 @@ async function bomHistoryBrowser(ctx, history, signal) {
   const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
   const browser = (await launchBrowserWithGuard({ launchTimeoutMs: 15000, totalTimeoutMs: 30000, maxAttemptsPerStrategy: 1 })).browser;
   const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
+  let unitFormActive = false;
+  const expectedUnitResponses = [];
   const evidence = { scope: 'Warehouse browser readback of bound revisions; not browser formulation authoring or full workforce validation', readbacks: [], errors: [] };
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(15000);
@@ -112,7 +115,7 @@ async function bomHistoryBrowser(ctx, history, signal) {
       localStorage.setItem('ailao.language','zh'); localStorage.setItem('language','zh-CN');
     }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
     page.on('pageerror', error => evidence.errors.push(error.message));
-    page.on('response', response => { if (response.status() >= 400 && response.url().includes('/api/')) evidence.errors.push(`${response.status()} ${new URL(response.url()).pathname}`); });
+    page.on('response', response => { if (unitFormActive && response.status() === 409 && new URL(response.url()).pathname === '/api/production/boms' && response.request().method() === 'POST') { expectedUnitResponses.push(response.status()); return; } if (response.status() >= 400 && response.url().includes('/api/')) evidence.errors.push(`${response.status()} ${new URL(response.url()).pathname}`); });
     await page.goto(`${ctx.urls[1]}/#production`); await page.locator('#loading').waitFor({ state: 'hidden' });
     await page.getByTestId('production-desk-work-orders').click();
     const dir = path.join(path.dirname(ctx.reportPath), `${ctx.runId}-bom-history`); fs.mkdirSync(dir, { recursive: true });
@@ -127,6 +130,10 @@ async function bomHistoryBrowser(ctx, history, signal) {
       const screenshot = path.join(dir, `${bom.version}.png`); await page.screenshot({ path: screenshot });
       evidence.readbacks.push({ workOrderId: wo.id, bomId: bom.id, version: bom.version, text: await bound.innerText(), visible, font, screenshot });
     }
+    unitFormActive = true;
+    evidence.unitSafety = await require('./enterprise-round2-unit-safety.cjs').unitSafetyBrowser(ctx, page, history.unitSafety.browserFixture, dir, signal);
+    unitFormActive = false;
+    assert.deepEqual(expectedUnitResponses, [409]);
     assert.equal(evidence.errors.length, 0, JSON.stringify(evidence.errors)); return evidence;
   } catch (error) { error.evidence ||= evidence; throw error; }
   finally { signal.removeEventListener('abort', abort); await browser.close(); }
