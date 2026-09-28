@@ -6,6 +6,20 @@ import {
 } from './production-cost-ledger.service';
 
 describe('production cost ledger decimal calculations', () => {
+  it('production consumption rejects a stale batch boundary before inserting a misleading voucher', async () => {
+    const tx = {
+      productBatch: { findUnique: jest.fn(async () => ({ id: 1, batchNo: 'SHARED-LOT' })) },
+      inventoryCostLedger: {
+        aggregate: jest.fn(async () => ({ _sum: { quantityDelta: 50, costAmountDelta: 500 } })),
+        create: jest.fn(),
+      },
+    };
+    await expect(ProductionCostLedgerService.recordWorkOrderCompletion(tx, {
+      batchId: 1, workOrderId: 2, workOrderNo: 'WO-2', quantityBefore: 100, quantityDelta: -50,
+      createdBy: 7, requireReconciledQuantity: true,
+    })).rejects.toThrow('STOCK_COST_RECONCILIATION_REQUIRED:SHARED-LOT');
+    expect(tx.inventoryCostLedger.create).not.toHaveBeenCalled();
+  });
   it('refuses to turn unvalued opening stock into a negative ledger quantity', async () => {
     const tx = {
       productBatch: { findUnique: jest.fn(async () => ({ id: 1, batchNo: 'UNVALUED' })) },

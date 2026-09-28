@@ -4,6 +4,7 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { ProductionService, ProductionWorkOrderStatus } from '../services/production.service';
 import { ProductionCompletionValidationError } from '../services/production-mutation.service';
+import { StockMovementConflictError } from '../services/stock-movement.errors';
 import { createProductionAuditLog, toNumber } from './production.helpers';
 import { canUseAnyOperationalDataScope, canUseOperationalDataScope } from '../utils/recordAccess';
 
@@ -238,17 +239,15 @@ export class ProductionController {
         return res.status(400).json({ success: false, message: 'Missing status' } as ApiResponse);
       }
 
-      const updated = await ProductionService.updateWorkOrderStatus(Number(id), String(status) as ProductionWorkOrderStatus, consumptionRecords);
-      await createProductionAuditLog(req, 'UPDATE_PRODUCTION_WORK_ORDER_STATUS', {
-        workOrderId: Number(id),
-        status,
-      }, Number(id));
+      const updated = await ProductionService.updateWorkOrderStatus(Number(id), String(status) as ProductionWorkOrderStatus, consumptionRecords, {
+        userId: req.user!.userId, ipAddress: req.ip, userAgent: req.get('user-agent'),
+      });
 
       res.json({ success: true, data: updated } as ApiResponse);
     } catch (error) {
       logger.error('Failed to update production work order status', error);
       const message = error instanceof Error ? error.message : 'Failed to update production work order status';
-      res.status(error instanceof ProductionCompletionValidationError ? 409 : resolveProductionStatusCode(message)).json({
+      res.status(error instanceof ProductionCompletionValidationError || error instanceof StockMovementConflictError ? 409 : resolveProductionStatusCode(message)).json({
         success: false,
         message,
         issues: error instanceof ProductionCompletionValidationError ? error.issues : undefined,

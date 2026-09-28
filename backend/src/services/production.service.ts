@@ -7,7 +7,7 @@ import {
   ProductionWorkOrderStepInput,
 } from './production-query.service';
 import { ProductionQueryService } from './production-query.service';
-import { ProductionMutationService } from './production-mutation.service';
+import { ProductionMutationService, type ProductionStatusActor } from './production-mutation.service';
 import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { BatchTraceService } from './batch-trace.service';
 import { ProductionQualityService, type ProductionQualityActor } from './production-quality.service';
@@ -35,8 +35,8 @@ export class ProductionService {
     return ProductionMutationService.createWorkOrder(input, createdBy);
   }
 
-  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: { stockBalanceId: number; quantity: number }[]) {
-    return ProductionMutationService.updateWorkOrderStatus(id, status, consumptionRecords);
+  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number }[] | undefined, actor: ProductionStatusActor) {
+    return ProductionMutationService.updateWorkOrderStatus(id, status, consumptionRecords, actor);
   }
 
   static async previewWorkOrderConsumption(workOrderId: number) {

@@ -289,6 +289,7 @@ export class ProductionCostLedgerService {
     costAmountDelta?: number | null;
     note?: string | null;
     createdBy: number;
+    requireReconciledQuantity?: boolean;
   }) {
     const productionSourceType: InventoryCostLedgerSourceType = input.quantityDelta < 0
       ? 'production_material_consumption'
@@ -305,6 +306,7 @@ export class ProductionCostLedgerService {
       costAmountDelta: input.costAmountDelta ?? null,
       note: input.note || null,
       createdBy: input.createdBy,
+      requireReconciledQuantity: input.requireReconciledQuantity,
     });
   }
 

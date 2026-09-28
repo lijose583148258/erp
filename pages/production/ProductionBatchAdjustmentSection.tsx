@@ -1,6 +1,7 @@
 import { ArrowUpRight, Filter, Search, ShieldAlert, Undo2 } from 'lucide-react';
 import { ProductBatch } from '../../services/asset.service';
 import { AdjustmentRecord } from '../../services/adjustment.service';
+import { ProductionBatchGenealogy } from './ProductionBatchGenealogy';
 import {
   TEMPLATES,
   formatDate,
@@ -175,6 +176,7 @@ export function ProductionBatchAdjustmentSection({
                 <div className="text-sm font-bold text-slate-600 dark:text-slate-300">{selectedBatch.productName}</div>
                 <div className="text-xs text-slate-400">库存 {selectedBatch.stockQuantity} {selectedBatch.unit} · 冷链 {selectedBatch.isColdChain ? '是' : '否'}</div>
               </div>
+              <ProductionBatchGenealogy key={selectedBatch.id} batchId={selectedBatch.id} />
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5">
                 <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400 mb-4">追踪节点</div>
                 <div className="space-y-3">

@@ -130,9 +130,9 @@ export const buildBatchTrace = (
     }
   } else {
     events.push({
-      label: '生产完成',
+      label: '批次日期（非工单完工凭证）',
       time: new Date(selectedBatch.productionDate),
-      place: '生产线',
+      place: '批次主数据',
       status: '已记录',
     });
   }

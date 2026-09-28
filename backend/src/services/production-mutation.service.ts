@@ -14,6 +14,9 @@ import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
 import { assertLatestQualityRelease } from './production-quality.service';
 import { lockBomRevisions } from './production-bom-freeze.service';
 import { withDbRetry } from '../utils/dbRetry';
+import { StockMovementConflictError } from './stock-movement.errors';
+
+export type ProductionStatusActor = { userId: number; ipAddress?: string; userAgent?: string };
 
 export { ProductionCompletionValidationError } from './production-completion.validation';
 
@@ -366,8 +369,9 @@ export class ProductionMutationService {
     }), { label: 'create-work-order-freeze-bom' });
   }
 
-  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: { stockBalanceId: number; quantity: number; }[]) {
-    return prisma.$transaction(async tx => {
+  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number; }[] | undefined, actor: ProductionStatusActor) {
+    if (!Number.isSafeInteger(actor.userId) || actor.userId <= 0) throw new Error('WORK_ORDER_ACTOR_REQUIRED');
+    return withDbRetry(() => prisma.$transaction(async tx => {
       const workOrder = await tx.productionWorkOrder.findUnique({
         where: { id },
         include: {
@@ -443,7 +447,7 @@ export class ProductionMutationService {
           }
 
           if (roundQuantity(Number(currentStock.quantity || 0)) + 0.000001 < quantity) {
-            throw new Error(`库存不足：${currentStock.productName} / ${currentStock.batchNo}，请先核对库存余额。`);
+            throw new StockMovementConflictError(`库存不足：${currentStock.productName} / ${currentStock.batchNo}，请先核对库存余额。`);
           }
 
           validatedConsumptionRecords.push({ stockBalanceId, quantity, stock: currentStock });
@@ -523,7 +527,7 @@ export class ProductionMutationService {
               sourceRef: workOrder.workOrderNo,
               reason: 'work_order_finished_goods_output',
               note: `Finished goods output from work order ${workOrder.workOrderNo}`,
-              createdBy: workOrder.createdBy,
+              createdBy: actor.userId,
               lines: [{
                 locationId: outputLocationId,
                 materialId: currentBatch.materialId,
@@ -566,7 +570,7 @@ export class ProductionMutationService {
               sourceRef: workOrder.workOrderNo,
               reason: 'work_order_finished_goods_output',
               note: `Finished goods output from work order ${workOrder.workOrderNo}`,
-              createdBy: workOrder.createdBy,
+              createdBy: actor.userId,
               lines: [{
                 locationId: outputLocationId,
                 materialId: createdBatch.materialId,
@@ -594,7 +598,7 @@ export class ProductionMutationService {
             sourceRef: workOrder.workOrderNo,
             reason: 'work_order_material_consumption',
             note: `Material consumption from work order ${workOrder.workOrderNo}`,
-            createdBy: workOrder.createdBy,
+            createdBy: actor.userId,
             lines: validatedConsumptionRecords.map(record => ({
               locationId: record.stock?.locationId || 0,
               materialId: record.stock?.materialId || null,
@@ -635,11 +639,15 @@ export class ProductionMutationService {
                 continue;
               }
 
-              const batchQtyBefore = Number(matchBatch.stockQuantity || 0);
-              await tx.productBatch.update({
-                where: { id: matchBatch.id },
+              // StockBalance locks are per location. Two locations can share
+              // one ProductBatch, so its pre-update read is not a ledger boundary.
+              const changed = await tx.productBatch.updateMany({
+                where: { id: matchBatch.id, stockQuantity: { gte: record.quantity } },
                 data: { stockQuantity: { decrement: record.quantity } },
               });
+              if (changed.count !== 1) throw new StockMovementConflictError(`原料批次库存不足：${currentStock.batchNo}`);
+              const persistedBatch = await tx.productBatch.findUniqueOrThrow({ where: { id: matchBatch.id }, select: { stockQuantity: true } });
+              const batchQtyBefore = roundQuantity(Number(persistedBatch.stockQuantity) + record.quantity);
               const materialLedger = await ProductionCostLedgerService.recordWorkOrderCompletion(tx, {
                 batchId: matchBatch.id,
                 workOrderId: workOrder.id,
@@ -647,7 +655,8 @@ export class ProductionMutationService {
                 quantityBefore: batchQtyBefore,
                 quantityDelta: -record.quantity,
                 note: `原料扣减: ${currentStock.productName} * ${record.quantity} (from WO ${workOrder.workOrderNo})`,
-                createdBy: workOrder.createdBy,
+                createdBy: actor.userId,
+                requireReconciledQuantity: true,
               });
               materialCostAmount += Math.abs(Number(materialLedger.costAmountDelta || 0));
           }
@@ -662,13 +671,20 @@ export class ProductionMutationService {
             quantityDelta: pendingOutputLedgerInput.quantityDelta,
             costAmountDelta: materialCostAmount > 0 ? materialCostAmount : null,
             note: pendingOutputLedgerInput.note,
-            createdBy: workOrder.createdBy,
+            createdBy: actor.userId,
           });
         }
       }
 
+      // Only the successful state claimant records the transition. Replays
+      // returned above must not manufacture another successful business event.
+      await tx.auditLog.create({ data: {
+        userId: actor.userId, action: 'UPDATE_PRODUCTION_WORK_ORDER_STATUS', resource: 'production', resourceId: id,
+        details: JSON.stringify({ workOrderId: id, fromStatus: workOrder.status, status }),
+        ipAddress: actor.ipAddress || null, userAgent: actor.userAgent || null,
+      } });
       return readWorkOrderDetail(tx, id);
-    });
+    }), { label: 'production-work-order-status' });
   }
 
   static async updateWorkOrderStep(workOrderId: number, stepId: number, input: { status?: string; operatorName?: string | null; note?: string | null }) {

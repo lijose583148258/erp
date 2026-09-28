@@ -1,3 +1,5 @@
+import { readProductionBatchTrace, type ProductionBatchTrace } from './productionBatchTrace';
+export type { ProductionBatchTrace } from './productionBatchTrace';
 import api, { ApiRequestOptions } from '../utils/api';
 
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
@@ -178,6 +180,10 @@ export interface ProductionWorkOrder {
 }
 
 export const productionService = {
+  async getBatchTrace(batchId: number, options: ApiRequestOptions = {}): Promise<ProductionBatchTrace> {
+    const response = await api.get<any, { success: boolean; data: ProductionBatchTrace }>(`/production/batches/${batchId}/trace`, { signal: options.signal });
+    return readProductionBatchTrace(batchId, response);
+  },
   async getSummary(options: ApiRequestOptions = {}): Promise<ProductionSummary> {
     const response = await api.get<any, { success: boolean; data: ProductionSummary }>('/production/summary', { signal: options.signal });
     return response.data;

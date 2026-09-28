@@ -9,6 +9,7 @@ const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.c
 const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barter-partial.cjs');
 const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
 const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
+const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
 const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
@@ -18,7 +19,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
   runId, commit: process.env.GITHUB_SHA || process.env.ROUND2_COMMIT || null,
   dirtySource: process.env.ROUND2_DIRTY || null, sourceHash: process.env.ROUND2_SOURCE_HASH || null, builtAt: process.env.ROUND2_BUILT_AT || null,
   provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite', appUrls: urls,
-  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes, PO two-browser review and finance barter readback; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
+  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes with selected procurement, barter and production browser readbacks; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
   loadCohort: '20 distinct warehouse actors, separate from the planned workforce',
 } });
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
@@ -27,6 +28,8 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-brows
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
+implemented.push('dual-workorder-same-lot');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -398,6 +401,11 @@ async function main() {
   if (process.env.ROUND2_BROWSER === 'true') {
     if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 60000 });
     else runner.block('bom-history-browser', 'BOM API chain did not complete; no browser pass can be inferred');
+  }
+  const lot = await runner.run('dual-workorder-same-lot', signal => productionLotProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    if (lot) await runner.run('genealogy-readback', signal => genealogyReadback(bomContext, lot, signal), { timeoutMs: 90000 });
+    else runner.block('genealogy-readback', 'Dual work order reconciliation did not complete');
   }
 }
 

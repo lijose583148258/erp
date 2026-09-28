@@ -52,6 +52,9 @@ import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pag
 import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData';
 import { BarterAgreementList } from '../pages/barter/BarterAgreementList';
 import { BarterLedgerPanel } from '../pages/barter/BarterLedgerPanel';
+import { ProductionGenealogyReadback } from '../pages/production/ProductionGenealogyReadback';
+import { buildBatchTrace } from '../pages/production/ProductionWorkspaceDerived';
+import { readProductionBatchTrace } from '../services/productionBatchTrace';
 
 type FrontendUnitTest = {
   name: string;
@@ -59,6 +62,36 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'genealogy readback preserves actual lots, work orders and per-line units without invented totals',
+    run: () => {
+      const trace: any = { scope: 'direct-one-hop', batch: { id: 1, batchNo: 'OUTPUT' }, downstreamOutputs: [], upstreamInputs: [
+        { id: 1, inputBatchNo: 'RAW-A', inputProductName: 'A', quantityConsumed: 60, inputUnit: 'kg', workOrder: { workOrderNo: 'WO-A' } },
+        { id: 2, inputBatchNo: 'RAW-B', inputProductName: 'B', quantityConsumed: 2, inputUnit: '桶', workOrder: { workOrderNo: 'WO-B' } },
+      ] };
+      const text = renderToStaticMarkup(<ProductionGenealogyReadback trace={trace} />);
+      for (const value of ['RAW-A', 'RAW-B', 'WO-A', 'WO-B', '耗用 60 kg', '耗用 2 桶', '暂无已记录的直接关联']) assert.ok(text.includes(value));
+      assert.ok(!text.includes('62')); assert.ok(!text.includes('生产完成'));
+    },
+  },
+  {
+    name: 'a raw batch date without a linked work order is never fabricated as production completion',
+    run: () => {
+      const nodes = buildBatchTrace({ id: 1, productionDate: '2026-01-01', expiryDate: '2027-01-01', status: 'healthy' } as any, []);
+      assert.ok(nodes.some(node => node.label === '批次日期（非工单完工凭证）'));
+      assert.ok(nodes.every(node => node.label !== '生产完成'));
+    },
+  },
+  {
+    name: 'genealogy service rejects wrong batch, missing edges, and unverified scope instead of rendering empty success',
+    run: () => {
+      for (const data of [{ batch: { id: 2 }, scope: 'direct-one-hop', upstreamInputs: [], downstreamOutputs: [] },
+        { batch: { id: 1 }, scope: 'direct-one-hop' }, { batch: { id: 1 }, scope: 'inferred', upstreamInputs: [], downstreamOutputs: [] },
+        { batch: { id: 1 }, scope: 'direct-one-hop', upstreamInputs: [null], downstreamOutputs: [] }]) {
+        assert.throws(() => readProductionBatchTrace(1, { success: true, data } as any), /回读不完整/);
+      }
+    },
+  },
   {
     name: 'barter refund liability remains visible independently of completed offset and role write permission',
     run: () => {

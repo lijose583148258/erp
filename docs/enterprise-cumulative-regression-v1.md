@@ -70,3 +70,13 @@ npm run audit:enterprise:cumulative:local
 `bom-reference-freeze-v1` 保留初始全部义务，追加 `bom-revision-freeze` 与 `bom-history-browser`；旧修订对象及固定锚点不变。作用范围和失败复现见 `docs/production-bom-reference-freeze-v1.md`。新版本仍必须完成本地累计及独立企业云重放，上一提交的 40/40 不能作为本包云验收。
 
 本包最终本地 `output/round2/1790526283752-97f37d6f/cumulative-regression.json` **20/20 通过**，同次第二轮 **14 通过 / 0 失败 / 23 未执行**，销售续发与 63 原表旧库升级重放通过。新提交企业云待执行。
+
+### BOM 包企业云已核对
+
+`b805411` / https://github.com/lijose583148258/erp/actions/runs/36333309222 原始累计 **42/42 通过**；业务汇总 **24 中 23 通过 / 1 失败**，第二轮仍 **14/0/23**。不采用绿色 conclusion 掩盖 round2_business 的 failure outcome。
+
+### 追加双工单同批次基线
+
+`dual-workorder-lot-v1` 保留前序所有义务并追加 `dual-workorder-same-lot`、`genealogy-readback`，本地应有 22 / 云端 44 个累计断言。范围与逐轮失败记录见 `docs/production-dual-workorder-lot-v1.md`，最终本地累计和新提交云验证不能省略。
+
+最终本地 `output/round2/1790558442967-8953e994/cumulative-regression.json` **22/22 通过**，第二轮 **16 通过 / 0 失败 / 21 未执行**；同次销售续发和 63 原表旧库升级重新通过。待推送后企业云，不用 BOM 包的 42/42 替代这包的 44 项义务。
