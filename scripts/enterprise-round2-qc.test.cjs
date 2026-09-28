@@ -18,5 +18,5 @@ for(const [name,change] of [
 ]) test(`reject false green: ${name}`,()=>{const c=held();change(c);assert.throws(()=>assertQcIsolationCase(c));});
 test('QC source and UI changes trigger cumulative cloud replay',()=>{
   const w=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8').split('  pull_request:')[1].split('  push:')[0];
-  for(const f of ['scripts/lib/enterprise-round2-qc*.cjs','backend/src/services/stock-quality-issue*.ts','backend/src/services/production-quality*.ts','pages/production/ProductionQualityInspectionPanel.tsx']) assert(w.includes(`'${f}'`),f);
+  for(const f of ['scripts/lib/enterprise-round2-qc*.cjs','backend/src/services/stock-quality-issue*.ts','backend/src/services/production-quality*.ts','backend/src/utils/dbRetry*.ts','pages/production/ProductionQualityInspectionPanel.tsx']) assert(w.includes(`'${f}'`),f);
 });

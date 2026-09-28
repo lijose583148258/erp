@@ -44,6 +44,7 @@ on:
       - 'scripts/lib/enterprise-round2-qc*.cjs'
       - 'backend/src/services/stock-quality-issue*.ts'
       - 'backend/src/services/production-quality*.ts'
+      - 'backend/src/utils/dbRetry*.ts'
       - 'pages/production/ProductionQualityInspectionPanel.tsx'
       - 'backend/src/services/production-status-transaction.test.ts'
       - 'backend/src/services/production.service.ts'

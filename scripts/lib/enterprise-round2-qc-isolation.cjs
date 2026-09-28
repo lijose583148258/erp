@@ -89,6 +89,7 @@ async function qcReviewRaces(ctx, item, signal) {
     const denied = await review(own, actors.admin); assert.equal(denied.status, 409); assert.match(denied.json.message, /SEGREGATION_OF_DUTIES/); assert.deepEqual(await snapshot(), beforeOwn);
     evidence.cases.push({ name: 'same inspector with both permissions', response: denied, before: beforeOwn, after: await snapshot() });
     const races = await synchronizedBurst([actors.stock0, actors.stock1], inspect, signal);
+    evidence.revisionResponses = races;
     assert.deepEqual(races.map(r => r.status), [201, 201]);
     const inspections = races.map(r => dataOf(r)).sort((a,b) => a.revision-b.revision);
     assert.equal(inspections[1].revision, inspections[0].revision + 1);
@@ -96,6 +97,7 @@ async function qcReviewRaces(ctx, item, signal) {
     evidence.cases.push({ name: 'concurrent revision allocation and stale review', races, stale, before: beforeStale, after: await snapshot() });
     const latest = inspections[1];
     const decisions = await synchronizedBurst([actors.buyer1, actors.buyer2], actor => review(latest, actor, actor.id === actors.buyer1.id ? 'release' : 'reject', actor.id === actors.buyer1.id ? 0 : 1), signal);
+    evidence.reviewResponses = decisions;
     assert.deepEqual(decisions.map(r => r.status).sort(), [200, 409]);
     const state = await snapshot(); const decided = state.checks.find(c => c.id === latest.id);
     const winner = decisions.find(r => r.status === 200);
