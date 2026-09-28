@@ -1,11 +1,15 @@
 import { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import type { ProductionQualityCheckInput } from './production-query.service';
+import { lockQualityWorkOrder } from './production-quality-lock.service';
+import { withDbRetry } from '../utils/dbRetry';
 import type { TransactionClient } from './stock-movement.service';
 
 export type ProductionQualityActor = {
   userId: number;
   username: string;
+  ipAddress?: string;
+  userAgent?: string;
 };
 
 const normalizeText = (value: unknown) => String(value ?? '').trim().toLocaleLowerCase();
@@ -48,7 +52,8 @@ export class ProductionQualityService {
     input: ProductionQualityCheckInput,
     actor: ProductionQualityActor,
   ) {
-    return prisma.$transaction(async tx => {
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      await lockQualityWorkOrder(tx, workOrderId);
       const workOrder = await tx.productionWorkOrder.findUnique({
         where: { id: workOrderId },
         include: {
@@ -155,8 +160,11 @@ export class ProductionQualityService {
       if (workOrder.batchId) {
         await tx.productBatch.update({ where: { id: workOrder.batchId }, data: { qualityStatus: 'hold' } });
       }
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'CREATE_PRODUCTION_QC', resource: 'production', resourceId: created.id,
+        details: JSON.stringify({ workOrderId, checkNo: created.checkNo, result: created.result, revision }),
+        ipAddress: actor.ipAddress || null, userAgent: actor.userAgent || null } });
       return created;
-    }, { isolationLevel: 'Serializable' });
+    }, { isolationLevel: 'Serializable' }), { label: 'production-quality-decision' });
   }
 
   static async reviewInspection(
@@ -165,12 +173,14 @@ export class ProductionQualityService {
     input: { decision: 'release' | 'reject'; reviewNote: string },
     actor: ProductionQualityActor,
   ) {
-    return prisma.$transaction(async tx => {
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      await lockQualityWorkOrder(tx, workOrderId);
       const inspection = await tx.productionQualityCheck.findFirst({
         where: { id: qualityCheckId, workOrderId },
         include: { workOrder: true, measurements: { orderBy: { id: 'asc' } } },
       });
       if (!inspection) throw new Error(`QC_INSPECTION_NOT_FOUND:${qualityCheckId}`);
+      if (inspection.workOrder.status !== 'qc_pending') throw new Error(`QC_WORK_ORDER_STATUS_INVALID:${inspection.workOrder.status}`);
       if (inspection.status !== 'submitted') throw new Error(`QC_REVIEW_STATUS_INVALID:${inspection.status}`);
       if (inspection.inspectorUserId === actor.userId) throw new Error('QC_SEGREGATION_OF_DUTIES_REQUIRED');
       const newer = await tx.productionQualityCheck.findFirst({
@@ -206,7 +216,10 @@ export class ProductionQualityService {
         include: { measurements: { orderBy: { id: 'asc' } } },
       });
       if (!updated) throw new Error(`QC_INSPECTION_NOT_FOUND:${inspection.id}`);
+      await tx.auditLog.create({ data: { userId: actor.userId, action: 'REVIEW_PRODUCTION_QC', resource: 'production', resourceId: updated.id,
+        details: JSON.stringify({ workOrderId, checkNo: updated.checkNo, decision: input.decision, result: updated.result, revision: inspection.revision }),
+        ipAddress: actor.ipAddress || null, userAgent: actor.userAgent || null } });
       return updated;
-    }, { isolationLevel: 'Serializable' });
+    }, { isolationLevel: 'Serializable' }), { label: 'production-quality-decision' });
   }
 }

@@ -168,7 +168,7 @@ export function ProductionQualityInspectionPanel({
       {released && workOrder.status === 'qc_pending' ? (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
           <div className="flex items-center gap-2 text-sm font-black text-emerald-800 dark:text-emerald-200"><BadgeCheck size={18} />检验已由 {latest.reviewedBy} 放行</div>
-          <p className="mt-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">现在可以确认实际耗料并完工入库；系统会把批次标记为 released。</p>
+          <p className="mt-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">成品质检已放行；完工还需校验投入批次的放行状态与实际库存。</p>
           <button type="button" data-testid="production-quality-enter-completion" onClick={onComplete} className="mt-3 min-h-12 w-full rounded-xl bg-emerald-600 px-5 text-xs font-black text-white transition-colors duration-200 hover:bg-emerald-700 motion-reduce:transition-none sm:w-auto">进入耗料确认并完工</button>
         </div>
       ) : null}
@@ -180,6 +180,7 @@ export function ProductionQualityInspectionPanel({
             <article key={check.id} className="rounded-xl border border-slate-100 px-3 py-3 dark:border-slate-800">
               <div className="flex flex-wrap items-center justify-between gap-2"><div className="text-xs font-black text-slate-900 dark:text-white">R{check.revision} · {check.checkNo}</div><MiniTag label={`${QC_RESULT_LABELS[check.result]} · ${check.status}`} /></div>
               <div className="mt-1 text-[11px] font-bold text-slate-500">样品 {check.sampleNo || '-'} · 检验 {check.checkedBy || '-'} · 审核 {check.reviewedBy || '-'}</div>
+              {check.reviewNote ? <div className="mt-1 text-[11px] font-bold text-slate-500">审核依据：{check.reviewNote}</div> : null}
               {check.measurements?.length ? <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">{check.measurements.map(item => <div key={item.id} className="text-[11px] font-bold text-slate-600 dark:text-slate-300">{item.characteristicName}: {item.measuredNumeric ?? item.measuredText ?? '-'} {item.unit || ''} · {QC_RESULT_LABELS[item.result]}</div>)}</div> : null}
             </article>
           ))}

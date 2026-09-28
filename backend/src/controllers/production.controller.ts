@@ -291,13 +291,7 @@ export class ProductionController {
         defectRate: toNumber(defectRate) ?? null,
         note: note ? String(note) : null,
         measurements,
-      }, { userId: req.user!.userId, username: req.user!.username });
-
-      await createProductionAuditLog(req, 'CREATE_PRODUCTION_QC', {
-        workOrderId: Number(id),
-        checkNo: created.checkNo,
-        result: created.result,
-      }, created.id);
+      }, { userId: req.user!.userId, username: req.user!.username, ipAddress: req.ip, userAgent: req.get('user-agent') });
 
       res.status(201).json({ success: true, data: created } as ApiResponse);
     } catch (error) {
@@ -317,14 +311,8 @@ export class ProductionController {
         workOrderId,
         qualityCheckId,
         { decision, reviewNote },
-        { userId: req.user!.userId, username: req.user!.username },
+        { userId: req.user!.userId, username: req.user!.username, ipAddress: req.ip, userAgent: req.get('user-agent') },
       );
-      await createProductionAuditLog(req, 'REVIEW_PRODUCTION_QC', {
-        workOrderId,
-        checkNo: updated.checkNo,
-        decision,
-        result: updated.result,
-      }, updated.id);
       return res.json({ success: true, data: updated } as ApiResponse);
     } catch (error) {
       logger.error('Failed to review production qc', error);

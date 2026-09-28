@@ -13,7 +13,7 @@ describe('structured production quality lifecycle', () => {
   beforeEach(() => jest.clearAllMocks());
 
   it('blocks work-order completion until the latest inspection is independently released and passing', async () => {
-    const tx = { productionQualityCheck: { findFirst: jest.fn().mockResolvedValue({ status: 'submitted', result: 'pass' }) } } as any;
+    const tx = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() }, productionQualityCheck: { findFirst: jest.fn().mockResolvedValue({ status: 'submitted', result: 'pass' }) } } as any;
     await expect(assertLatestQualityRelease(tx, 5, 2)).rejects.toThrow('WORK_ORDER_QUALITY_RELEASE_REQUIRED');
     tx.productionQualityCheck.findFirst.mockResolvedValue({ status: 'released', result: 'pass' });
     await expect(assertLatestQualityRelease(tx, 5, 2)).resolves.toBeUndefined();
@@ -21,7 +21,7 @@ describe('structured production quality lifecycle', () => {
 
   it('derives pass/fail from immutable BOM limits instead of trusting a client result', async () => {
     const create = jest.fn().mockImplementation(({ data }) => ({ id: 90, ...data, measurements: data.measurements.create }));
-    const tx = {
+    const tx = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() },
       productionWorkOrder: { findUnique: jest.fn().mockResolvedValue({
         id: 5,
         workOrderNo: 'WO-5',
@@ -47,6 +47,8 @@ describe('structured production quality lifecycle', () => {
       ],
     }, { userId: 7, username: 'inspector-a' });
 
+    expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.productionWorkOrder.findUnique.mock.invocationCallOrder[0]);
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 7, action: 'CREATE_PRODUCTION_QC', resourceId: 90 }) }));
     expect(result.result).toBe('fail');
     expect(result.defectRate).toBe(50);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
@@ -59,7 +61,7 @@ describe('structured production quality lifecycle', () => {
   });
 
   it('rejects duplicate characteristic measurements instead of silently accepting the last value', async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() },
       productionWorkOrder: { findUnique: jest.fn().mockResolvedValue({
         id: 5,
         workOrderNo: 'WO-5',
@@ -83,7 +85,7 @@ describe('structured production quality lifecycle', () => {
   });
 
   it('rejects self-release even when the account owns both permissions', async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() },
       productionQualityCheck: { findFirst: jest.fn().mockResolvedValue({
         id: 9,
         workOrderId: 5,
@@ -91,7 +93,7 @@ describe('structured production quality lifecycle', () => {
         status: 'submitted',
         result: 'pass',
         inspectorUserId: 7,
-        workOrder: { batchId: null },
+        workOrder: { status: 'qc_pending', batchId: null },
         measurements: [],
       }) },
     } as any;
@@ -105,10 +107,10 @@ describe('structured production quality lifecycle', () => {
 
   it('releases only the latest passing revision and stamps reviewer identity', async () => {
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
-    const tx = {
+    const tx = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() },
       productionQualityCheck: {
         findFirst: jest.fn()
-          .mockResolvedValueOnce({ id: 9, workOrderId: 5, revision: 2, status: 'submitted', result: 'pass', inspectorUserId: 7, workOrder: { batchId: 21 }, measurements: [] })
+          .mockResolvedValueOnce({ id: 9, workOrderId: 5, revision: 2, status: 'submitted', result: 'pass', inspectorUserId: 7, workOrder: { status: 'qc_pending', batchId: 21 }, measurements: [] })
           .mockResolvedValueOnce(null),
         updateMany,
         findUnique: jest.fn().mockResolvedValue({
@@ -131,6 +133,8 @@ describe('structured production quality lifecycle', () => {
       reviewNote: '第二人复核仪器与留样，允许放行',
     }, { userId: 8, username: 'reviewer-b' });
 
+    expect(tx.$executeRaw.mock.invocationCallOrder[0]).toBeLessThan(tx.productionQualityCheck.findFirst.mock.invocationCallOrder[0]);
+    expect(tx.auditLog.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ userId: 8, action: 'REVIEW_PRODUCTION_QC', resourceId: 9 }) }));
     expect(result.status).toBe('released');
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
       reviewedByUserId: 8,
@@ -141,10 +145,10 @@ describe('structured production quality lifecycle', () => {
   });
 
   it('fails closed when another reviewer wins the submitted-state claim', async () => {
-    const tx = {
+    const tx = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() },
       productionQualityCheck: {
         findFirst: jest.fn()
-          .mockResolvedValueOnce({ id: 9, workOrderId: 5, revision: 1, status: 'submitted', result: 'pass', inspectorUserId: 7, workOrder: { batchId: null }, measurements: [] })
+          .mockResolvedValueOnce({ id: 9, workOrderId: 5, revision: 1, status: 'submitted', result: 'pass', inspectorUserId: 7, workOrder: { status: 'qc_pending', batchId: null }, measurements: [] })
           .mockResolvedValueOnce(null),
         updateMany: jest.fn().mockResolvedValue({ count: 0 }),
       },
@@ -155,5 +159,24 @@ describe('structured production quality lifecycle', () => {
       decision: 'release',
       reviewNote: '并发复核',
     }, { userId: 8, username: 'reviewer-b' })).rejects.toThrow('QC_REVIEW_ALREADY_DECIDED');
+  });
+});
+
+describe('quality review transaction rollback and terminal work order guard', () => {
+  const actor = { userId: 8, username: 'qa' };
+  const review = () => ProductionQualityService.reviewInspection(5, 9, { decision: 'release', reviewNote: 'verified' }, actor);
+  function fixture(status = 'qc_pending') {
+    const inspection = { id: 9, checkNo: 'QC-9', workOrderId: 5, revision: 1, status: 'submitted', result: 'pass', inspectorUserId: 7, workOrder: { status, batchId: 21 }, measurements: [] };
+    const tx: any = { $executeRaw: jest.fn(), productionQualityCheck: { findFirst: jest.fn().mockResolvedValueOnce(inspection).mockResolvedValue(null), updateMany: jest.fn().mockResolvedValue({ count: 1 }), findUnique: jest.fn().mockResolvedValue({ ...inspection, status: 'released' }) }, productBatch: { update: jest.fn() }, auditLog: { create: jest.fn() } };
+    transactionMock.mockImplementation((callback: (client: any) => unknown) => callback(tx)); return tx;
+  }
+  it.each(['completed', 'cancelled'])('cannot change quality after %s', async status => {
+    const tx=fixture(status); await expect(review()).rejects.toThrow('QC_WORK_ORDER_STATUS_INVALID');
+    expect(tx.productionQualityCheck.updateMany).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+  it('does not swallow the audit failure after decision and batch updates', async () => {
+    const tx=fixture(); tx.auditLog.create.mockRejectedValue(new Error('audit unavailable'));
+    await expect(review()).rejects.toThrow('audit unavailable');
+    expect(tx.productBatch.update).toHaveBeenCalled();
   });
 });

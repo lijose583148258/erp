@@ -10,6 +10,7 @@ const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barte
 const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
 const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
 const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
+const { qcIsolationProbe } = require('./lib/enterprise-round2-qc-isolation.cjs');
 const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
@@ -28,8 +29,8 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-brows
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
-implemented.push('dual-workorder-same-lot');
-if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback');
+implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -401,6 +402,12 @@ async function main() {
   if (process.env.ROUND2_BROWSER === 'true') {
     if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 60000 });
     else runner.block('bom-history-browser', 'BOM API chain did not complete; no browser pass can be inferred');
+  }
+  const qc = await runner.run('qc-quarantine-blocks-issue', signal => qcIsolationProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { qcReleaseBrowser } = require('./lib/enterprise-round2-qc-browser.cjs');
+    if (qc) await runner.run('qa-release-traceability-browser', signal => qcReleaseBrowser(bomContext, qc, signal), { timeoutMs: 120000 });
+    else runner.block('qa-release-traceability-browser', 'QC isolation API proof did not complete');
   }
   const lot = await runner.run('dual-workorder-same-lot', signal => productionLotProbe(bomContext, signal), { timeoutMs: 120000 });
   if (process.env.ROUND2_BROWSER === 'true') {

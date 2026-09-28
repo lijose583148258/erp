@@ -14,6 +14,7 @@ import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
 import { assertLatestQualityRelease } from './production-quality.service';
 import { lockBomRevisions } from './production-bom-freeze.service';
 import { withDbRetry } from '../utils/dbRetry';
+import { lockQualityWorkOrder } from './production-quality-lock.service';
 import { StockMovementConflictError } from './stock-movement.errors';
 
 export type ProductionStatusActor = { userId: number; ipAddress?: string; userAgent?: string };
@@ -372,6 +373,7 @@ export class ProductionMutationService {
   static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number; }[] | undefined, actor: ProductionStatusActor) {
     if (!Number.isSafeInteger(actor.userId) || actor.userId <= 0) throw new Error('WORK_ORDER_ACTOR_REQUIRED');
     return withDbRetry(() => prisma.$transaction(async tx => {
+      await lockQualityWorkOrder(tx, id);
       const workOrder = await tx.productionWorkOrder.findUnique({
         where: { id },
         include: {

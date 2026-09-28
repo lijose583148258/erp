@@ -15,7 +15,7 @@ describe('production completion transaction ownership', () => {
   function fixture(status = 'qc_pending') {
     const wo: any = { id: 1, workOrderNo: 'WO-1', status, createdBy: 3, materialId: 2, batchId: 20, producedQuantity: 50, targetQuantity: 50,
       bom: { items: [], qualityCharacteristics: [], outputUnit: 'kg', shelfLifeDays: 365 } };
-    const tx: any = {
+    const tx: any = { $executeRaw: jest.fn(),
       productionWorkOrder: { findUnique: jest.fn().mockResolvedValue(wo), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
       stockBalance: { findUnique: jest.fn().mockResolvedValue({ id: 9, materialId: 1, locationId: 2, productName: 'RAW', batchNo: 'LOT', quantity: 50, unit: 'kg' }) },
       location: { findFirst: jest.fn().mockResolvedValue({ id: 3 }) },

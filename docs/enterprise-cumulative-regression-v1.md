@@ -80,3 +80,13 @@ npm run audit:enterprise:cumulative:local
 `dual-workorder-lot-v1` 保留前序所有义务并追加 `dual-workorder-same-lot`、`genealogy-readback`，本地应有 22 / 云端 44 个累计断言。范围与逐轮失败记录见 `docs/production-dual-workorder-lot-v1.md`，最终本地累计和新提交云验证不能省略。
 
 最终本地 `output/round2/1790558442967-8953e994/cumulative-regression.json` **22/22 通过**，第二轮 **16 通过 / 0 失败 / 21 未执行**；同次销售续发和 63 原表旧库升级重新通过。待推送后企业云，不用 BOM 包的 42/42 替代这包的 44 项义务。
+
+## 双工单包企业云已核对（2026-09-28）
+
+提交 `8fef4b0bd37bdfb14caa8c9dfeb6289346894809`，https://github.com/lijose583148258/erp/actions/runs/36370726712 ，原始累计 **44/44 通过**；业务汇总 **24 中 23 通过 / 1 失败**，唯一失败为完整第二轮仍 **16/0/21**。PostgreSQL 双实例三种同批次耗料及浏览器追溯通过，原始产物已下载并复核截图。不能将绿色步骤 conclusion 代替 failure outcome。
+
+后续 QC 包作用范围、修复前失败、真实复检与独立放行证据见 `docs/production-qc-input-isolation-v1.md`。追加基线必须重跑本地 24 / 云端 46 项，不能复用上述 44 项结果。
+
+## QC 包最终本地累计（2026-09-28，待企业云）
+
+`output/round2/1790596661894-194e7125/cumulative-regression.json` **24/24 通过**，源码指纹 `a5b167f56ae8a74babd892d4ef7a21e1c905144f0c92f81d8313cedd3b9e2404`；同次第二轮 **18 通过 / 0 失败 / 19 未执行 / 4 条链通过**。全部前序检查、销售续发与 63 张原表旧库升级重新执行，重复修复与原表行指纹不变。原生第二轮退出码 2、销售与旧库各 0，不把 incomplete 改为全通过。生成图谱 11629 节点 / 19609 边不提交。
