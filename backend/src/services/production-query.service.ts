@@ -1,3 +1,4 @@
+import { PACKAGING_PERCENTAGE_V1, assertWholePackages } from '../domain/production-packaging-basis';
 import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 import prisma from '../config/database';
 import { assertBomPercentageUnits } from './production-unit-safety.service';
@@ -36,6 +37,7 @@ export interface ProductionBomItemInput {
 }
 
 export interface ProductionBomInput {
+  packagingRevisionId?: number | null;
   materialId?: number | null;
   productName: string;
   version?: string | null;
@@ -304,10 +306,11 @@ export class ProductionQueryService {
 
     assertBomPercentageUnits(workOrder.bom);
     const targetQuantity = Number(workOrder.targetQuantity || 0);
+    if (workOrder.bom.packagingRevisionId) assertWholePackages(targetQuantity);
     const suggestions = [];
 
     for (const item of workOrder.bom.items) {
-      const requiredQty = item.dosageMode === MASS_PERCENTAGE_V1
+      const requiredQty = [MASS_PERCENTAGE_V1, PACKAGING_PERCENTAGE_V1].includes(item.dosageMode || '')
         ? massRequiredQuantityV1(item.quantityPerUnit, targetQuantity, item.lossRate)
         : resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
       if (requiredQty <= 0) continue;

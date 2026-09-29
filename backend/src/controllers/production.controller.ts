@@ -65,6 +65,7 @@ export class ProductionController {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
       const {
         materialId,
+        packagingRevisionId,
         productName,
         version,
         bomType,
@@ -90,6 +91,7 @@ export class ProductionController {
 
       const created = await ProductionService.createBom({
         materialId: toNumber(materialId) ?? null,
+        packagingRevisionId: toNumber(packagingRevisionId) ?? null,
         productName: String(productName),
         version: version ? String(version) : null,
         bomType: bomType ? String(bomType) : null,
@@ -226,7 +228,7 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to create production work order', error);
       const message = error instanceof Error ? error.message : 'Failed to create production work order';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
 

@@ -63,7 +63,7 @@ export const IMPORT_PHASES: Array<{ phase: string; tables: string[]; rationale: 
   },
   {
     phase: 'master-data',
-    tables: ['customers', 'suppliers', 'materials', 'material_aliases', 'warehouses', 'locations', 'product_batches', 'contracts'],
+    tables: ['customers', 'suppliers', 'materials', 'material_aliases', 'material_packaging_revisions', 'warehouses', 'locations', 'product_batches', 'contracts'],
     rationale: 'Customer, supplier, material, alias, warehouse, location, batch, and contract records anchor downstream order, stock, production, and logistics data.',
   },
   {

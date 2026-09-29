@@ -1,3 +1,4 @@
+import { repairPackagingSchema } from './runtime-schema-packaging-repair';
 import prisma from '../config/database';
 import { SchemaRepairReport } from './runtime-schema-repair-utils';
 import { repairAuthSchema } from './runtime-schema-auth-repair';
@@ -23,6 +24,8 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   await repairProductionSchema(report);
 
   await repairMaterialSchema(report);
+
+  await repairPackagingSchema(report);
 
   await repairStockSchema(report);
 

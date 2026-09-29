@@ -1,3 +1,4 @@
+import packagingRoutes from './material-packaging.routes';
 import { Router } from 'express';
 import { MaterialController } from '../controllers/material.controller';
 import { authenticate, authorizePermission, authRoute } from '../middleware/auth';
@@ -17,6 +18,7 @@ const router = Router();
 const controller = new MaterialController();
 
 router.use(authenticate);
+router.use('/:id/packaging', packagingRoutes);
 router.get('/', authorizePermission('materials.read'), validateZod(listMaterialsQuerySchema, 'query'), authRoute((req, res) => controller.list(req, res)));
 router.get('/governance/backfill-candidates', authorizePermission('materials.govern'), validateZod(materialGovernanceListQuerySchema, 'query'), authRoute((req, res) => controller.listBackfillCandidates(req, res)));
 router.post('/governance/backfill', authorizePermission('materials.govern'), validateZod(applyBomBackfillSchema), authRoute((req, res) => controller.applyBackfill(req, res)));

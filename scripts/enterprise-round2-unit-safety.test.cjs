@@ -50,3 +50,12 @@ test('material unit governance probes are source-only and cumulatively wired', (
   const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');
   for(const p of ['scripts/lib/enterprise-round2-material-unit.cjs','backend/src/domain/material-unit-governance.ts','backend/src/services/material-master.service.ts','backend/src/controllers/material.controller.ts','pages/MaterialMaster.tsx','services/material.service.ts'])assert(workflow.includes("'"+p+"'"),p);
 });
+
+
+test('approved packaging probes extend cumulative evidence without promoting full R2-06', () => {
+  const {packagingProbe,packagingBrowser}=require('./lib/enterprise-round2-packaging.cjs');
+  assert.equal(typeof packagingProbe,'function');assert.equal(typeof packagingBrowser,'function');
+  const bom=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-bom-freeze.cjs'),'utf8');
+  assert(bom.includes('packagingProbe(ctx, signal)'));assert(bom.includes('packagingBrowser(ctx, browser, history.packaging.browserFixture'));
+  const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(!baseline.includes('mass-packaging-density-conversion'));
+});

@@ -19,6 +19,7 @@ model Material {
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 
+  packagingRevisions MaterialPackagingRevision[]
   aliases         MaterialAlias[]
   bomItems        ProductionBomItem[]
   productionBoms  ProductionBom[] @relation("ProductionBomOutputMaterial")
@@ -95,4 +96,30 @@ model MaterialGovernanceChange {
   @@unique([runId, entityType, entityId, fieldName])
   @@index([entityType, entityId])
   @@map("material_governance_changes")
+}
+
+model MaterialPackagingRevision {
+  id Int @id @default(autoincrement())
+  materialId Int @map("material_id")
+  material Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  specCode String @map("spec_code")
+  version String
+  packageUnit String @map("package_unit")
+  netMass String @map("net_mass")
+  massUnit String @map("mass_unit")
+  sourceReference String @map("source_reference")
+  status String @default("draft")
+  createdBy Int @map("created_by")
+  approvedBy Int? @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+  reviewReason String? @map("review_reason")
+  retiredBy Int? @map("retired_by")
+  retiredAt DateTime? @map("retired_at")
+  retireReason String? @map("retire_reason")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  boms ProductionBom[]
+  @@unique([materialId, specCode, version])
+  @@index([materialId, status])
+  @@map("material_packaging_revisions")
 }

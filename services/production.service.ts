@@ -72,6 +72,8 @@ export interface ProductionBomItem {
 }
 
 export interface ProductionBom {
+  packagingRevisionId?: number | null;
+  packagingSnapshotJson?: string | null;
   id: number;
   bomNo: string;
   materialId?: number | null;
@@ -195,6 +197,7 @@ export const productionService = {
   },
 
   async createBom(data: {
+    packagingRevisionId?: number | null;
     materialId?: number | null;
     productName: string;
     version?: string | null;

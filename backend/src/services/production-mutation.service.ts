@@ -1,3 +1,6 @@
+import { PACKAGING_PERCENTAGE_V1, assertWholePackages, assertPackagingQuality } from '../domain/production-packaging-basis';
+import { packagingPercentageQuantityV1 } from '../domain/production-mass-basis';
+import { approvedPackagingBasis } from './material-packaging.service';
 import { MASS_PERCENTAGE_V1, massPercentageQuantityV1 } from '../domain/production-mass-basis';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
@@ -154,20 +157,22 @@ const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.production
 export class ProductionMutationService {
   static async createBom(input: ProductionBomInput, createdBy: number) {
     const bomNo = buildNo('BOM');
-    const draftItems = (input.items || [])
-      .map(item => ({
-        ...item,
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      const packagingBasis = input.packagingRevisionId ? await approvedPackagingBasis(tx,input.packagingRevisionId,input.materialId || 0,input.outputUnit) : null;
+      if (packagingBasis) assertPackagingQuality(packagingBasis, input.qualityCharacteristics);
+      const draftItems = (input.items || []).map(item => ({ ...item,
         materialName: String(item.materialName || item.materialCode || '').trim(),
         materialCode: item.materialCode ? String(item.materialCode).trim() : null,
-        quantityPerUnit: normalizeBomQuantityPerUnit(item, input.outputUnit),
-      }))
-      .filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
-
-    return prisma.$transaction(async tx => {
-      const controlledBom = (input.status || 'draft') !== 'draft';
+        quantityPerUnit: item.dosageMode === PACKAGING_PERCENTAGE_V1 && packagingBasis
+          ? packagingPercentageQuantityV1(item.percentage,item.unit,packagingBasis.netMass,packagingBasis.massUnit)
+          : normalizeBomQuantityPerUnit(item,input.outputUnit),
+        ...(item.dosageMode === PACKAGING_PERCENTAGE_V1 ? { allowedVarianceRate: item.allowedVarianceRate ?? 0 } : {}),
+      })).filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
+      const packagingSnapshotJson = packagingBasis ? JSON.stringify(packagingBasis) : null;
+      const controlledBom = Boolean(packagingBasis) || (input.status || 'draft') !== 'draft';
       const outputMaterial = await resolveFinishedGoodsMaterial(tx, input.materialId, controlledBom);
       if (outputMaterial) assertBomOutputUnit(input.outputUnit, outputMaterial.baseUnit);
-      assertBomPercentageUnits({ outputUnit: input.outputUnit, items: draftItems });
+      assertBomPercentageUnits({ materialId: input.materialId, packagingRevisionId: input.packagingRevisionId, packagingSnapshotJson, outputUnit: input.outputUnit, items: draftItems });
       const materialIds = Array.from(new Set(
         draftItems
           .map(item => Number(item.materialId || 0))
@@ -218,6 +223,8 @@ export class ProductionMutationService {
       const created = await tx.productionBom.create({
         data: {
           bomNo,
+          packagingRevisionId: input.packagingRevisionId ?? null,
+          packagingSnapshotJson,
           materialId: outputMaterial?.id ?? null,
           productName: outputMaterial?.nameZh ?? input.productName,
           version: input.version || 'v1',
@@ -294,7 +301,7 @@ export class ProductionMutationService {
       }
 
       return refreshed;
-    });
+    }, { isolationLevel: 'Serializable' }));
   }
 
   static async createWorkOrder(input: ProductionWorkOrderInput, createdBy: number) {
@@ -303,11 +310,16 @@ export class ProductionMutationService {
       const bom = input.bomId
         ? await tx.productionBom.findUnique({
           where: { id: input.bomId },
-          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true, items: true },
+          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true, items: true, packagingRevisionId: true, packagingSnapshotJson: true },
         })
         : null;
       if (input.bomId && !bom) throw new Error(`Production BOM not found: ${input.bomId}`);
       if (bom) assertBomPercentageUnits(bom);
+      if (bom?.packagingRevisionId) {
+        await approvedPackagingBasis(tx,bom.packagingRevisionId,bom.materialId || 0,bom.outputUnit);
+        assertWholePackages(input.targetQuantity);
+        if (Number(input.lossQuantity || 0) !== 0 || Number(input.producedQuantity) !== input.targetQuantity) throw new Error('BOM_UNIT_PACKAGING_OUTPUT_SCOPE:包装 v1 要求计划与实际整包装数量一致、零损耗');
+      }
       const batch = input.batchId
         ? await tx.productBatch.findUnique({
           where: { id: input.batchId },
@@ -421,9 +433,13 @@ export class ProductionMutationService {
       }> = [];
 
       if (status === 'completed') {
+        if (workOrder.bom?.packagingRevisionId) {
+          assertWholePackages(workOrder.producedQuantity);
+          if (workOrder.producedQuantity !== workOrder.targetQuantity || workOrder.lossQuantity !== 0) throw new Error('BOM_UNIT_PACKAGING_OUTPUT_SCOPE');
+        }
         if (workOrder.bom) assertBomPercentageUnits(workOrder.bom);
         if (workOrder.bom && workOrder.productBatch) assertBomOutputUnit(workOrder.productBatch.unit, workOrder.bom.outputUnit);
-        await assertLatestQualityRelease(tx, workOrder.id, workOrder.bom?.qualityCharacteristics.length || 0);
+        await assertLatestQualityRelease(tx, workOrder.id, Math.max(workOrder.bom?.qualityCharacteristics.length || 0, workOrder.bom?.packagingRevisionId ? 1 : 0));
         const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
         if (netOutput > 0 && !workOrder.batchId) {
           calculateBatchExpiryDate(new Date(), workOrder.bom?.shelfLifeDays);

@@ -43,5 +43,13 @@ export const assertMassSnapshotV1 = (item: { unit: string; percentage?: unknown;
   if (Number(item.quantityPerUnit) !== expected) error('MASS_SNAPSHOT_MISMATCH', '冻结的质量换算单耗与 v1 依据不一致，禁止继续生产');
 };
 
+export const packagingPercentageQuantityV1 = (percentage: unknown, inputUnit: string, netMass: unknown, massUnit: string): number => {
+  const input = scales[inputUnit.trim().toLowerCase()], output = scales[massUnit.trim().toLowerCase()];
+  if (typeof input !== 'bigint' || typeof output !== 'bigint') return error('MASS_BASIS_REQUIRED', '包装净量 v1 仅支持质量原料与质量净量');
+  const [n,d] = fraction(percentage), [mass,md] = fraction(netMass);
+  if (n <= 0n || n > 100n*d || mass <= 0n) return error('PERCENTAGE_INVALID', '净量必须大于 0，占比必须大于 0 且不超过 100');
+  return quantityFromRatio(n * mass * output, d * md * 100n * input);
+};
+
 // Default object also supports the frontend ESM test runner importing this CommonJS package.
-export default { MASS_PERCENTAGE_V1, massPercentageQuantityV1, massRequiredQuantityV1, assertMassSnapshotV1 };
+export default { packagingPercentageQuantityV1, MASS_PERCENTAGE_V1, massPercentageQuantityV1, massRequiredQuantityV1, assertMassSnapshotV1 };

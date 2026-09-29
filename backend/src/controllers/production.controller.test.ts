@@ -1,5 +1,5 @@
 jest.mock('../config/database', () => ({ __esModule: true, default: {} }));
-jest.mock('../services/production.service', () => ({ ProductionService: { updateWorkOrderStatus: jest.fn() } }));
+jest.mock('../services/production.service', () => ({ ProductionService: { updateWorkOrderStatus: jest.fn(), createWorkOrder: jest.fn() } }));
 jest.mock('../utils/recordAccess', () => ({ canUseOperationalDataScope: () => true }));
 jest.mock('../utils/logger', () => ({ logger: { error: jest.fn() } }));
 
@@ -32,5 +32,16 @@ describe('production completion conflict classification', () => {
     await new ProductionController().updateWorkOrderStatus(request(), res);
     expect(res.status).toHaveBeenCalledWith(409);
     expect(ProductionService.updateWorkOrderStatus).toHaveBeenLastCalledWith(1, 'completed', undefined, { userId: 7, ipAddress: undefined, userAgent: undefined });
+  });
+});
+
+
+describe('work-order creation error classification', () => {
+  it.each([['BOM_UNIT_PACKAGING_WHOLE_REQUIRED',409],['WORK_ORDER_PACKAGING_TARGET_REQUIRED',409],['Unexpected backend failure',500]])('classifies %s without masking faults',async (message,status) => {
+    (ProductionService.createWorkOrder as jest.Mock).mockRejectedValueOnce(new Error(message as string));
+    const req=request();req.body={productName:'Package',targetQuantity:0.5};
+    const res:any={status:jest.fn().mockReturnThis(),json:jest.fn()};
+    await new ProductionController().createWorkOrder(req,res);
+    expect(res.status).toHaveBeenCalledWith(status);
   });
 });

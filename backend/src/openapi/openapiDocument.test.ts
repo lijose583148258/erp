@@ -288,3 +288,17 @@ describe('OpenAPI contract foundation', () => {
     expect(Array.from(unresolved)).toEqual([]);
   });
 });
+
+
+it('documents controlled packaging without writable frozen snapshots',()=>{
+  const d=buildOpenApiDocument();
+  for(const p of ['/api','/api/v1']) {
+    expect(d.paths[p+'/materials/{id}/packaging'].post?.responses['201']).toBeDefined();
+    expect(d.paths[p+'/materials/{id}/packaging/{revisionId}/approve'].post?.responses['409']).toBeDefined();
+    expect(d.paths[p+'/materials/{id}/packaging/{revisionId}/retire'].post?.responses['404']).toBeDefined();
+  }
+  expect(d.components.schemas.ProductionBomItemRequest.properties.dosageMode.enum).toContain('packaging_percentage_v1');
+  expect(d.components.schemas.ProductionBomCreateRequest.properties.packagingRevisionId.minimum).toBe(1);
+  expect(d.components.schemas.ProductionBomCreateRequest.properties).not.toHaveProperty('packagingSnapshotJson');
+  expect(d.components.schemas.PackagingRevisionReviewRequest.required).toEqual(['expectedUpdatedAt','reason']);
+});

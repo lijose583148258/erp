@@ -4,6 +4,7 @@ import { MobileRecordCard, MobileRecordState } from '../../components/ui/MobileR
 import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 import { ProductionBom } from '../../services/production.service';
 import { ProductionBomLineGrid } from './ProductionBomLineGrid';
+import { PackagingSnapshot } from './PackagingSnapshot';
 import type { BomItemDraft } from './productionBomLineModel';
 import { ProductionQualitySpecEditor } from './ProductionQualitySpecEditor';
 import type { QualityCharacteristicDraft } from './useProductionWorkspaceForms';
@@ -446,6 +447,7 @@ export function ProductionBomSection({
             <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-8 gap-3">
               <SummaryChip label="配方状态" value={BOM_STATUS_LABELS[(selectedBom.status as BomLifecycleStatus) || 'draft'] || '草稿'} />
               <SummaryChip label="输出单位" value={selectedBom.outputUnit || '--'} />
+              {selectedBom.packagingSnapshotJson && <PackagingSnapshot json={selectedBom.packagingSnapshotJson} />}
               <SummaryChip label="产品保质期" value={selectedBom.shelfLifeDays ? `${selectedBom.shelfLifeDays} 天` : '未配置（禁止自动建批次）'} />
               <SummaryChip label="标准批量" value={selectedBom.standardBatchSize ? `${selectedBom.standardBatchSize} ${selectedBom.batchSizeUnit || selectedBom.outputUnit}` : '--'} />
               <SummaryChip label="密度" value={selectedBom.density ? String(selectedBom.density) : '--'} />

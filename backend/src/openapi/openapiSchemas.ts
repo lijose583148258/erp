@@ -268,7 +268,7 @@ export const openApiSchemas = {
       materialName: { type: 'string', nullable: true },
       materialCode: { type: 'string', nullable: true },
       ingredientRole: { type: 'string', nullable: true },
-      dosageMode: { type: 'string', enum: ['fixed', 'percentage', 'mass_percentage_v1'], nullable: true, description: 'Explicit mass_percentage_v1 freezes unit/percentage/quantityPerUnit; legacy percentage is not reinterpreted.' },
+      dosageMode: { type: 'string', enum: ['fixed', 'percentage', 'mass_percentage_v1', 'packaging_percentage_v1'], nullable: true, description: 'Explicit mass_percentage_v1 freezes mass conversion. packaging_percentage_v1 requires an approved packagingRevisionId; server freezes net mass and computes quantities. Legacy percentage is not reinterpreted.' },
       percentage: { type: 'number', minimum: 0, maximum: 100, nullable: true },
       quantityPerUnit: { type: 'number', exclusiveMinimum: 0 },
       unit: { type: 'string', minLength: 1 },
@@ -391,6 +391,25 @@ export const openApiSchemas = {
       },
     },
   },
+  PackagingRevisionCreateRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['specCode','version','packageUnit','netMass','massUnit','sourceReference'],
+    properties: {
+      specCode: { type: 'string', minLength: 1, maxLength: 48, pattern: '^[A-Za-z0-9][A-Za-z0-9._/-]*$' },
+      version: { type: 'string', minLength: 1, maxLength: 32 },
+      packageUnit: { type: 'string', enum: ['桶','袋','罐','瓶','drum','bag','can','bottle'] },
+      netMass: { type: 'string', maxLength: 24, pattern: '^(?:0|[1-9]\\d*)(?:\\.\\d{1,6})?$', description: 'Positive decimal text, at most six fractional digits; no implicit density.' },
+      massUnit: { type: 'string', enum: ['mg','g','kg','t'] },
+      sourceReference: { type: 'string', minLength: 1, maxLength: 240 },
+    },
+  },
+  PackagingRevisionReviewRequest: {
+    type: 'object', additionalProperties: false, required: ['expectedUpdatedAt','reason'],
+    properties: {
+      expectedUpdatedAt: { type: 'string', format: 'date-time' },
+      reason: { type: 'string', minLength: 1, maxLength: 240 },
+    },
+  },
   ProductionBomCreateRequest: {
     type: 'object',
     additionalProperties: false,
@@ -402,6 +421,7 @@ export const openApiSchemas = {
         nullable: true,
         description: 'Canonical finished-good or semi-finished material. Required when status is not draft.',
       },
+      packagingRevisionId: { type: 'integer', minimum: 1, nullable: true, description: 'Approved immutable net-mass revision. Packaging v1 requires whole packages, zero loss, zero formula variance, and 100% mass inputs. Snapshot is server-owned, never accepted in requests.' },
       productName: { type: 'string', minLength: 1 },
       version: { type: 'string', nullable: true },
       bomType: { type: 'string', nullable: true },

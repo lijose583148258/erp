@@ -91,6 +91,7 @@ async function bomFreezeProbe(ctx, signal) {
       evidence.cases.push({ name: `first work order versus ${operation}`, race, finalBom, counter });
     }
     evidence.history.materialUnit = await require('./enterprise-round2-material-unit.cjs').materialUnitProbe(ctx, { raw, fg, stock, v1, old }, signal);
+    evidence.history.packaging = await require('./enterprise-round2-packaging.cjs').packagingProbe(ctx, signal);
     evidence.history.massV1 = await require('./enterprise-round2-mass-conversion.cjs').massConversionProbe(ctx, signal);
     evidence.history.unitSafety = await require('./enterprise-round2-unit-safety.cjs').unitSafetyProbe(ctx, signal);
     return evidence;
@@ -137,6 +138,7 @@ async function bomHistoryBrowser(ctx, history, signal) {
     unitFormActive = false;
     evidence.massV1 = await require('./enterprise-round2-mass-conversion.cjs').massConversionBrowser(ctx, page, history.massV1.browserFixture, dir, signal);
     evidence.materialUnit = await require('./enterprise-round2-material-unit.cjs').materialUnitBrowser(ctx, browser, history.materialUnit.browserFixture, dir, signal);
+    evidence.packaging = await require('./enterprise-round2-packaging.cjs').packagingBrowser(ctx, browser, history.packaging.browserFixture, dir, signal);
     assert.deepEqual(expectedUnitResponses, [409]);
     assert.equal(evidence.errors.length, 0, JSON.stringify(evidence.errors)); return evidence;
   } catch (error) { error.evidence ||= evidence; throw error; }

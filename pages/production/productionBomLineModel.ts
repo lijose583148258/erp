@@ -105,7 +105,7 @@ export const normalizeDosageValue = (value?: string): string => {
   if (DOSAGE_VALUE_SET.has(raw as DosageModeValue)) return raw as DosageModeValue;
   const alias = Object.prototype.hasOwnProperty.call(DOSAGE_VALUE_ALIASES, raw) ? DOSAGE_VALUE_ALIASES[raw] : undefined;
   if (alias) return alias;
-  if (raw.toLowerCase().startsWith('mass_percentage') || raw.startsWith('质量百分比')) return raw;
+  if (raw.toLowerCase().startsWith('packaging_percentage') || raw.startsWith('受控包装') || raw.toLowerCase().startsWith('mass_percentage') || raw.startsWith('质量百分比')) return raw;
   return 'fixed';
 };
 export const createEmptyItem = (): BomItemDraft => ({
@@ -151,6 +151,7 @@ export const formatDecimal = (value: number, precision = 6) => {
 };
 export const hasItemIdentity = (item: BomItemDraft) => Boolean(item.materialName.trim() || item.materialCode.trim());
 export const getBomMassConversionError = (item: BomItemDraft, outputUnit = 'kg') => {
+  if (item.dosageMode.toLowerCase().startsWith('packaging_percentage') || item.dosageMode.startsWith('受控包装')) return 'BOM_UNIT_PACKAGING_BASIS_REQUIRED:请在受控包装净量入口选择批准版本，禁止回落为固定单耗';
   if (item.dosageMode !== MASS_PERCENTAGE_V1) {
     return item.dosageMode.toLowerCase().startsWith('mass_percentage') || item.dosageMode.startsWith('质量百分比')
       ? 'BOM_UNIT_MASS_VERSION_UNSUPPORTED:未知质量换算规则，禁止按固定单耗保存' : null;

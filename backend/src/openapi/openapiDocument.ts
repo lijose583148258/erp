@@ -339,6 +339,25 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/materials/{id}/packaging`] = {
+      get: { tags: ['Materials'], summary: 'Read immutable packaging revisions', security: secured(true), parameters: [pathIdParameter], responses: jsonResponse },
+      post: {
+        tags: ['Materials'], summary: 'Create an immutable net-mass draft', security: secured(true), parameters: [pathIdParameter],
+        description: 'Requires materials.write and an active non-temporary finished/semi-finished material with matching package unit. No edit or delete endpoint.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/PackagingRevisionCreateRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Draft created; independent approval required.' } },
+      },
+    };
+    for (const action of ['approve','retire']) paths[`${prefix}/materials/{id}/packaging/{revisionId}/${action}`] = {
+      post: {
+        tags: ['Materials'], summary: action === 'approve' ? 'Independently approve packaging basis' : 'Retire packaging basis for future work',
+        description: 'Requires materials.govern, expectedUpdatedAt and reason. Creator cannot self-approve. Retirement blocks new BOMs/work orders but never rewrites frozen WIP.',
+        security: secured(true), parameters: [pathIdParameter, { name: 'revisionId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/PackagingRevisionReviewRequest' } } } },
+        responses: { ...writeResponses, '404': { description: 'Revision not found for this material.' } },
+      },
+    };
+
     paths[`${prefix}/materials/{id}/aliases`] = {
       post: {
         tags: ['Materials'],

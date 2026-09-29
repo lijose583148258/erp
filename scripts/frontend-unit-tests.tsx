@@ -414,7 +414,7 @@ const tests: FrontendUnitTest[] = [
       const row = parsed.importedItems[0]!;
       assert.equal(normalizeDosageValue('质量百分比换算 v1'), 'mass_percentage_v1');
       assert.equal(normalizeDosageValue('按百分比（同单位）'), 'percentage');
-      for (const mode of ['mass_percentage_v2', '质量百分比换算 v2', 'MASS_PERCENTAGE_V1']) {
+      for (const mode of ['mass_percentage_v2', '质量百分比换算 v2', 'MASS_PERCENTAGE_V1', 'packaging_percentage_v1', 'packaging_percentage_v2', '受控包装']) {
         const unknown = parseBomPasteText(`原料\tRAW-G\t主树脂\t${mode}\t100\t1\tg`, 10, 'kg').importedItems[0]!;
         assert.equal(unknown.dosageMode, mode);
         assert.equal(getEffectiveBomQuantityPerUnit(unknown, 'kg'), 0);
