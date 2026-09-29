@@ -1,12 +1,14 @@
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
+// Git may check out CRLF on Windows; line endings do not change YAML step semantics.
+const readText = file => fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
 
-const workflow = fs.readFileSync('.github/workflows/enterprise-cloud-sandbox.yml', 'utf8');
-const releaseWorkflow = fs.readFileSync('.github/workflows/enterprise-release-certification.yml', 'utf8');
-const compose = fs.readFileSync('ops/cloud-sandbox/docker-compose.yml', 'utf8');
-const aggregateScript = fs.readFileSync('scripts/enterprise-cloud-business-audit-summary-v1.cjs', 'utf8');
-const staffAudit = fs.readFileSync('scripts/enterprise-20-staff-audit-v1.cjs', 'utf8');
-const minioSource = fs.readFileSync('ops/cloud-sandbox/minio-source/Dockerfile', 'utf8');
+const workflow = readText('.github/workflows/enterprise-cloud-sandbox.yml');
+const releaseWorkflow = readText('.github/workflows/enterprise-release-certification.yml');
+const compose = readText('ops/cloud-sandbox/docker-compose.yml');
+const aggregateScript = readText('scripts/enterprise-cloud-business-audit-summary-v1.cjs');
+const staffAudit = readText('scripts/enterprise-20-staff-audit-v1.cjs');
+const minioSource = readText('ops/cloud-sandbox/minio-source/Dockerfile');
 
 assert.match(
   compose,

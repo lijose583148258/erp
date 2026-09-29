@@ -15,6 +15,7 @@ describe('material master lifecycle boundary', () => {
 
   it('keeps retired material history immutable', async () => {
     const tx = {
+      $executeRaw: jest.fn().mockResolvedValue(1),
       material: {
         findUnique: jest.fn().mockResolvedValue({
           id: 17,

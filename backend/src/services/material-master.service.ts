@@ -1,3 +1,5 @@
+import { assertMaterialUnitChange, materialUnitReferenceSelect, withMaterialUnitGovernance } from '../domain/material-unit-governance';
+import { withDbRetry } from '../utils/dbRetry';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 
@@ -93,7 +95,7 @@ const materialInclude = {
     orderBy: [{ language: 'asc' as const }, { alias: 'asc' as const }],
   },
   _count: {
-    select: { bomItems: true },
+    select: materialUnitReferenceSelect,
   },
 };
 
@@ -152,11 +154,12 @@ export class MaterialMasterService {
       }),
       prisma.material.count({ where }),
     ]);
-    return { items, total, limit: input.limit, offset: input.offset };
+    return { items: items.map(withMaterialUnitGovernance), total, limit: input.limit, offset: input.offset };
   }
 
   static async getById(id: number) {
-    return prisma.material.findUnique({ where: { id }, include: materialInclude });
+    const material = await prisma.material.findUnique({ where: { id }, include: materialInclude });
+    return material ? withMaterialUnitGovernance(material) : null;
   }
 
   static async create(input: CreateMaterialInput, audit: MaterialAuditContext) {
@@ -193,13 +196,15 @@ export class MaterialMasterService {
         status: created.status,
         isTemporary: created.isTemporary,
       });
-      return created;
+      return withMaterialUnitGovernance(created);
     });
   }
 
   static async update(id: number, input: UpdateMaterialInput, audit: MaterialAuditContext) {
-    return prisma.$transaction(async tx => {
-      const current = await tx.material.findUnique({ where: { id } });
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      // All lifecycle/unit updates serialize on the same parent, before reading its state.
+      await tx.$executeRaw`UPDATE "materials" SET "base_unit" = "base_unit" WHERE "id" = ${id}`;
+      const current = await tx.material.findUnique({ where: { id }, include: materialInclude });
       if (!current) throw new Error('MATERIAL_NOT_FOUND');
       if (current.status === 'retired') throw new Error('MATERIAL_RETIRED');
       if (input.expectedUpdatedAt && current.updatedAt.toISOString() !== input.expectedUpdatedAt) {
@@ -208,12 +213,15 @@ export class MaterialMasterService {
       if (input.status && !(STATUS_TRANSITIONS[current.status] || []).includes(input.status)) {
         throw new Error(`MATERIAL_STATUS_TRANSITION:${current.status}->${input.status}`);
       }
+      assertMaterialUnitChange(current, input.baseUnit, input.expectedUpdatedAt);
+      const beforeStatus = current.status, beforeBaseUnit = current.baseUnit;
       const nextStatus = input.status ?? current.status;
       const nextIsTemporary = input.isTemporary ?? current.isTemporary;
       if (nextStatus === 'active' && nextIsTemporary) throw new Error('MATERIAL_ACTIVE_TEMPORARY');
 
       const data: Prisma.MaterialUpdateManyMutationInput = {
         updatedBy: audit.userId,
+        updatedAt: new Date(Math.max(Date.now(), current.updatedAt.getTime() + 1)),
         ...(input.nameZh !== undefined ? { nameZh: input.nameZh.trim() } : {}),
         ...(input.nameEn !== undefined ? { nameEn: cleanOptional(input.nameEn) } : {}),
         ...(input.nameVi !== undefined ? { nameVi: cleanOptional(input.nameVi) } : {}),
@@ -228,28 +236,22 @@ export class MaterialMasterService {
         ...(input.shelfLifeDays !== undefined ? { shelfLifeDays: input.shelfLifeDays ?? null } : {}),
         ...(input.complianceNotes !== undefined ? { complianceNotes: cleanOptional(input.complianceNotes) } : {}),
       };
-      if (input.expectedUpdatedAt) {
-        const atomicUpdate = await tx.material.updateMany({
-          where: {
-            id,
-            updatedAt: new Date(input.expectedUpdatedAt),
-          },
-          data,
-        });
-        if (atomicUpdate.count !== 1) throw new Error('MATERIAL_CONCURRENT_UPDATE');
-      } else {
-        await tx.material.update({ where: { id }, data });
-      }
+      const atomicUpdate = await tx.material.updateMany({
+        where: { id, updatedAt: current.updatedAt, status: current.status, baseUnit: current.baseUnit }, data,
+      });
+      if (atomicUpdate.count !== 1) throw new Error('MATERIAL_CONCURRENT_UPDATE');
       const updated = await tx.material.findUnique({ where: { id }, include: materialInclude });
       if (!updated) throw new Error('MATERIAL_NOT_FOUND');
       await writeAudit(tx, audit, 'UPDATE_MATERIAL', id, {
         code: current.code,
-        beforeStatus: current.status,
+        beforeStatus,
         afterStatus: updated.status,
+        beforeBaseUnit,
+        afterBaseUnit: updated.baseUnit,
         changedFields: Object.keys(input).filter(key => key !== 'expectedUpdatedAt'),
       });
-      return updated;
-    });
+      return withMaterialUnitGovernance(updated);
+    }, { isolationLevel: 'Serializable', maxWait: 5000, timeout: 15000 }));
   }
 
   static async addAlias(id: number, input: MaterialAliasInput, audit: MaterialAuditContext) {

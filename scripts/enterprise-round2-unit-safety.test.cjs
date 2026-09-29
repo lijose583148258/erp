@@ -41,3 +41,12 @@ test('mass rule, form and execution changes trigger cloud regression', () => {
   const paths = workflow.split('  pull_request:')[1].split('  push:')[0];
   for (const file of ['backend/src/domain/production-mass-basis*.ts', 'scripts/lib/enterprise-round2-mass-conversion.cjs', 'backend/src/services/production-completion.validation.ts', 'backend/src/validators/production.ts', 'pages/production/ProductionBomLineGrid.tsx', 'pages/production/ProductionBomMobileRows.tsx', 'pages/production/productionBomLineModel.ts', 'pages/ProductionWorkspaceV2.tsx']) assert(paths.includes("'" + file + "'"), file);
 });
+
+test('material unit governance probes are source-only and cumulatively wired', () => {
+  const { materialUnitProbe, materialUnitBrowser } = require('./lib/enterprise-round2-material-unit.cjs');
+  assert.equal(typeof materialUnitProbe,'function');assert.equal(typeof materialUnitBrowser,'function');
+  const bom=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-bom-freeze.cjs'),'utf8');
+  assert(bom.includes('materialUnitProbe(ctx'));assert(bom.includes('materialUnitBrowser(ctx'));
+  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');
+  for(const p of ['scripts/lib/enterprise-round2-material-unit.cjs','backend/src/domain/material-unit-governance.ts','backend/src/services/material-master.service.ts','backend/src/controllers/material.controller.ts','pages/MaterialMaster.tsx','services/material.service.ts'])assert(workflow.includes("'"+p+"'"),p);
+});

@@ -25,6 +25,7 @@ export type MaterialMaster = {
   nameVi: string | null;
   category: MaterialCategory;
   baseUnit: string;
+  baseUnitEditable?: boolean;
   specification: string | null;
   status: MaterialStatus;
   isTemporary: boolean;

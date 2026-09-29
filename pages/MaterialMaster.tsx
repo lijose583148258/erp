@@ -144,6 +144,18 @@ const MaterialEditor = ({
     setForm(current => ({ ...current, ...value }));
   };
 
+  const requireSavedIdentity = () => {
+    if (material && JSON.stringify(toWriteInput(form)) !== JSON.stringify(toWriteInput(toEditor(material)))) {
+      setFieldError('请先保存并回读当前修改，再执行审核、冻结或停用。');
+      setPendingAction(null);
+      return false;
+    }
+    return true;
+  };
+  const requestLifecycle = (action: LifecycleAction) => {
+    if (requireSavedIdentity()) setPendingAction(action);
+  };
+
   const persist = async () => {
     if (!form.code.trim() || !form.nameZh.trim() || !form.baseUnit.trim()) {
       setFieldError('请先填写物料编码、中文名称和基本单位。');
@@ -177,6 +189,7 @@ const MaterialEditor = ({
             isTemporary: true,
           });
       }
+      setForm(toEditor(saved));
       notify('success', material ? '物料修改已保存并回读。' : '物料草稿已创建，请完成审核后启用。');
       onSaved(saved);
     } catch (error) {
@@ -208,7 +221,7 @@ const MaterialEditor = ({
   };
 
   const applyLifecycle = async () => {
-    if (!material || !pendingAction) return;
+    if (!material || !pendingAction || !requireSavedIdentity()) return;
     setSaving(true);
     try {
       const patchByAction = {
@@ -220,6 +233,7 @@ const MaterialEditor = ({
         ...patchByAction[pendingAction],
         expectedUpdatedAt: material.updatedAt,
       });
+      setForm(toEditor(saved));
       notify('success', pendingAction === 'activate' ? '物料已审核并启用。' : pendingAction === 'block' ? '物料已冻结。' : '物料已停用。');
       setPendingAction(null);
       onSaved(saved);
@@ -267,7 +281,7 @@ const MaterialEditor = ({
             </div>
             <div className="grid gap-4 md:grid-cols-2">
               <FormField label="物料编码" required autoFocus value={form.code} onChange={value => patch({ code: value.toUpperCase() })} readOnly={Boolean(material)} maxLength={64} placeholder="例如 RM-ACR-001" dataTestId="material-editor-code" />
-              <FormField label="基本单位" required value={form.baseUnit} onChange={value => patch({ baseUnit: value })} maxLength={24} placeholder="kg" dataTestId="material-editor-unit" />
+              <FormField label="基本单位" required readOnly={Boolean(material) && material?.baseUnitEditable !== true} hint={material && material.baseUnitEditable !== true ? '基本单位已锁定；新建替代物料并通过受控调整承接，不直接改写历史库存或配方。' : '仅未被业务引用的草稿可修正单位；启用或冻结后锁定。'} value={form.baseUnit} onChange={value => patch({ baseUnit: value })} maxLength={24} placeholder="kg" dataTestId="material-editor-unit" />
               <FormField label="中文名称" required value={form.nameZh} onChange={value => patch({ nameZh: value })} maxLength={160} placeholder="水性丙烯酸乳液" dataTestId="material-editor-name-zh" />
               <FormField label="物料类别" as="select" value={form.category} onChange={value => patch({ category: value as MaterialCategory })} options={categoryOptions} dataTestId="material-editor-category" />
               <FormField label="英文名称" value={form.nameEn} onChange={value => patch({ nameEn: value })} maxLength={160} placeholder="Acrylic Emulsion" />
@@ -316,9 +330,9 @@ const MaterialEditor = ({
             <div className="flex flex-wrap gap-2">
               {material && material.status !== 'retired' ? (
                 <>
-                  {material.status !== 'active' ? <button type="button" onClick={() => setPendingAction('activate')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700"><ShieldCheck size={15} />审核并启用</button> : null}
-                  {material.status !== 'blocked' ? <button type="button" onClick={() => setPendingAction('block')} className="inline-flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-2 text-xs font-black text-amber-700"><Ban size={15} />冻结</button> : null}
-                  <button type="button" onClick={() => setPendingAction('retire')} className="inline-flex items-center gap-2 rounded-2xl bg-rose-50 px-4 py-2 text-xs font-black text-rose-700"><CircleOff size={15} />停用</button>
+                  {material.status !== 'active' ? <button type="button" onClick={() => requestLifecycle('activate')} className="inline-flex items-center gap-2 rounded-2xl bg-emerald-50 px-4 py-2 text-xs font-black text-emerald-700"><ShieldCheck size={15} />审核并启用</button> : null}
+                  {material.status !== 'blocked' ? <button type="button" onClick={() => requestLifecycle('block')} className="inline-flex items-center gap-2 rounded-2xl bg-amber-50 px-4 py-2 text-xs font-black text-amber-700"><Ban size={15} />冻结</button> : null}
+                  <button type="button" onClick={() => requestLifecycle('retire')} className="inline-flex items-center gap-2 rounded-2xl bg-rose-50 px-4 py-2 text-xs font-black text-rose-700"><CircleOff size={15} />停用</button>
                 </>
               ) : null}
             </div>

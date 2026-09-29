@@ -14,7 +14,7 @@ const auditContext = (req: AuthRequest) => ({
 const errorStatus = (error: unknown) => {
   const message = error instanceof Error ? error.message : String(error);
   if (message === 'MATERIAL_NOT_FOUND') return 404;
-  if (message === 'MATERIAL_CONCURRENT_UPDATE') return 409;
+  if (['MATERIAL_CONCURRENT_UPDATE', 'MATERIAL_BASE_UNIT_FROZEN', 'MATERIAL_UNIT_VERSION_REQUIRED'].includes(message)) return 409;
   if (
     message === 'MATERIAL_RETIRED'
     || message === 'MATERIAL_ACTIVE_TEMPORARY'
@@ -142,6 +142,10 @@ export class MaterialController {
         success: false,
         message: message === 'MATERIAL_NOT_FOUND'
           ? '物料不存在'
+          : message === 'MATERIAL_BASE_UNIT_FROZEN'
+            ? '基本单位已锁定：仅未被业务引用的草稿可修正单位。请新建替代物料并通过受控调整承接，历史库存与配方不能直接改单位。'
+          : message === 'MATERIAL_UNIT_VERSION_REQUIRED'
+            ? '修正草稿基本单位必须先刷新物料，并提交当前版本 expectedUpdatedAt'
           : message === 'MATERIAL_CONCURRENT_UPDATE'
             ? '物料已被其他用户修改，请刷新后重新提交'
             : message === 'MATERIAL_RETIRED'
@@ -149,6 +153,7 @@ export class MaterialController {
             : status === 409
               ? '物料状态不允许当前修改'
               : '物料主数据更新失败',
+        code: message.startsWith('MATERIAL_') ? message : undefined,
       });
     }
   }
