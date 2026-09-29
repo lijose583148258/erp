@@ -1,3 +1,4 @@
+import { MASS_PERCENTAGE_V1, massPercentageQuantityV1 } from '../domain/production-mass-basis';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
@@ -88,7 +89,8 @@ export const calculateBatchExpiryDate = (productionDate: Date, shelfLifeDays: un
   return new Date(productionDate.getTime() + days * 24 * 60 * 60 * 1000);
 };
 
-const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number]) => {
+const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number], outputUnit: string) => {
+  if (item.dosageMode === MASS_PERCENTAGE_V1) return massPercentageQuantityV1(item.percentage, item.unit, outputUnit);
   const dosageMode = String(item.dosageMode || '').trim();
   const percentage = Number(item.percentage || 0);
   const rawQuantity = toPositiveNumber(item.quantityPerUnit);
@@ -157,7 +159,7 @@ export class ProductionMutationService {
         ...item,
         materialName: String(item.materialName || item.materialCode || '').trim(),
         materialCode: item.materialCode ? String(item.materialCode).trim() : null,
-        quantityPerUnit: normalizeBomQuantityPerUnit(item),
+        quantityPerUnit: normalizeBomQuantityPerUnit(item, input.outputUnit),
       }))
       .filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
 

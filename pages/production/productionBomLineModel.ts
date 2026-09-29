@@ -1,3 +1,7 @@
+import massBasis from '../../backend/src/domain/production-mass-basis';
+const { MASS_PERCENTAGE_V1, massPercentageQuantityV1 } = massBasis;
+export { MASS_PERCENTAGE_V1 };
+export const isPercentageDosage = (mode?: string | null) => mode === 'percentage' || mode === MASS_PERCENTAGE_V1;
 export type BomItemDraft = {
   materialId?: number | null;
   materialName: string;
@@ -41,7 +45,8 @@ export const CHEMICAL_ROLE_OPTIONS = [
 ] as const;
 export const DOSAGE_MODE_OPTIONS = [
   { value: 'fixed', label: '固定单耗' },
-  { value: 'percentage', label: '按百分比' },
+  { value: 'percentage', label: '按百分比（同单位）' },
+  { value: MASS_PERCENTAGE_V1, label: '质量百分比换算 v1' },
 ] as const;
 type ChemicalRoleValue = (typeof CHEMICAL_ROLE_OPTIONS)[number]['value'];
 type DosageModeValue = (typeof DOSAGE_MODE_OPTIONS)[number]['value'];
@@ -84,6 +89,8 @@ const DOSAGE_VALUE_ALIASES: Record<string, DosageModeValue> = {
   固定量: 'fixed',
   百分比: 'percentage',
   按百分比: 'percentage',
+  '按百分比（同单位）': 'percentage',
+  '质量百分比换算 v1': MASS_PERCENTAGE_V1,
 };
 export const normalizeRoleValue = (value?: string): ChemicalRoleValue => {
   const raw = (value || '').trim();
@@ -92,12 +99,14 @@ export const normalizeRoleValue = (value?: string): ChemicalRoleValue => {
   const alias = ROLE_VALUE_ALIASES[raw];
   return alias || 'other';
 };
-export const normalizeDosageValue = (value?: string): DosageModeValue => {
+export const normalizeDosageValue = (value?: string): string => {
   const raw = (value || '').trim();
   if (!raw) return 'fixed';
   if (DOSAGE_VALUE_SET.has(raw as DosageModeValue)) return raw as DosageModeValue;
-  const alias = DOSAGE_VALUE_ALIASES[raw];
-  return alias || 'fixed';
+  const alias = Object.prototype.hasOwnProperty.call(DOSAGE_VALUE_ALIASES, raw) ? DOSAGE_VALUE_ALIASES[raw] : undefined;
+  if (alias) return alias;
+  if (raw.toLowerCase().startsWith('mass_percentage') || raw.startsWith('质量百分比')) return raw;
+  return 'fixed';
 };
 export const createEmptyItem = (): BomItemDraft => ({
   materialId: null,
@@ -141,7 +150,19 @@ export const formatDecimal = (value: number, precision = 6) => {
   return Number(value.toFixed(precision)).toString();
 };
 export const hasItemIdentity = (item: BomItemDraft) => Boolean(item.materialName.trim() || item.materialCode.trim());
-export const getEffectiveBomQuantityPerUnit = (item: BomItemDraft) => {
+export const getBomMassConversionError = (item: BomItemDraft, outputUnit = 'kg') => {
+  if (item.dosageMode !== MASS_PERCENTAGE_V1) {
+    return item.dosageMode.toLowerCase().startsWith('mass_percentage') || item.dosageMode.startsWith('质量百分比')
+      ? 'BOM_UNIT_MASS_VERSION_UNSUPPORTED:未知质量换算规则，禁止按固定单耗保存' : null;
+  }
+  try { massPercentageQuantityV1(item.percentage, item.unit, outputUnit); return null; }
+  catch (error) { return error instanceof Error ? error.message : '质量换算失败'; }
+};
+export const getEffectiveBomQuantityPerUnit = (item: BomItemDraft, outputUnit = 'kg') => {
+  if (getBomMassConversionError(item, outputUnit)) return 0;
+  if (item.dosageMode === MASS_PERCENTAGE_V1) {
+    try { return massPercentageQuantityV1(item.percentage, item.unit, outputUnit); } catch { return 0; }
+  }
   const dosageMode = normalizeDosageValue(item.dosageMode);
   const percentageValue = toFiniteNumber(item.percentage);
   const rawQuantityPerUnit = toFiniteNumber(item.quantityPerUnit);
@@ -150,8 +171,8 @@ export const getEffectiveBomQuantityPerUnit = (item: BomItemDraft) => {
   }
   return rawQuantityPerUnit;
 };
-export const isEffectiveBomItemDraft = (item: BomItemDraft) =>
-  hasItemIdentity(item) && getEffectiveBomQuantityPerUnit(item) > 0;
+export const isEffectiveBomItemDraft = (item: BomItemDraft, outputUnit = 'kg') =>
+  hasItemIdentity(item) && getEffectiveBomQuantityPerUnit(item, outputUnit) > 0;
 export const cloneItem = (item: BomItemDraft): BomItemDraft => ({ ...item });
 export const getPerUnitFromPercentage = (percentage: string | number | null | undefined) => {
   const percentageValue = toFiniteNumber(percentage);
@@ -168,7 +189,7 @@ export const normalizePastedQuantityPerUnit = ({
   standardBatchSize,
   unit,
 }: {
-  dosageMode: DosageModeValue;
+  dosageMode: string;
   percentage: string;
   quantityPerUnit: string;
   standardBatchSize: number;
@@ -205,6 +226,7 @@ export type BomPasteImportResult = {
 export const parseBomPasteText = (
   text: string,
   standardBatchSize: number,
+  outputUnit = 'kg',
 ): BomPasteImportResult => {
   const conversionNotices = new Set<string>();
   const importedItems = getPasteLines(text).map((line) => {
@@ -212,7 +234,9 @@ export const parseBomPasteText = (
     const dosageMode = normalizeDosageValue(parts[3]);
     const percentage = parts[4] || '';
     const unit = parts[6] || 'kg';
-    const normalizedQuantity = normalizePastedQuantityPerUnit({
+    const normalizedQuantity = dosageMode === MASS_PERCENTAGE_V1
+      ? { value: String(getEffectiveBomQuantityPerUnit({ ...createEmptyItem(), dosageMode, percentage, unit }, outputUnit)) }
+      : normalizePastedQuantityPerUnit({
       dosageMode,
       percentage,
       quantityPerUnit: parts[5] || '',

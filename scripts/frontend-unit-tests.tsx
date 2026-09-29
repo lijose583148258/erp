@@ -53,7 +53,7 @@ import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData
 import { BarterAgreementList } from '../pages/barter/BarterAgreementList';
 import { BarterLedgerPanel } from '../pages/barter/BarterLedgerPanel';
 import { ProductionGenealogyReadback } from '../pages/production/ProductionGenealogyReadback';
-import { buildBatchTrace } from '../pages/production/ProductionWorkspaceDerived';
+import { buildBatchTrace, buildEffectiveBomItemsPayload } from '../pages/production/ProductionWorkspaceDerived';
 import { readProductionBatchTrace } from '../services/productionBatchTrace';
 
 type FrontendUnitTest = {
@@ -405,6 +405,32 @@ const tests: FrontendUnitTest[] = [
       assert.equal(getEffectiveBomQuantityPerUnit(parsed.importedItems[0]!), 0.2);
       assert.equal(isEffectiveBomItemDraft(parsed.importedItems[0]!), true);
       assert.equal(isEffectiveBomItemDraft({ ...parsed.importedItems[0]!, materialName: '', materialCode: '' }), false);
+    },
+  },
+  {
+    name: 'explicit mass v1 draft uses output unit, preserves old mode and refuses unsupported conversions',
+    run: () => {
+      const parsed = parseBomPasteText('原料\tRAW-G\t主树脂\tmass_percentage_v1\t100\t1\tg', 10, 'kg');
+      const row = parsed.importedItems[0]!;
+      assert.equal(normalizeDosageValue('质量百分比换算 v1'), 'mass_percentage_v1');
+      assert.equal(normalizeDosageValue('按百分比（同单位）'), 'percentage');
+      for (const mode of ['mass_percentage_v2', '质量百分比换算 v2', 'MASS_PERCENTAGE_V1']) {
+        const unknown = parseBomPasteText(`原料\tRAW-G\t主树脂\t${mode}\t100\t1\tg`, 10, 'kg').importedItems[0]!;
+        assert.equal(unknown.dosageMode, mode);
+        assert.equal(getEffectiveBomQuantityPerUnit(unknown, 'kg'), 0);
+        assert.equal(isEffectiveBomItemDraft(unknown, 'kg'), false);
+      }
+      assert.equal(row.quantityPerUnit, '1000');
+      for (const [outputUnit, expected] of [['g', 1], ['kg', 1000], ['t', 1000000]] as const) {
+        const payload = buildEffectiveBomItemsPayload([row], outputUnit);
+        assert.equal(payload.rejectedRows.length, 0);
+        assert.equal(payload.items[0]?.quantityPerUnit, expected);
+      }
+      assert.equal(getEffectiveBomQuantityPerUnit(row, 'kg'), 1000);
+      assert.equal(getEffectiveBomQuantityPerUnit(row, 't'), 1000000);
+      assert.equal(getEffectiveBomQuantityPerUnit({ ...row, dosageMode: 'percentage' }, 'kg'), 1);
+      assert.equal(getEffectiveBomQuantityPerUnit(row, 'L'), 0);
+      assert.equal(getEffectiveBomQuantityPerUnit({ ...row, percentage: '0.00000001' }, 'kg'), 0);
     },
   },
   {

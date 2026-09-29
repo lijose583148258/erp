@@ -1,3 +1,4 @@
+import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 type ProductionCompletionIssueType =
   | 'missing_material'
   | 'unit_mismatch'
@@ -171,10 +172,11 @@ export const assertBomConsumptionCoverage = (
       return;
     }
 
-    const expected = expectedBase * (1 + Number(item.lossRate || 0) / 100);
+    const massBasis = item.dosageMode === MASS_PERCENTAGE_V1;
+    const expected = massBasis ? massRequiredQuantityV1(item.quantityPerUnit, outputQuantity, item.lossRate) : expectedBase * (1 + Number(item.lossRate || 0) / 100);
     const actual = matchedRecords.reduce((sum, record) => sum + Number(record.quantity || 0), 0);
     const toleranceRate = getToleranceRateForBomItem(item);
-    const tolerance = Math.max(expected * toleranceRate, 0.001);
+    const tolerance = Math.max(expected * toleranceRate, massBasis ? 0.0000005 : 0.001);
 
     if (actual + tolerance < expected) {
       issues.push({

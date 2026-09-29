@@ -88,7 +88,8 @@ export const CHEMICAL_ROLE_LABELS: Record<string, string> = {
 
 export const DOSAGE_MODE_LABELS: Record<string, string> = {
   fixed: '固定单耗',
-  percentage: '按百分比',
+  percentage: '按百分比（同单位）',
+  mass_percentage_v1: '质量百分比换算 v1',
 };
 
 export const TEMPLATES: ProductionAdjustmentTemplate[] = [

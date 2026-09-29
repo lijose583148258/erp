@@ -12,7 +12,8 @@ import {
   createEmptyItem,
   formatDecimal,
   getEffectiveBomQuantityPerUnit,
-  getPerUnitFromPercentage,
+  isPercentageDosage,
+  getBomMassConversionError,
   hasItemIdentity,
   isEffectiveBomItemDraft,
   normalizeDosageValue,
@@ -32,23 +33,25 @@ type Props = {
   setItems: React.Dispatch<React.SetStateAction<BomItemDraft[]>>;
   standardBatchSize: number;
   formulationMode: string;
+  outputUnit?: string;
 };
 const baseInputClass =
  'w-full border-none bg-transparent px-2 py-1 text-xs font-bold outline-none transition-[background-color,box-shadow] duration-150 focus:bg-white focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:focus:bg-slate-900';
 const commonInputClass = 'w-full rounded-md border border-slate-200/80 bg-white px-2 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-colors duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
 const commonSelectClass = 'w-full cursor-pointer rounded-md border border-slate-200/80 bg-white px-1 py-1.5 text-sm font-semibold text-slate-700 outline-none transition-colors duration-150 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:focus:ring-blue-900/30';
-export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize, formulationMode }) => {
+export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standardBatchSize, formulationMode, outputUnit = 'kg' }) => {
   const [pasteText, setPasteText] = useState('');
   const [showPastePanel, setShowPastePanel] = useState(false);
   const [pasteImportNotice, setPasteImportNotice] = useState('');
   const [showFullColumns, setShowFullColumns] = useState(false);
   const [activeRowIndex, setActiveRowIndex] = useState<number | null>(null);
   const filledLineCount = items.filter(hasItemIdentity).length;
-  const effectiveLineCount = items.filter(isEffectiveBomItemDraft).length;
+  const effectiveLineCount = items.filter(item => isEffectiveBomItemDraft(item, outputUnit)).length;
   const invalidDraftLineCount = Math.max(0, filledLineCount - effectiveLineCount);
-  const effectiveItems = items.filter(isEffectiveBomItemDraft);
+  const massErrorLineCount = items.filter(item => getBomMassConversionError(item, outputUnit)).length;
+  const effectiveItems = items.filter(item => isEffectiveBomItemDraft(item, outputUnit));
   const percentageTotal = effectiveItems.reduce((sum, item) => sum + Number(item.percentage || 0), 0);
-  const hasPercentageRows = effectiveItems.some((item) => normalizeDosageValue(item.dosageMode) === 'percentage');
+  const hasPercentageRows = effectiveItems.some((item) => isPercentageDosage(normalizeDosageValue(item.dosageMode)));
   const lineCountWarning = effectiveLineCount < 10;
   const percentageWarning =
     formulationMode === 'percentage'
@@ -63,7 +66,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
     standardBatchSize,
     materialCodeCounts,
     hasItemIdentity,
-    getEffectiveQuantity: getEffectiveBomQuantityPerUnit,
+    getEffectiveQuantity: item => getEffectiveBomQuantityPerUnit(item, outputUnit),
   });
   const updateItem = (index: number, patch: Partial<BomItemDraft>) => {
     setItems((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
@@ -104,7 +107,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
     });
   };
   const handlePasteImport = () => {
-    const { importedItems, conversionNotices } = parseBomPasteText(pasteText, standardBatchSize);
+    const { importedItems, conversionNotices } = parseBomPasteText(pasteText, standardBatchSize, outputUnit);
     if (importedItems.length > 0) {
       const hasRealRows = items.some((item) => item.materialName.trim() || item.materialCode.trim());
       if (!hasRealRows) {
@@ -140,7 +143,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
             </span>
             {invalidDraftLineCount > 0 ? (
               <span className="rounded-full bg-rose-100 px-3 py-1 text-[11px] font-black text-rose-700 dark:bg-rose-900/30 dark:text-rose-200">
-                {invalidDraftLineCount} 行会被保存过滤：需补单耗或百分比
+                {massErrorLineCount > 0 ? `${massErrorLineCount} 行质量换算错误：必须修正后才能保存` : `${invalidDraftLineCount} 行会被保存过滤：需补单耗或百分比`}
               </span>
             ) : null}
             <span className={`rounded-full px-3 py-1 text-[11px] font-black ${percentageWarning ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200' : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200'}`}>
@@ -224,6 +227,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
         </div>
       )}
       <ProductionBomMobileRows
+        outputUnit={outputUnit}
         items={items}
         standardBatchSize={standardBatchSize}
         showAdvanced={showFullColumns}
@@ -264,15 +268,16 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
               const dosageValue = normalizeDosageValue(item.dosageMode);
               const percentageValue = toFiniteNumber(item.percentage);
               const hasIdentity = hasItemIdentity(item);
-              const effectiveQuantity = getEffectiveBomQuantityPerUnit(item);
+              const effectiveQuantity = getEffectiveBomQuantityPerUnit(item, outputUnit);
+              const massError = getBomMassConversionError(item, outputUnit);
               const isInvalidDraftLine = hasIdentity && effectiveQuantity <= 0;
               const autoUnitConsumption =
-                dosageValue === 'percentage' && percentageValue > 0
-                  ? formatDecimal(getPerUnitFromPercentage(percentageValue))
+                isPercentageDosage(dosageValue) && percentageValue > 0
+                  ? formatDecimal(effectiveQuantity)
                   : '';
               const standardBatchQuantity =
-                dosageValue === 'percentage' && percentageValue > 0 && standardBatchSize > 0
-                  ? formatDecimal((standardBatchSize * percentageValue) / 100)
+                isPercentageDosage(dosageValue) && percentageValue > 0 && standardBatchSize > 0
+                  ? formatDecimal(standardBatchSize * effectiveQuantity)
                   : '';
               const materialCode = item.materialCode.trim();
               const operatingMetrics = getBomOperatingMetrics({
@@ -282,7 +287,7 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                 isInvalidDraftLine,
                 materialCodeCount: materialCode ? materialCodeCounts.get(materialCode) || 0 : 0,
               });
-              const displayQuantityPerUnit = dosageValue === 'percentage' && percentageValue > 0 ? autoUnitConsumption : item.quantityPerUnit;
+              const displayQuantityPerUnit = isPercentageDosage(dosageValue) && percentageValue > 0 ? autoUnitConsumption : item.quantityPerUnit;
               return (
                 <tr
                   key={index}
@@ -348,13 +353,15 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                       }}
                       className={commonSelectClass}
                     >
+                      {!DOSAGE_MODE_OPTIONS.some(option => option.value === dosageValue) ? <option value={dosageValue} disabled>未知规则：{dosageValue}</option> : null}
                       {DOSAGE_MODE_OPTIONS.map((option) => (
                         <option key={option.value} value={option.value}>{option.label}</option>
                       ))}
                     </select>
+                    {massError ? <div role="alert" className="text-xs text-rose-700">{massError}</div> : null}
                   </td>
                   <td className="min-w-[150px] px-2 py-2.5 align-top">
-                    {dosageValue === 'percentage' ? (
+                    {isPercentageDosage(dosageValue) ? (
                       <div>
                       <input
                         data-testid={`production-bom-row-${index}-percentage`}
@@ -363,15 +370,15 @@ export const ProductionBomLineGrid: React.FC<Props> = ({ items, setItems, standa
                         value={item.percentage}
                         onChange={(e) => updateItem(index, { percentage: e.target.value })}
                         onBlur={() => {
-                          if (dosageValue === 'percentage' && percentageValue > 0) {
-                            updateItem(index, { quantityPerUnit: getPerUnitFromPercentage(percentageValue).toString() });
+                          if (isPercentageDosage(dosageValue) && percentageValue > 0) {
+                            updateItem(index, { quantityPerUnit: effectiveQuantity.toString() });
                           }
                         }}
                         placeholder="占比，例如 35"
                         className={`${commonInputClass} border-blue-200 bg-blue-50/30 text-right font-mono text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-300`}
                       />
                         <div className="mt-1 text-xs font-bold leading-4 text-blue-600 dark:text-blue-300">
-                          自动单耗 {autoUnitConsumption || '--'}；本批用量 {standardBatchQuantity ? `${standardBatchQuantity} ${item.unit || 'kg'}` : '--'}
+                          自动单耗 {autoUnitConsumption || '--'} {item.unit}/{outputUnit}；本批用量 {standardBatchQuantity ? `${standardBatchQuantity} ${item.unit || 'kg'}` : '--'}
                         </div>
                       </div>
                     ) : (

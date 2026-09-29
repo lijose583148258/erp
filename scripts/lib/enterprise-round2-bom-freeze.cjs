@@ -90,6 +90,7 @@ async function bomFreezeProbe(ctx, signal) {
       assert.equal(counter.status, 409); assert.deepEqual(await readBom(bom.id), finalBom);
       evidence.cases.push({ name: `first work order versus ${operation}`, race, finalBom, counter });
     }
+    evidence.history.massV1 = await require('./enterprise-round2-mass-conversion.cjs').massConversionProbe(ctx, signal);
     evidence.history.unitSafety = await require('./enterprise-round2-unit-safety.cjs').unitSafetyProbe(ctx, signal);
     return evidence;
   } catch (error) { error.evidence ||= evidence; throw error; }
@@ -133,6 +134,7 @@ async function bomHistoryBrowser(ctx, history, signal) {
     unitFormActive = true;
     evidence.unitSafety = await require('./enterprise-round2-unit-safety.cjs').unitSafetyBrowser(ctx, page, history.unitSafety.browserFixture, dir, signal);
     unitFormActive = false;
+    evidence.massV1 = await require('./enterprise-round2-mass-conversion.cjs').massConversionBrowser(ctx, page, history.massV1.browserFixture, dir, signal);
     assert.deepEqual(expectedUnitResponses, [409]);
     assert.equal(evidence.errors.length, 0, JSON.stringify(evidence.errors)); return evidence;
   } catch (error) { error.evidence ||= evidence; throw error; }

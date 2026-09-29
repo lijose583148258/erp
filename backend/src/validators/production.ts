@@ -1,3 +1,4 @@
+import { MASS_PERCENTAGE_V1 } from '../domain/production-mass-basis';
 import { z } from 'zod';
 
 const adjustmentDomainSchema = z.enum(['finance', 'production', 'inventory']);
@@ -67,7 +68,7 @@ const productionBomItemSchema = z.object({
   materialName: z.string().trim().optional().nullable(),
   materialCode: z.string().trim().optional().nullable(),
   ingredientRole: z.string().trim().optional().nullable(),
-  dosageMode: z.string().trim().optional().nullable(),
+  dosageMode: z.enum(['fixed', 'percentage', MASS_PERCENTAGE_V1]).optional().nullable(),
   percentage: z.coerce.number().nonnegative().max(100).optional().nullable(),
   quantityPerUnit: z.coerce.number().positive(),
   unit: z.string().trim().min(1),
@@ -86,7 +87,7 @@ const productionBomItemSchema = z.object({
     });
   }
 
-  if (value.dosageMode === 'percentage') {
+  if (value.dosageMode === 'percentage' || value.dosageMode === MASS_PERCENTAGE_V1) {
     if (value.percentage === undefined || value.percentage === null || value.percentage <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -237,7 +238,7 @@ export const createProductionBomSchema = z.object({
       });
     }
 
-    const percentageItems = (value.items || []).filter(item => item.dosageMode === 'percentage');
+    const percentageItems = (value.items || []).filter(item => item.dosageMode === 'percentage' || item.dosageMode === MASS_PERCENTAGE_V1);
     if (percentageItems.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,

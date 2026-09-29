@@ -400,7 +400,7 @@ async function main() {
   const bomContext = { request, dataOf, actors, prisma, runId, ensureReleasedMaterial, urls, reportPath };
   const frozen = await runner.run('bom-revision-freeze', signal => bomFreezeProbe(bomContext, signal), { timeoutMs: 90000 });
   if (process.env.ROUND2_BROWSER === 'true') {
-    if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 60000 });
+    if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 90000 });
     else runner.block('bom-history-browser', 'BOM API chain did not complete; no browser pass can be inferred');
   }
   const qc = await runner.run('qc-quarantine-blocks-issue', signal => qcIsolationProbe(bomContext, signal), { timeoutMs: 120000 });

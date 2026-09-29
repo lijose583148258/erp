@@ -4,7 +4,9 @@ import {
   CHEMICAL_ROLE_OPTIONS,
   DOSAGE_MODE_OPTIONS,
   formatDecimal,
-  getPerUnitFromPercentage,
+  getEffectiveBomQuantityPerUnit,
+  getBomMassConversionError,
+  isPercentageDosage,
   normalizeDosageValue,
   normalizeRoleValue,
   toFiniteNumber,
@@ -15,6 +17,7 @@ import { MaterialLookupField } from './MaterialLookupField';
 type Props = {
   items: BomItemDraft[];
   standardBatchSize: number;
+  outputUnit?: string;
   showAdvanced: boolean;
   activeRowIndex: number | null;
   setActiveRowIndex: (index: number) => void;
@@ -49,6 +52,7 @@ function MobileField({
 export function ProductionBomMobileRows({
   items,
   standardBatchSize,
+  outputUnit = 'kg',
   showAdvanced,
   activeRowIndex,
   setActiveRowIndex,
@@ -62,14 +66,15 @@ export function ProductionBomMobileRows({
         const dosageMode = normalizeDosageValue(item.dosageMode);
         const percentage = toFiniteNumber(item.percentage);
         const autoUnitConsumption =
-          dosageMode === 'percentage' && percentage > 0
-            ? formatDecimal(getPerUnitFromPercentage(percentage))
+          isPercentageDosage(dosageMode) && percentage > 0
+            ? formatDecimal(getEffectiveBomQuantityPerUnit(item, outputUnit))
             : '';
         const batchQuantity =
-          dosageMode === 'percentage' && percentage > 0 && standardBatchSize > 0
-            ? formatDecimal((standardBatchSize * percentage) / 100)
+          isPercentageDosage(dosageMode) && percentage > 0 && standardBatchSize > 0
+            ? formatDecimal(standardBatchSize * getEffectiveBomQuantityPerUnit(item, outputUnit))
             : '';
 
+        const massError = getBomMassConversionError(item, outputUnit);
         return (
           <section
             key={index}
@@ -81,6 +86,7 @@ export function ProductionBomMobileRows({
                 : 'border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900/60'
             }`}
           >
+            {massError ? <p role="alert">{massError}</p> : null}
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-black text-slate-900 dark:text-white">第 {index + 1} 条原料</div>
@@ -150,25 +156,26 @@ export function ProductionBomMobileRows({
                   onChange={(event) => updateItem(index, { dosageMode: normalizeDosageValue(event.target.value) })}
                   className={inputClass}
                 >
+                  {!DOSAGE_MODE_OPTIONS.some(option => option.value === dosageMode) ? <option value={dosageMode} disabled>未知规则：{dosageMode}</option> : null}
                   {DOSAGE_MODE_OPTIONS.map((option) => (
                     <option key={option.value} value={option.value}>{option.label}</option>
                   ))}
                 </select>
               </MobileField>
-              <MobileField label={dosageMode === 'percentage' ? '配方占比 %' : '每 1 单位成品用量'} required>
+              <MobileField label={isPercentageDosage(dosageMode) ? '配方占比 %' : '每 1 单位成品用量'} required>
                 <input
                   inputMode="decimal"
                   aria-label={`移动端第 ${index + 1} 条原料的用量值`}
-                  value={dosageMode === 'percentage' ? item.percentage : item.quantityPerUnit}
+                  value={isPercentageDosage(dosageMode) ? item.percentage : item.quantityPerUnit}
                   onChange={(event) =>
                     updateItem(
                       index,
-                      dosageMode === 'percentage'
+                      isPercentageDosage(dosageMode)
                         ? { percentage: event.target.value }
                         : { quantityPerUnit: event.target.value },
                     )
                   }
-                  placeholder={dosageMode === 'percentage' ? '例如 35' : '例如 0.35'}
+                  placeholder={isPercentageDosage(dosageMode) ? '例如 35' : '例如 0.35'}
                   className={`${inputClass} text-right font-mono`}
                 />
               </MobileField>
@@ -194,9 +201,9 @@ export function ProductionBomMobileRows({
               </div>
             </div>
 
-            {dosageMode === 'percentage' && percentage > 0 ? (
+            {isPercentageDosage(dosageMode) && percentage > 0 ? (
               <div className="mt-3 rounded-xl bg-blue-50 px-3 py-2 text-xs font-bold text-blue-700 dark:bg-blue-950/30 dark:text-blue-200">
-                系统换算：单位单耗 {autoUnitConsumption || '--'}
+                系统换算：单位单耗 {autoUnitConsumption || '--'} {item.unit}/{outputUnit}
                 {batchQuantity ? `；标准批量用量 ${batchQuantity} ${item.unit || 'kg'}` : ''}
               </div>
             ) : null}

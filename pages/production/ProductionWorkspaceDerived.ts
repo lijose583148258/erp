@@ -156,14 +156,14 @@ export const buildProductionDeskItems = (
   count: tab.id === 'bom' ? bomCount : tab.id === 'workOrders' ? workOrderCount : batchCount,
 }));
 
-const buildBomDraftRejectionReason = (item: BomItemDraft) => {
+const buildBomDraftRejectionReason = (item: BomItemDraft, outputUnit = 'kg') => {
   if (!item.materialName.trim() && !item.materialCode.trim()) {
     return '缺少物料名或保密代号';
   }
 
   const dosageMode = item.dosageMode || 'fixed';
   const percentageValue = Number(item.percentage || 0);
-  const quantityPerUnit = getEffectiveBomQuantityPerUnit(item);
+  const quantityPerUnit = getEffectiveBomQuantityPerUnit(item, outputUnit);
   if (dosageMode === 'percentage') {
     if (!(percentageValue > 0)) return '百分比模式下百分比必须大于 0';
     if (!(quantityPerUnit > 0)) return '百分比模式下单位单耗必须大于 0';
@@ -177,23 +177,23 @@ const buildBomDraftRejectionReason = (item: BomItemDraft) => {
   return '无效明细行';
 };
 
-export const buildEffectiveBomItemsPayload = (bomItems: BomItemDraft[]) => {
+export const buildEffectiveBomItemsPayload = (bomItems: BomItemDraft[], outputUnit = 'kg') => {
   const rejectedRows: BomRejectedRow[] = [];
   const items: ProductionBomItem[] = [];
 
   bomItems.forEach((item, index) => {
     const materialName = item.materialName.trim();
     const materialCode = item.materialCode.trim();
-    const quantityPerUnit = getEffectiveBomQuantityPerUnit(item);
+    const quantityPerUnit = getEffectiveBomQuantityPerUnit(item, outputUnit);
     const hasIdentity = Boolean(materialName || materialCode);
     // Empty template rows are available input capacity, not rejected business
     // records. Only partially filled rows should interrupt the operator.
     if (!hasIdentity) return;
-    if (quantityPerUnit <= 0 || !isEffectiveBomItemDraft(item)) {
+    if (quantityPerUnit <= 0 || !isEffectiveBomItemDraft(item, outputUnit)) {
       rejectedRows.push({
         index: index + 1,
         materialCode: materialCode || materialName,
-        reason: buildBomDraftRejectionReason(item),
+        reason: buildBomDraftRejectionReason(item, outputUnit),
       });
       return;
     }
@@ -222,8 +222,9 @@ export const buildEffectiveBomItemsPayload = (bomItems: BomItemDraft[]) => {
 export const buildBomDraftPreviewSummary = (
   bomItems: BomItemDraft[],
   standardBatchSize: number,
+  outputUnit = 'kg',
 ): BomDraftPreviewSummary => {
-  const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
+  const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems, outputUnit);
   const percentageTotal = items.reduce((sum, item) => sum + Number(item.percentage || 0), 0);
   return {
     totalDraftRowCount: bomItems.length,

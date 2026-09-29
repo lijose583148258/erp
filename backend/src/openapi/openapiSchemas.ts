@@ -268,7 +268,7 @@ export const openApiSchemas = {
       materialName: { type: 'string', nullable: true },
       materialCode: { type: 'string', nullable: true },
       ingredientRole: { type: 'string', nullable: true },
-      dosageMode: { type: 'string', nullable: true },
+      dosageMode: { type: 'string', enum: ['fixed', 'percentage', 'mass_percentage_v1'], nullable: true, description: 'Explicit mass_percentage_v1 freezes unit/percentage/quantityPerUnit; legacy percentage is not reinterpreted.' },
       percentage: { type: 'number', minimum: 0, maximum: 100, nullable: true },
       quantityPerUnit: { type: 'number', exclusiveMinimum: 0 },
       unit: { type: 'string', minLength: 1 },

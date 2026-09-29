@@ -1,3 +1,4 @@
+import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 import prisma from '../config/database';
 import { assertBomPercentageUnits } from './production-unit-safety.service';
 
@@ -306,7 +307,9 @@ export class ProductionQueryService {
     const suggestions = [];
 
     for (const item of workOrder.bom.items) {
-      const requiredQty = resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
+      const requiredQty = item.dosageMode === MASS_PERCENTAGE_V1
+        ? massRequiredQuantityV1(item.quantityPerUnit, targetQuantity, item.lossRate)
+        : resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
       if (requiredQty <= 0) continue;
       const lookupTokens = normalizeMaterialLookupTokens((item as any).materialCode, item.materialName);
       const lookupWhere = item.materialId

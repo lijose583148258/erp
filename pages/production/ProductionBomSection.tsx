@@ -155,7 +155,7 @@ export function ProductionBomSection({
 }: ProductionBomSectionProps) {
   const isBomMasterReady = Boolean(bomProductName.trim() && bomVersion.trim() && bomOutputUnit.trim());
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
-  const bomDraftPreview = React.useMemo(() => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize), [bomItems, numericStandardBatchSize]);
+  const bomDraftPreview = React.useMemo(() => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize, bomOutputUnit), [bomItems, numericStandardBatchSize, bomOutputUnit]);
   const advancedSummary = [
     bomDensity.trim() ? `密度 ${bomDensity}` : '',
     bomSolidContent.trim() ? `固含 ${bomSolidContent}%` : '',
@@ -320,7 +320,7 @@ export function ProductionBomSection({
               当前配方百分比合计：{bomPercentageSummary.toFixed(2)}%。百分比只代表配方占比；系统会换算为“每 1 {bomOutputUnit || '单位'} 成品的单位单耗”，标准批量只用于展示批量用量，避免完工扣料被重复放大。
             </div>
           ) : null}
-          {bomFormulationMode === 'fixed' && bomItems.some(item => item.dosageMode === 'percentage' && Number(item.percentage || 0) > 0) ? (
+          {bomFormulationMode === 'fixed' && bomItems.some(item => ['percentage', 'mass_percentage_v1'].includes(item.dosageMode) && Number(item.percentage || 0) > 0) ? (
             <div className="rounded-[24px] border border-blue-200 bg-blue-50/80 px-4 py-3 text-xs font-bold leading-6 text-blue-700 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
               当前整体按固定单耗核算，但部分原料行使用百分比录入。保存时这些行会换算成单位单耗；百分比行小计不要求等于 100%。如果整份配方都按比例组成，请把上方“配方整体核算模式”改为百分比配方。
             </div>
@@ -343,6 +343,7 @@ export function ProductionBomSection({
             </div>
           ) : null}
           <ProductionBomLineGrid
+            outputUnit={bomOutputUnit}
             items={bomItems}
             setItems={value => {
               clearBomFormError('items');
@@ -429,7 +430,7 @@ export function ProductionBomSection({
           </table>
         </div>
         {selectedBom ? (
-          <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-4">
+          <div data-testid="production-bom-readback" className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-4">
             <div className="flex items-start justify-between gap-4">
               <div>
                 <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">已选配方</div>

@@ -1,3 +1,4 @@
+import { getBomMassConversionError } from './production/productionBomLineModel';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
@@ -112,11 +113,14 @@ const ProductionWorkspaceV2 = () => {
     bomKeyword,
     bomItems,
     bomStandardBatchSize,
+    bomOutputUnit,
   });
 
   const handleCreateBom = async () => {
     if (bomSaving) return;
-    const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
+    const massError = bomItems.map(item => getBomMassConversionError(item, bomOutputUnit)).find(Boolean);
+    if (massError) { notify('error', massError); return; }
+    const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems, bomOutputUnit);
     const expectedDraftSummary = buildExpectedBomDraftSummary(items);
     const qualityCharacteristics = bomQualityCharacteristics
       .filter(row => row.code.trim() || row.name.trim())

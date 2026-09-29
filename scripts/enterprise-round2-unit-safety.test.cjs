@@ -28,3 +28,16 @@ test('unit safety is cumulative BOM coverage, not a false promotion of conversio
   const baseline = JSON.parse(read('scripts/config/enterprise-regression-baseline-v1.json'));
   assert(!JSON.stringify(baseline).includes('mass-packaging-density-conversion'));
 });
+
+
+test('explicit mass-v1 probes remain source-only loadable and cumulative', () => {
+  const { massConversionProbe, massConversionBrowser } = require('./lib/enterprise-round2-mass-conversion.cjs');
+  assert.equal(typeof massConversionProbe, 'function'); assert.equal(typeof massConversionBrowser, 'function');
+  const bom = fs.readFileSync(path.join(__dirname, 'lib/enterprise-round2-bom-freeze.cjs'), 'utf8');
+  assert.match(bom, /massConversionProbe\(ctx, signal\)/); assert.match(bom, /massConversionBrowser\(ctx, page, history.massV1.browserFixture/);
+});
+test('mass rule, form and execution changes trigger cloud regression', () => {
+  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  const paths = workflow.split('  pull_request:')[1].split('  push:')[0];
+  for (const file of ['backend/src/domain/production-mass-basis*.ts', 'scripts/lib/enterprise-round2-mass-conversion.cjs', 'backend/src/services/production-completion.validation.ts', 'backend/src/validators/production.ts', 'pages/production/ProductionBomLineGrid.tsx', 'pages/production/ProductionBomMobileRows.tsx', 'pages/production/productionBomLineModel.ts', 'pages/ProductionWorkspaceV2.tsx']) assert(paths.includes("'" + file + "'"), file);
+});
