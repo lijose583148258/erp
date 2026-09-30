@@ -24,6 +24,7 @@ model MaterialDensityRevision {
   retiredBy Int? @map("retired_by")
   retiredAt DateTime? @map("retired_at")
   retireReason String? @map("retire_reason")
+  bomItems ProductionBomItem[]
   createdAt DateTime @default(now()) @map("created_at")
   updatedAt DateTime @updatedAt @map("updated_at")
   @@unique([materialId, batchId, specCode, version], map: "material_density_revisions_identity_key")

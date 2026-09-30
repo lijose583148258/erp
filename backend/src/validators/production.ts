@@ -1,5 +1,6 @@
 import { PACKAGING_PERCENTAGE_V1 } from '../domain/production-packaging-basis';
 import { MASS_PERCENTAGE_V1 } from '../domain/production-mass-basis';
+import { DENSITY_PERCENTAGE_V1 } from '../domain/production-density-basis';
 import { z } from 'zod';
 
 const adjustmentDomainSchema = z.enum(['finance', 'production', 'inventory']);
@@ -69,7 +70,8 @@ const productionBomItemSchema = z.object({
   materialName: z.string().trim().optional().nullable(),
   materialCode: z.string().trim().optional().nullable(),
   ingredientRole: z.string().trim().optional().nullable(),
-  dosageMode: z.enum(['fixed', 'percentage', MASS_PERCENTAGE_V1, PACKAGING_PERCENTAGE_V1]).optional().nullable(),
+  dosageMode: z.enum(['fixed', 'percentage', MASS_PERCENTAGE_V1, PACKAGING_PERCENTAGE_V1, DENSITY_PERCENTAGE_V1]).optional().nullable(),
+  densityRevisionId: z.coerce.number().int().positive().optional().nullable(),
   percentage: z.coerce.number().nonnegative().max(100).optional().nullable(),
   quantityPerUnit: z.coerce.number().positive(),
   unit: z.string().trim().min(1),
@@ -88,7 +90,7 @@ const productionBomItemSchema = z.object({
     });
   }
 
-  if (value.dosageMode === 'percentage' || value.dosageMode === MASS_PERCENTAGE_V1 || value.dosageMode === PACKAGING_PERCENTAGE_V1) {
+  if (value.dosageMode === 'percentage' || value.dosageMode === MASS_PERCENTAGE_V1 || value.dosageMode === PACKAGING_PERCENTAGE_V1 || value.dosageMode === DENSITY_PERCENTAGE_V1) {
     if (value.percentage === undefined || value.percentage === null || value.percentage <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -97,7 +99,20 @@ const productionBomItemSchema = z.object({
       });
     }
   }
+  if (value.dosageMode === DENSITY_PERCENTAGE_V1 && !value.densityRevisionId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['densityRevisionId'], message: '密度换算行必须选择已批准的真实批次密度依据' });
+  }
+  if (value.dosageMode !== DENSITY_PERCENTAGE_V1 && value.densityRevisionId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['densityRevisionId'], message: '仅密度换算 v1 行可以引用密度依据' });
+  }
 });
+
+const densityConsumptionSchema = z.object({
+  densityRevisionId: z.coerce.number().int().positive(),
+  temperatureC: z.string().trim().min(1).max(24),
+  pressureKpaAbs: z.string().trim().min(1).max(24),
+  compositionReference: z.string().trim().min(1).max(240),
+}).strict();
 
 const productionStepInputSchema = z.object({
   stepNo: z.coerce.number().int().positive().optional(),
@@ -240,7 +255,7 @@ export const createProductionBomSchema = z.object({
       });
     }
 
-    const percentageItems = (value.items || []).filter(item => item.dosageMode === 'percentage' || item.dosageMode === MASS_PERCENTAGE_V1 || item.dosageMode === PACKAGING_PERCENTAGE_V1);
+    const percentageItems = (value.items || []).filter(item => item.dosageMode === 'percentage' || item.dosageMode === MASS_PERCENTAGE_V1 || item.dosageMode === PACKAGING_PERCENTAGE_V1 || item.dosageMode === DENSITY_PERCENTAGE_V1);
     if (percentageItems.length === 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -278,7 +293,8 @@ export const updateProductionWorkOrderStatusSchema = z.object({
   consumptionRecords: z.array(z.object({
     stockBalanceId: z.number().int().positive(),
     quantity: z.number().positive(),
-  })).optional(),
+    densityUse: densityConsumptionSchema.optional(),
+  }).strict()).optional(),
 }).strict();
 
 export const updateProductionStepSchema = z.object({

@@ -1,6 +1,6 @@
-﻿import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { AlertCircle, AlertTriangle, Layers3, Save, X } from 'lucide-react';
-import { productionService } from '../../services/production.service';
+import { productionService, type ProductionConsumptionRecord } from '../../services/production.service';
 
 type Suggestion = {
   materialName: string;
@@ -25,6 +25,33 @@ type CompletionIssue = {
   unit?: string;
   toleranceRate?: number;
   message?: string;
+};
+
+type FrozenDensityBasis = {
+  revisionId: number;
+  batchNo: string;
+  temperatureC: string;
+  pressureKpaAbs: string;
+  compositionReference: string;
+  densityKgPerL: string;
+};
+
+type DensityUseDraft = Pick<FrozenDensityBasis, 'temperatureC' | 'pressureKpaAbs' | 'compositionReference'>;
+
+const parseDensityBases = (json?: string | null): FrozenDensityBasis[] => {
+  if (!json) return [];
+  try {
+    const parsed: unknown = JSON.parse(json);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((row): row is FrozenDensityBasis => Boolean(row)
+      && Number.isSafeInteger((row as FrozenDensityBasis).revisionId)
+      && typeof (row as FrozenDensityBasis).batchNo === 'string'
+      && typeof (row as FrozenDensityBasis).temperatureC === 'string'
+      && typeof (row as FrozenDensityBasis).pressureKpaAbs === 'string'
+      && typeof (row as FrozenDensityBasis).compositionReference === 'string');
+  } catch {
+    return [];
+  }
 };
 
 const formatCompletionIssue = (issue: CompletionIssue) => {
@@ -54,14 +81,16 @@ type Props = {
   workOrderId: number;
   productName: string;
   targetQuantity: number;
+  densitySnapshotJson?: string | null;
   onClose: () => void;
-  onConfirm: (records: { stockBalanceId: number; quantity: number }[]) => Promise<void>;
+  onConfirm: (records: ProductionConsumptionRecord[]) => Promise<void>;
 };
 
 export const CompleteWorkOrderModal: React.FC<Props> = ({
   workOrderId,
   productName,
   targetQuantity,
+  densitySnapshotJson,
   onClose,
   onConfirm,
 }) => {
@@ -71,6 +100,16 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
   const [error, setError] = useState('');
   const [issues, setIssues] = useState<CompletionIssue[]>([]);
   const [records, setRecords] = useState<Record<number, number>>({});
+  const [densityUses, setDensityUses] = useState<Record<number, DensityUseDraft>>({});
+  const densityBases = useMemo(() => parseDensityBases(densitySnapshotJson), [densitySnapshotJson]);
+  const densityBasisByStock = useMemo(() => {
+    const matches = new Map<number, FrozenDensityBasis>();
+    suggestions.forEach(suggestion => suggestion.pickList.forEach(pick => {
+      const basis = densityBases.find(row => row.batchNo === pick.batchNo);
+      if (basis) matches.set(pick.stockBalanceId, basis);
+    }));
+    return matches;
+  }, [densityBases, suggestions]);
 
   useEffect(() => {
     const fetchPreview = async () => {
@@ -80,14 +119,18 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
         setSuggestions(data);
 
         const initialRecords: Record<number, number> = {};
+        const initialDensityUses: Record<number, DensityUseDraft> = {};
         data.forEach((suggestion: Suggestion) => {
           suggestion.pickList.forEach((pick) => {
             if (pick.deductQty > 0) {
               initialRecords[pick.stockBalanceId] = pick.deductQty;
             }
+            const basis = densityBases.find(row => row.batchNo === pick.batchNo);
+            if (basis) initialDensityUses[pick.stockBalanceId] = { temperatureC: '', pressureKpaAbs: '', compositionReference: '' };
           });
         });
         setRecords(initialRecords);
+        setDensityUses(initialDensityUses);
       } catch (err: any) {
         setError(err.message || '获取原料扣减建议失败');
       } finally {
@@ -96,11 +139,18 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
     };
 
     fetchPreview();
-  }, [workOrderId]);
+  }, [densityBases, workOrderId]);
 
   const handleDeductChange = (stockBalanceId: number, value: string) => {
     const num = Number(value);
     setRecords((prev) => ({ ...prev, [stockBalanceId]: num >= 0 ? num : 0 }));
+  };
+
+  const handleDensityUseChange = (stockBalanceId: number, field: keyof DensityUseDraft, value: string) => {
+    setDensityUses(previous => ({
+      ...previous,
+      [stockBalanceId]: { ...(previous[stockBalanceId] || { temperatureC: '', pressureKpaAbs: '', compositionReference: '' }), [field]: value },
+    }));
   };
 
   const handleSubmit = async () => {
@@ -110,10 +160,24 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
       setIssues([]);
 
       const payload = Object.entries(records)
-        .map(([stockBalanceId, quantity]) => ({
-          stockBalanceId: Number(stockBalanceId),
-          quantity: Number(quantity),
-        }))
+        .map(([stockBalanceId, quantity]) => {
+          const numericStockId = Number(stockBalanceId);
+          const basis = densityBasisByStock.get(numericStockId);
+          const actual = densityUses[numericStockId];
+          if (basis && Number(quantity) > 0 && (!actual?.temperatureC.trim() || !actual?.pressureKpaAbs.trim() || !actual?.compositionReference.trim())) {
+            throw new Error(`批次 ${basis.batchNo} 的实际温度、绝对压力和组分/条件必须逐项填写，不能自动带入。`);
+          }
+          return {
+            stockBalanceId: numericStockId,
+            quantity: Number(quantity),
+            densityUse: basis && actual ? {
+              densityRevisionId: basis.revisionId,
+              temperatureC: actual.temperatureC.trim(),
+              pressureKpaAbs: actual.pressureKpaAbs.trim(),
+              compositionReference: actual.compositionReference.trim(),
+            } : undefined,
+          };
+        })
         .filter((record) => record.quantity > 0);
 
       await onConfirm(payload);
@@ -287,6 +351,20 @@ export const CompleteWorkOrderModal: React.FC<Props> = ({
                             </div>
                           ))}
                         </div>
+                        {suggestion.pickList.map(pick => {
+                          const basis = densityBasisByStock.get(pick.stockBalanceId);
+                          if (!basis) return null;
+                          const actual = densityUses[pick.stockBalanceId] || { temperatureC: '', pressureKpaAbs: '', compositionReference: '' };
+                          return <div key={`${pick.stockBalanceId}-density-use`} data-testid={`production-complete-density-${pick.stockBalanceId}`} className="mt-3 rounded-2xl border border-cyan-200 bg-cyan-50/60 p-4 dark:border-cyan-900/60 dark:bg-cyan-950/20">
+                            <p className="text-xs font-black text-cyan-900 dark:text-cyan-100">密度换算实际条件确认 · 冻结批次 {basis.batchNo}</p>
+                            <p className="mt-1 text-xs leading-5 text-cyan-800 dark:text-cyan-200">冻结依据：{basis.densityKgPerL} kg/L；温度 {basis.temperatureC} °C；绝对压力 {basis.pressureKpaAbs} kPa；组分/条件 {basis.compositionReference}。请逐项填写现场实测/核对值；不一致会被服务端拒绝，且不会扣料或记成本。</p>
+                            <div className="mt-3 grid gap-3 md:grid-cols-3">
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-200">实际温度 °C<input data-testid={`production-complete-density-temperature-${pick.stockBalanceId}`} value={actual.temperatureC} onChange={event => handleDensityUseChange(pick.stockBalanceId, 'temperatureC', event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-cyan-200 bg-white px-2 text-sm dark:border-cyan-900 dark:bg-slate-950" /></label>
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-200">实际绝对压力 kPa<input data-testid={`production-complete-density-pressure-${pick.stockBalanceId}`} value={actual.pressureKpaAbs} onChange={event => handleDensityUseChange(pick.stockBalanceId, 'pressureKpaAbs', event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-cyan-200 bg-white px-2 text-sm dark:border-cyan-900 dark:bg-slate-950" /></label>
+                              <label className="text-xs font-bold text-slate-700 dark:text-slate-200">实际组分 / 条件依据<input data-testid={`production-complete-density-composition-${pick.stockBalanceId}`} value={actual.compositionReference} onChange={event => handleDensityUseChange(pick.stockBalanceId, 'compositionReference', event.target.value)} className="mt-1 min-h-10 w-full rounded-lg border border-cyan-200 bg-white px-2 text-sm dark:border-cyan-900 dark:bg-slate-950" /></label>
+                            </div>
+                          </div>;
+                        })}
                       </div>
                     )}
                   </div>

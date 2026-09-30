@@ -3,6 +3,9 @@
 export const MASS_PERCENTAGE_V1 = 'mass_percentage_v1';
 const scales: Record<string, bigint> = { mg: 1n, g: 1000n, kg: 1000000n, t: 1000000000n,
   毫克: 1n, 克: 1000n, 千克: 1000000n, 公斤: 1000000n, 吨: 1000000000n };
+// Volume scale is millilitres per displayed unit; density itself is explicit kg/L.
+const volumeScales: Record<string, bigint> = { ml: 1n, '毫升': 1n, l: 1000n, '升': 1000n, m3: 1000000n, 'm³': 1000000n, '立方米': 1000000n };
+const token = (unit: string) => unit.trim().toLowerCase();
 const error = (code: string, detail: string): never => { throw new Error(`BOM_UNIT_${code}:${detail}`); };
 const fraction = (value: unknown): [bigint, bigint] => {
   const text = String(value ?? '').trim().replace(/^\./, '0.');
@@ -43,6 +46,17 @@ export const assertMassSnapshotV1 = (item: { unit: string; percentage?: unknown;
   if (Number(item.quantityPerUnit) !== expected) error('MASS_SNAPSHOT_MISMATCH', '冻结的质量换算单耗与 v1 依据不一致，禁止继续生产');
 };
 
+// Convert a mass fraction of a mass output into an actual-volume raw issue. The ratio is
+// deliberately exact: any result that cannot be represented in 6 stock decimals fails.
+export const densityPercentageQuantityV1 = (percentage: unknown, inputVolumeUnit: string, outputMassUnit: string, densityKgPerL: unknown): number => {
+  const input = volumeScales[token(inputVolumeUnit)], output = scales[token(outputMassUnit)];
+  if (typeof input !== 'bigint' || typeof output !== 'bigint') return error('DENSITY_BASIS_REQUIRED', '密度换算 v1 仅支持 mL/L/m3 原料与 mg/g/kg/t 成品');
+  const [n,d] = fraction(percentage), [density,densityDivisor] = fraction(densityKgPerL);
+  if (n <= 0n || n > 100n * d || density <= 0n) return error('PERCENTAGE_INVALID', '密度换算要求占比和 kg/L 密度均为正值');
+  // output is milligrams/unit and input is millilitres/unit. Convert mg → kg → L → mL exactly.
+  return quantityFromRatio(n * output * densityDivisor, d * 100n * 1000n * density * input);
+};
+
 export const packagingPercentageQuantityV1 = (percentage: unknown, inputUnit: string, netMass: unknown, massUnit: string): number => {
   const input = scales[inputUnit.trim().toLowerCase()], output = scales[massUnit.trim().toLowerCase()];
   if (typeof input !== 'bigint' || typeof output !== 'bigint') return error('MASS_BASIS_REQUIRED', '包装净量 v1 仅支持质量原料与质量净量');
@@ -52,4 +66,4 @@ export const packagingPercentageQuantityV1 = (percentage: unknown, inputUnit: st
 };
 
 // Default object also supports the frontend ESM test runner importing this CommonJS package.
-export default { packagingPercentageQuantityV1, MASS_PERCENTAGE_V1, massPercentageQuantityV1, massRequiredQuantityV1, assertMassSnapshotV1 };
+export default { densityPercentageQuantityV1, packagingPercentageQuantityV1, MASS_PERCENTAGE_V1, massPercentageQuantityV1, massRequiredQuantityV1, assertMassSnapshotV1 };

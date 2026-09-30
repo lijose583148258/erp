@@ -43,6 +43,9 @@ model ProductionBomItem {
   bom             ProductionBom @relation(fields: [bomId], references: [id], onDelete: Cascade)
   materialId      Int?          @map("material_id")
   material        Material?     @relation(fields: [materialId], references: [id], onDelete: SetNull)
+  densityRevisionId Int? @map("density_revision_id")
+  densityRevision MaterialDensityRevision? @relation(fields: [densityRevisionId], references: [id], onDelete: Restrict)
+  densitySnapshotJson String? @map("density_snapshot_json")
   materialName    String        @map("material_name")
   materialCode    String?       @map("material_code")
   ingredientRole  String?       @map("ingredient_role")
@@ -60,6 +63,7 @@ model ProductionBomItem {
 
   @@index([bomId])
   @@index([materialId])
+  @@index([densityRevisionId])
   @@map("production_bom_items")
 }
 
@@ -106,6 +110,7 @@ model ProductionWorkOrder {
   actualStartAt    DateTime?         @map("actual_start_at")
   actualEndAt      DateTime?         @map("actual_end_at")
   note             String?
+  densitySnapshotJson String? @map("density_snapshot_json")
   createdBy        Int               @map("created_by")
   creator          User              @relation("ProductionWorkOrderCreator", fields: [createdBy], references: [id])
   createdAt        DateTime          @default(now()) @map("created_at")

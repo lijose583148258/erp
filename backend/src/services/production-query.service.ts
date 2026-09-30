@@ -1,4 +1,5 @@
 import { PACKAGING_PERCENTAGE_V1, assertWholePackages } from '../domain/production-packaging-basis';
+import { DENSITY_PERCENTAGE_V1, parseWorkOrderDensityBases } from '../domain/production-density-basis';
 import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 import prisma from '../config/database';
 import { assertBomPercentageUnits } from './production-unit-safety.service';
@@ -25,6 +26,8 @@ export interface ProductionBomItemInput {
   materialCode?: string | null;
   ingredientRole?: string | null;
   dosageMode?: string | null;
+  densityRevisionId?: number | null;
+  densitySnapshotJson?: string | null;
   percentage?: number | null;
   quantityPerUnit: number;
   unit: string;
@@ -310,7 +313,11 @@ export class ProductionQueryService {
     const suggestions = [];
 
     for (const item of workOrder.bom.items) {
-      const requiredQty = [MASS_PERCENTAGE_V1, PACKAGING_PERCENTAGE_V1].includes(item.dosageMode || '')
+      const densityBasis = item.dosageMode === DENSITY_PERCENTAGE_V1
+        ? parseWorkOrderDensityBases(workOrder.densitySnapshotJson).find(basis => basis.bomItemId === item.id)
+        : undefined;
+      if (item.dosageMode === DENSITY_PERCENTAGE_V1 && !densityBasis) throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:工单缺少冻结批次依据');
+      const requiredQty = [MASS_PERCENTAGE_V1, PACKAGING_PERCENTAGE_V1, DENSITY_PERCENTAGE_V1].includes(item.dosageMode || '')
         ? massRequiredQuantityV1(item.quantityPerUnit, targetQuantity, item.lossRate)
         : resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
       if (requiredQty <= 0) continue;
@@ -328,7 +335,7 @@ export class ProductionQueryService {
           : { productName: item.materialName, quantity: { gt: 0 } };
 
       const stocks = await prisma.stockBalance.findMany({
-        where: lookupWhere,
+        where: { ...lookupWhere, ...(densityBasis ? { batchNo: densityBasis.batchNo, unit: densityBasis.inputUnit } : {}) },
         orderBy: { createdAt: 'asc' }, // FIFO: 先进先出
         include: { location: { include: { warehouse: true } } },
       });

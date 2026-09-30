@@ -18,7 +18,7 @@ for (const [name, corrupt] of [
   ['stale instance', c => { c.readbacks[1].push({ id: 1 }); }],
 ]) test(`unit verifier rejects false green: ${name}`, () => { const c = valid(); corrupt(c); assert.throws(() => assertRejectedUnitCase(c)); });
 
-test('unit safety is cumulative BOM coverage, not a false promotion of conversion obligations', () => {
+test('unit safety remains cumulative BOM coverage after separately reviewed R2-06 promotion', () => {
   const read = file => fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
   const bom = read('scripts/lib/enterprise-round2-bom-freeze.cjs');
   assert.match(bom, /unitSafetyProbe\(ctx, signal\)/);
@@ -26,7 +26,8 @@ test('unit safety is cumulative BOM coverage, not a false promotion of conversio
   const paths = read('.github/workflows/enterprise-cloud-sandbox.yml').split('  pull_request:')[1].split('  push:')[0];
   for (const file of ['scripts/lib/enterprise-round2-unit-safety.cjs', 'backend/src/services/production-unit-safety*.ts', 'backend/src/services/production-query.service.ts', 'pages/production/ProductionBomSection.tsx']) assert(paths.includes(`'${file}'`));
   const baseline = JSON.parse(read('scripts/config/enterprise-regression-baseline-v1.json'));
-  assert(!JSON.stringify(baseline).includes('mass-packaging-density-conversion'));
+  assert(baseline.revisions.at(-1).round2Checks.includes('mass-packaging-density-conversion'));
+  assert(baseline.revisions.at(-1).round2Checks.includes('conversion-cost-conservation'));
 });
 
 
@@ -52,18 +53,22 @@ test('material unit governance probes are source-only and cumulatively wired', (
 });
 
 
-test('approved packaging probes extend cumulative evidence without promoting full R2-06', () => {
+test('approved packaging probes remain cumulative after separately reviewed R2-06 promotion', () => {
   const {packagingProbe,packagingBrowser}=require('./lib/enterprise-round2-packaging.cjs');
   assert.equal(typeof packagingProbe,'function');assert.equal(typeof packagingBrowser,'function');
   const bom=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-bom-freeze.cjs'),'utf8');
   assert(bom.includes('packagingProbe(ctx, signal)'));assert(bom.includes('packagingBrowser(ctx, browser, history.packaging.browserFixture'));
-  const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(!baseline.includes('mass-packaging-density-conversion'));
+  const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(baseline.includes('mass-packaging-density-conversion'));assert(baseline.includes('conversion-cost-conservation'));
 });
 
 
-test('density evidence never promotes conversion and remains cumulatively replayed',()=>{
+test('approved density evidence remains independent, while the actual conversion probe closes the named R2-06 checks',()=>{
   const density=require('./lib/enterprise-round2-density.cjs');assert.equal(typeof density.densityProbe,'function');assert.equal(typeof density.densityBrowser,'function');
+  const conversion=require('./lib/enterprise-round2-density-conversion.cjs');assert.equal(typeof conversion.densityConversionProbe,'function');assert.equal(typeof conversion.assertDensityCostConservation,'function');
+  assert.equal(typeof require('./lib/enterprise-round2-density-conversion-browser.cjs').densityConversionBrowser,'function');
+  const probe=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-density-conversion.cjs'),'utf8');assert(probe.includes('densityConversionBrowser(ctx'));assert(probe.includes('8.0000001'));
   const api=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-qc-isolation.cjs'),'utf8'),ui=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-qc-browser.cjs'),'utf8');assert(api.includes('densityProbe(ctx, signal'));assert(ui.includes('densityBrowser(ctx, browser'));
-  const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(!baseline.includes('mass-packaging-density-conversion'));
-  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');for(const p of ['scripts/lib/enterprise-round2-density.cjs','scripts/material-density-legacy-upgrade-audit.cjs','pages/production/DensityWorkbench.tsx','backend/src/services/material-density.service*.ts'])assert(workflow.includes("'"+p+"'"),p);
+  const audit=fs.readFileSync(path.join(__dirname,'enterprise-round2-audit-v1.cjs'),'utf8');assert(audit.includes("runner.run('mass-packaging-density-conversion'"));assert(audit.includes("runner.run('conversion-cost-conservation'"));
+  const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(baseline.includes('mass-packaging-density-conversion'));assert(baseline.includes('conversion-cost-conservation'));
+  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');for(const p of ['scripts/lib/enterprise-round2-density.cjs','scripts/lib/enterprise-round2-density-conversion.cjs','pages/production/DensityWorkbench.tsx','pages/production/DensityConversionWorkbench.tsx','pages/production/CompleteWorkOrderModal.tsx','backend/src/domain/production-density-basis.ts','backend/src/services/material-density.service*.ts','backend/src/openapi/openapiSchemas.ts'])assert(workflow.includes("'"+p+"'"),p);
 });

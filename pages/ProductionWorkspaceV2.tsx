@@ -1,10 +1,11 @@
 import { DensityWorkbench } from './production/DensityWorkbench';
+import { DensityConversionWorkbench } from './production/DensityConversionWorkbench';
 import { PackagingWorkbench } from './production/PackagingWorkbench';
 import { getBomMassConversionError } from './production/productionBomLineModel';
 import { useEffect, useMemo, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
-import { productionService, ProductionBom, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
+import { productionService, ProductionBom, ProductionConsumptionRecord, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
@@ -319,7 +320,7 @@ const ProductionWorkspaceV2 = () => {
     }
   };
 
-  const handleCompleteWorkOrder = async (consumptionRecords: { stockBalanceId: number; quantity: number }[]) => {
+  const handleCompleteWorkOrder = async (consumptionRecords: ProductionConsumptionRecord[]) => {
     if (!completingWorkOrderId) return;
     setSelectedWorkOrderId(completingWorkOrderId);
     // Validation errors intentionally propagate to CompleteWorkOrderModal,
@@ -469,7 +470,7 @@ const ProductionWorkspaceV2 = () => {
         onTabChange={setActiveDeskTab}
       />
 
-      {activeDeskTab === 'bom' && <><DensityWorkbench /><PackagingWorkbench onCreated={loadData} /></>}
+      {activeDeskTab === 'bom' && <><DensityWorkbench /><DensityConversionWorkbench onCreated={loadData} /><PackagingWorkbench onCreated={loadData} /></>}
       <div className="space-y-8">
         {activeDeskTab === 'bom' ? (
           <ProductionBomSection

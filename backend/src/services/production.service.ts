@@ -35,7 +35,7 @@ export class ProductionService {
     return ProductionMutationService.createWorkOrder(input, createdBy);
   }
 
-  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number }[] | undefined, actor: ProductionStatusActor) {
+  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number; densityUse?: { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; } }[] | undefined, actor: ProductionStatusActor) {
     return ProductionMutationService.updateWorkOrderStatus(id, status, consumptionRecords, actor);
   }
 

@@ -1,6 +1,8 @@
 import { PACKAGING_PERCENTAGE_V1, assertWholePackages, assertPackagingQuality } from '../domain/production-packaging-basis';
-import { packagingPercentageQuantityV1 } from '../domain/production-mass-basis';
+import { packagingPercentageQuantityV1, densityPercentageQuantityV1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
+import { DENSITY_PERCENTAGE_V1, assertDensityBasisCurrent, parseDensityBasis, parseWorkOrderDensityBases, type DensityBasis, type WorkOrderDensityBasis } from '../domain/production-density-basis';
 import { approvedPackagingBasis } from './material-packaging.service';
+import { approvedDensityBasis } from './material-density.service';
 import { MASS_PERCENTAGE_V1, massPercentageQuantityV1 } from '../domain/production-mass-basis';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
@@ -160,14 +162,27 @@ export class ProductionMutationService {
     return withDbRetry(() => prisma.$transaction(async tx => {
       const packagingBasis = input.packagingRevisionId ? await approvedPackagingBasis(tx,input.packagingRevisionId,input.materialId || 0,input.outputUnit) : null;
       if (packagingBasis) assertPackagingQuality(packagingBasis, input.qualityCharacteristics);
-      const draftItems = (input.items || []).map(item => ({ ...item,
-        materialName: String(item.materialName || item.materialCode || '').trim(),
-        materialCode: item.materialCode ? String(item.materialCode).trim() : null,
-        quantityPerUnit: item.dosageMode === PACKAGING_PERCENTAGE_V1 && packagingBasis
-          ? packagingPercentageQuantityV1(item.percentage,item.unit,packagingBasis.netMass,packagingBasis.massUnit)
-          : normalizeBomQuantityPerUnit(item,input.outputUnit),
-        ...(item.dosageMode === PACKAGING_PERCENTAGE_V1 ? { allowedVarianceRate: item.allowedVarianceRate ?? 0 } : {}),
-      })).filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
+      const densityBases = new Map<number, DensityBasis>();
+      for (const [index, item] of (input.items || []).entries()) {
+        if (item.dosageMode !== DENSITY_PERCENTAGE_V1) continue;
+        if (!item.materialId || !item.densityRevisionId) throw new Error('BOM_UNIT_DENSITY_BASIS_REQUIRED:密度换算必须选择物料和已批准批次依据');
+        densityBases.set(index, await approvedDensityBasis(tx, Number(item.densityRevisionId), Number(item.materialId), item.unit));
+      }
+      const draftItems = (input.items || []).map((item,index) => {
+        const densityBasis=densityBases.get(index);
+        return { ...item,
+          materialName: String(item.materialName || item.materialCode || '').trim(),
+          materialCode: item.materialCode ? String(item.materialCode).trim() : null,
+          densityRevisionId: densityBasis?.revisionId ?? null,
+          densitySnapshotJson: densityBasis ? JSON.stringify(densityBasis) : null,
+          quantityPerUnit: item.dosageMode === PACKAGING_PERCENTAGE_V1 && packagingBasis
+            ? packagingPercentageQuantityV1(item.percentage,item.unit,packagingBasis.netMass,packagingBasis.massUnit)
+            : item.dosageMode === DENSITY_PERCENTAGE_V1 && densityBasis
+              ? densityPercentageQuantityV1(item.percentage,item.unit,input.outputUnit,densityBasis.densityKgPerL)
+              : normalizeBomQuantityPerUnit(item,input.outputUnit),
+          ...(item.dosageMode === PACKAGING_PERCENTAGE_V1 || item.dosageMode === DENSITY_PERCENTAGE_V1 ? { allowedVarianceRate: item.allowedVarianceRate ?? 0 } : {}),
+        };
+      }).filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
       const packagingSnapshotJson = packagingBasis ? JSON.stringify(packagingBasis) : null;
       const controlledBom = Boolean(packagingBasis) || (input.status || 'draft') !== 'draft';
       const outputMaterial = await resolveFinishedGoodsMaterial(tx, input.materialId, controlledBom);
@@ -246,6 +261,8 @@ export class ProductionMutationService {
           items: {
             create: items.map(item => ({
               materialId: item.materialId,
+              densityRevisionId: item.densityRevisionId,
+              densitySnapshotJson: item.densitySnapshotJson,
               materialName: item.materialName,
               materialCode: item.materialCode || null,
               ingredientRole: item.ingredientRole || null,
@@ -315,6 +332,17 @@ export class ProductionMutationService {
         : null;
       if (input.bomId && !bom) throw new Error(`Production BOM not found: ${input.bomId}`);
       if (bom) assertBomPercentageUnits(bom);
+      const densityWorkOrderBases: WorkOrderDensityBasis[] = [];
+      for (const item of bom?.items || []) {
+        if (item.dosageMode !== DENSITY_PERCENTAGE_V1) continue;
+        const snapshot = parseDensityBasis(item.densitySnapshotJson);
+        if (!item.densityRevisionId || item.densityRevisionId !== snapshot.revisionId || !item.materialId || item.materialId !== snapshot.materialId) {
+          throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:密度 BOM 行缺少匹配快照');
+        }
+        const current = await approvedDensityBasis(tx, snapshot.revisionId, snapshot.materialId, item.unit);
+        assertDensityBasisCurrent(snapshot, current);
+        densityWorkOrderBases.push({ ...snapshot, bomItemId: item.id, quantityPerUnit: Number(item.quantityPerUnit), inputUnit: item.unit });
+      }
       if (bom?.packagingRevisionId) {
         await approvedPackagingBasis(tx,bom.packagingRevisionId,bom.materialId || 0,bom.outputUnit);
         assertWholePackages(input.targetQuantity);
@@ -354,6 +382,7 @@ export class ProductionMutationService {
           plannedStartAt: toDateOrNull(input.plannedStartAt),
           plannedEndAt: toDateOrNull(input.plannedEndAt),
           note: input.note || null,
+          densitySnapshotJson: densityWorkOrderBases.length ? JSON.stringify(densityWorkOrderBases) : null,
           createdBy,
           steps: {
             create: stepInputs.map((step, index) => ({
@@ -389,7 +418,7 @@ export class ProductionMutationService {
     }), { label: 'create-work-order-freeze-bom' });
   }
 
-  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number; }[] | undefined, actor: ProductionStatusActor) {
+  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number; densityUse?: { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; }; }[] | undefined, actor: ProductionStatusActor) {
     if (!Number.isSafeInteger(actor.userId) || actor.userId <= 0) throw new Error('WORK_ORDER_ACTOR_REQUIRED');
     return withDbRetry(() => prisma.$transaction(async tx => {
       await lockQualityWorkOrder(tx, id);
@@ -430,6 +459,7 @@ export class ProductionMutationService {
         stockBalanceId: number;
         quantity: number;
         stock: Awaited<ReturnType<typeof tx.stockBalance.findUnique>>;
+        densityUse?: { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; };
       }> = [];
 
       if (status === 'completed') {
@@ -445,16 +475,28 @@ export class ProductionMutationService {
           calculateBatchExpiryDate(new Date(), workOrder.bom?.shelfLifeDays);
         }
         const requiredMaterialCount = workOrder.bom?.items?.length || 0;
+        const densityBases = parseWorkOrderDensityBases(workOrder.densitySnapshotJson);
+        const densityItems = (workOrder.bom?.items || []).filter(item => item.dosageMode === DENSITY_PERCENTAGE_V1);
+        if (densityBases.length !== densityItems.length || densityItems.some(item => !densityBases.some(basis => basis.bomItemId === item.id && basis.revisionId === item.densityRevisionId && basis.quantityPerUnit === item.quantityPerUnit))) {
+          throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:工单与冻结 BOM 的密度依据不一致');
+        }
+        if (densityBases.length && consumptionRecords?.length !== 1) throw new Error('BOM_UNIT_DENSITY_BATCH_REQUIRED:密度换算 v1 必须仅提交一条冻结批次领料记录');
         const aggregatedRecords = new Map<number, number>();
+        const densityUses = new Map<number, { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; }>();
 
         for (const record of consumptionRecords || []) {
           const stockBalanceId = Number(record.stockBalanceId);
-          const quantity = roundQuantity(Number(record.quantity));
+          const quantity = densityBases.length ? massRequiredQuantityV1(record.quantity, 1) : roundQuantity(Number(record.quantity));
           if (!Number.isFinite(stockBalanceId) || stockBalanceId <= 0 || !Number.isInteger(stockBalanceId)) {
             throw new Error('Invalid stock balance id in consumption records');
           }
           if (!Number.isFinite(quantity) || quantity <= 0) {
             throw new Error('Invalid material consumption quantity');
+          }
+          if (record.densityUse && !densityBases.length) throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:非密度工单不能提交密度条件');
+          if (record.densityUse) {
+            if (densityUses.has(stockBalanceId)) throw new Error('BOM_UNIT_DENSITY_CONSUMPTION_DUPLICATE:密度换算批次只能提交一条实际条件记录');
+            densityUses.set(stockBalanceId, record.densityUse);
           }
           aggregatedRecords.set(stockBalanceId, roundQuantity((aggregatedRecords.get(stockBalanceId) || 0) + quantity));
         }
@@ -477,9 +519,17 @@ export class ProductionMutationService {
             throw new StockMovementConflictError(`库存不足：${currentStock.productName} / ${currentStock.batchNo}，请先核对库存余额。`);
           }
 
-          validatedConsumptionRecords.push({ stockBalanceId, quantity, stock: currentStock });
+          validatedConsumptionRecords.push({ stockBalanceId, quantity, stock: currentStock, densityUse: densityUses.get(stockBalanceId) });
         }
 
+        for (const basis of densityBases) {
+          const matches = validatedConsumptionRecords.filter(record => record.stock?.materialId === basis.materialId && record.stock?.batchNo === basis.batchNo && record.stock?.unit === basis.inputUnit);
+          if (matches.length !== 1) throw new Error('BOM_UNIT_DENSITY_BATCH_REQUIRED:密度换算必须且只能使用冻结的真实批次');
+          const actual = matches[0].densityUse;
+          if (!actual || actual.densityRevisionId !== basis.revisionId || actual.temperatureC !== basis.temperatureC || actual.pressureKpaAbs !== basis.pressureKpaAbs || actual.compositionReference !== basis.compositionReference) {
+            throw new Error('BOM_UNIT_DENSITY_CONDITIONS_MISMATCH:实际领料条件必须逐项匹配冻结密度依据');
+          }
+        }
         if (requiredMaterialCount > 0) {
           const outputQuantity = Math.max(
             toPositiveNumber(workOrder.producedQuantity),
@@ -708,7 +758,15 @@ export class ProductionMutationService {
       // returned above must not manufacture another successful business event.
       await tx.auditLog.create({ data: {
         userId: actor.userId, action: 'UPDATE_PRODUCTION_WORK_ORDER_STATUS', resource: 'production', resourceId: id,
-        details: JSON.stringify({ workOrderId: id, fromStatus: workOrder.status, status }),
+        details: JSON.stringify({
+          workOrderId: id, fromStatus: workOrder.status, status,
+          ...(status === 'completed' && validatedConsumptionRecords.some(record => Boolean(record.densityUse)) ? { densityActualConditions: validatedConsumptionRecords
+            .filter(record => Boolean(record.densityUse))
+            .map(record => ({
+              stockBalanceId: record.stockBalanceId, materialId: record.stock?.materialId || null, batchNo: record.stock?.batchNo || '',
+              quantity: record.quantity, ...record.densityUse,
+            })) } : {}),
+        }),
         ipAddress: actor.ipAddress || null, userAgent: actor.userAgent || null,
       } });
       return readWorkOrderDetail(tx, id);

@@ -3,11 +3,16 @@ import type { z } from 'zod';
 import prisma from '../config/database';
 import { withDbRetry } from '../utils/dbRetry';
 import { createDensityRevisionSchema, reviewDensityRevisionSchema } from '../validators/material-density';
+import { DENSITY_PERCENTAGE_V1, assertDensityBasis, type DensityBasis } from '../domain/production-density-basis';
 
 type Input = z.infer<typeof createDensityRevisionSchema>;
 const units = new Set(['mg','g','kg','t','毫克','克','千克','公斤','吨','L','l','mL','ml','升','毫升','m3','m³']);
 const audit = (tx: Prisma.TransactionClient, userId: number, action: string, id: number, details: unknown) =>
   tx.auditLog.create({ data: { userId, action, resource: 'material_density', resourceId: id, details: JSON.stringify(details) } });
+
+export async function lockDensityRevision(tx: Prisma.TransactionClient, id: number) {
+  await tx.$executeRaw`UPDATE "material_density_revisions" SET "status" = "status" WHERE "id" = ${id}`;
+}
 
 async function requireIdentity(tx: Prisma.TransactionClient, materialId: number, batchNo: string) {
   const material = await tx.material.findUnique({ where: { id: materialId } });
@@ -20,6 +25,22 @@ async function requireIdentity(tx: Prisma.TransactionClient, materialId: number,
     throw new Error('DENSITY_BATCH_IDENTITY_INVALID:批次必须属于所选物料，且单位必须一致');
   }
   return { material, batch };
+}
+
+export async function approvedDensityBasis(tx: Prisma.TransactionClient, id: number, materialId: number, inputUnit: string): Promise<DensityBasis> {
+  await lockDensityRevision(tx, id);
+  const row = await tx.materialDensityRevision.findUnique({ where: { id } });
+  if (!row || row.status !== 'approved' || !row.approvedBy || !row.approvedAt) throw new Error('BOM_UNIT_DENSITY_NOT_APPROVED:密度依据未获独立批准或已停用');
+  const { material, batch } = await requireIdentity(tx, materialId, row.batchNo);
+  if (batch.id !== row.batchId || material.baseUnit !== row.baseUnit || inputUnit.trim().toLowerCase() !== row.baseUnit.trim().toLowerCase()) {
+    throw new Error('BOM_UNIT_DENSITY_IDENTITY_CHANGED:批次或单位已变化，禁止继续使用密度依据');
+  }
+  const basis: DensityBasis = { rule: DENSITY_PERCENTAGE_V1, revisionId: row.id, materialId: row.materialId, batchId: row.batchId, batchNo: row.batchNo, baseUnit: row.baseUnit,
+    specCode: row.specCode, version: row.version, densityKgPerL: row.densityKgPerL, temperatureC: row.temperatureC, pressureKpaAbs: row.pressureKpaAbs,
+    compositionReference: row.compositionReference, methodReference: row.methodReference, sourceReference: row.sourceReference, measuredAt: row.measuredAt.toISOString(),
+    approvedBy: row.approvedBy, approvedAt: row.approvedAt.toISOString() };
+  assertDensityBasis(basis, materialId, inputUnit);
+  return basis;
 }
 
 export class MaterialDensityService {
@@ -43,7 +64,7 @@ export class MaterialDensityService {
   static transition(materialId: number, id: number, status: 'approved' | 'retired', input: z.infer<typeof reviewDensityRevisionSchema>, userId: number) {
     const { expectedUpdatedAt, reason } = reviewDensityRevisionSchema.parse(input);
     return withDbRetry(() => prisma.$transaction(async tx => {
-      await tx.$executeRaw`UPDATE "material_density_revisions" SET "status" = "status" WHERE "id" = ${id}`;
+      await lockDensityRevision(tx, id);
       const row = await tx.materialDensityRevision.findUnique({ where: { id } });
       if (!row || row.materialId !== materialId) throw new Error('DENSITY_NOT_FOUND');
       if (row.updatedAt.toISOString() !== expectedUpdatedAt) throw new Error('DENSITY_CONCURRENT_UPDATE:依据已更新，请刷新');

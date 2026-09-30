@@ -4,6 +4,17 @@ import api, { ApiRequestOptions } from '../utils/api';
 
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
+export type ProductionDensityUse = {
+  densityRevisionId: number;
+  temperatureC: string;
+  pressureKpaAbs: string;
+  compositionReference: string;
+};
+export type ProductionConsumptionRecord = {
+  stockBalanceId: number;
+  quantity: number;
+  densityUse?: ProductionDensityUse;
+};
 
 export interface ProductionQualityCharacteristic {
   id: number;
@@ -60,6 +71,8 @@ export interface ProductionBomItem {
   materialCode?: string | null;
   ingredientRole?: string | null;
   dosageMode?: string | null;
+  densityRevisionId?: number | null;
+  densitySnapshotJson?: string | null;
   percentage?: number | null;
   quantityPerUnit: number;
   unit: string;
@@ -162,6 +175,7 @@ export interface ProductionWorkOrder {
   actualStartAt: string | null;
   actualEndAt: string | null;
   note: string | null;
+  densitySnapshotJson?: string | null;
   createdBy: number;
   bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null; qualityCharacteristics: ProductionQualityCharacteristic[] } | null;
   productBatch?: {
@@ -259,7 +273,7 @@ export const productionService = {
     return response.data;
   },
 
-  async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: { stockBalanceId: number; quantity: number }[]): Promise<ProductionWorkOrder> {
+  async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: ProductionConsumptionRecord[]): Promise<ProductionWorkOrder> {
     const response = await api.patch<any, { success: boolean; data: ProductionWorkOrder }>(`/production/work-orders/${id}/status`, { status, consumptionRecords });
     return response.data;
   },

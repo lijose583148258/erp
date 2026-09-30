@@ -298,6 +298,9 @@ it('documents controlled packaging without writable frozen snapshots',()=>{
     expect(d.paths[p+'/materials/{id}/packaging/{revisionId}/retire'].post?.responses['404']).toBeDefined();
   }
   expect(d.components.schemas.ProductionBomItemRequest.properties.dosageMode.enum).toContain('packaging_percentage_v1');
+  expect(d.components.schemas.ProductionBomItemRequest.properties.dosageMode.enum).toContain('density_percentage_v1');
+  expect(d.components.schemas.ProductionBomItemRequest.properties.densityRevisionId.minimum).toBe(1);
+  expect(d.components.schemas.ProductionBomItemRequest.properties).not.toHaveProperty('densitySnapshotJson');
   expect(d.components.schemas.ProductionBomCreateRequest.properties.packagingRevisionId.minimum).toBe(1);
   expect(d.components.schemas.ProductionBomCreateRequest.properties).not.toHaveProperty('packagingSnapshotJson');
   expect(d.components.schemas.PackagingRevisionReviewRequest.required).toEqual(['expectedUpdatedAt','reason']);

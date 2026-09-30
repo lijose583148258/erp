@@ -1,4 +1,5 @@
 import { PACKAGING_PERCENTAGE_V1 } from '../domain/production-packaging-basis';
+import { DENSITY_PERCENTAGE_V1 } from '../domain/production-density-basis';
 import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 type ProductionCompletionIssueType =
   | 'missing_material'
@@ -173,7 +174,7 @@ export const assertBomConsumptionCoverage = (
       return;
     }
 
-    const massBasis = item.dosageMode === MASS_PERCENTAGE_V1 || item.dosageMode === PACKAGING_PERCENTAGE_V1;
+    const massBasis = item.dosageMode === MASS_PERCENTAGE_V1 || item.dosageMode === PACKAGING_PERCENTAGE_V1 || item.dosageMode === DENSITY_PERCENTAGE_V1;
     const expected = massBasis ? massRequiredQuantityV1(item.quantityPerUnit, outputQuantity, item.lossRate) : expectedBase * (1 + Number(item.lossRate || 0) / 100);
     const actual = matchedRecords.reduce((sum, record) => sum + Number(record.quantity || 0), 0);
     const toleranceRate = getToleranceRateForBomItem(item);

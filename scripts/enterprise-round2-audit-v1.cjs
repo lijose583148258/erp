@@ -11,6 +11,7 @@ const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-nega
 const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
 const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
 const { qcIsolationProbe } = require('./lib/enterprise-round2-qc-isolation.cjs');
+const { densityConversionProbe, assertDensityCostConservation } = require('./lib/enterprise-round2-density-conversion.cjs');
 const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
@@ -29,7 +30,7 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-brows
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
-implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue');
+implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-packaging-density-conversion', 'conversion-cost-conservation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
 const actors = {};
 runner.report.regression = readRegressionStamp();
@@ -409,6 +410,9 @@ async function main() {
     if (qc) await runner.run('qa-release-traceability-browser', signal => qcReleaseBrowser(bomContext, qc, signal), { timeoutMs: 120000 });
     else runner.block('qa-release-traceability-browser', 'QC isolation API proof did not complete');
   }
+  const densityConversion = await runner.run('mass-packaging-density-conversion', signal => densityConversionProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (densityConversion) await runner.run('conversion-cost-conservation', () => assertDensityCostConservation(densityConversion), { timeoutMs: 30000 });
+  else runner.block('conversion-cost-conservation', 'Approved actual-batch density conversion did not complete');
   const lot = await runner.run('dual-workorder-same-lot', signal => productionLotProbe(bomContext, signal), { timeoutMs: 120000 });
   if (process.env.ROUND2_BROWSER === 'true') {
     if (lot) await runner.run('genealogy-readback', signal => genealogyReadback(bomContext, lot, signal), { timeoutMs: 90000 });
