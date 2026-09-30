@@ -67,6 +67,7 @@ const KNOWN_TABLES = new Set([
   'contract_milestones', 'product_batches', 'adjustment_records',
   'production_boms', 'production_bom_items', 'production_work_orders', 'production_quality_checks',
   'production_quality_characteristics', 'production_quality_measurements', 'batch_genealogy_edges',
+  'production_dispositions',
   'inventory_cost_ledgers',
   'warehouses', 'locations', 'stock_balances', 'stock_entries', 'stock_movements',
   'auth_roles', 'auth_permissions', 'auth_role_permissions', 'auth_policy_migrations',

@@ -1,5 +1,6 @@
 import {
   createProductionBomSchema,
+  createProductionDispositionSchema,
   createProductionQualityCheckSchema,
 } from './production';
 
@@ -27,6 +28,13 @@ const validBom = {
 };
 
 describe('production request validation', () => {
+  it('accepts explicit null for disposition fields irrelevant to physical scrap', () => {
+    expect(createProductionDispositionSchema.safeParse({
+      type: 'scrap', quantity: 1, reason: 'physical loss', idempotencyKey: 'disposition-null-fields',
+      stockBalanceId: 4, sourceDispositionId: null, destinationLocationId: null,
+    }).success).toBe(true);
+  });
+
   it('accepts a controlled chemical formula with 100% material allocation and structured quality limits', () => {
     expect(createProductionBomSchema.safeParse(validBom).success).toBe(true);
   });

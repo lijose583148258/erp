@@ -6,6 +6,8 @@ export const IDEMPOTENT_SOURCE_TYPES = new Set<StockSourceType>([
   'warehouse_transfer',
   'production_consumption',
   'production_output',
+  'production_scrap',
+  'production_rework_return',
   'procurement_receipt',
   'shipping_issue',
   'barter_receipt',
@@ -24,6 +26,8 @@ export const PRODUCT_BATCH_SYNC_SOURCE_TYPES = new Set<StockSourceType>([
   'barter_issue',
   'barter_receipt_reversal',
   'barter_issue_reversal',
+  'production_scrap',
+  'production_rework_return',
 ]);
 
 export const DEFAULT_BATCH_SHELF_LIFE_MS = 365 * 24 * 60 * 60 * 1000;

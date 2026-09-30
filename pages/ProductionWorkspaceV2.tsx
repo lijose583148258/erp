@@ -2,10 +2,11 @@ import { DensityWorkbench } from './production/DensityWorkbench';
 import { DensityConversionWorkbench } from './production/DensityConversionWorkbench';
 import { PackagingWorkbench } from './production/PackagingWorkbench';
 import { getBomMassConversionError } from './production/productionBomLineModel';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
-import { productionService, ProductionBom, ProductionConsumptionRecord, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
+import { productionService, ProductionBom, ProductionConsumptionRecord, ProductionDisposition, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
+import { warehouseService, StockBalanceRecord, WarehouseLocation } from '../services/warehouse.service';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
@@ -73,6 +74,13 @@ const ProductionWorkspaceV2 = () => {
   const [workOrderSaving, setWorkOrderSaving] = useState(false);
   const [qualitySaving, setQualitySaving] = useState(false);
   const [adjustmentSaving, setAdjustmentSaving] = useState(false);
+  const [dispositionStockBalances, setDispositionStockBalances] = useState<StockBalanceRecord[]>([]);
+  const [dispositions, setDispositions] = useState<ProductionDisposition[]>([]);
+  const [destinationLocations, setDestinationLocations] = useState<WarehouseLocation[]>([]);
+  const [selectedStockBalanceId, setSelectedStockBalanceId] = useState<number | null>(null);
+  const [sourceDispositionId, setSourceDispositionId] = useState<number | null>(null);
+  const [destinationLocationId, setDestinationLocationId] = useState<number | null>(null);
+  const dispositionIdempotencyKeyRef = useRef<string | null>(null);
 
   const bomForm = useProductionBomForm();
   const workOrderForm = useProductionWorkOrderForm(createInitialWorkOrderSteps);
@@ -86,6 +94,10 @@ const ProductionWorkspaceV2 = () => {
     () => workOrders.find(item => item.id === completingWorkOrderId) || null,
     [workOrders, completingWorkOrderId],
   );
+  const completedBatchWorkOrder = useMemo(() => {
+    if (!selectedBatch) return null;
+    return workOrders.find(item => item.batchId === selectedBatch.id && item.status === 'completed') || null;
+  }, [selectedBatch, workOrders]);
   const autoFilledWorkOrderProduct = selectedBom?.productName || selectedBatch?.productName || '';
   useProductionUnsavedFormGuards({
     bomForm,
@@ -103,6 +115,36 @@ const ProductionWorkspaceV2 = () => {
 
   useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductNameSilently(selectedBom.productName); }, [selectedBom, setWoProductNameSilently, woProductName]);
   useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductNameSilently(selectedBatch.productName); }, [selectedBatch, setWoProductNameSilently, woProductName]);
+  useEffect(() => {
+    let disposed = false;
+    const loadDispositionContext = async () => {
+      setDispositionStockBalances([]);
+      setDispositions([]);
+      setSelectedStockBalanceId(null);
+      setSourceDispositionId(null);
+      setDestinationLocationId(null);
+      if (!selectedBatch || !completedBatchWorkOrder) return;
+      try {
+        const [stockResult, warehouses, posted] = await Promise.all([
+          warehouseService.listStockBalances({ batchNo: selectedBatch.batchNo, pageSize: 100 }),
+          warehouseService.listWarehouses(),
+          productionService.getWorkOrderDispositions(completedBatchWorkOrder.id),
+        ]);
+        if (disposed) return;
+        const stockBalances = stockResult.data.filter(stock => stock.batchNo === selectedBatch.batchNo && stock.productName === selectedBatch.productName && stock.quantity > 0);
+        setDispositionStockBalances(stockBalances);
+        setSelectedStockBalanceId(stockBalances[0]?.id ?? null);
+        setDispositions(posted);
+        const locations = warehouses.flatMap(warehouse => warehouse.locations).filter(location => location.status === 'active');
+        setDestinationLocations(locations);
+        setDestinationLocationId(locations[0]?.id ?? null);
+      } catch (error) {
+        if (!disposed) notify('error', error instanceof Error ? error.message : '加载生产处置上下文失败');
+      }
+    };
+    void loadDispositionContext();
+    return () => { disposed = true; };
+  }, [completedBatchWorkOrder, notify, selectedBatch]);
 
   const derived = useProductionWorkspaceDerivedState({
     summary,
@@ -245,6 +287,7 @@ const ProductionWorkspaceV2 = () => {
     const { errors: nextErrors, targetQuantity } = validateWorkOrderForm({
       productName: woProductName,
       targetQuantityInput: woTargetQuantity,
+      lossQuantityInput: woLossQuantity,
     });
     if (Object.keys(nextErrors).length) {
       setWorkOrderFormErrors(nextErrors);
@@ -266,7 +309,7 @@ const ProductionWorkspaceV2 = () => {
         productName: resolvedProductName,
         targetQuantity,
         producedQuantity: Number(woProducedQuantity || 0),
-        lossQuantity: Number(woLossQuantity || 0),
+        lossQuantity: 0,
         plannedStartAt: woPlannedStartAt || null,
         plannedEndAt: woPlannedEndAt || null,
         note: woNote.trim() || null,
@@ -410,23 +453,35 @@ const ProductionWorkspaceV2 = () => {
       return;
     }
 
+    if (!completedBatchWorkOrder) {
+      notify('warning', '只有已完工工单的输出批次可以登记受控损耗或返工回收');
+      return;
+    }
+    if (selectedTemplate.id === 'production_loss' && !selectedStockBalanceId) {
+      notify('warning', '请选择实际扣减的库存库位');
+      return;
+    }
+    if (selectedTemplate.id === 'production_rework' && (!sourceDispositionId || !destinationLocationId)) {
+      notify('warning', '返工回收必须选择来源报废凭证和实际入库库位');
+      return;
+    }
     setAdjustmentFormErrors({});
     setAdjustmentSaving(true);
+    const idempotencyKey = dispositionIdempotencyKeyRef.current || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `production-disposition-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    dispositionIdempotencyKeyRef.current = idempotencyKey;
     try {
-      await withSaveTimeout(() => adjustmentService.create({
-        domain: 'production',
-        targetType: 'productBatch',
-        batchId: batch?.id ?? 0,
-        targetId: batch?.id ?? 0,
-        targetRef: batch?.batchNo ?? '',
-        quantityDelta: value * selectedTemplate.sign,
+      await withSaveTimeout(() => productionService.createWorkOrderDisposition(completedBatchWorkOrder.id, {
+        type: selectedTemplate.id === 'production_loss' ? 'scrap' : 'rework_return',
+        quantity: value,
         reason: adjustmentReason.trim(),
-        reasonCategory: selectedTemplate.reasonCategory,
-        lossType: selectedTemplate.lossType,
         note: adjustmentNote.trim() || null,
-        status: 'posted',
+        idempotencyKey,
+        stockBalanceId: selectedTemplate.id === 'production_loss' ? selectedStockBalanceId : null,
+        sourceDispositionId: selectedTemplate.id === 'production_rework' ? sourceDispositionId : null,
+        destinationLocationId: selectedTemplate.id === 'production_rework' ? destinationLocationId : null,
       }));
-        notify('success', '生产调账已登记');
+      dispositionIdempotencyKeyRef.current = null;
+      notify('success', selectedTemplate.id === 'production_loss' ? '生产报废损耗已过账' : '返工回收已创建待 QA 放行批次');
       setAdjustmentQuantity('');
       setAdjustmentNote('');
       setAdjustmentSaveVersion(version => version + 1);
@@ -608,6 +663,16 @@ const ProductionWorkspaceV2 = () => {
             adjustmentNote={adjustmentNote}
             setAdjustmentNote={setAdjustmentNote}
             adjustmentSaving={adjustmentSaving}
+            completedWorkOrderNo={completedBatchWorkOrder?.workOrderNo ?? null}
+            stockBalances={dispositionStockBalances}
+            selectedStockBalanceId={selectedStockBalanceId}
+            setSelectedStockBalanceId={setSelectedStockBalanceId}
+            dispositions={dispositions}
+            sourceDispositionId={sourceDispositionId}
+            setSourceDispositionId={setSourceDispositionId}
+            destinationLocations={destinationLocations}
+            destinationLocationId={destinationLocationId}
+            setDestinationLocationId={setDestinationLocationId}
             adjustmentFormErrors={adjustmentFormErrors}
             clearAdjustmentFormError={field => setAdjustmentFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateAdjustment={handleCreateAdjustment}

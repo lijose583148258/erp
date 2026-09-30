@@ -1,5 +1,5 @@
 export type BomFormErrors = Partial<Record<'productName' | 'outputUnit' | 'shelfLifeDays' | 'standardBatchSize' | 'percentage' | 'items', string>>;
-export type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
+export type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity' | 'lossQuantity', string>>;
 export type QualityFormErrors = Partial<Record<'sampleNo' | 'measurements', string>>;
 export type AdjustmentFormErrors = Partial<Record<'batch' | 'quantity' | 'reason', string>>;
 
@@ -67,15 +67,21 @@ export const validateBomForm = ({
 export const validateWorkOrderForm = ({
   productName,
   targetQuantityInput,
+  lossQuantityInput,
 }: {
   productName: string;
   targetQuantityInput: string;
+  lossQuantityInput: string;
 }) => {
   const errors: WorkOrderFormErrors = {};
   if (!productName.trim()) errors.productName = '请填写工单产品';
   const targetQuantity = Number(targetQuantityInput || 0);
   if (!targetQuantityInput.trim() || !Number.isFinite(targetQuantity) || targetQuantity <= 0) {
     errors.targetQuantity = '目标数量必须大于 0';
+  }
+  const lossQuantity = Number(lossQuantityInput || 0);
+  if (!Number.isFinite(lossQuantity) || lossQuantity !== 0) {
+    errors.lossQuantity = '工单不能直接登记损耗；请在完工后对实际批次执行“损耗报废”处置';
   }
   return { errors, targetQuantity };
 };

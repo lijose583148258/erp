@@ -21,6 +21,7 @@ model ProductBatch {
   shipments       Shipment[]
   densityRevisions MaterialDensityRevision[]
   genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputBatch")
+  productionDispositions ProductionDisposition[]
 
   @@index([materialId])
   @@index([productName])
@@ -160,6 +161,7 @@ model StockBalance {
   material    Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   movements   StockMovement[]
   genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputStock")
+  productionDispositions ProductionDisposition[]
 
   @@unique([locationId, productName, batchNo])
   @@unique([locationId, materialId, batchNo])

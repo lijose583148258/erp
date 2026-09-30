@@ -196,6 +196,19 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.ProductionQualityReviewRequest.required).toEqual(['decision', 'reviewNote']);
   });
 
+  it('documents physical scrap and quarantined rework, not a generic adjustment shortcut', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const route = document.paths[`${prefix}/production/work-orders/{id}/dispositions`];
+      expect(route?.get?.description).toContain('physical stock');
+      expect((route?.post?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/ProductionDispositionRequest' });
+      expect(route?.post?.description).toContain('quarantined');
+    }
+    expect(document.components.schemas.ProductionDispositionRequest.required)
+      .toEqual(['type', 'quantity', 'reason', 'idempotencyKey']);
+  });
+
   it('documents identity-bound manual stock inbound and shipment creation', () => {
     const document = buildOpenApiDocument();
     for (const prefix of ['/api', '/api/v1']) {

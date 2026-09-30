@@ -1,6 +1,7 @@
 export { createCustomerSchema, customerContactSchema, updateCustomerPoolSchema, updateCustomerSchema } from './customer';
 export {
   createAdjustmentSchema,
+  createProductionDispositionSchema,
   createProductionBomSchema,
   createProductionQualityCheckSchema,
   createProductionWorkOrderSchema,

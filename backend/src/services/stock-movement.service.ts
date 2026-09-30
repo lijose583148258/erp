@@ -333,8 +333,18 @@ export class StockMovementService {
         // Shipping consumes the batch's carrying cost, not the selling price.
         // Keep batch, physical stock and valuation inside the same transaction.
         if (batchSync && (explicitCostAmountDelta !== null || input.sourceType === 'shipping_issue' || input.sourceType === 'barter_issue') && input.createdBy) {
+          const productionDispositionSourceType = input.sourceType === 'production_scrap'
+            ? 'production_scrap'
+            : input.sourceType === 'production_rework_return'
+              ? 'production_rework_return'
+              : undefined;
           await ProductionCostLedgerService.recordInventoryMovement(tx, {
             batchId: batchSync.batchId,
+            // A stock entry's business source reference (for example a barter
+            // settlement or a production disposition) is its idempotency key.
+            // Cost rows deliberately keep the immutable voucher number instead:
+            // reversal/reconciliation follows the posted voucher and must not
+            // infer valuation by reusing a mutable business reference.
             sourceRef: String(entry.entryNo || entryNo),
             quantityBefore: batchSync.quantityBefore,
             quantityDelta: line.quantityDelta,
@@ -342,7 +352,10 @@ export class StockMovementService {
             costAmountDelta: explicitCostAmountDelta,
             note: input.note || `Stock valuation from ${input.sourceType}`,
             createdBy: input.createdBy,
-            requireReconciledQuantity: input.sourceType === 'shipping_issue' || input.sourceType.startsWith('barter_'),
+            requireReconciledQuantity: Boolean(productionDispositionSourceType)
+              || input.sourceType === 'shipping_issue'
+              || input.sourceType.startsWith('barter_'),
+            sourceType: productionDispositionSourceType,
           });
         }
 

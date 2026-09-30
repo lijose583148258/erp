@@ -526,6 +526,21 @@ export const openApiSchemas = {
       reviewNote: { type: 'string', minLength: 1, maxLength: 1000 },
     },
   },
+  ProductionDispositionRequest: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['type', 'quantity', 'reason', 'idempotencyKey'],
+    properties: {
+      type: { type: 'string', enum: ['scrap', 'rework_return'] },
+      quantity: { type: 'number', exclusiveMinimum: 0 },
+      reason: { type: 'string', minLength: 1, maxLength: 500 },
+      note: { type: 'string', nullable: true, maxLength: 2000 },
+      idempotencyKey: { type: 'string', minLength: 8, maxLength: 120, description: 'Stable client-generated key. A replay with changed business fields is rejected.' },
+      stockBalanceId: { type: 'integer', minimum: 1, nullable: true, description: 'Required for scrap: exact physical output balance to deduct.' },
+      sourceDispositionId: { type: 'integer', minimum: 1, nullable: true, description: 'Required for rework_return: prior posted scrap disposition.' },
+      destinationLocationId: { type: 'integer', minimum: 1, nullable: true, description: 'Required for rework_return: physical destination of the newly quarantined rework batch.' },
+    },
+  },
   ShipmentCreateRequest: {
     type: 'object',
     additionalProperties: true,

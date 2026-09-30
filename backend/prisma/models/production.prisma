@@ -120,6 +120,7 @@ model ProductionWorkOrder {
   qualityChecks    ProductionQualityCheck[]
   inventoryCostLedgers InventoryCostLedger[]
   genealogyEdges   BatchGenealogyEdge[]
+  dispositions     ProductionDisposition[]
 
   @@index([bomId])
   @@index([batchId])
@@ -127,6 +128,44 @@ model ProductionWorkOrder {
   @@index([status])
   @@index([createdBy])
   @@map("production_work_orders")
+}
+
+// A physical post-completion disposition. The legacy work-order loss field is
+// retained only for historical reporting; new work orders and completions must
+// use this independently traceable stock, cost, and audit event instead.
+model ProductionDisposition {
+  id                   Int                  @id @default(autoincrement())
+  dispositionNo        String               @unique @map("disposition_no")
+  idempotencyKey       String               @unique @map("idempotency_key")
+  workOrderId          Int                  @map("work_order_id")
+  workOrder            ProductionWorkOrder  @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  batchId              Int                  @map("batch_id")
+  productBatch         ProductBatch         @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  stockBalanceId       Int                  @map("stock_balance_id")
+  stockBalance         StockBalance         @relation(fields: [stockBalanceId], references: [id], onDelete: Restrict)
+  dispositionType      String               @map("disposition_type")
+  sourceDispositionId  Int?                 @map("source_disposition_id")
+  quantity             Float
+  unit                 String               @default("kg")
+  costAmount           Float                @default(0) @map("cost_amount")
+  reworkedQuantity     Float                @default(0) @map("reworked_quantity")
+  reworkedCostAmount   Float                @default(0) @map("reworked_cost_amount")
+  reason               String
+  note                 String?
+  beforeSnapshot       String?              @map("before_snapshot")
+  afterSnapshot        String?              @map("after_snapshot")
+  status               String               @default("posted")
+  createdBy            Int                  @map("created_by")
+  creator              User                 @relation("ProductionDispositionCreator", fields: [createdBy], references: [id])
+  createdAt            DateTime             @default(now()) @map("created_at")
+  updatedAt            DateTime             @updatedAt @map("updated_at")
+
+  @@index([workOrderId])
+  @@index([batchId])
+  @@index([stockBalanceId])
+  @@index([sourceDispositionId])
+  @@index([dispositionType, status])
+  @@map("production_dispositions")
 }
 
 model BatchGenealogyEdge {

@@ -94,11 +94,8 @@ export const DOSAGE_MODE_LABELS: Record<string, string> = {
 };
 
 export const TEMPLATES: ProductionAdjustmentTemplate[] = [
-  { id: 'production_output', label: '成品入库', sign: 1, reason: '生产完工入库', reasonCategory: 'production_output', lossType: 'inbound', hint: '用于成品入库或补产转入' },
-  { id: 'production_loss', label: '损耗报废', sign: -1, reason: '生产损耗、报废或破损', reasonCategory: 'production_loss', lossType: 'scrap', hint: '用于报废、破损、损耗修正' },
-  { id: 'production_rework', label: '返工回收', sign: 1, reason: '返工后可用数量回收', reasonCategory: 'production_recovery', lossType: 'rework', hint: '用于返工回收与再入库' },
-  { id: 'inventory_shortage', label: '盘点短少', sign: -1, reason: '盘点发现短少差异', reasonCategory: 'inventory_discrepancy', lossType: 'count_difference', hint: '用于盘点短少或差异修正' },
-  { id: 'inventory_surplus', label: '盘点盈余', sign: 1, reason: '盘点发现盈余差异', reasonCategory: 'inventory_discrepancy', lossType: 'count_difference', hint: '用于盘点盈余或补录' },
+  { id: 'production_loss', label: '损耗报废', sign: -1, reason: '生产损耗、报废或破损', reasonCategory: 'production_loss', lossType: 'scrap', hint: '扣减真实库位、同步批次成本，并关联已完工工单' },
+  { id: 'production_rework', label: '返工回收', sign: 1, reason: '返工后可用数量回收', reasonCategory: 'production_recovery', lossType: 'rework_return', hint: '必须从已报废记录恢复到新的待质检返工批次' },
 ];
 
 export const newBomItem = (): BomItemDraft => ({

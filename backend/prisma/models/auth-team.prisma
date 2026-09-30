@@ -31,6 +31,7 @@ model User {
   productionQualityInspections ProductionQualityCheck[] @relation("ProductionQualityInspector")
   productionQualityReviews ProductionQualityCheck[] @relation("ProductionQualityReviewer")
   inventoryCostLedgersCreated InventoryCostLedger[] @relation("InventoryCostLedgerCreator")
+  productionDispositionsCreated ProductionDisposition[] @relation("ProductionDispositionCreator")
   stockEntriesCreated StockEntry[] @relation("StockEntryCreator")
   collectionPromises CollectionPromise[]
   collectionDisputes CollectionDispute[]

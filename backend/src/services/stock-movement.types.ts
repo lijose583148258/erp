@@ -12,6 +12,8 @@ export type StockSourceType =
   | 'warehouse_transfer'
   | 'production_consumption'
   | 'production_output'
+  | 'production_scrap'
+  | 'production_rework_return'
   | 'procurement_receipt'
   | 'shipping_issue'
   | 'barter_receipt'

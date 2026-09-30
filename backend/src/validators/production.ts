@@ -65,6 +65,30 @@ export const createAdjustmentSchema = z.object({
   }
 });
 
+export const createProductionDispositionSchema = z.object({
+  type: z.enum(['scrap', 'rework_return']),
+  quantity: z.coerce.number().positive(),
+  reason: z.string().trim().min(1).max(500),
+  note: z.string().trim().max(2000).optional().nullable(),
+  idempotencyKey: z.string().trim().min(8).max(120),
+  // The production UI sends null for a field irrelevant to the selected
+  // disposition type. The type-specific checks below still require the
+  // physical facts that actually apply.
+  stockBalanceId: z.coerce.number().int().positive().optional().nullable(),
+  sourceDispositionId: z.coerce.number().int().positive().optional().nullable(),
+  destinationLocationId: z.coerce.number().int().positive().optional().nullable(),
+}).strict().superRefine((value, ctx) => {
+  if (value.type === 'scrap' && !value.stockBalanceId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['stockBalanceId'], message: '报废必须选择实际库存余额' });
+  }
+  if (value.type === 'rework_return' && !value.sourceDispositionId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['sourceDispositionId'], message: '返工回收必须关联已过账报废记录' });
+  }
+  if (value.type === 'rework_return' && !value.destinationLocationId) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['destinationLocationId'], message: '返工回收必须选择实际入库库位' });
+  }
+});
+
 const productionBomItemSchema = z.object({
   materialId: z.coerce.number().int().positive().optional().nullable(),
   materialName: z.string().trim().optional().nullable(),

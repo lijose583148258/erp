@@ -195,6 +195,32 @@ export interface ProductionWorkOrder {
   updatedAt: string;
 }
 
+export interface ProductionDisposition {
+  id: number;
+  dispositionNo: string;
+  workOrderId: number;
+  workOrderNo: string | null;
+  batchId: number;
+  batchNo: string | null;
+  productName: string | null;
+  qualityStatus: string | null;
+  stockBalanceId: number;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
+  dispositionType: 'scrap' | 'rework_return';
+  sourceDispositionId: number | null;
+  quantity: number;
+  unit: string;
+  costAmount: number;
+  reworkedQuantity: number;
+  reworkedCostAmount: number;
+  reason: string;
+  note: string | null;
+  status: string;
+  createdAt: string;
+}
+
 export const productionService = {
   async getBatchTrace(batchId: number, options: ApiRequestOptions = {}): Promise<ProductionBatchTrace> {
     const response = await api.get<any, { success: boolean; data: ProductionBatchTrace }>(`/production/batches/${batchId}/trace`, { signal: options.signal });
@@ -270,6 +296,25 @@ export const productionService = {
 
   async previewWorkOrderConsumption(id: number): Promise<any> {
     const response = await api.get<any, { success: boolean; data: any }>(`/production/work-orders/${id}/preview-consumption`);
+    return response.data;
+  },
+
+  async getWorkOrderDispositions(id: number, options: ApiRequestOptions = {}): Promise<ProductionDisposition[]> {
+    const response = await api.get<any, { success: boolean; data: ProductionDisposition[] }>(`/production/work-orders/${id}/dispositions`, { signal: options.signal });
+    return response.data || [];
+  },
+
+  async createWorkOrderDisposition(id: number, data: {
+    type: 'scrap' | 'rework_return';
+    quantity: number;
+    reason: string;
+    note?: string | null;
+    idempotencyKey: string;
+    stockBalanceId?: number | null;
+    sourceDispositionId?: number | null;
+    destinationLocationId?: number | null;
+  }): Promise<ProductionDisposition> {
+    const response = await api.post<any, { success: boolean; data: ProductionDisposition }>(`/production/work-orders/${id}/dispositions`, data);
     return response.data;
   },
 

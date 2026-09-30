@@ -21,7 +21,7 @@ import {
 import { ProductionQualityInspectionPanel } from './ProductionQualityInspectionPanel';
 import type { QualityFormErrors } from './productionWorkspaceSave';
 
-type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity', string>>;
+type WorkOrderFormErrors = Partial<Record<'productName' | 'targetQuantity' | 'lossQuantity', string>>;
 
 interface ProductionWorkOrderSectionProps {
   woProductName: string;
@@ -152,7 +152,18 @@ export function ProductionWorkOrderSection({
             error={workOrderFormErrors.targetQuantity}
           />
           <Field label="已产数量" value={woProducedQuantity} onChange={setWoProducedQuantity} placeholder="0" />
-          <Field label="损耗数量" value={woLossQuantity} onChange={setWoLossQuantity} placeholder="0" />
+          <Field
+            dataTestId="production-work-order-loss-quantity"
+            label="工单损耗（须为 0）"
+            value={woLossQuantity}
+            onChange={value => {
+              clearWorkOrderFormError('lossQuantity');
+              setWoLossQuantity(value);
+            }}
+            placeholder="0"
+            hint="实际损耗只能在工单完工后，对真实批次执行“损耗报废”处置；系统会同步库存、成本和审计。"
+            error={workOrderFormErrors.lossQuantity}
+          />
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           <Field label="计划开始" value={woPlannedStartAt} onChange={setWoPlannedStartAt} placeholder="2026-04-08T09:00" type="datetime-local" />

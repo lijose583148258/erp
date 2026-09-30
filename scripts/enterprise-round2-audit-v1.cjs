@@ -12,6 +12,7 @@ const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-b
 const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
 const { qcIsolationProbe } = require('./lib/enterprise-round2-qc-isolation.cjs');
 const { densityConversionProbe, assertDensityCostConservation } = require('./lib/enterprise-round2-density-conversion.cjs');
+const { productionDispositionProbe, assertProductionDispositionCostReconciliation } = require('./lib/enterprise-round2-production-disposition.cjs');
 const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
@@ -31,6 +32,7 @@ implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
 implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-packaging-density-conversion', 'conversion-cost-conservation');
+implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
 const actors = {};
 runner.report.regression = readRegressionStamp();
@@ -413,6 +415,9 @@ async function main() {
   const densityConversion = await runner.run('mass-packaging-density-conversion', signal => densityConversionProbe(bomContext, signal), { timeoutMs: 120000 });
   if (densityConversion) await runner.run('conversion-cost-conservation', () => assertDensityCostConservation(densityConversion), { timeoutMs: 30000 });
   else runner.block('conversion-cost-conservation', 'Approved actual-batch density conversion did not complete');
+  const disposition = await runner.run('loss-return-scrap-rework', signal => productionDispositionProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (disposition) await runner.run('production-cost-reconciliation', () => assertProductionDispositionCostReconciliation(disposition), { timeoutMs: 30000 });
+  else runner.block('production-cost-reconciliation', 'Physical scrap and rework disposition did not complete');
   const lot = await runner.run('dual-workorder-same-lot', signal => productionLotProbe(bomContext, signal), { timeoutMs: 120000 });
   if (process.env.ROUND2_BROWSER === 'true') {
     if (lot) await runner.run('genealogy-readback', signal => genealogyReadback(bomContext, lot, signal), { timeoutMs: 90000 });

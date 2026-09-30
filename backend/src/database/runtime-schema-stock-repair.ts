@@ -11,6 +11,8 @@ import {
 const STOCK_SOURCE_UNIQUE_INDEX_NAME = 'stock_entries_source_type_ref_status_key';
 const IDEMPOTENT_STOCK_SOURCE_TYPES = [
   'production_consumption',
+  'production_scrap',
+  'production_rework_return',
   'production_output',
   'procurement_receipt',
   'warehouse_manual_inbound',

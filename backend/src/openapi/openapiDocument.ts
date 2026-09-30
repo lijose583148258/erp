@@ -480,6 +480,26 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/production/work-orders/{id}/dispositions`] = {
+      get: {
+        tags: ['Production'],
+        summary: 'List immutable physical loss and rework dispositions for a completed work order',
+        description: 'Returns physical stock, batch, carrying-cost, source-scrap, and audit-linked disposition facts. Requires production.read.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: jsonResponse,
+      },
+      post: {
+        tags: ['Production'],
+        summary: 'Post physical scrap or a quarantined rework return',
+        description: 'Only completed work-order output is eligible. Scrap deducts an exact stock balance with carrying cost. Rework may recover only a prior scrap balance and creates a new quarantined batch that still needs QA release. Requires production.write.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionDispositionRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Disposition posted atomically with stock, cost, and audit evidence.' } },
+      },
+    };
+
     paths[`${prefix}/production/work-orders/{id}/checks`] = {
       post: {
         tags: ['Production'],

@@ -8,6 +8,8 @@ export type InventoryCostLedgerSourceType =
   | 'production_completion'
   | 'production_material_consumption'
   | 'production_finished_goods_receipt'
+  | 'production_scrap'
+  | 'production_rework_return'
   | 'production_adjustment'
   | 'production_reversal'
   | 'inventory_adjustment'
@@ -320,10 +322,11 @@ export class ProductionCostLedgerService {
     note?: string | null;
     createdBy: number;
     requireReconciledQuantity?: boolean;
+    sourceType?: InventoryCostLedgerSourceType;
   }) {
     return insertLedgerRow(tx, {
       batchId: input.batchId,
-      sourceType: 'inventory_adjustment',
+      sourceType: input.sourceType || 'inventory_adjustment',
       sourceRef: input.sourceRef ?? null,
       quantityBefore: input.quantityBefore,
       quantityDelta: input.quantityDelta,

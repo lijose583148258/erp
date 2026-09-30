@@ -323,6 +323,12 @@ export class ProductionMutationService {
 
   static async createWorkOrder(input: ProductionWorkOrderInput, createdBy: number) {
     return withDbRetry(() => prisma.$transaction(async tx => {
+      // A process loss cannot be silently netted from finished output.  Once
+      // the work order is completed it must be evidenced by a governed
+      // physical scrap/rework disposition, with stock, cost and audit facts.
+      if (Number(input.lossQuantity || 0) !== 0) {
+        throw new Error('PRODUCTION_LOSS_DISPOSITION_REQUIRED:工单损耗必须在完工后通过批次处置登记');
+      }
       if (input.bomId) await lockBomRevisions(tx, [input.bomId]);
       const bom = input.bomId
         ? await tx.productionBom.findUnique({
@@ -463,6 +469,9 @@ export class ProductionMutationService {
       }> = [];
 
       if (status === 'completed') {
+        if (Number(workOrder.lossQuantity || 0) !== 0) {
+          throw new Error('PRODUCTION_LOSS_DISPOSITION_REQUIRED:历史工单含损耗数量，需先完成受治理的损耗处置迁移');
+        }
         if (workOrder.bom?.packagingRevisionId) {
           assertWholePackages(workOrder.producedQuantity);
           if (workOrder.producedQuantity !== workOrder.targetQuantity || workOrder.lossQuantity !== 0) throw new Error('BOM_UNIT_PACKAGING_OUTPUT_SCOPE');

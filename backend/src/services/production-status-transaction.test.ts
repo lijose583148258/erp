@@ -50,6 +50,15 @@ describe('production completion transaction ownership', () => {
     await expect(complete()).rejects.toBeInstanceOf(StockMovementConflictError);
     expect(tx.auditLog.create).not.toHaveBeenCalled(); expect(ProductionCostLedgerService.recordWorkOrderCompletion).not.toHaveBeenCalled();
   });
+  it('rejects legacy inline loss before any completion stock, cost or audit write', async () => {
+    const { tx, wo } = fixture();
+    wo.lossQuantity = 1;
+    await expect(complete()).rejects.toThrow('PRODUCTION_LOSS_DISPOSITION_REQUIRED');
+    expect(tx.productionWorkOrder.updateMany).not.toHaveBeenCalled();
+    expect(StockMovementService.postStockEntry).not.toHaveBeenCalled();
+    expect(ProductionCostLedgerService.recordWorkOrderCompletion).not.toHaveBeenCalled();
+    expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
   it('does not swallow an audit failure after stock and ledger writes', async () => {
     const { tx } = fixture(); tx.auditLog.create.mockRejectedValue(new Error('audit unavailable'));
     await expect(complete()).rejects.toThrow('audit unavailable');

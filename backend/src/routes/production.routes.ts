@@ -6,6 +6,7 @@ import { validateRequest } from '../middleware/validateRequest';
 import { ProductionController } from '../controllers/production.controller';
 import {
   createProductionBomSchema,
+  createProductionDispositionSchema,
   createProductionQualityCheckSchema,
   createProductionWorkOrderSchema,
   reviewProductionQualityCheckSchema,
@@ -23,6 +24,8 @@ router.get('/boms', authorizePermission('production.read'), authRoute((req, res)
 router.post('/boms', authorizePermission('production.write'), validateZod(createProductionBomSchema), authRoute((req, res) => controller.createBom(req, res)));
 router.get('/work-orders', authorizePermission('production.read'), authRoute((req, res) => controller.getWorkOrders(req, res)));
 router.get('/work-orders/:id/preview-consumption', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.previewConsumption(req, res)));
+router.get('/work-orders/:id/dispositions', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.listWorkOrderDispositions(req, res)));
+router.post('/work-orders/:id/dispositions', authorizePermission('production.write'), [param('id').isInt({ min: 1 })], validateRequest, validateZod(createProductionDispositionSchema), authRoute((req, res) => controller.createWorkOrderDisposition(req, res)));
 router.get(
   '/batches/:batchId/trace',
   authorizePermission('production.read'),

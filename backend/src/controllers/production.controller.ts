@@ -5,12 +5,13 @@ import { ApiResponse } from '../types/api.types';
 import { ProductionService, ProductionWorkOrderStatus } from '../services/production.service';
 import { ProductionCompletionValidationError } from '../services/production-mutation.service';
 import { StockMovementConflictError } from '../services/stock-movement.errors';
+import { ProductionDispositionService } from '../services/production-disposition.service';
 import { createProductionAuditLog, toNumber } from './production.helpers';
 import { canUseAnyOperationalDataScope, canUseOperationalDataScope } from '../utils/recordAccess';
 
 const resolveProductionStatusCode = (message: string) => {
   if (message.includes('_NOT_FOUND') || message.toLowerCase().includes('not found')) return 404;
-  if (message.startsWith('QC_') || message.startsWith('WORK_ORDER_') || message.startsWith('BOM_UNIT_')) return 409;
+  if (message.startsWith('QC_') || message.startsWith('WORK_ORDER_') || message.startsWith('BOM_UNIT_') || message.startsWith('PRODUCTION_LOSS_')) return 409;
   if (
     message.includes('cannot') ||
     message.includes('Invalid') ||
@@ -186,6 +187,41 @@ export class ProductionController {
     }
   }
 
+  async listWorkOrderDispositions(req: AuthRequest, res: Response) {
+    try {
+      if (!canReadProduction(req)) return rejectProductionRead(res);
+      const data = await ProductionDispositionService.listByWorkOrder(Number(req.params.id));
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to load production dispositions', error);
+      const message = error instanceof Error ? error.message : 'Failed to load production dispositions';
+      return res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
+    }
+  }
+
+  async createWorkOrderDisposition(req: AuthRequest, res: Response) {
+    try {
+      if (!canWriteProduction(req)) return rejectProductionWrite(res);
+      const data = await ProductionDispositionService.create({
+        workOrderId: Number(req.params.id),
+        type: req.body.type,
+        quantity: Number(req.body.quantity),
+        reason: String(req.body.reason),
+        note: req.body.note === undefined || req.body.note === null ? null : String(req.body.note),
+        idempotencyKey: String(req.body.idempotencyKey),
+        stockBalanceId: req.body.stockBalanceId == null ? null : Number(req.body.stockBalanceId),
+        sourceDispositionId: req.body.sourceDispositionId == null ? null : Number(req.body.sourceDispositionId),
+        destinationLocationId: req.body.destinationLocationId == null ? null : Number(req.body.destinationLocationId),
+      }, req.user!.userId);
+      return res.status(201).json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to post production disposition', error);
+      const message = error instanceof Error ? error.message : 'Failed to post production disposition';
+      const conflict = error instanceof StockMovementConflictError || message.startsWith('PRODUCTION_DISPOSITION_');
+      return res.status(conflict ? 409 : resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
+    }
+  }
+
   async createWorkOrder(req: AuthRequest, res: Response) {
     try {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
@@ -323,4 +359,3 @@ export class ProductionController {
     }
   }
 }
-
