@@ -1,3 +1,4 @@
+import { DensityWorkbench } from './production/DensityWorkbench';
 import { PackagingWorkbench } from './production/PackagingWorkbench';
 import { getBomMassConversionError } from './production/productionBomLineModel';
 import { useEffect, useMemo, useState } from 'react';
@@ -468,7 +469,7 @@ const ProductionWorkspaceV2 = () => {
         onTabChange={setActiveDeskTab}
       />
 
-      {activeDeskTab === 'bom' && <PackagingWorkbench onCreated={loadData} />}
+      {activeDeskTab === 'bom' && <><DensityWorkbench /><PackagingWorkbench onCreated={loadData} /></>}
       <div className="space-y-8">
         {activeDeskTab === 'bom' ? (
           <ProductionBomSection

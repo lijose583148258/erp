@@ -2,7 +2,7 @@ jest.mock('../config/database', () => ({ __esModule: true, default: { $transacti
 import prisma from '../config/database';
 import { MaterialMasterService } from './material-master.service';
 
-const relations = ['packagingRevisions', 'bomItems', 'productionBoms', 'productionWorkOrders', 'salesOrderItems', 'purchaseOrders', 'shipments', 'productBatches', 'stockBalances', 'stockMovements', 'genealogyInputs', 'genealogyOutputs', 'barterAgreementItems', 'barterItems'];
+const relations = ['densityRevisions', 'packagingRevisions', 'bomItems', 'productionBoms', 'productionWorkOrders', 'salesOrderItems', 'purchaseOrders', 'shipments', 'productBatches', 'stockBalances', 'stockMovements', 'genealogyInputs', 'genealogyOutputs', 'barterAgreementItems', 'barterItems'];
 const emptyCounts = () => Object.fromEntries(relations.map(key => [key, 0]));
 const audit = { userId: 1 };
 function fixture(patch: Record<string, unknown> = {}) {

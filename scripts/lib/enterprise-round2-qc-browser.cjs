@@ -69,6 +69,7 @@ async function qcReleaseBrowser(ctx, apiEvidence, signal) {
     assertQcIsolationCase({state:'released',before:evidence.afterRelease,after:evidence.afterCompletion,requests:[{name:'consume',...evidence.completion}],readbacks:await Promise.all([0,1].map(async instance=>({workOrder:ctx.dataOf(await ctx.request('/production/work-orders',{actor:actors.stock0,instance,signal})).find(w=>w.id===item.downstream.id),stock:ctx.dataOf(await ctx.request(`/warehouses/stock-balances?batchNo=${encodeURIComponent(item.batchNo)}&pageSize=100`,{actor:actors.stock0,instance,signal}))})))});
     evidence.replay=await complete(); assert.equal(evidence.replay.status,200); assert.deepEqual(await snapshot(),evidence.afterCompletion);
     const reread=await open(actors.stock0); await expect(reread.getByTestId('production-quality-inspection-panel')).toContainText(newest.reviewedBy); await capture(reread,'inspector-readback');
+    evidence.density = await require('./enterprise-round2-density.cjs').densityBrowser(ctx, browser, apiEvidence.density.browserFixture, dir, signal);
     assert.equal(evidence.errors.length,0,JSON.stringify(evidence.errors)); return evidence;
   } catch(error) { error.evidence ||= evidence; throw error; }
   finally { signal.removeEventListener('abort',abort); await browser.close(); }

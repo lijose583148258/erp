@@ -73,6 +73,7 @@ async function qcIsolationProbe(ctx, signal) {
   if (failures.length) { const error = new Error(failures.map(c => c.state + ': ' + c.error).join('; ')); error.evidence = report; throw error; }
   try { report.reviewRaces = await qcReviewRaces(ctx, report.cases.find(c => c.state === 'hold'), signal); }
   catch (error) { error.evidence ||= report; throw error; }
+  report.density = await require('./enterprise-round2-density.cjs').densityProbe(ctx, signal, report.cases.find(c => c.state === 'quarantine'));
   return report;
 }
 

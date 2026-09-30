@@ -59,3 +59,11 @@ test('approved packaging probes extend cumulative evidence without promoting ful
   assert(bom.includes('packagingProbe(ctx, signal)'));assert(bom.includes('packagingBrowser(ctx, browser, history.packaging.browserFixture'));
   const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(!baseline.includes('mass-packaging-density-conversion'));
 });
+
+
+test('density evidence never promotes conversion and remains cumulatively replayed',()=>{
+  const density=require('./lib/enterprise-round2-density.cjs');assert.equal(typeof density.densityProbe,'function');assert.equal(typeof density.densityBrowser,'function');
+  const api=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-qc-isolation.cjs'),'utf8'),ui=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-qc-browser.cjs'),'utf8');assert(api.includes('densityProbe(ctx, signal'));assert(ui.includes('densityBrowser(ctx, browser'));
+  const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(!baseline.includes('mass-packaging-density-conversion'));
+  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');for(const p of ['scripts/lib/enterprise-round2-density.cjs','scripts/material-density-legacy-upgrade-audit.cjs','pages/production/DensityWorkbench.tsx','backend/src/services/material-density.service*.ts'])assert(workflow.includes("'"+p+"'"),p);
+});

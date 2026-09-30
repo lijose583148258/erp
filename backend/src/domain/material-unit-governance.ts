@@ -1,6 +1,6 @@
 // Count every persisted material reference, including cancelled/zero-balance history.
 export const materialUnitReferenceSelect = {
-  packagingRevisions: true, bomItems: true, productionBoms: true, productionWorkOrders: true,
+  densityRevisions: true, packagingRevisions: true, bomItems: true, productionBoms: true, productionWorkOrders: true,
   salesOrderItems: true, purchaseOrders: true, shipments: true,
   productBatches: true, stockBalances: true, stockMovements: true,
   genealogyInputs: true, genealogyOutputs: true, barterAgreementItems: true, barterItems: true,

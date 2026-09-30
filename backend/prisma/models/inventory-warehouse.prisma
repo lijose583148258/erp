@@ -19,6 +19,7 @@ model ProductBatch {
   productionWorkOrders ProductionWorkOrder[]
   inventoryCostLedgers InventoryCostLedger[]
   shipments       Shipment[]
+  densityRevisions MaterialDensityRevision[]
   genealogyOutputs BatchGenealogyEdge[] @relation("GenealogyOutputBatch")
 
   @@index([materialId])

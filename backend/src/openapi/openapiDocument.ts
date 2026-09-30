@@ -339,6 +339,16 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/materials/{id}/densities`] = {
+      get: { tags: ['Materials'], summary: 'Read immutable batch density evidence (not conversion authorization)', security: secured(true), parameters: [pathIdParameter], responses: jsonResponse },
+      post: { tags: ['Materials'], summary: 'Create sourced batch density evidence draft', description: 'Requires production.read and materials.write. Exact material/batch/unit identity is frozen; no QC, inventory or cost mutation.', security: secured(true), parameters: [pathIdParameter],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DensityRevisionCreateRequest' } } } }, responses: { ...writeResponses, '201': { description: 'Immutable draft created.' } } },
+    };
+    for (const action of ['approve','retire']) paths[`${prefix}/materials/{id}/densities/{revisionId}/${action}`] = {
+      post: { tags: ['Materials'], summary: 'Independently review or retire batch density evidence', description: 'Requires production.read and materials.govern. Creator cannot self-approve. Approval never releases QC or enables dimensional conversion.', security: secured(true),
+        parameters: [pathIdParameter, { name: 'revisionId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DensityRevisionReviewRequest' } } } }, responses: { ...writeResponses, '404': { description: 'Revision not found for this material.' } } },
+    };
     paths[`${prefix}/materials/{id}/packaging`] = {
       get: { tags: ['Materials'], summary: 'Read immutable packaging revisions', security: secured(true), parameters: [pathIdParameter], responses: jsonResponse },
       post: {

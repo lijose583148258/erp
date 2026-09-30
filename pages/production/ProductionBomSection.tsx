@@ -291,7 +291,7 @@ export function ProductionBomSection({
             {showAdvancedFields ? (
               <div className="mt-4 space-y-3">
                 <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <Field dataTestId="production-bom-density" label="密度" value={bomDensity} onChange={setBomDensity} placeholder="例如 1.12" />
+                  <Field dataTestId="production-bom-density" label="参考密度（不用于库存换算）" value={bomDensity} onChange={setBomDensity} placeholder="例如 1.12" />
                   <Field dataTestId="production-bom-solid-content" label="固含 %" value={bomSolidContent} onChange={setBomSolidContent} placeholder="例如 55" />
                   <Field dataTestId="production-bom-effective-from" label="生效开始" value={bomEffectiveFrom} onChange={setBomEffectiveFrom} placeholder="2026-04-16" type="date" />
                   <Field dataTestId="production-bom-effective-to" label="生效结束" value={bomEffectiveTo} onChange={setBomEffectiveTo} placeholder="2026-12-31" type="date" />
@@ -450,7 +450,7 @@ export function ProductionBomSection({
               {selectedBom.packagingSnapshotJson && <PackagingSnapshot json={selectedBom.packagingSnapshotJson} />}
               <SummaryChip label="产品保质期" value={selectedBom.shelfLifeDays ? `${selectedBom.shelfLifeDays} 天` : '未配置（禁止自动建批次）'} />
               <SummaryChip label="标准批量" value={selectedBom.standardBatchSize ? `${selectedBom.standardBatchSize} ${selectedBom.batchSizeUnit || selectedBom.outputUnit}` : '--'} />
-              <SummaryChip label="密度" value={selectedBom.density ? String(selectedBom.density) : '--'} />
+              <SummaryChip label="参考密度" value={selectedBom.density ? String(selectedBom.density) : '--'} />
               <SummaryChip label="固含" value={selectedBom.solidContent !== undefined && selectedBom.solidContent !== null ? `${selectedBom.solidContent}%` : '--'} />
               <SummaryChip label="百分比合计" value={selectedBomPercentageSummary > 0 ? `${selectedBomPercentageSummary.toFixed(2)}%` : '--'} />
               <SummaryChip label="生效开始" value={formatDateOnly(selectedBom.effectiveFrom)} />

@@ -391,6 +391,23 @@ export const openApiSchemas = {
       },
     },
   },
+  DensityRevisionCreateRequest: {
+    type: 'object', additionalProperties: false,
+    required: ['batchNo','specCode','version','densityKgPerL','temperatureC','pressureKpaAbs','compositionReference','methodReference','sourceReference','measuredAt'],
+    properties: {
+      batchNo: { type: 'string', minLength: 1, maxLength: 120 },
+      specCode: { type: 'string', minLength: 1, maxLength: 48 }, version: { type: 'string', minLength: 1, maxLength: 32 },
+      densityKgPerL: { type: 'string', maxLength: 24, description: 'Positive decimal text in kg/L, <=1000000, <=6 fractional digits. No exponent notation or implicit unit.' },
+      temperatureC: { type: 'string', maxLength: 24, description: 'Explicit Celsius test point, >-273.15 and <=1000000, <=6 fractional digits; no extrapolation.' },
+      pressureKpaAbs: { type: 'string', maxLength: 24, description: 'Explicit absolute kPa test point, positive and <=1000000, <=6 fractional digits.' },
+      compositionReference: { type: 'string', minLength: 1, maxLength: 240 }, methodReference: { type: 'string', minLength: 1, maxLength: 240 },
+      sourceReference: { type: 'string', minLength: 1, maxLength: 240 }, measuredAt: { type: 'string', format: 'date-time', description: 'Not in the future.' },
+    },
+  },
+  DensityRevisionReviewRequest: {
+    type: 'object', additionalProperties: false, required: ['expectedUpdatedAt','reason'],
+    properties: { expectedUpdatedAt: { type: 'string', format: 'date-time' }, reason: { type: 'string', minLength: 1, maxLength: 240 } },
+  },
   PackagingRevisionCreateRequest: {
     type: 'object', additionalProperties: false,
     required: ['specCode','version','packageUnit','netMass','massUnit','sourceReference'],
@@ -436,7 +453,7 @@ export const openApiSchemas = {
       },
       standardBatchSize: { type: 'number', exclusiveMinimum: 0, nullable: true },
       batchSizeUnit: { type: 'string', nullable: true },
-      density: { type: 'number', exclusiveMinimum: 0, nullable: true },
+      density: { type: 'number', exclusiveMinimum: 0, nullable: true, description: 'Legacy descriptive field only; never an authorized inventory conversion basis.' },
       solidContent: { type: 'number', minimum: 0, maximum: 100, nullable: true },
       effectiveFrom: { type: 'string', format: 'date-time', nullable: true },
       effectiveTo: { type: 'string', format: 'date-time', nullable: true },

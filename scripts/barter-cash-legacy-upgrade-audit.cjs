@@ -97,6 +97,10 @@ async function main() {
       execFileSync(process.execPath, [path.join(root, 'scripts/material-packaging-legacy-upgrade-audit.cjs'), target, packagingTarget], { cwd: root, timeout: 60000, windowsHide: true, stdio: 'pipe' });
       report.packagingUpgrade = JSON.parse(fs.readFileSync(packagingTarget + '.json', 'utf8'));
       assert.equal(report.packagingUpgrade.status, 'passed');
+      const densityTarget = path.join(folder, 'density-upgrade.db');
+      execFileSync(process.execPath, [path.join(root, 'scripts/material-density-legacy-upgrade-audit.cjs'), target, densityTarget], { cwd: root, timeout: 60000, windowsHide: true, stdio: 'pipe' });
+      report.densityUpgrade = JSON.parse(fs.readFileSync(densityTarget + '.json', 'utf8'));
+      assert.equal(report.densityUpgrade.status, 'passed');
     }
     Object.assign(report, { status: 'passed', originalTableCount: tables.length, obligations: rows,
       repeatedRepairUnchanged: true, originalBusinessRowsUnchanged: true, integrity: 'ok', repair, repeated });

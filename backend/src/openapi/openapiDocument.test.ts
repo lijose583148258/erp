@@ -302,3 +302,12 @@ it('documents controlled packaging without writable frozen snapshots',()=>{
   expect(d.components.schemas.ProductionBomCreateRequest.properties).not.toHaveProperty('packagingSnapshotJson');
   expect(d.components.schemas.PackagingRevisionReviewRequest.required).toEqual(['expectedUpdatedAt','reason']);
 });
+
+it('documents density evidence as distinct from stock conversion or QC release',()=>{
+  const d=buildOpenApiDocument();for(const p of ['/api','/api/v1']){
+    expect(d.paths[p+'/materials/{id}/densities'].post?.responses['201']).toBeDefined();
+    expect(d.paths[p+'/materials/{id}/densities/{revisionId}/approve'].post?.description).toContain('never releases QC');
+  }
+  expect(d.components.schemas.DensityRevisionCreateRequest.required).toContain('pressureKpaAbs');
+  expect(d.components.schemas.ProductionBomCreateRequest.properties.density.description).toContain('never');
+});
