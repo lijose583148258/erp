@@ -58,6 +58,7 @@ export const triggerExists = async (triggerName: string) => {
 
 const KNOWN_TABLES = new Set([
   'orders', 'order_items', 'customers', 'suppliers', 'payment_records', 'shipments', 'purchase_orders',
+  'sales_fulfillment_plans',
   'users',
   'purchase_receipts', 'shipment_receipts', 'receipt_discrepancy_cases',
   'receipt_discrepancy_actions', 'receipt_tolerance_rules',

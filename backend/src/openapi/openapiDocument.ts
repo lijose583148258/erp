@@ -257,6 +257,26 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/orders/{id}/fulfillment-plans`] = {
+      get: { tags: ['Orders'], summary: 'Read order-scoped purchase replenishment plans and live fulfillment',
+        description: 'Requires orders.read and order data scope. linked_purchase_only; physicalStockReserved=false; confirmationGateEnforced=false.',
+        security: secured(true), parameters: [pathIdParameter], responses: { ...jsonResponse, '404': { description: 'Order not visible.' } } },
+      post: { tags: ['Orders'], summary: 'Create immutable purchase-linked fulfillment draft',
+        description: 'Requires orders.update and order write scope. Source must be an approved purchase linked to this order with identical material/unit. Freezes source revision. Exact same-actor idempotent replay returns original; changed facts return 409. Does not reserve or add stock, pay money, or enforce a mandatory order confirmation gate.',
+        security: secured(true), parameters: [pathIdParameter], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SalesFulfillmentPlanCreate' } } } },
+        responses: { ...writeResponses, '201': { description: 'Draft created or identical request replayed.' }, '404': { description: 'Order not visible.' } } },
+    };
+    for (const action of ['approve', 'close'] as const) {
+      paths[`${prefix}/orders/{id}/fulfillment-plans/{planId}/${action}`] = {
+        post: { tags: ['Orders'], summary: action === 'approve' ? 'Approve an unchanged purchase plan independently' : 'Close plan against source receipts and customer acceptance',
+          description: action === 'approve' ? 'Requires orders.status.manage and order write scope. Creator cannot approve, including admin. Stale timestamps, changed source revisions and excess line/source commitments return 409 under transaction locks.' : 'Requires orders.status.manage and order write scope. Whole order must be fully accepted. Approved/closed commitments must be covered by actual purchase receipts and delivered source batches. Stores immutable receipt/shipment IDs; same-actor/key/reason replay makes no additional postings. No refund, cancellation or substitution is supported.',
+          security: secured(true), parameters: [pathIdParameter, { name: 'planId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: false,
+            required: ['reason', action === 'approve' ? 'expectedUpdatedAt' : 'idempotencyKey'], properties: { reason: { type: 'string', minLength: 3, maxLength: 1000 },
+              ...(action === 'approve' ? { expectedUpdatedAt: { type: 'string', format: 'date-time' } } : { idempotencyKey: { type: 'string', minLength: 8, maxLength: 120, pattern: '^[a-zA-Z0-9:_-]+$' } }) } } } } },
+          responses: { ...writeResponses, '404': { description: 'Order or plan not visible.' } } },
+      };
+    }
     paths[`${prefix}/procurement/orders/{id}`] = {
       patch: {
         tags: ['Procurement'], summary: 'Revise unreceived purchase terms with optimistic concurrency',

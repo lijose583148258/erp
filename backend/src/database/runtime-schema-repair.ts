@@ -1,6 +1,7 @@
 import { repairDensitySchema } from './runtime-schema-density-repair';
 import { repairDensityConversionSchema } from './runtime-schema-density-conversion-repair';
 import { repairProductionDispositionSchema } from './runtime-schema-production-disposition-repair';
+import { repairSalesFulfillmentPlanSchema } from './runtime-schema-sales-fulfillment-repair';
 import { repairPackagingSchema } from './runtime-schema-packaging-repair';
 import prisma from '../config/database';
 import { SchemaRepairReport } from './runtime-schema-repair-utils';
@@ -32,6 +33,7 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   await repairDensitySchema(report);
   await repairDensityConversionSchema(report);
   await repairProductionDispositionSchema(report);
+  await repairSalesFulfillmentPlanSchema(report);
 
   await repairStockSchema(report);
 

@@ -34,6 +34,13 @@ on:
       - 'scripts/enterprise-cumulative-*.cjs'
       - 'scripts/enterprise-regression-*.test.cjs'
       - 'scripts/lib/enterprise-regression.cjs'
+      - 'scripts/lib/sales-fulfillment-plan-*.cjs'
+      - 'scripts/sales-fulfillment-plan-*.cjs'
+      - 'backend/src/services/sales-fulfillment-plan.service.ts'
+      - 'backend/src/routes/sales-fulfillment.routes.ts'
+      - 'backend/src/validators/sales-fulfillment*.ts'
+      - 'pages/sales-orders/SalesFulfillmentPlanModal.tsx'
+      - 'services/salesFulfillmentPlan.service.ts'
       - 'scripts/config/enterprise-regression-baseline-v1.json'
       - 'scripts/barter-cash-legacy-upgrade-audit.cjs'
       - 'scripts/lib/enterprise-round2-runner.cjs'
@@ -762,6 +769,15 @@ jobs:
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
         run: node ./scripts/sales-partial-fulfillment-audit-v1.cjs
+
+      - name: Verify purchase-linked replenishment plans against real deliveries
+        id: sales_fulfillment_plan
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+        run: node ./scripts/sales-fulfillment-plan-audit-v1.cjs
 
       - name: Exercise Round 2 inventory, payment and barter business acceptance
         id: round2_business

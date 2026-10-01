@@ -1,4 +1,14 @@
 export const openApiSchemas = {
+  SalesFulfillmentPlanCreate: {
+    type: 'object', additionalProperties: false,
+    required: ['idempotencyKey', 'orderItemId', 'fulfillmentOption', 'sourceDocumentId', 'plannedQuantity', 'expectedFulfillmentAt', 'note'],
+    properties: {
+      idempotencyKey: { type: 'string', minLength: 8, maxLength: 120, pattern: '^[a-zA-Z0-9:_-]+$' },
+      orderItemId: { type: 'integer', minimum: 1 }, fulfillmentOption: { type: 'string', enum: ['linked_purchase'] },
+      sourceDocumentId: { type: 'integer', minimum: 1 }, plannedQuantity: { type: 'number', minimum: 0, exclusiveMinimum: true, maximum: 1000000000 },
+      expectedFulfillmentAt: { type: 'string', format: 'date-time' }, note: { type: 'string', minLength: 3, maxLength: 1000 },
+    },
+  },
   PaginationMeta: {
     type: 'object',
     properties: {

@@ -16,6 +16,7 @@ function fixture(profile = 'cloud') {
     startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: { readback: true } })) };
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
+  const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
   const legacy = { ...stamp, provider: 'sqlite', status: 'passed', before: 'c'.repeat(64), after: 'c'.repeat(64), integrity: 'ok',
     repeatedRepairUnchanged: true, originalBusinessRowsUnchanged: true, fixtureKind: 'reconstructed-legacy-schema', originalTableCount: 63,
     obligations: [{ status: 'review', requestKey: null, paymentReference: null }], attempts: [{ refundRejected: true, reversalRejected: true }] };
@@ -23,7 +24,7 @@ function fixture(profile = 'cloud') {
   steps.round2_business = { outcome: 'failure', conclusion: 'success' }; steps.cash_legacy_upgrade = { outcome: 'success' };
   // Disk reports are separately serialized; do not retain aliases to the expected context.
   return JSON.parse(JSON.stringify({ baseline, context, currentCommit: context.commit, currentSourceHash: context.sourceHash,
-    reports: { round2, sales, legacy }, steps, now: Date.parse('2026-01-01T00:00:04.000Z') }));
+    reports: { round2, sales, salesPlan, legacy }, steps, now: Date.parse('2026-01-01T00:00:04.000Z') }));
 }
 
 test('baseline replay may pass while full 37-check acceptance remains incomplete', () => {
@@ -58,6 +59,9 @@ for (const [label, mutate] of [
   ['wrong provider', d => { d.reports.round2.provider = 'sqlite'; }],
   ['missing independent report', d => { d.reports.sales = null; }],
   ['empty legacy report', d => { d.reports.legacy = {}; }],
+  ['missing supply plan replay', d => { d.reports.salesPlan = null; }],
+  ['stale supply plan evidence', d => { d.reports.salesPlan.regression.key = 'old'; }],
+  ['empty supply plan browser proof', d => { d.reports.salesPlan.browserCreate = {}; }],
   ['minimal fixture replacing legacy database', d => { d.reports.legacy.originalTableCount = 1; d.reports.legacy.fixtureKind = 'minimal-legacy-boundary'; }],
   ['legacy business mutation', d => { d.reports.legacy.after = 'd'.repeat(64); }],
   ['legacy refund incorrectly opened', d => { d.reports.legacy.obligations[0].status = 'open'; }],

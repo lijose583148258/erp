@@ -2,6 +2,16 @@ import { buildOpenApiDocument } from './openapiDocument';
 import { API_ROUTE_MODULES } from '../routes/apiRegistry';
 
 describe('OpenAPI contract foundation', () => {
+  it('documents bounded purchase plans without inventing reservation or refund support', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      expect(document.paths[`${prefix}/orders/{id}/fulfillment-plans`]?.post?.responses['201']).toBeDefined();
+      expect(document.paths[`${prefix}/orders/{id}/fulfillment-plans/{planId}/approve`]?.post?.description).toContain('Creator cannot approve');
+      expect(document.paths[`${prefix}/orders/{id}/fulfillment-plans/{planId}/close`]?.post?.description).toContain('No refund');
+    }
+    expect(document.components.schemas.SalesFulfillmentPlanCreate.properties.fulfillmentOption.enum).toEqual(['linked_purchase']);
+    expect(document.components.schemas.SalesFulfillmentPlanCreate.properties.plannedQuantity.exclusiveMinimum).toBe(true);
+  });
   const jsonSchemaRef = (response: Record<string, unknown> | undefined) => {
     const content = response?.content as Record<string, { schema?: unknown }> | undefined;
     return content?.['application/json']?.schema;

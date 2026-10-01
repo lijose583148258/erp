@@ -97,6 +97,7 @@ model Order {
   importBatch     OrderImportBatch? @relation(fields: [importBatchId], references: [id], onDelete: SetNull)
   items           OrderItem[]
   shipments       Shipment[]
+  fulfillmentPlans SalesFulfillmentPlan[]
   purchaseOrders  PurchaseOrder[]
   paymentRecords  PaymentRecord[]
   contractId      Int?      @map("contract_id")
@@ -172,10 +173,55 @@ model OrderItem {
   order           Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
   material        Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   shipments       Shipment[]
+  fulfillmentPlans SalesFulfillmentPlan[]
 
   @@index([orderId])
   @@index([materialId])
   @@map("order_items")
+}
+
+// A presale or backorder plan is an immutable business commitment. It does not
+// reserve or create physical stock: existing stock posting remains authoritative.
+// Status changes are separately audited by the service.
+model SalesFulfillmentPlan {
+  id                         Int       @id @default(autoincrement())
+  planNo                     String    @unique @map("plan_no")
+  idempotencyKey             String    @unique @map("idempotency_key")
+  requestFingerprint         String    @map("request_fingerprint")
+  orderId                    Int       @map("order_id")
+  orderItemId                Int       @map("order_item_id")
+  fulfillmentOption          String    @map("fulfillment_option")
+  plannedQuantity            Float     @map("planned_quantity")
+  unit                       String
+  sourceDocumentId           Int?      @map("source_document_id")
+  sourceDocumentNo           String?   @map("source_document_no")
+  sourceReference            String?   @map("source_reference")
+  sourceSnapshot             String?   @map("source_snapshot")
+  expectedFulfillmentAt      DateTime  @map("expected_fulfillment_at")
+  note                       String?
+  status                     String    @default("draft")
+  acceptedQuantityAtApproval Float?    @map("accepted_quantity_at_approval")
+  approvedBy                 Int?      @map("approved_by")
+  approvedAt                 DateTime? @map("approved_at")
+  closeoutIdempotencyKey     String?   @unique @map("closeout_idempotency_key")
+  closeoutSnapshot           String?   @map("closeout_snapshot")
+  closedBy                   Int?      @map("closed_by")
+  closedAt                   DateTime? @map("closed_at")
+  createdBy                  Int       @map("created_by")
+  createdAt                  DateTime  @default(now()) @map("created_at")
+  updatedAt                  DateTime  @updatedAt @map("updated_at")
+
+  order     Order     @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  orderItem OrderItem @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
+  creator   User      @relation("SalesFulfillmentPlanCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  approver  User?     @relation("SalesFulfillmentPlanApprover", fields: [approvedBy], references: [id], onDelete: Restrict)
+  closer    User?     @relation("SalesFulfillmentPlanCloser", fields: [closedBy], references: [id], onDelete: Restrict)
+
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([status, expectedFulfillmentAt])
+  @@index([fulfillmentOption, sourceDocumentId])
+  @@map("sales_fulfillment_plans")
 }
 
 // 付款记录模型 (从 AuditLog 升级为独立实体)

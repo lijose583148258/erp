@@ -368,7 +368,7 @@ const tests: FrontendUnitTest[] = [
       assert.ok(bom.errors.percentage);
       assert.ok(bom.errors.items);
 
-      const workOrder = validateWorkOrderForm({ productName: '树脂', targetQuantityInput: '0' });
+      const workOrder = validateWorkOrderForm({ productName: '树脂', targetQuantityInput: '0', lossQuantityInput: '0' });
       assert.equal(workOrder.targetQuantity, 0);
       assert.ok(workOrder.errors.targetQuantity);
 

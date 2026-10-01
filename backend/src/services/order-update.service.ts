@@ -65,12 +65,16 @@ export const OrderUpdateService = {
                     customerId: true,
                     discountAmount: true,
                     paidAmount: true,
+                    _count: { select: { fulfillmentPlans: true } },
                     customer: { select: { salespersonId: true, poolState: true, segment: true } },
                 },
             });
             if (!existing) throw new OrderUpdateRejectedError(404, '订单不存在，请刷新后重试。');
             if (!canUseOrderForBusinessWrite(req, existing)) {
                 throw new OrderUpdateRejectedError(403, '无权编辑该订单。');
+            }
+            if (itemReplacement && existing._count.fulfillmentPlans > 0) {
+                throw new OrderUpdateRejectedError(409, '订单行已有供给计划，不能原地替换并删除历史；请走调整流程。');
             }
             const governedReplacementItems = itemReplacement
                 ? await resolveOrderItemMaterialIdentities(tx, itemReplacement.orderItems)

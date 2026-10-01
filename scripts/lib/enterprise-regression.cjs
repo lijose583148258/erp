@@ -58,7 +58,8 @@ function validateBaseline(baseline) {
       assert(!previous || previous[key].every(id => revision[key].includes(id)), `Baseline shrank: ${key}`);
     }
     assert(revision.round2Checks.every(id => known.includes(id)), 'Unknown baseline check');
-    assert.deepEqual([...revision.independentChecks].sort(), ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'], 'Independent adapters must be implemented explicitly');
+    assert(['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'].every(id => revision.independentChecks.includes(id)), 'Core independent checks cannot be removed');
+    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan'].includes(id)), 'Independent adapters must be implemented explicitly');
     previous = revision;
   }
   return previous;
@@ -131,6 +132,11 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     assert.equal(r.attempts.length, r.obligations.length);
     assert(r.attempts.every(row => row.refundRejected && row.reversalRejected));
     return { evidenceSha256: sha256(JSON.stringify(r)), fixtureKind: r.fixtureKind };
+  });
+  if (revision?.independentChecks.includes('sales-fulfillment-plan')) record('sales-fulfillment-plan', () => {
+    const r = reports.salesPlan; verifyFresh(r, context, provider, now);
+    const proof = require('./sales-fulfillment-plan-proof.cjs').verifySalesPlanProof(r);
+    return { ...proof, evidenceSha256: sha256(JSON.stringify(r)) };
   });
   if (context?.profile === 'cloud') for (const id of revision?.cloudSteps || []) record(`cloud:${id}`, () => {
     assert.equal(steps[id]?.outcome, 'success', 'Prior cloud audit failed, skipped or missing (conclusion is not sufficient)');

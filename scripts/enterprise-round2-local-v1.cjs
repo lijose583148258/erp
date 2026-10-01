@@ -7,7 +7,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
-if (cumulative) process.env.ROUND2_BROWSER = 'true';
+if (cumulative || process.argv.includes('--sales-plan')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
@@ -104,10 +104,12 @@ async function main() {
   }
   if (cumulative) {
     const salesPath = path.join(sandbox, 'sales-partial', 'report.json');
+    const salesPlanPath = path.join(sandbox, 'sales-plan', 'report.json');
     const executions = [];
     for (const [label, script, target, args, allowed] of [
       ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
       ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
+      ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
     ]) {
       // A failing prior package must not truncate independent later packages.
@@ -122,7 +124,7 @@ async function main() {
     const read = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
     const result = evaluateRegression({ baseline: require('./config/enterprise-regression-baseline-v1.json'),
       context: read(env.REGRESSION_CONTEXT_PATH), currentCommit: headCommit(root), currentSourceHash: sourceFingerprint(root),
-      reports: { round2: read(reportPath), sales: read(salesPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
+      reports: { round2: read(reportPath), sales: read(salesPath), salesPlan: read(salesPlanPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
       executionErrors: executions.filter(e => !e.acceptable) });
     result.executions = executions;
     const file = path.join(sandbox, 'cumulative-regression.json'); fs.writeFileSync(file, JSON.stringify(result, null, 2));
@@ -130,7 +132,7 @@ async function main() {
     process.exitCode = result.status !== 'passed' ? 1 : result.fullAcceptanceStatus !== 'passed' ? 2 : 0;
     return;
   }
-  const auditScript = process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const auditScript = process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);
