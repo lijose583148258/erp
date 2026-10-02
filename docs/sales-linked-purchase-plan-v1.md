@@ -40,4 +40,12 @@
 - 最终同源累计：`output/round2/1790845597543-b7314419/cumulative-regression.json`，**29 / 29 通过**。R2 为 22 / 37 通过、0 失败、15 未实施；完整验收状态仍为 `incomplete`，因此完整 R2 子进程保留退出码 2。
 - 同源哈希 `f137935f40cdff4ec6c474c1f5de2f490752f5d06bd010f897cb3877dfc85506`。新增独立包再次通过 12 项断言及 15 类拒绝，数据库 `integrity_check=ok`、`foreign_key_check=[]`。独立复核：`output/review/sales-plan-local-verification.json`。
 - 最终移动端草稿及桌面结案截图已人工检查，中文清晰、无遮挡；截图位于上述运行的 `sales-plan/` 目录。
-- 企业云 PostgreSQL 结果尚待执行与补记，不能用 SQLite 同源通过替代云端通过。
+- 企业云 PostgreSQL [#36861717070](https://github.com/lijose583148258/erp/actions/runs/36861717070)，提交 `223c4f5`：本专项 12 项断言及 15 类拒绝通过，独立证明器回读通过；移动端草稿截图清晰且无遮挡。
+- **但同轮累计回归失败：49 / 52**。主备切换后另一实例客户详情地址查询出现 `P1017` 断连，GET 返回 500，连带切换窗口和试运行裁决失败。业务总汇总 20 / 25，失败项包含累计回归、上述三项及未完成的完整 R2。该版本不得放行，不能声称企业云通过。
+- 失败证据 `output/review/round2-cloud-36861717070/`；独立复核 `output/review/sales-plan-cloud-failure-verification.json`。R2 仍为 22 / 37、15 未完成。修复断连恢复后必须重跑所有累计链条，不改变或删除该轮原始失败报告。
+
+### 2026-10-02 断连定向复现（未修复）
+
+直接加载当前 TypeScript 客户详情读取链，隔离 Prisma 为仅含读取方法的故障桩，不启动服务器、不连接业务数据库。正常读取为 200；地址查询或订单统计查询单次抛出结构化 `P1017` 时均返回 500，权限过滤仍生效。证据：`output/review/customer-read-p1017-before.json`；复现脚本：`output/review/reproduce-customer-read-p1017.cjs`。这是确定性故障注入，不是 PostgreSQL 切换实测替代品。修复方案待确认；本次仅更新诊断和文档，未修改运行时代码。
+
+后续只读恢复修复已完成本地 29 / 29 累计重放，新企业云待跑；见 `docs/customer-detail-read-recovery-v1.md`。上述“未修复”段落保留为修复前复现记录。
