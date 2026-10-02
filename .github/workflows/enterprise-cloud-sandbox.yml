@@ -462,6 +462,8 @@ jobs:
         run: |
           set -euo pipefail
           postgres_url="${DATABASE_URL}"
+          PAYMENT_MIGRATION_ALLOW_FIXTURES=true PAYMENT_MIGRATION_DATABASE_URL="${postgres_url}" \
+            node scripts/payment-event-migration-audit-v1.cjs
           source_dir="${RUNNER_TEMP}/ailaoda-postgres-cutover-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           source_db="${source_dir}/source.db"
           source_backup_dir="${source_dir}/backups"

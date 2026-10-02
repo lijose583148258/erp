@@ -42,3 +42,19 @@ test('new schema is additive for both providers and does not backfill historical
     assert(sql.includes('ON DELETE RESTRICT'));
   }
 });
+
+test('payment migration covers db-push bootstrap and explicit CHECK installation', () => {
+  const pg = read('backend/prisma/postgres-migrations/202610020001_payment-event-outbox/migration.sql');
+  assert(pg.includes('ADD COLUMN IF NOT EXISTS "event_key"'));
+  assert(pg.includes('CREATE TABLE IF NOT EXISTS "business_event_deliveries"'));
+  assert(!/^CREATE (?:UNIQUE )?INDEX "/m.test(pg));
+  for (const column of ['channel', 'status', 'attempts']) {
+    assert(pg.includes(`ADD CONSTRAINT "business_event_deliveries_${column}_check"`));
+  }
+  const workflow = read('.github/workflows/enterprise-cloud-sandbox.yml');
+  assert(workflow.includes('node scripts/payment-event-migration-audit-v1.cjs'));
+  const probe = read('scripts/payment-event-migration-audit-v1.cjs');
+  assert(probe.includes("['bootstrap', 'upgrade']"));
+  assert(probe.includes("code: '23505'")); assert(probe.includes("code: '23514'"));
+  assert(probe.includes("code: '23503'"));
+});

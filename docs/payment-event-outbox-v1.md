@@ -13,6 +13,14 @@
 
 ## 本地证据（不是全 37 项通过）
 
+### 企业云暴露的迁移回归与修复
+
+`11b53aa` 的 [企业云 #36976237640](https://github.com/lijose583148258/erp/actions/runs/36976237640) **确实失败**：先 `db push` 后版本迁移，`event_key` 重复添加。累计 4 / 52，其余 48 项因应用未启动缺失/跳过；没有生成新的 R2 业务报告，不能沿用前轮结果声称本提交云端通过。
+
+已修正新迁移的引导/旧库双路径兼容性，且不只加 `IF NOT EXISTS`：对 Prisma 预建表单独补装 CHECK。新增真实 PostgreSQL 探针已接入云前置门禁，细节、官方调研与修复前后证据见 `recurring-failure-prevention-v1.md`。生产级验收与原 37 项目录保持不变，新云运行仍需独立验证。
+
+### `11b53aa` 提交前本地证据（保留，不冒充修复后云证据）
+
 - 后端全量：92 suites / 551 tests，通过；构建、前端 TypeScript、源码乱码/密钥治理检查通过。
 - 累计源码契约新增 5 项，共 124 项；源码契约只依赖 Node 内置模块，仍可在安装依赖前运行。
 - 实际 SQLite / 两个 Prisma 发送器 / 本机 HTTP 接收器：`output/payment-event/1790923979453-25f94c78/report.json`，7 组故障场景通过，integrity_check=ok，foreign_key_check=[]。
