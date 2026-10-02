@@ -2,12 +2,13 @@
 
 ## 当前状态（2026-10-02；以下历史记录不代表当前版本结论）
 
-- 当前提交：`223c4f5`；固定第二轮清单为 **22 / 37 通过，15 项未完成**。历史“19 项未完成”之后，R2-06 单位/密度与 R2-07 生产损耗/成本各补齐两项；采购关联补货计划属于有界前置包，不额外冒充固定 R2 项通过。
-- 本地最终同源累计 `output/round2/1790845597543-b7314419/cumulative-regression.json`：29 / 29；不替代 PostgreSQL 企业云。
-- [企业云 #36861717070](https://github.com/lijose583148258/erp/actions/runs/36861717070)：**累计 49 / 52，失败，当前版本不能放行**。PostgreSQL 主备切换后，另一实例客户详情 GET 在地址查询命中旧连接，报 `P1017`、HTTP 500；连带切换窗口与试运行裁决失败。不能把 `continue-on-error` 的 step conclusion 绿色当成真实 outcome 成功。
-- 该轮新补货计划独立 12 项断言通过；R2 为 22 通过、0 失败、15 未执行。它们不能抵消前序主备切换回归。
-- 原始失败产物：`output/review/round2-cloud-36861717070/`；独立失败复核：`output/review/sales-plan-cloud-failure-verification.json`。本轮失败证据永久保留，不改成通过。
-- 后续修复已完成本地同源累计 **29 / 29**；新的企业云尚待运行。范围、故障注入及回归证据见 `docs/customer-detail-read-recovery-v1.md`。未向通用写入重试加入断连错误；上轮失败结论保留。
+- 已推送并在企业云验证的源码提交：`ec342072bca6d4326a753f099d717e5cf25a2e69`。
+- [企业云 #36954322546](https://github.com/lijose583148258/erp/actions/runs/36954322546)：**累计回归 52 / 52 通过，前序回归已消除**；PostgreSQL 主备切换 10 项均通过，创建客户为 201、另一实例读取同一客户为 200，旧主库重建为停止状态的备用库。未重试业务 POST，也未在审计端重试 GET 掩盖失败。
+- 完整第二轮仍为 **22 / 37 通过、0 失败、15 项未完成，6 / 12 条链通过**。业务汇总为 24 / 25；唯一失败项是 `round2_business`，因此完整模式 workflow 正确保留 `failure`。累计回归通过不等于完整生产级验收通过。
+- 本地同源累计 `output/round2/1790906266163-8373e663/cumulative-regression.json`：29 / 29；后端 536 / 536、source-only 契约 119 / 119。新云端证据位于 `output/review/round2-cloud-36954322546/`，独立复核 `output/review/read-recovery-cloud-36954322546-verification.json`。
+- 新补货计划独立 12 项断言及 15 类拒绝再次通过；三张浏览器截图已逐张检查无遮挡。当前只实现采购关联计划，不把它冒充完整预售/补单/替代/退款验收。
+- 上轮 [#36861717070](https://github.com/lijose583148258/erp/actions/runs/36861717070) 的 49 / 52 失败、P1017 / HTTP 500 原始证据永久保留，不改写成成功。修复范围和两轮对照见 `docs/customer-detail-read-recovery-v1.md`。
+- 历史“19 项未完成”之后，R2-06 单位/密度与 R2-07 生产损耗/成本各补齐两项，故目前为 15 项。本次只读恢复解决前序回归，不新增固定 R2 通过项。
 
 ## 范围与证据边界
 

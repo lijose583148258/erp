@@ -100,6 +100,14 @@ on:
       - 'backend/src/services/production-quality*.ts'
       - 'backend/src/utils/dbRetry*.ts'
       - 'backend/src/utils/readOnlyDbRetry.ts'
+      - 'backend/src/services/payment-*.ts'
+      - 'backend/src/services/collection-state.service.ts'
+      - 'backend/src/controllers/order-payment.controller.ts'
+      - 'backend/src/services/webhook.service*.ts'
+      - 'backend/src/services/realtime-notification.service.ts'
+      - 'services/realtime*.ts'
+      - 'backend/tests/realtime-event-dedup.test.ts'
+      - 'scripts/payment-event-*.cjs'
       - 'backend/src/controllers/customer/customer-query.controller.ts'
       - 'backend/src/controllers/customer/customer-read-recovery.test.ts'
       - 'pages/production/ProductionQualityInspectionPanel.tsx'
@@ -409,6 +417,11 @@ jobs:
 
       - name: Verify read-only reconnect boundary
         run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/controllers/customer/customer-read-recovery.test.ts backend/src/utils/dbRetry.test.ts
+
+      - name: Verify payment event delivery boundaries
+        run: |
+          node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-event-outbox.service.test.ts backend/src/services/webhook.service.test.ts backend/src/services/collection-state.service.test.ts backend/tests/realtime-event-dedup.test.ts
+          node scripts/payment-event-contract.test.cjs
 
       - name: Remove stale generated runtime evidence
         shell: bash

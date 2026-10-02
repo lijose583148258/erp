@@ -49,3 +49,7 @@
 直接加载当前 TypeScript 客户详情读取链，隔离 Prisma 为仅含读取方法的故障桩，不启动服务器、不连接业务数据库。正常读取为 200；地址查询或订单统计查询单次抛出结构化 `P1017` 时均返回 500，权限过滤仍生效。证据：`output/review/customer-read-p1017-before.json`；复现脚本：`output/review/reproduce-customer-read-p1017.cjs`。这是确定性故障注入，不是 PostgreSQL 切换实测替代品。修复方案待确认；本次仅更新诊断和文档，未修改运行时代码。
 
 后续只读恢复修复已完成本地 29 / 29 累计重放，新企业云待跑；见 `docs/customer-detail-read-recovery-v1.md`。上述“未修复”段落保留为修复前复现记录。
+
+## 2026-10-02 修复后企业云累计重放
+
+提交 `ec34207`、[运行 #36954322546](https://github.com/lijose583148258/erp/actions/runs/36954322546)：本专项 12 项断言、15 类拒绝及来源并发承诺防护再次通过；移动端草稿、独立审批及结案截图均已检查。**累计 52 / 52 通过**，前序主备切换回归已消除。完整 R2 仍为 22 / 37、15 未完成，workflow 因 `round2_business` 保留 failure。详细独立证据见 `docs/customer-detail-read-recovery-v1.md`，不得将本前置包改判为完整 R2-01 通过。

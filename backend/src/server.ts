@@ -24,6 +24,7 @@ import { hasValidMetricsBearerToken } from './security/metricsAccess';
 import { metricsMiddleware, recordRumVital, renderPrometheusMetrics } from './middleware/metricsMiddleware';
 import { authenticate, authorize, authorizePermission, type AuthRequest } from './middleware/auth';
 import { attachRealtimeNotifications, getRealtimeNotificationStatus } from './services/realtime-notification.service';
+import { startPaymentEventOutbox, stopPaymentEventOutbox } from './services/payment-event-outbox.service';
 import { getTraceContext, traceContextMiddleware } from './middleware/traceContext';
 import { createApiRateLimitStore, getRateLimitStoreStatus } from './services/distributed-rate-limit.service';
 import { getAuthTokenStoreStatus } from './services/auth-token-store.service';
@@ -418,6 +419,7 @@ const shutdownGracefully = (reason: string) => {
 
   if (dailyBackupTimer) clearInterval(dailyBackupTimer);
   if (shutdownSignalTimer) clearInterval(shutdownSignalTimer);
+  const outboxStopped = stopPaymentEventOutbox();
 
   const forceExitTimer = setTimeout(() => {
     logger.error('优雅关闭超过 10 秒，强制退出。');
@@ -426,6 +428,7 @@ const shutdownGracefully = (reason: string) => {
   forceExitTimer.unref();
 
   const closeDatabaseAndExit = async (code: number) => {
+    await outboxStopped;
     try {
       await shutdownTelemetry();
       logger.info('OpenTelemetry exporter closed');
@@ -492,6 +495,7 @@ const startServer = async () => {
 
     server = app.listen(PORT, () => {
       if (server) attachRealtimeNotifications(server);
+      startPaymentEventOutbox();
       logger.info(`Server started successfully. Port: ${PORT}`);
       logger.info(`Environment: ${runtime.nodeEnv}`);
       logger.info(`CORS: ${allowedOrigins.join(',')}`);

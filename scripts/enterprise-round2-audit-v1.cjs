@@ -241,6 +241,12 @@ async function paymentVerification(signal) {
     const result = await request(`/orders/${order.id}/payment/${payment.id}/verify`, { actor, instance: actor.id === actors.finance1.id ? 0 : 1, method: 'POST', signal });
     return { status: result.status, message: result.json?.message };
   }, signal);
+  const replayResponses = await Promise.all(urls.map(async (_, instance) => request(`/collections/payments/${payment.id}/verify`, {
+    actor: actors.finance2, instance, method: 'POST', signal,
+  })));
+  const events = await prisma.businessEvent.findMany({ where: { eventKey: `payment.verified:${payment.id}` }, include: { deliveries: true } });
+  const audits = await prisma.auditLog.findMany({ where: { action: 'PAYMENT_VERIFIED', resource: 'payment', resourceId: payment.id } });
+  const eventPayload = events.length === 1 ? JSON.parse(events[0].payloadJson) : null;
   const readbacks = await Promise.all(urls.map(async (_, instance) => dataOf(await request(`/orders/${order.id}`, { actor: actors.finance1, instance, signal }))));
   const persisted = await prisma.order.findUnique({ where: { id: order.id }, include: { paymentRecords: true } });
   return verify({
@@ -249,8 +255,13 @@ async function paymentVerification(signal) {
     paid_amount_is_300_not_600: cents(persisted.paidAmount) === cents(300),
     payment_status_partial: persisted.paymentStatus === 'partial',
     both_instances_agree: readbacks.every(row => cents(row.paidAmount) === cents(300) && row.paymentRecords.length === 1),
+    cross_entry_replays_succeed: replayResponses.every(row => row.status === 200 && row.json?.data?.alreadyVerified === true),
+    verification_audit_and_event_once: events.length === 1 && audits.length === 1 &&
+      JSON.parse(audits[0].details).eventId === eventPayload?.id && eventPayload?.data?.auditId === audits[0].id,
+    committed_event_has_delivery: events[0]?.deliveries.some(row => row.channel === 'realtime'),
   }, { orderId: order.id, paymentId: payment.id, responses, paidAmount: persisted.paidAmount,
-    paymentStatus: persisted.paymentStatus, payments: persisted.paymentRecords,
+    paymentStatus: persisted.paymentStatus, payments: persisted.paymentRecords, events, audits,
+    replayResponses: replayResponses.map(row => ({ httpStatus: row.status, data: row.json?.data })),
     readbacks: readbacks.map(row => ({ id: row.id, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus })) });
 }
 

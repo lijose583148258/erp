@@ -281,20 +281,8 @@ export async function verifyOrderPayment(req: AuthRequest, res: Response) {
 
         const result = await CollectionStateService.verifyPaymentRecord(payment.id, req.user!.userId);
         const order = await OrderWorkspaceService.getOrderById(Number(id), req);
-        publishRealtimeNotification({
-            type: 'payment.verified',
-            title: 'Payment verified',
-            message: `订单 ${id} 回款已核销`,
-            resourceType: 'payment',
-            resourceId: payment.id,
-            severity: 'success',
-        });
-        publishWebhookEvent({
-            type: 'payment.verified',
-            resourceType: 'payment',
-            resourceId: payment.id,
-            data: { orderId: Number(id), paymentId: payment.id },
-        });
+        // Both verification routes commit the same durable event in the service.
+        // HTTP replays must never generate new side effects here.
 
         return res.json({
             success: true,

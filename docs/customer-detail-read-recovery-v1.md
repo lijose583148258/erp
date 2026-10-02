@@ -31,3 +31,13 @@
 ## 2026-10-02 修复后的本地累计结果
 
 只读恢复与审计字段修复已落地。最终源码累计 `output/round2/1790906266163-8373e663/cumulative-regression.json` 为 **29 / 29 通过**，R2 为 22 通过、0 失败、15 未执行；完整 R2 子进程仍返回 2。源码指纹 `69808fc670fde0d60fcb2a223ec71fd63a43dc955796b8f5b6544454448c3a92`。数据库 `integrity_check=ok`、`foreign_key_check=[]`；独立复核 `output/review/customer-read-recovery/local-verification.json`。补货计划结案截图已检查无遮挡。新的企业云尚待运行，不将上轮失败覆盖为成功。
+
+## 2026-10-02 企业云最终复核
+
+- 运行 [#36954322546](https://github.com/lijose583148258/erp/actions/runs/36954322546)，提交 `ec342072bca6d4326a753f099d717e5cf25a2e69`，attempt 1；源码指纹 `3f79ef70117bd675cd9c4230b66f2a6bd9f2a93bc745ab51f0c1e2540039184a`。
+- **累计 52 / 52 通过**，PostgreSQL promotion v1.1 的 10 项通过；主实例一次 POST 返回 201，另一实例一次 GET 返回 200，同一客户 ID 50。原主库重建为停止状态的备用库，未直接重启旧主库造成双主。
+- 同轮备份恢复、切换窗口和技术试运行裁决通过。它们是受控沙箱技术证据，不替代真实 20 岗 / 12 链完整生产验收。
+- 新补货计划的 12 项断言、15 类无副作用拒绝、同来源两个审批人竞争（200 / 409）、来源批次交付结案与双实例回读通过；三张浏览器截图已检查中文清晰、无遮挡。
+- 原始报告核对了 SHA、run/attempt、时间窗、数据库 provider、各业务证据摘要及实际 step outcome，未只采信绿色 conclusion。独立复核：`output/review/read-recovery-cloud-36954322546-verification.json`；原始产物：`output/review/round2-cloud-36954322546/`。
+- **完整 R2 仍 22 / 37、0 失败、15 未完成、6 / 12 条链通过**；业务总汇总 24 / 25，唯一未通过项 `round2_business`。workflow 仍为 failure 是完整门禁如实阻止假通过，不是本次已完成包回归。
+- 本轮实际主备切换后的客户 GET 为 200；不能据此断言该 GET 恰好触发了重试分支。P1017 分支与三次上限由独立故障注入验证，真实切换由本轮云环境验证。

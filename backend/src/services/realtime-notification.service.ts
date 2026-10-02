@@ -7,6 +7,7 @@ import { JwtPayload, verifyToken } from '../utils/jwt';
 import { createRedisClient, ensureRedisConnected, isRedisConfigured } from '../infrastructure/redis-runtime';
 
 export type RealtimeNotificationEvent = {
+  id?: string;
   type: 'order.created' | 'order.updated' | 'order.status_changed' | 'order.completed' | 'payment.submitted' | 'payment.verified';
   title: string;
   message: string;
@@ -200,6 +201,15 @@ export const publishRealtimeNotification = (event: RealtimeNotificationEvent): n
       });
   }
   return delivered;
+};
+
+// Acknowledges bus acceptance, not proof that an online user read the hint.
+export const publishDurableRealtimeNotification = async (event: RealtimeNotificationEvent & { id: string }) => {
+  if (publisher) {
+    await startRealtimeBus();
+    await publisher.publish(busChannel, JSON.stringify({ origin: instanceId, event }));
+  }
+  deliverLocalNotification(event);
 };
 
 export const getRealtimeNotificationStatus = () => ({

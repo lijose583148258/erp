@@ -12,14 +12,18 @@ import {
 } from './collection/collection.helpers';
 import { withDbRetry } from '../utils/dbRetry';
 import { addMoney, compareMoney, type DecimalInput } from '../utils/money';
+import { recordPaymentVerifiedEventTx } from './payment-verification-event.service';
 
 type CollectionDb = typeof prisma | Prisma.TransactionClient;
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING = 'PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING';
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE = 'Verified payments would exceed order outstanding balance.';
+export const PAYMENT_VERIFICATION_INVALID_STATE = 'PAYMENT_VERIFICATION_INVALID_STATE';
 export const getPaymentVerificationConflictMessage = (error: unknown) => (
     error instanceof Error && error.message === PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING
         ? PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE
-        : null
+        : error instanceof Error && error.message === PAYMENT_VERIFICATION_INVALID_STATE
+            ? 'Only pending payments can be verified.'
+            : null
 );
 
 export const calculateVerifiedPaymentState = (input: {
@@ -350,6 +354,8 @@ export class CollectionStateService {
             };
         }
 
+        if (payment.status !== 'pending') throw new Error(PAYMENT_VERIFICATION_INVALID_STATE);
+
         const verified = await withDbRetry(() => prisma.$transaction(async (tx) => {
             const claim = await tx.paymentRecord.updateMany({
                 where: { id: payment.id, status: 'pending' },
@@ -360,7 +366,9 @@ export class CollectionStateService {
             });
 
             if (claim.count !== 1) {
-                return false;
+                const current = await tx.paymentRecord.findUnique({ where: { id: payment.id }, select: { status: true } });
+                if (current?.status === 'verified') return false;
+                throw new Error(PAYMENT_VERIFICATION_INVALID_STATE);
             }
 
             // Serialize same-order verification before aggregating paid totals.
@@ -441,6 +449,7 @@ export class CollectionStateService {
                 }
             }
             await this.syncCustomerOverdueAmountTx(tx, order.customerId);
+            await recordPaymentVerifiedEventTx(tx, payment.id, verifiedBy);
             return true;
         }), { label: 'verifyPaymentRecord' });
 
