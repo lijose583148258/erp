@@ -1,6 +1,14 @@
 # 第二轮企业业务验收 v1
 
-## 当前状态（2026-10-02；以下历史记录不代表当前版本结论）
+## 当前状态（2026-10-03；以下历史记录不代表当前版本结论）
+
+- 已推送并核验的业务源码：`cb19da0f31a5599235f3dd0100b97914a4b4234b`，[企业云 37120638723](https://github.com/lijose583148258/erp/actions/runs/37120638723)。
+- 完整第二轮 **23 / 37 通过、0 失败、14 项未执行，6 / 12 条链通过**；新增 `payment-event-audit-once` 已通过真实财务浏览器、双应用崩溃恢复与独立接收器去重验收。
+- 全部前序包累计 **53 / 53 通过**；业务汇总 **24 / 25**，唯一失败为完整 R2 incomplete，workflow 正确保留 failure。不把应用进程崩溃冒充数据库服务器重启。
+- 本地最终源码累计 **30 / 30**，后端 551 / 551、源码契约 150 / 150。云端原始产物 `output/review/round2-cloud-37120638723/`，严格回执 `output/review/payment-event-cloud-37120638723-verification.json`；两张财务与三张补货计划截图已人工查看。
+- 下一包优先 `payment-submit-durable-replay`，覆盖现有 15 秒窗口之外、核销后与提交成功但响应丢失的登记重放。所有新包必须完整重放本包及全部前序包。
+
+## 历史快照（2026-10-02，不是最新剩余项统计）
 
 - 已推送并在企业云验证的源码提交：`ec342072bca6d4326a753f099d717e5cf25a2e69`。
 - [企业云 #36954322546](https://github.com/lijose583148258/erp/actions/runs/36954322546)：**累计回归 52 / 52 通过，前序回归已消除**；PostgreSQL 主备切换 10 项均通过，创建客户为 201、另一实例读取同一客户为 200，旧主库重建为停止状态的备用库。未重试业务 POST，也未在审计端重试 GET 掩盖失败。
@@ -426,3 +434,26 @@
 已取回 [企业云 36991463193](https://github.com/lijose583148258/erp/actions/runs/36991463193)（提交 `074f6338e92f7c113b669000d2711c1f3cfe98e4`）：累计 52/52，R2 22 通过 / 0 失败 / 15 未执行。失败截断不再遮挡本轮后续审计，但完整验收并未因此完成。
 
 新包 `payment-event-acceptance-v1.md` 将固定 ID `payment-event-audit-once` 串成真实财务浏览器、双应用 SIGKILL、原始租约自然恢复、签名 HTTP 接收器持久去重、跨入口 8 次重放及财务读回检查。只追加累计义务，不缩减 37 项。专项本地证明不直接改变正式 22/37；待最终源码累计和新提交 PostgreSQL 云证据复核后再更新。数据库服务器重启仍未通过，不能用本包的应用进程崩溃替代。
+
+## 最新已核验进度（2026-10-03）
+
+[企业云 37120638723](https://github.com/lijose583148258/erp/actions/runs/37120638723)，业务提交 `cb19da0f31a5599235f3dd0100b97914a4b4234b`：**23/37，0 失败，14 未执行，6/12 条链通过**；全部已完成包累计 **53/53**。真实财务浏览器、双应用崩溃恢复、签名接收器一次入账的 `payment-event-audit-once` 已正式提升。原始证据、严格复核与截图已完成，不将基础事件唯一冒充登记幂等或数据库重启验收。
+
+剩余 14 项（保持固定 ID，不合并/删除以降低数字）：
+
+- workforce-rbac
+- presale-with-fulfillment-plan
+- backorder-adjustment-closeout
+- sales-reservation-partial-fulfillment
+- sales-browser-readback
+- purchase-partial-receipt-qc-payables
+- purchase-browser-readback
+- stock-contention-browser
+- transfer-shipping-browser
+- payment-submit-durable-replay
+- payment-reversal-browser
+- barter-browser-readback
+- database-restart-ambiguous-commit
+- recovery-full-ledger-reconciliation
+
+下一包优先登记请求持久幂等，保留角色/记录范围、余额及待核销上限，覆盖超过 15 秒、核销后和提交成功但响应丢失的重放；随后继续冲销/货抵浏览器及其余角色链。每包重放前序所有包的关键用例，确认无回归。
