@@ -80,7 +80,7 @@ export const paymentSchema = z.object({
   method: paymentMethodSchema,
   payerName: z.string().trim().optional(),
   note: z.string().trim().optional(),
-  isProxy: z.coerce.boolean().optional(),
+  isProxy: z.boolean().optional(),
 }).passthrough();
 
 export const batchReminderSchema = z.object({

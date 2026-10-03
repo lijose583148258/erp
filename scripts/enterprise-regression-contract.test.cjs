@@ -13,7 +13,7 @@ function fixture(profile = 'cloud') {
   const stamp = { regression: context, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:03.000Z', provider: profile === 'cloud' ? 'postgresql' : 'sqlite' };
   const protectedIds = baseline.revisions.at(-1).round2Checks;
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
-    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : { readback: true } })) };
+    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : { readback: true } })) };
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
@@ -103,6 +103,12 @@ test('a passed flag cannot hide duplicate downstream payment effects', () => {
   const result = evaluateRegression(data);
   assert.equal(result.status, 'failed');
   assert.equal(result.checks.find(c => c.id === 'round2:payment-event-audit-once').status, 'failed');
+});
+test('a passed flag cannot hide an extra registration after an unknown browser acknowledgement', () => {
+  const data = fixture();
+  data.reports.round2.checks.find(c => c.id === 'payment-submit-durable-replay').evidence.browser.recoveredResponse.json.paymentSubmission.requestKey = 'new-request-key';
+  const result = evaluateRegression(data);
+  assert.equal(result.status, 'failed'); assert.equal(result.checks.find(c => c.id === 'round2:payment-submit-durable-replay').status, 'failed');
 });
 
 test('cloud always replays prior checks, isolates legacy failures and aggregates regression outcome', () => {

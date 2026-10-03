@@ -128,7 +128,7 @@ async function createOrderFixture({ prisma, token, alternateCreator, label, fina
 async function recordPayment({ prisma, token, orderId, amount, note }) {
   const response = await runtime.apiFetch(`/orders/${orderId}/payment`, {
     method: 'POST',
-    data: {
+    data: { idempotencyKey: require('node:crypto').randomUUID(),
       amount,
       method: 'bank_transfer',
       payerName: `Payment Payer ${RUN_ID}`,
@@ -304,7 +304,7 @@ async function auditPendingReservationBlocksOverEntry({ prisma, token, alternate
 
     const second = await runtime.apiFetch(`/orders/${fixture.orderId}/payment`, {
       method: 'POST',
-      data: {
+      data: { idempotencyKey: require('node:crypto').randomUUID(),
         amount: 700,
         method: 'bank_transfer',
         payerName: `Payment Payer ${RUN_ID}`,

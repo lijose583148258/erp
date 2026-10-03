@@ -18,6 +18,7 @@ model User {
   customers     Customer[]
   orders        Order[]
   orderImportBatches OrderImportBatch[]
+  paymentSubmissions PaymentSubmission[]
   samples       Sample[]
   shipments     Shipment[]
   rmas          Rma[]

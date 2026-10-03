@@ -152,7 +152,7 @@ const main = async () => {
   });
   expectStatus('reject-cross-segment-order-status', deniedStatus, 403);
   const deniedPayment = await request(`/orders/${channelOrder.id}/payment`, {
-    method: 'POST', token: manager.token, data: { amount: 25, method: 'cash', note: `forbidden-${runId}` },
+    method: 'POST', token: manager.token, data: { idempotencyKey: require('node:crypto').randomUUID(), amount: 25, method: 'cash', note: `forbidden-${runId}` },
   });
   expectStatus('reject-cross-segment-payment', deniedPayment, 403);
 
@@ -163,7 +163,7 @@ const main = async () => {
   record('rejected-writes-database-readback', { paymentCount: 0, status: deniedReadback.status });
 
   const financePayment = await request(`/orders/${channelOrder.id}/payment`, {
-    method: 'POST', token: finance.token, data: { amount: 25, method: 'cash', note: `finance-${runId}` },
+    method: 'POST', token: finance.token, data: { idempotencyKey: require('node:crypto').randomUUID(), amount: 25, method: 'cash', note: `finance-${runId}` },
   });
   expectStatus('allow-finance-cross-segment-payment', financePayment, 200);
   const financeReadback = await readOrder(channelOrder.id);

@@ -34,7 +34,7 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser
 implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-packaging-density-conversion', 'conversion-cost-conservation');
 implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
-if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -234,7 +234,7 @@ async function paymentVerification(signal) {
     customerId: buyer.id, items: [{ materialId: material.id, productName: material.nameZh, quantity: 10, unit: 'kg', unitPrice: 100 }], paymentTerms: 30,
   } }));
   dataOf(await request(`/orders/${order.id}/payment`, { actor: actors.sales, method: 'POST', signal,
-    data: { amount: 300, method: 'bank_transfer', payerName: 'Round2 synthetic', note: runId } }));
+    data: { idempotencyKey: require('node:crypto').randomUUID(), amount: 300, method: 'bank_transfer', payerName: 'Round2 synthetic', note: runId } }));
   const before = dataOf(await request(`/orders/${order.id}`, { actor: actors.finance1, signal }));
   const payment = before.paymentRecords.find(row => row.status === 'pending');
   assert(payment?.id, 'Pending payment is missing');
@@ -394,8 +394,13 @@ async function main() {
     return;
   }
   if (process.env.ROUND2_ONLY_CHECK) {
-    assert.equal(process.env.ROUND2_ONLY_CHECK, 'payment-event-audit-once');
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay'].includes(process.env.ROUND2_ONLY_CHECK));
     assert.equal(process.env.ROUND2_BROWSER, 'true');
+    if (process.env.ROUND2_ONLY_CHECK === 'payment-submit-durable-replay') {
+      const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
+      await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+      return;
+    }
     const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
     await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
     return;
@@ -412,6 +417,10 @@ async function main() {
   if (process.env.ROUND2_BROWSER === 'true') {
     const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
     await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+  }
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
+    await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
   }
   await runner.run('barter-dual-stock-posting-replay', barterPosting);
   await runner.run('barter-offset-cash-difference', barterDifference);

@@ -247,6 +247,7 @@ model PaymentRecord {
   barterMetadata  String?   @map("barter_metadata") // 存储 JSON 字符串：货抵明细（品名、规格、单价换算等）
   barterSettlement BarterSettlement?
   barterOffsetPostings BarterOffsetPosting[]
+  submission PaymentSubmission?
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

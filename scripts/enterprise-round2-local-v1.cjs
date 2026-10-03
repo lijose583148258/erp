@@ -8,13 +8,14 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
-if (cumulative || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event')) process.env.ROUND2_BROWSER = 'true';
+if (cumulative || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
 const reportPath = path.join(sandbox, 'enterprise-round2-v1.json');
 const children = new Set();
 let paymentReceiver, appControl;
+let appRestartGeneration = 0;
 const appProcesses = [];
 const env = { ...process.env,
   NODE_ENV: 'production', AILAODA_DEPLOYMENT_MODE: 'local', DATABASE_URL: `file:${db.replace(/\\/g, '/')}`,
@@ -24,7 +25,7 @@ const env = { ...process.env,
   FRONTEND_DIST_DIR: path.join(sandbox, 'frontend'),
   SEARCH_ENDPOINT: '', SEARCH_ENDPOINTS: '', MEILISEARCH_URL: '', REDIS_URL: '',
   AUDIT_PRISMA_PROVIDER: 'sqlite', ROUND2_ALLOW_MUTATIONS: 'true', ROUND2_REPORT_PATH: reportPath,
-  ROUND2_ONLY_CHECK: !cumulative && process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
+  ROUND2_ONLY_CHECK: cumulative ? '' : process.argv.includes('--payment-submit') ? 'payment-submit-durable-replay' : process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
 };
 try {
   env.ROUND2_COMMIT = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim();
@@ -123,8 +124,9 @@ async function main() {
           result = { killed: 2, signal: 'SIGKILL', exit: await Promise.all(old.map(child => child.completion)) };
         } else {
           if (appProcesses.some(child => child.exitCode === null && !child.signalCode)) throw new Error('Owned process still running');
+          appRestartGeneration++;
           for (const [index, port] of ports.entries()) {
-            appProcesses[index] = start(`app-recovery-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) });
+            appProcesses[index] = start(`app-recovery-${appRestartGeneration}-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) });
             await ready(appProcesses[index], urls[index]);
           }
           result = { restarted: 2 };

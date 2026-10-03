@@ -108,6 +108,8 @@ export const useSalesOrders = () => {
         openPaymentModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
     } = useSalesOrderPayments({
         selectedOrder,
         paymentForm,
@@ -437,6 +439,8 @@ export const useSalesOrders = () => {
         openHistoryModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
         openCollectionAction,
         refreshSelectedOrder,
         updateDimensionalItem,

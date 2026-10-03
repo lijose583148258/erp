@@ -14,6 +14,7 @@ import { repairReceivableSchema } from './runtime-schema-receivable-repair';
 import { repairStockSchema } from './runtime-schema-stock-repair';
 import { repairCommercialPlatformSchema } from './runtime-schema-commercial-repair';
 import { repairPaymentEventSchema } from './runtime-schema-payment-event-repair';
+import { repairPaymentSubmissionSchema } from './runtime-schema-payment-submission-repair';
 import { repairMaterialSchema } from './runtime-schema-material-repair';
 import { repairDecimalShadowSchema } from './runtime-schema-decimal-repair';
 
@@ -48,6 +49,7 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
 
   await repairCommercialPlatformSchema(report);
   await repairPaymentEventSchema(report);
+  await repairPaymentSubmissionSchema(report);
 
   return report;
 };

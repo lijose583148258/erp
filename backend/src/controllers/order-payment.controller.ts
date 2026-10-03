@@ -8,7 +8,7 @@ import {
 import { getOutstandingAmount } from '../services/collection/collection.helpers';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { ApiResponse } from '../types/api.types';
-import { withDbRetry } from '../utils/dbRetry';
+import { normalizePaymentSubmissionFacts, normalizePaymentSubmissionKey, PaymentSubmissionError, submitPaymentDurably } from '../services/payment-submission.service';
 import { logger } from '../utils/logger';
 import { canUseOrderForCollectionWrite } from '../utils/recordAccess';
 import { requireFinanceCollectionScope } from './collection/collection-controller.helpers';
@@ -17,228 +17,34 @@ import { publishWebhookEvent } from '../services/webhook.service';
 
 export async function recordOrderPayment(req: AuthRequest, res: Response) {
     try {
-        const { id } = req.params;
-        const { amount, method, payerName, note, isProxy = false } = req.body;
-        const paymentAmount = Number(amount);
-        const normalizedPayerName = payerName || null;
-        const normalizedNote = note || null;
-
-        if (!Number.isFinite(paymentAmount) || paymentAmount <= 0) {
-            return res.status(400).json({
-                success: false,
-                message: '回款金额必须大于 0。',
-            } as ApiResponse);
+        const orderId = Number(req.params.id);
+        const orderMeta = await prisma.order.findUnique({ where: { id: orderId }, select: {
+            id: true, createdBy: true, customer: { select: { salespersonId: true, poolState: true, segment: true } },
+        } });
+        if (!orderMeta) return res.status(404).json({ success: false, message: '订单不存在，请刷新后重试。' });
+        if (!canUseOrderForCollectionWrite(req, orderMeta)) return res.status(403).json({ success: false, message: '无权为该订单登记回款。' });
+        const header = req.get('Idempotency-Key'), body = req.body.idempotencyKey;
+        if (header && body !== undefined && header !== body) throw new PaymentSubmissionError('PAYMENT_SUBMISSION_KEY_CONFLICT', '请求头与载荷中的登记身份不一致。');
+        const key = normalizePaymentSubmissionKey(header ?? body);
+        const facts = normalizePaymentSubmissionFacts(req.body);
+        const result = await submitPaymentDurably({ orderId, userId: req.user!.userId, key, facts,
+            ip: req.ip, userAgent: req.get('user-agent'), authorize: order => canUseOrderForCollectionWrite(req, order) });
+        // Replays acknowledge the original receipt but read back today's order. No new effects/notifications.
+        const order = await OrderWorkspaceService.getOrderById(orderId, req);
+        if (!result.replayed) {
+            logger.info('Payment submitted', { orderId, paymentId: result.receipt.paymentId });
+            publishRealtimeNotification({ type: 'payment.submitted', title: 'Payment submitted',
+                message: '新增待核销回款', resourceType: 'payment', resourceId: result.receipt.paymentId, severity: 'warning',
+                audience: { roles: ['admin', 'manager', 'finance'] } });
+            publishWebhookEvent({ type: 'payment.submitted', resourceType: 'payment', resourceId: result.receipt.paymentId,
+                data: { orderId, paymentId: result.receipt.paymentId, amount: facts.amount, method: facts.method } });
         }
-
-        const orderMeta = await prisma.order.findUnique({
-            where: { id: Number(id) },
-            select: {
-                id: true,
-                status: true,
-                paymentStatus: true,
-                paidAmount: true,
-                finalAmount: true,
-                receivableAdjustmentAmount: true,
-                createdBy: true,
-                customer: { select: { salespersonId: true, poolState: true, segment: true } },
-            },
-        });
-
-        if (!orderMeta) {
-            return res.status(404).json({
-                success: false,
-                message: '订单不存在，请刷新后重试。',
-            } as ApiResponse);
-        }
-
-        if (orderMeta.status === 'cancelled') {
-            return res.status(400).json({
-                success: false,
-                message: '已取消订单不能登记回款。',
-            } as ApiResponse);
-        }
-        if (!canUseOrderForCollectionWrite(req, orderMeta)) {
-            return res.status(403).json({
-                success: false,
-                message: '无权为该订单登记回款。',
-            } as ApiResponse);
-        }
-
-        const orderOutstanding = getOutstandingAmount(
-            Number(orderMeta.finalAmount),
-            Number(orderMeta.paidAmount),
-            Number(orderMeta.receivableAdjustmentAmount),
-        );
-        if (orderOutstanding <= 0.01 || orderMeta.paymentStatus === 'paid') {
-            return res.status(400).json({
-                success: false,
-                message: '该订单已全部回款，无需重复登记。',
-            } as ApiResponse);
-        }
-
-        if (paymentAmount - orderOutstanding > 0.01) {
-            return res.status(400).json({
-                success: false,
-                message: '回款金额不能超过订单未回款余额。',
-            } as ApiResponse);
-        }
-
-        const duplicateWindowStart = new Date(Date.now() - 15_000);
-        const transactionResult = await withDbRetry(() => prisma.$transaction(async (tx) => {
-            // Serialize same-order payment submissions before checking duplicates.
-            // Without this row touch, two fast clicks can both read "no pending duplicate"
-            // and create two identical payment records.
-            const liveOrder = await tx.order.update({
-                where: { id: Number(id) },
-                data: { updatedAt: new Date() },
-                select: {
-                    id: true,
-                    paymentStatus: true,
-                    paidAmount: true,
-                    finalAmount: true,
-                    receivableAdjustmentAmount: true,
-                },
-            });
-
-            const liveOrderOutstanding = getOutstandingAmount(
-                Number(liveOrder.finalAmount),
-                Number(liveOrder.paidAmount),
-                Number(liveOrder.receivableAdjustmentAmount),
-            );
-            if (liveOrderOutstanding <= 0.01 || liveOrder.paymentStatus === 'paid') {
-                return { duplicatePaymentId: null, alreadyPaid: true };
-            }
-
-            const duplicatePendingPayment = await tx.paymentRecord.findFirst({
-                where: {
-                    orderId: Number(id),
-                    amount: paymentAmount,
-                    method,
-                    payerName: normalizedPayerName,
-                    note: normalizedNote,
-                    isProxy: Boolean(isProxy),
-                    status: 'pending',
-                    createdAt: { gte: duplicateWindowStart },
-                },
-                select: { id: true },
-            });
-
-            if (duplicatePendingPayment) {
-                return { duplicatePaymentId: duplicatePendingPayment.id };
-            }
-
-            const pendingPayments = await tx.paymentRecord.aggregate({
-                where: {
-                    orderId: Number(id),
-                    status: 'pending',
-                },
-                _sum: { amount: true },
-            });
-            const pendingAmount = Number(pendingPayments._sum.amount || 0);
-            const liveOutstanding = Math.max(0, liveOrderOutstanding - pendingAmount);
-            if (paymentAmount - liveOutstanding > 0.01) {
-                return { duplicatePaymentId: null, pendingExceedsOutstanding: true };
-            }
-
-            const orderWithContract = await tx.order.findUnique({
-                where: { id: Number(id) },
-                select: {
-                    id: true,
-                    contract: {
-                        select: {
-                            milestones: {
-                                where: { status: 'pending' },
-                                orderBy: { id: 'asc' },
-                                take: 1,
-                                select: { id: true },
-                            },
-                        },
-                    },
-                },
-            });
-
-            const milestoneId = orderWithContract?.contract?.milestones?.[0]?.id ?? null;
-
-            await tx.paymentRecord.create({
-                data: {
-                    orderId: Number(id),
-                    amount: paymentAmount,
-                    method,
-                    payerName: normalizedPayerName,
-                    note: normalizedNote,
-                    isProxy,
-                    milestoneId,
-                    status: 'pending',
-                },
-            });
-
-            await tx.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'PAYMENT_SUBMITTED',
-                    resource: 'order',
-                    resourceId: Number(id),
-                    details: JSON.stringify({ amount: paymentAmount, method, milestoneId, status: 'pending' }),
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
-            });
-
-            return { duplicatePaymentId: null };
-        }), { label: 'recordPayment' });
-
-        if (transactionResult.alreadyPaid) {
-            return res.status(400).json({
-                success: false,
-                message: '该订单已全部回款，无需重复登记。',
-            } as ApiResponse);
-        }
-
-        if (transactionResult.pendingExceedsOutstanding) {
-            return res.status(409).json({
-                success: false,
-                message: '待核销回款已覆盖剩余未回款金额，请先核销或驳回待处理记录。',
-            } as ApiResponse);
-        }
-
-        if (transactionResult.duplicatePaymentId) {
-            const order = await OrderWorkspaceService.getOrderById(Number(id), req);
-            return res.status(409).json({
-                success: false,
-                message: '检测到重复提交，请刷新回款记录后再操作。',
-                data: order,
-            } as ApiResponse);
-        }
-
-        const order = await OrderWorkspaceService.getOrderById(Number(id), req);
-        logger.info(`Payment submitted: orderId=${id}, amount=${amount}`);
-        publishRealtimeNotification({
-            type: 'payment.submitted',
-            title: 'Payment submitted',
-            message: `订单 ${id} 新增待核销回款 ${paymentAmount}`,
-            resourceType: 'payment',
-            resourceId: id,
-            severity: 'warning',
-            audience: { roles: ['admin', 'manager', 'finance'] },
-        });
-        publishWebhookEvent({
-            type: 'payment.submitted',
-            resourceType: 'payment',
-            resourceId: id,
-            data: { orderId: Number(id), amount: paymentAmount, method },
-        });
-
-        return res.json({
-            success: true,
-            message: '回款已登记，等待财务核销。',
-            data: order,
-        } as ApiResponse);
+        return res.json({ success: true, message: result.replayed ? '原回款登记已确认，未重复入账。' : '回款已登记，等待财务核销。',
+            data: order, paymentSubmission: result.receipt, replayed: result.replayed });
     } catch (error) {
+        if (error instanceof PaymentSubmissionError) return res.status(error.status).json({ success: false, errorCode: error.code, message: error.message });
         logger.error('Record payment error:', error);
-        return res.status(500).json({
-            success: false,
-            message: '服务器内部错误',
-        } as ApiResponse);
+        return res.status(500).json({ success: false, message: '服务器内部错误' } as ApiResponse);
     }
 }
 

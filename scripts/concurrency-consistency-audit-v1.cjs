@@ -176,7 +176,7 @@ async function run() {
     await withTimeout('submit-two-payments-concurrently', 20000, async () => {
       const results = await Promise.all(paymentNotes.map((note, index) => apiFetch(`/orders/${order.id}/payment`, {
         method: 'POST',
-        data: {
+        data: { idempotencyKey: require('node:crypto').randomUUID(),
           amount: index === 0 ? 100 : 200,
           method: 'bank_transfer',
           payerName: `payer-${RUN_ID}`,

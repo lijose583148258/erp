@@ -2,7 +2,6 @@ const assert = require('node:assert/strict');
 const { assertContinuousLedger } = require('./enterprise-round2-production-lot.cjs');
 
 const cents = value => Math.round(Number(value) * 100);
-const quantity = value => Math.round(Number(value) * 1_000_000);
 
 function assertProductionDispositionCostReconciliation(evidence) {
   const c = evidence.case;

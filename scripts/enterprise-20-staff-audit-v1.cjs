@@ -184,7 +184,7 @@ async function main() {
       const amount = Number(item.order.finalAmount);
       if (!Number.isFinite(amount) || amount <= 0) throw new Error('invalid order final amount');
       requireSuccess(await primary.apiFetch('/orders/' + item.order.id + '/payment', {
-        method: 'POST', data: { amount, method: 'cash', payerName: item.customer.nameZh, note: 'synthetic collection ' + runKey },
+        method: 'POST', data: { idempotencyKey: require('node:crypto').randomUUID(), amount, method: 'cash', payerName: item.customer.nameZh, note: 'synthetic collection ' + runKey },
       }, person('sales_1').token), 'record payment');
       const pending = await primary.getOrder(person('finance_1').token, item.order.id);
       const record = (pending.paymentRecords || []).find((entry) => entry.status === 'pending');

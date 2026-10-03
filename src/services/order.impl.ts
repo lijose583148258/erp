@@ -215,7 +215,9 @@ export const orderService = {
     },
 
     async recordPayment(orderId: string, payment: PaymentRecord): Promise<SalesOrder> {
+        if (!payment.submissionKey) throw new Error('回款登记缺少稳定请求身份。');
         const response = await api.post<unknown, ApiDataResponse<unknown>>(`/orders/${orderId}/payment`, {
+            idempotencyKey: payment.submissionKey,
             amount: payment.amount,
             method: payment.method,
             date: payment.date,

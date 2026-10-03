@@ -403,6 +403,8 @@ const SalesOrders = () => {
                 setPaymentForm={state.setPaymentForm}
                 onClose={() => state.setIsPaymentOpen(false)}
                 onConfirm={state.handleRecordPayment}
+                isSubmitting={state.isRecordingPayment}
+                unconfirmed={state.hasUnconfirmedPayment}
             />
 
             <SalesOrderEditorModal

@@ -116,7 +116,7 @@ async function auditOrderDuplicatePayments(tokens) {
     notes: `concurrency-audit ${RUN_ID}`,
   });
 
-  const paymentPayload = {
+  const paymentPayload = { idempotencyKey: require('node:crypto').randomUUID(),
     amount: DATA.order.amount,
     method: 'bank_transfer',
     payerName: `Payer ${RUN_ID}`,

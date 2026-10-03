@@ -51,7 +51,7 @@ async function main(){
   token=adminToken;
   dataOf(await request(`/orders/${order.id}/status`,{method:'PATCH',data:{status:'confirmed'}}));
   token=salesLogin.token;
-  dataOf(await request(`/orders/${order.id}/payment`,{method:'POST',data:{amount:1000,method:'bank_transfer',payerName:runId}}));
+  dataOf(await request(`/orders/${order.id}/payment`,{method:'POST',data:{ idempotencyKey: require('node:crypto').randomUUID(),amount:1000,method:'bank_transfer',payerName:runId}}));
   token=adminToken;
   const payment=dataOf(await request(`/orders/${order.id}`)).paymentRecords.find(row=>row.status==='pending');
   assert(payment);dataOf(await request(`/orders/${order.id}/payment/${payment.id}/verify`,{method:'POST'}));

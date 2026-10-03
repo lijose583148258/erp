@@ -178,7 +178,7 @@ async function reverseReceivableAdjustment(token, adjustmentId, note) {
 async function recordPayment(token, orderId, paymentAmount, note) {
   return apiFetch(`/orders/${orderId}/payment`, {
     method: 'POST',
-    data: {
+    data: { idempotencyKey: require('node:crypto').randomUUID(),
       amount: paymentAmount,
       method: 'bank_transfer',
       payerName: `RAR Payer ${RUN_ID}`,

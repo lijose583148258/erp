@@ -189,6 +189,8 @@ export interface ExtraItem {
 
 export interface PaymentRecord {
   id: string;
+  /** Stable identity of a registration intent across uncertain retries. */
+  submissionKey?: string;
   orderId?: string;
   date: string;
   amount: number;

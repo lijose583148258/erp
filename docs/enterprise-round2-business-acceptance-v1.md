@@ -6,7 +6,7 @@
 - 完整第二轮 **23 / 37 通过、0 失败、14 项未执行，6 / 12 条链通过**；新增 `payment-event-audit-once` 已通过真实财务浏览器、双应用崩溃恢复与独立接收器去重验收。
 - 全部前序包累计 **53 / 53 通过**；业务汇总 **24 / 25**，唯一失败为完整 R2 incomplete，workflow 正确保留 failure。不把应用进程崩溃冒充数据库服务器重启。
 - 本地最终源码累计 **30 / 30**，后端 551 / 551、源码契约 150 / 150。云端原始产物 `output/review/round2-cloud-37120638723/`，严格回执 `output/review/payment-event-cloud-37120638723-verification.json`；两张财务与三张补货计划截图已人工查看。
-- 下一包优先 `payment-submit-durable-replay`，覆盖现有 15 秒窗口之外、核销后与提交成功但响应丢失的登记重放。所有新包必须完整重放本包及全部前序包。
+- `payment-submit-durable-replay` 已进入实施验收：稳定请求键、事务回执、浏览器未知响应恢复及迁移双路径已落实，最终源码累计与企业云仍须核对。正式计数暂不增加，详见 `payment-submission-acceptance-v1.md`；所有新包必须完整重放本包及全部前序包。
 
 ## 历史快照（2026-10-02，不是最新剩余项统计）
 

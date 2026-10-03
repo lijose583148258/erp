@@ -47,7 +47,7 @@ async function paymentEventAuditProbe(ctx, signal) {
       customerId: Number(customer.id), items: [{ materialId: material.id, productName: material.nameZh, quantity: 10, unit: 'kg', unitPrice: 100 }], paymentTerms: 30 } }));
     orderId = Number(order.id);
     dataOf(await request(`/orders/${orderId}/payment`, { actor: actors.sales, method: 'POST', signal,
-      data: { amount: 300, method: 'bank_transfer', payerName: 'Event recovery fixture', note: runId } }));
+      data: { idempotencyKey: require('node:crypto').randomUUID(), amount: 300, method: 'bank_transfer', payerName: 'Event recovery fixture', note: runId } }));
     const pending = dataOf(await request(`/orders/${orderId}`, { actor: actors.finance1, signal }));
     paymentId = Number(pending.paymentRecords.find(p => p.status === 'pending').id);
     evidence.orderId = orderId; evidence.paymentId = paymentId;

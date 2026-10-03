@@ -108,6 +108,7 @@ on:
       - 'services/realtime*.ts'
       - 'backend/tests/realtime-event-dedup.test.ts'
       - 'scripts/payment-event-*.cjs'
+      - 'scripts/payment-submission-*.cjs'
       - 'backend/src/controllers/customer/customer-query.controller.ts'
       - 'backend/src/controllers/customer/customer-read-recovery.test.ts'
       - 'pages/production/ProductionQualityInspectionPanel.tsx'
@@ -437,6 +438,8 @@ jobs:
         run: |
           node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-event-outbox.service.test.ts backend/src/services/webhook.service.test.ts backend/src/services/collection-state.service.test.ts backend/tests/realtime-event-dedup.test.ts
           node scripts/payment-event-contract.test.cjs
+          node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-submission.service.test.ts
+          npm run test:unit:payment-submission
 
       - name: Remove stale generated runtime evidence
         shell: bash
@@ -479,6 +482,8 @@ jobs:
           postgres_url="${DATABASE_URL}"
           PAYMENT_MIGRATION_ALLOW_FIXTURES=true PAYMENT_MIGRATION_DATABASE_URL="${postgres_url}" \
             node scripts/payment-event-migration-audit-v1.cjs
+          PAYMENT_MIGRATION_ALLOW_FIXTURES=true PAYMENT_MIGRATION_DATABASE_URL="${postgres_url}" \
+            node scripts/payment-submission-migration-audit-v1.cjs
           source_dir="${RUNNER_TEMP}/ailaoda-postgres-cutover-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           source_db="${source_dir}/source.db"
           source_backup_dir="${source_dir}/backups"
