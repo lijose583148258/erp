@@ -2,6 +2,13 @@
 
 ## 当前状态（2026-10-03；以下历史记录不代表当前版本结论）
 
+- 已推送并核验的业务源码：`c60c9147e6cd2ad12d0a6065271bd25b3c4874bf`，[企业云 37126832535](https://github.com/lijose583148258/erp/actions/runs/37126832535)。
+- 正式第二轮 **24/37 通过、0 失败、13 未执行，6/12 条链通过**。新增 `payment-submit-durable-replay` 已完成持久请求身份、真实丢 ACK/双应用崩溃/刷新重放和两个财务浏览器验收；不把应用强杀当作数据库服务器重启。
+- 全部前序包累计 **54/54**；本地最终源码 **31/31**、后端 585、源码契约 174、客户端 15 项通过。八张云截图与原始产物已独立核对，见 `payment-submission-acceptance-v1.md`。
+- 业务汇总 **24/25**，唯一未通过为完整 R2 incomplete，workflow 保持 failure。下一包原回款冲销必须关联原回款并保留审计事实，不能用应收减免冲回冒充。每包仍重放前序所有义务。
+
+### 前序状态（23/37，供对照）
+
 - 已推送并核验的业务源码：`cb19da0f31a5599235f3dd0100b97914a4b4234b`，[企业云 37120638723](https://github.com/lijose583148258/erp/actions/runs/37120638723)。
 - 完整第二轮 **23 / 37 通过、0 失败、14 项未执行，6 / 12 条链通过**；新增 `payment-event-audit-once` 已通过真实财务浏览器、双应用崩溃恢复与独立接收器去重验收。
 - 全部前序包累计 **53 / 53 通过**；业务汇总 **24 / 25**，唯一失败为完整 R2 incomplete，workflow 正确保留 failure。不把应用进程崩溃冒充数据库服务器重启。
@@ -435,7 +442,7 @@
 
 新包 `payment-event-acceptance-v1.md` 将固定 ID `payment-event-audit-once` 串成真实财务浏览器、双应用 SIGKILL、原始租约自然恢复、签名 HTTP 接收器持久去重、跨入口 8 次重放及财务读回检查。只追加累计义务，不缩减 37 项。专项本地证明不直接改变正式 22/37；待最终源码累计和新提交 PostgreSQL 云证据复核后再更新。数据库服务器重启仍未通过，不能用本包的应用进程崩溃替代。
 
-## 最新已核验进度（2026-10-03）
+## 历史已核验进度（2026-10-03，事件包 23/37）
 
 [企业云 37120638723](https://github.com/lijose583148258/erp/actions/runs/37120638723)，业务提交 `cb19da0f31a5599235f3dd0100b97914a4b4234b`：**23/37，0 失败，14 未执行，6/12 条链通过**；全部已完成包累计 **53/53**。真实财务浏览器、双应用崩溃恢复、签名接收器一次入账的 `payment-event-audit-once` 已正式提升。原始证据、严格复核与截图已完成，不将基础事件唯一冒充登记幂等或数据库重启验收。
 
@@ -456,4 +463,26 @@
 - database-restart-ambiguous-commit
 - recovery-full-ledger-reconciliation
 
-下一包优先登记请求持久幂等，保留角色/记录范围、余额及待核销上限，覆盖超过 15 秒、核销后和提交成功但响应丢失的重放；随后继续冲销/货抵浏览器及其余角色链。每包重放前序所有包的关键用例，确认无回归。
+该历史阶段下一包优先登记请求持久幂等，保留角色/记录范围、余额及待核销上限，覆盖超过 15 秒、核销后和提交成功但响应丢失的重放；该包后续已验收，最新结果如下。每包重放前序所有包的关键用例，确认无回归。
+
+## 最新已核验进度与剩余 13 项（2026-10-03，登记包 24/37）
+
+[企业云 37126832535](https://github.com/lijose583148258/erp/actions/runs/37126832535)，业务提交 `c60c9147e6cd2ad12d0a6065271bd25b3c4874bf`：**24/37、0 失败、13 未执行、6/12 条链通过**；全部前序累计 **54/54**。新增登记防重已正式提升，原始 API/数据库/强杀恢复/迁移/八张截图均核对，详见 `payment-submission-acceptance-v1.md`。
+
+仍未完成的固定 ID（不删项、不合并降低数字）：
+
+- workforce-rbac
+- presale-with-fulfillment-plan
+- backorder-adjustment-closeout
+- sales-reservation-partial-fulfillment
+- sales-browser-readback
+- purchase-partial-receipt-qc-payables
+- purchase-browser-readback
+- stock-contention-browser
+- transfer-shipping-browser
+- payment-reversal-browser
+- barter-browser-readback
+- database-restart-ambiguous-commit
+- recovery-full-ledger-reconciliation
+
+下一包先补原回款冲销的真实业务模型与财务角色浏览器闭环，不能把应收调整冲回或无原回款关联的 paidAmount 调账当作替代；再推进数据库未知提交及其余链条。部分退款、余额结转、全币种换算与 UI 整页改善不得从当前通过项推断完成。
