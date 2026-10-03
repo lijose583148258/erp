@@ -24,7 +24,7 @@
         "test:contract:human-flow": "node ./scripts/browser-human-flow-modules-contract-v1.cjs",
         "test:contract:procurement-browser": "node ./scripts/procurement-browser-audit-contract-v1.cjs",
         "test:contract:cloud-topology": "node ./scripts/enterprise-cloud-topology-contract-v1.cjs",
-    "test:contract:enterprise-round2": "node --test ./scripts/enterprise-round2-contract.test.cjs ./scripts/enterprise-round2-barter-partial.test.cjs ./scripts/enterprise-round2-production-lot.test.cjs ./scripts/enterprise-round2-production-disposition.test.cjs ./scripts/enterprise-round2-qc.test.cjs ./scripts/enterprise-round2-unit-safety.test.cjs ./scripts/enterprise-regression-contract.test.cjs ./scripts/sales-fulfillment-plan-contract.test.cjs ./scripts/cloud-postgres-promotion-contract.test.cjs ./scripts/payment-event-contract.test.cjs",
+    "test:contract:enterprise-round2": "node --test ./scripts/enterprise-round2-contract.test.cjs ./scripts/enterprise-round2-barter-partial.test.cjs ./scripts/enterprise-round2-production-lot.test.cjs ./scripts/enterprise-round2-production-disposition.test.cjs ./scripts/enterprise-round2-qc.test.cjs ./scripts/enterprise-round2-unit-safety.test.cjs ./scripts/enterprise-regression-contract.test.cjs ./scripts/sales-fulfillment-plan-contract.test.cjs ./scripts/cloud-postgres-promotion-contract.test.cjs ./scripts/payment-event-contract.test.cjs ./scripts/payment-event-acceptance-contract.test.cjs",
         "audit:payment-event:isolated": "node ./scripts/payment-event-outbox-isolated-v1.cjs",
         "audit:enterprise:cumulative:local": "node ./scripts/enterprise-round2-local-v1.cjs --cumulative",
         "audit:enterprise:round2": "node ./scripts/enterprise-round2-audit-v1.cjs",

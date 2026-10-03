@@ -22,7 +22,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
   runId, commit: process.env.GITHUB_SHA || process.env.ROUND2_COMMIT || null,
   dirtySource: process.env.ROUND2_DIRTY || null, sourceHash: process.env.ROUND2_SOURCE_HASH || null, builtAt: process.env.ROUND2_BUILT_AT || null,
   provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite', appUrls: urls,
-  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes with selected procurement, barter and production browser readbacks; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
+  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes with selected procurement, finance, barter and production browser readbacks; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
   loadCohort: '20 distinct warehouse actors, separate from the planned workforce',
 } });
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
@@ -34,6 +34,7 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser
 implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-packaging-density-conversion', 'conversion-cost-conservation');
 implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -392,6 +393,13 @@ async function main() {
     runner.report.setupError = String(error.message || error);
     return;
   }
+  if (process.env.ROUND2_ONLY_CHECK) {
+    assert.equal(process.env.ROUND2_ONLY_CHECK, 'payment-event-audit-once');
+    assert.equal(process.env.ROUND2_BROWSER, 'true');
+    const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
+    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+    return;
+  }
   await runner.run('stock-20-contention', stockContention);
   await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
   if (process.env.ROUND2_BROWSER === 'true') {
@@ -401,6 +409,10 @@ async function main() {
   await runner.run('transfer-shipping-contention', transferShipping);
   await runner.run('shipping-cost-conservation', shippingCost);
   await runner.run('payment-duplicate-verification', paymentVerification);
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
+    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+  }
   await runner.run('barter-dual-stock-posting-replay', barterPosting);
   await runner.run('barter-offset-cash-difference', barterDifference);
   await runner.run('barter-reversal-conservation', barterReversal);

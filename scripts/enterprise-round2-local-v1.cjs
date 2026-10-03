@@ -2,17 +2,20 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const net = require('node:net');
+const http = require('node:http');
 const { spawn, execFileSync } = require('node:child_process');
 const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
-if (cumulative || process.argv.includes('--sales-plan')) process.env.ROUND2_BROWSER = 'true';
+if (cumulative || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
 const reportPath = path.join(sandbox, 'enterprise-round2-v1.json');
 const children = new Set();
+let paymentReceiver, appControl;
+const appProcesses = [];
 const env = { ...process.env,
   NODE_ENV: 'production', AILAODA_DEPLOYMENT_MODE: 'local', DATABASE_URL: `file:${db.replace(/\\/g, '/')}`,
   AILAODA_RUNTIME_DB_PATH: db, JWT_SECRET: crypto.randomBytes(48).toString('hex'),
@@ -21,6 +24,7 @@ const env = { ...process.env,
   FRONTEND_DIST_DIR: path.join(sandbox, 'frontend'),
   SEARCH_ENDPOINT: '', SEARCH_ENDPOINTS: '', MEILISEARCH_URL: '', REDIS_URL: '',
   AUDIT_PRISMA_PROVIDER: 'sqlite', ROUND2_ALLOW_MUTATIONS: 'true', ROUND2_REPORT_PATH: reportPath,
+  ROUND2_ONLY_CHECK: !cumulative && process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
 };
 try {
   env.ROUND2_COMMIT = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim();
@@ -83,9 +87,11 @@ async function ready(child, url) {
   throw new Error(`Readiness timeout: ${url}`);
 }
 async function stop() {
+  if (appControl) { appControl.closeAllConnections(); await new Promise(resolve => appControl.close(resolve)); appControl = undefined; }
   const owned = [...children];
   for (const child of owned) child.kill();
   await Promise.race([Promise.allSettled(owned.map(child => child.completion)), delay(5000)]);
+  if (paymentReceiver) { await paymentReceiver.close(); paymentReceiver = undefined; }
 }
 async function main() {
   console.log(`Isolated Round2 evidence: ${sandbox}`);
@@ -96,10 +102,47 @@ async function main() {
   const ports = [await freePort()];
   do { ports[1] = await freePort(); } while (ports[1] === ports[0]);
   const urls = ports.map(port => `http://127.0.0.1:${port}`);
+  if (env.ROUND2_BROWSER === 'true') {
+    const secret = crypto.randomBytes(32).toString('hex');
+    paymentReceiver = await require('./fixtures/payment-event-receiver.cjs').createPaymentEventReceiver({ secret, folder: path.join(sandbox, 'payment-event-receiver') });
+    env.AILAODA_WEBHOOK_SECRET = secret;
+    env.AILAODA_WEBHOOK_ENDPOINTS = JSON.stringify([{ url: `http://127.0.0.1:${paymentReceiver.port}/events`, events: ['payment.verified'] }]);
+    env.ROUND2_PAYMENT_RECEIVER_URL = `http://127.0.0.1:${paymentReceiver.port}`;
+    env.ROUND2_PAYMENT_RECEIVER_TOKEN = secret;
+    const controlToken = crypto.randomBytes(32).toString('hex'); let busy = false;
+    appControl = http.createServer(async (req, res) => {
+      if (req.headers.authorization !== `Bearer ${controlToken}` || req.method !== 'POST' || !['/kill', '/start'].includes(req.url)) { res.writeHead(403); res.end(); return; }
+      if (busy) { res.writeHead(409); res.end(); return; }
+      busy = true;
+      try {
+        let result;
+        if (req.url === '/kill') {
+          if (appProcesses.length !== 2 || appProcesses.some(child => child.exitCode !== null || child.signalCode)) throw new Error('Owned applications are not both running');
+          const old = [...appProcesses]; for (const child of old) child.kill('SIGKILL');
+          await Promise.race([Promise.all(old.map(child => child.completion)), delay(10000).then(() => { throw new Error('Hard-kill timeout'); })]);
+          result = { killed: 2, signal: 'SIGKILL', exit: await Promise.all(old.map(child => child.completion)) };
+        } else {
+          if (appProcesses.some(child => child.exitCode === null && !child.signalCode)) throw new Error('Owned process still running');
+          for (const [index, port] of ports.entries()) {
+            appProcesses[index] = start(`app-recovery-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) });
+            await ready(appProcesses[index], urls[index]);
+          }
+          result = { restarted: 2 };
+        }
+        res.writeHead(200, { 'content-type': 'application/json' }); res.end(JSON.stringify(result));
+      } catch (error) { res.writeHead(500); res.end(JSON.stringify({ error: error.message })); }
+      finally { busy = false; }
+    });
+    await new Promise(resolve => appControl.listen(0, '127.0.0.1', resolve));
+    env.ROUND2_APP_CONTROL_URL = `http://127.0.0.1:${appControl.address().port}`;
+    env.ROUND2_APP_CONTROL_TOKEN = controlToken;
+  }
   // This harness tests business contention, not simultaneous SQLite WAL initialization.
-  // Both instances remain online for every audit; restart ambiguity is a separate unmet obligation.
+  // Only the explicit payment-event probe kills/restarts these owned processes.
+  // Database restart ambiguity remains a separate unmet obligation.
   for (const [index, port] of ports.entries()) {
     const server = start(`app-${index + 1}`, [path.join(root, 'backend/dist/server.js')], root, { PORT: String(port) });
+    appProcesses[index] = server;
     await ready(server, urls[index]);
   }
   if (cumulative) {

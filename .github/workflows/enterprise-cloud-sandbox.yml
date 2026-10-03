@@ -364,6 +364,21 @@ jobs:
           emit_secret JWT_SECRET
           emit_secret METRICS_BEARER_TOKEN
 
+          emit_secret AILAODA_WEBHOOK_SECRET
+          payment_event_port="$(python - <<'PY'
+          import socket
+          with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+              sock.bind(("127.0.0.1", 0))
+              print(sock.getsockname()[1])
+          PY
+          )"
+          {
+            printf 'PAYMENT_EVENT_FIXTURE_PORT=%s\n' "${payment_event_port}"
+            printf 'ROUND2_PAYMENT_RECEIVER_URL=http://127.0.0.1:%s\n' "${payment_event_port}"
+            printf 'ROUND2_PAYMENT_RECEIVER_TOKEN=%s\n' "${generated_secret}"
+            printf 'AILAODA_WEBHOOK_ENDPOINTS=[{"url":"http://host.docker.internal:%s/events","events":["payment.verified"]}]\n' "${payment_event_port}"
+          } >> "${GITHUB_ENV}"
+
           postgres_host_port="$(python - <<'PY'
           import socket
 
@@ -500,7 +515,17 @@ jobs:
           docker compose --profile application build app-primary
 
       - name: Start dual application instances
-        run: docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
+        run: |
+          mkdir -p output/audit/payment-event-receiver
+          PAYMENT_EVENT_FIXTURE_ALLOW=true PAYMENT_EVENT_FIXTURE_HOST=0.0.0.0 \
+            node scripts/fixtures/payment-event-receiver.cjs > cloud-evidence/payment-event-receiver.log 2>&1 &
+          echo "$!" > cloud-evidence/payment-event-receiver.pid
+          for attempt in {1..20}; do
+            if curl --fail --silent -H "Authorization: Bearer ${ROUND2_PAYMENT_RECEIVER_TOKEN}" "${ROUND2_PAYMENT_RECEIVER_URL}/state" > /dev/null; then break; fi
+            sleep 1
+          done
+          curl --fail --silent -H "Authorization: Bearer ${ROUND2_PAYMENT_RECEIVER_TOKEN}" "${ROUND2_PAYMENT_RECEIVER_URL}/state" > /dev/null
+          docker compose --profile application up -d --wait --wait-timeout 240 app-primary app-secondary
 
       - name: Verify application readiness
         id: app_readiness
@@ -875,5 +900,11 @@ jobs:
       - name: Stop sandbox
         if: always()
         run: |
+          if [[ -f cloud-evidence/payment-event-receiver.pid ]]; then
+            receiver_pid="$(cat cloud-evidence/payment-event-receiver.pid)"
+            if [[ "${receiver_pid}" =~ ^[0-9]+$ ]] && [[ -r "/proc/${receiver_pid}/cmdline" ]] && tr '\0' ' ' < "/proc/${receiver_pid}/cmdline" | grep -q 'scripts/fixtures/payment-event-receiver.cjs'; then
+              kill "${receiver_pid}" || true
+            fi
+          fi
           docker compose --profile application down -v --remove-orphans
           rm -f "${CLOUD_AUDIT_PASSWORD_FILE:-}"

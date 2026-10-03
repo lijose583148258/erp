@@ -111,6 +111,7 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     const matches = round2.checks.filter(c => c.id === id); assert.equal(matches.length, 1, 'Missing/duplicate check ID');
     const check = matches[0]; assert.equal(check.status, 'passed', 'Previously passed check regressed or was skipped');
     assert(check.evidence && Object.keys(check.evidence).length, 'Missing read-back evidence');
+    if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     assert(Date.parse(check.startedAt) >= Date.parse(round2.startedAt) && Date.parse(check.finishedAt) >= Date.parse(check.startedAt)
       && Date.parse(check.finishedAt) <= Date.parse(round2.finishedAt), 'Missing/invalid check execution timestamps');
     return { evidenceSha256: sha256(JSON.stringify(check.evidence)) };

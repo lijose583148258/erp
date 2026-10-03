@@ -159,7 +159,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
       return (
         <div className="space-y-3">
           {detail.relatedLedger.map((row) => (
-            <div key={row.id} className="rounded-[20px] border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/30">
+            <div key={row.id} data-testid={`collection-payment-detail-${row.id}`} className="rounded-[20px] border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/30">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">

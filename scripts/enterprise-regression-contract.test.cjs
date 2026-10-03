@@ -13,7 +13,7 @@ function fixture(profile = 'cloud') {
   const stamp = { regression: context, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:03.000Z', provider: profile === 'cloud' ? 'postgresql' : 'sqlite' };
   const protectedIds = baseline.revisions.at(-1).round2Checks;
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
-    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: { readback: true } })) };
+    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : { readback: true } })) };
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
@@ -85,6 +85,24 @@ test('baseline revisions can only grow; accepted new IDs become mandatory', () =
   data.reports.round2.summary = summarize(data.reports.round2, catalog);
   assert.equal(evaluateRegression(data).status, 'passed');
   next.round2Checks.shift(); assert.throws(() => validateBaseline(data.baseline), /shrank/);
+});
+
+test('payment event acceptance remains a cumulative obligation on both providers', () => {
+  assert(baseline.revisions.at(-1).round2Checks.includes('payment-event-audit-once'));
+  for (const profile of ['local', 'cloud']) {
+    const data = fixture(profile);
+    data.reports.round2.checks.find(c => c.id === 'payment-event-audit-once').status = 'not_run';
+    data.reports.round2.summary = summarize(data.reports.round2, catalog);
+    assert.equal(evaluateRegression(data).status, 'failed');
+  }
+});
+
+test('a passed flag cannot hide duplicate downstream payment effects', () => {
+  const data = fixture();
+  data.reports.round2.checks.find(c => c.id === 'payment-event-audit-once').evidence.receiver.accepted[0].effects = 2;
+  const result = evaluateRegression(data);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.checks.find(c => c.id === 'round2:payment-event-audit-once').status, 'failed');
 });
 
 test('cloud always replays prior checks, isolates legacy failures and aggregates regression outcome', () => {
