@@ -250,6 +250,24 @@ async function paymentVerification(signal) {
   const eventPayload = events.length === 1 ? JSON.parse(events[0].payloadJson) : null;
   const readbacks = await Promise.all(urls.map(async (_, instance) => dataOf(await request(`/orders/${order.id}`, { actor: actors.finance1, instance, signal }))));
   const persisted = await prisma.order.findUnique({ where: { id: order.id }, include: { paymentRecords: true } });
+  const reconciliation = await require('./lib/payment-adjustment-reconciliation.cjs').paymentAdjustmentReconciliation({ request, dataOf, actors, prisma, runId, urls }, signal);
+  // Exercise the shared rebuild via real barter APIs, not a direct DB write.
+  const mixed = await barterFixture('payment-ledger-rebuild', true, signal);
+  dataOf(await request('/adjustments', { actor: actors.finance1, method: 'POST', signal, data: {
+    domain: 'finance', targetType: 'order', orderId: mixed.order.id, amountDelta: 10, status: 'posted',
+    reasonCategory: 'payment_correction', reason: `${runId} cash adjustment before barter`,
+  } }));
+  dataOf(await postBarter(mixed, actors.finance1, 0, signal));
+  const mixedPosted = await readBarter(mixed, signal); assert.equal(mixedPosted.order.paidAmount, 160);
+  dataOf(await request(`/barter/settlements/${mixed.settlement.id}/reverse`, { actor: actors.finance2, instance: 1, method: 'POST', signal,
+    data: { reason: `${runId} original barter reversal, keep cash adjustment` } }));
+  const mixedReversed = await readBarter(mixed, signal); assert.equal(mixedReversed.order.paidAmount, 10);
+  const mixedReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/orders/${mixed.order.id}`, { actor: actors.finance2, instance, signal }))));
+  assert(mixedReadbacks.every(row => Number(row.paidAmount) === 10));
+  reconciliation.barterRebuild = { posted: mixedPosted, reversed: mixedReversed,
+    adjustments: await prisma.adjustmentRecord.findMany({ where: { orderId: mixed.order.id } }),
+    readbacks: mixedReadbacks.map(row => ({ id: Number(row.id), paidAmount: Number(row.paidAmount) })) };
+  require('./lib/payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(reconciliation);
   return verify({
     repeated_verification_is_idempotent: responses.every(row => row.status === 200),
     exactly_one_verified_payment: persisted.paymentRecords.length === 1 && persisted.paymentRecords[0].status === 'verified',
@@ -262,7 +280,7 @@ async function paymentVerification(signal) {
     committed_event_has_delivery: events[0]?.deliveries.some(row => row.channel === 'realtime'),
   }, { orderId: order.id, paymentId: payment.id, responses, paidAmount: persisted.paidAmount,
     paymentStatus: persisted.paymentStatus, payments: persisted.paymentRecords, events, audits,
-    replayResponses: replayResponses.map(row => ({ httpStatus: row.status, data: row.json?.data })),
+    reconciliation, replayResponses: replayResponses.map(row => ({ httpStatus: row.status, data: row.json?.data })),
     readbacks: readbacks.map(row => ({ id: row.id, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus })) });
 }
 

@@ -177,7 +177,8 @@ async function main() {
     process.exitCode = result.status !== 'passed' ? 1 : result.fullAcceptanceStatus !== 'passed' ? 2 : 0;
     return;
   }
-  const auditScript = process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const reconciliation = process.argv.includes('--payment-reconciliation');
+  const auditScript = reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);
@@ -186,7 +187,8 @@ async function main() {
     process.exitCode = result.code ?? 1;
     if (!fs.existsSync(reportPath)) throw new Error('Audit terminated without a report');
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-    console.log(JSON.stringify({ status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
+    console.log(JSON.stringify(reconciliation ? { status: report.status, scope: report.scope, reportPath }
+      : { status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
     // A terminated child or unfinished report never becomes green.
     if (!report.finishedAt || report.status !== 'passed') process.exitCode ||= 2;
   } finally { clearTimeout(timer); }

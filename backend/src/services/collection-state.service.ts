@@ -13,25 +13,30 @@ import {
 import { withDbRetry } from '../utils/dbRetry';
 import { addMoney, compareMoney, type DecimalInput } from '../utils/money';
 import { recordPaymentVerifiedEventTx } from './payment-verification-event.service';
+import { getAppliedFinanceAdjustmentAmountTx } from './payment-ledger-contribution';
 
 type CollectionDb = typeof prisma | Prisma.TransactionClient;
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING = 'PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING';
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE = 'Verified payments would exceed order outstanding balance.';
 export const PAYMENT_VERIFICATION_INVALID_STATE = 'PAYMENT_VERIFICATION_INVALID_STATE';
+export const PAYMENT_STATE_BELOW_ZERO = 'PAYMENT_STATE_BELOW_ZERO';
 export const getPaymentVerificationConflictMessage = (error: unknown) => (
     error instanceof Error && error.message === PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING
         ? PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE
         : error instanceof Error && error.message === PAYMENT_VERIFICATION_INVALID_STATE
             ? 'Only pending payments can be verified.'
-            : null
+            : error instanceof Error && error.message === PAYMENT_STATE_BELOW_ZERO
+                ? 'Applied payment ledger would be below zero; reconciliation is required.'
+                : null
 );
 
 export const calculateVerifiedPaymentState = (input: {
     verifiedPayments: Array<{ amount: DecimalInput }>;
     finalAmount: DecimalInput;
     receivableAdjustmentAmount?: DecimalInput;
+    appliedFinanceAdjustmentAmount?: DecimalInput;
 }) => {
-    const paidAmount = addMoney(...input.verifiedPayments.map(payment => payment.amount));
+    const paidAmount = addMoney(input.appliedFinanceAdjustmentAmount, ...input.verifiedPayments.map(payment => payment.amount));
     const effectiveReceivableAmount = getEffectiveReceivableAmount(
         input.finalAmount,
         input.receivableAdjustmentAmount,
@@ -285,6 +290,13 @@ export class CollectionStateService {
     }
 
     static async recalculateOrderPaymentStateTx(tx: Prisma.TransactionClient, orderId: number) {
+        // All order payment rebuilds use the same row lock as verification,
+        // including barter post/reversal, before reading committed ledger facts.
+        const order = await tx.order.update({
+            where: { id: orderId },
+            data: { updatedAt: new Date() },
+            select: { id: true, customerId: true, finalAmount: true, receivableAdjustmentAmount: true },
+        });
         const payments = await tx.paymentRecord.findMany({
             where: {
                 orderId,
@@ -295,25 +307,14 @@ export class CollectionStateService {
             },
         });
 
-        const order = await tx.order.findUnique({
-            where: { id: orderId },
-            select: {
-                id: true,
-                customerId: true,
-                finalAmount: true,
-                receivableAdjustmentAmount: true,
-            },
-        });
-
-        if (!order) {
-            throw new Error(`Order not found: ${orderId}`);
-        }
-
-        const { paidAmount, paymentStatus } = calculateVerifiedPaymentState({
+        const { paidAmount, paymentStatus, exceedsOutstanding } = calculateVerifiedPaymentState({
             verifiedPayments: payments,
             finalAmount: order.finalAmount,
             receivableAdjustmentAmount: order.receivableAdjustmentAmount,
+            appliedFinanceAdjustmentAmount: await getAppliedFinanceAdjustmentAmountTx(tx, orderId),
         });
+        if (compareMoney(paidAmount, 0) < 0) throw new Error(PAYMENT_STATE_BELOW_ZERO);
+        if (exceedsOutstanding) throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
 
         await tx.order.update({
             where: { id: orderId },
@@ -396,7 +397,9 @@ export class CollectionStateService {
                 verifiedPayments: allVerifiedPayments,
                 finalAmount: order.finalAmount,
                 receivableAdjustmentAmount: order.receivableAdjustmentAmount,
+                appliedFinanceAdjustmentAmount: await getAppliedFinanceAdjustmentAmountTx(tx, order.id),
             });
+            if (compareMoney(paymentState.paidAmount, 0) < 0) throw new Error(PAYMENT_STATE_BELOW_ZERO);
             if (paymentState.exceedsOutstanding) {
                 throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
             }

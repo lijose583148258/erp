@@ -140,7 +140,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
         </div>
       ) : null}
 
-      <div className="mt-6 rounded-[28px] border border-slate-100 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-800/30">
+      <div data-testid="collection-order-summary" className="mt-6 rounded-[28px] border border-slate-100 bg-slate-50/80 p-5 dark:border-slate-800 dark:bg-slate-800/30">
         <div className="flex items-center gap-2">
           <LifeBuoy size={16} className="text-blue-500" />
           <p className="text-xs font-bold tracking-[0.16em] text-slate-400">当前订单对象</p>

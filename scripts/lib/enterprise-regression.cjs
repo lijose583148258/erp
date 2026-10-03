@@ -113,6 +113,7 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     assert(check.evidence && Object.keys(check.evidence).length, 'Missing read-back evidence');
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
+    if (id === 'payment-duplicate-verification') require('./payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(check.evidence.reconciliation);
     assert(Date.parse(check.startedAt) >= Date.parse(round2.startedAt) && Date.parse(check.finishedAt) >= Date.parse(check.startedAt)
       && Date.parse(check.finishedAt) <= Date.parse(round2.finishedAt), 'Missing/invalid check execution timestamps');
     return { evidenceSha256: sha256(JSON.stringify(check.evidence)) };

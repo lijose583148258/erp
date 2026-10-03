@@ -13,7 +13,7 @@ function fixture(profile = 'cloud') {
   const stamp = { regression: context, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:03.000Z', provider: profile === 'cloud' ? 'postgresql' : 'sqlite' };
   const protectedIds = baseline.revisions.at(-1).round2Checks;
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
-    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : { readback: true } })) };
+    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : { readback: true } })) };
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
@@ -34,6 +34,14 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+test('existing accepted payment ID cannot pass after erasing its newly protected applied-finance evidence', () => {
+  const data = fixture(); const e = data.reports.round2.checks.find(c => c.id === 'payment-duplicate-verification').evidence;
+  e.reconciliation.stages[4].order.paidAmount = 400; e.passed = true;
+  const r = evaluateRegression(data); assert.equal(r.status, 'failed');
+  assert.equal(r.checks.find(c => c.id === 'round2:payment-duplicate-verification').status, 'failed');
+  assert.equal(r.checks.find(c => c.id === 'sales-partial-fulfillment').status, 'passed', 'Later independent checks must not be truncated');
 });
 
 for (const status of ['failed', 'not_run', 'blocked', 'unsupported', 'running', 'timed_out']) test(`prior passed ID becomes ${status}: reject even if total pass count is replaced`, () => {
