@@ -205,7 +205,7 @@ export interface PaymentRecord {
   payerName?: string;
   note?: string;
   recordedBy?: string;
-  status: 'pending' | 'verified';
+  status: 'pending' | 'verified' | 'reversed' | 'unknown';
   createdByRole?: UserRole;
   milestoneId?: string;
 }

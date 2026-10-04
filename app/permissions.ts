@@ -19,6 +19,8 @@ export type FrontendPermission =
   | 'orders.shippingReady.read'
   | 'orders.payment.record'
   | 'orders.payment.verify'
+  | 'orders.payment.reversal.request'
+  | 'orders.payment.reversal.review'
   | 'collections.read'
   | 'collections.sync'
   | 'collections.reminder.write'
@@ -122,6 +124,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'orders.shippingReady.read',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -315,6 +319,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'orders.export',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -352,7 +358,9 @@ function getUserPermissions(userOrRole: CurrentUser | UserRole): readonly string
   if (typeof userOrRole === 'string') {
     return getBuiltInRolePermissions(userOrRole);
   }
-  return userOrRole.permissions?.length ? userOrRole.permissions : getBuiltInRolePermissions(userOrRole.role);
+  // A resolved empty policy is a deliberate deny-all, not a legacy role hint.
+  if (userOrRole.permissions === undefined) return getBuiltInRolePermissions(userOrRole.role);
+  return Array.isArray(userOrRole.permissions) ? userOrRole.permissions : [];
 }
 
 export function can(userOrRole: CurrentUser | UserRole, permission: FrontendPermission): boolean {

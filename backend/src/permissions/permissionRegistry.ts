@@ -27,6 +27,8 @@ export type Permission =
   | 'orders.shippingReady.read'
   | 'orders.payment.record'
   | 'orders.payment.verify'
+  | 'orders.payment.reversal.request'
+  | 'orders.payment.reversal.review'
   | 'collections.read'
   | 'collections.sync'
   | 'collections.reminder.write'
@@ -118,6 +120,8 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'orders.shippingReady.read', resource: 'orders.shippingReady', action: 'read', label: '查看可发货订单', group: '物流' },
   { code: 'orders.payment.record', resource: 'orders.payment', action: 'record', label: '登记回款', group: '财务' },
   { code: 'orders.payment.verify', resource: 'orders.payment', action: 'verify', label: '核验回款', group: '财务' },
+  { code: 'orders.payment.reversal.request', resource: 'orders.payment.reversal', action: 'request', label: '申请原回款冲销', group: '财务' },
+  { code: 'orders.payment.reversal.review', resource: 'orders.payment.reversal', action: 'review', label: '独立审批原回款冲销', group: '财务' },
   { code: 'collections.read', resource: 'collections', action: 'read', label: '查看回款中心', group: '回款' },
   { code: 'collections.sync', resource: 'collections', action: 'sync', label: '同步逾期回款状态', group: '回款' },
   { code: 'collections.reminder.write', resource: 'collections.reminder', action: 'write', label: '创建催收提醒', group: '回款' },
@@ -211,6 +215,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'orders.shippingReady.read',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -428,6 +434,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'orders.export',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',

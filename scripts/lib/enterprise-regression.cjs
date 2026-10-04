@@ -114,6 +114,11 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
     if (id === 'payment-duplicate-verification') require('./payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(check.evidence.reconciliation);
+    if (id === 'payment-reversal-browser') {
+      assert.equal(check.evidence.version, 'payment-reversal-acceptance/v1');
+      require('./payment-reversal-api-proof.cjs').verifyPaymentReversalApiProof(check.evidence.api);
+      require('./payment-reversal-browser-proof.cjs').verifyPaymentReversalBrowserProof(check.evidence.browser, provider);
+    }
     assert(Date.parse(check.startedAt) >= Date.parse(round2.startedAt) && Date.parse(check.finishedAt) >= Date.parse(check.startedAt)
       && Date.parse(check.finishedAt) <= Date.parse(round2.finishedAt), 'Missing/invalid check execution timestamps');
     return { evidenceSha256: sha256(JSON.stringify(check.evidence)) };

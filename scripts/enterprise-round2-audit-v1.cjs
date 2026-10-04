@@ -34,7 +34,7 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser
 implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-packaging-density-conversion', 'conversion-cost-conservation');
 implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
-if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay', 'payment-reversal-browser');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -78,7 +78,8 @@ async function setup(signal) {
     await ensureUiAuditUser({ username, password, role, segment: role === 'sales' ? 'direct' : 'mixed' });
     const login = dataOf(await request('/auth/login', { actor: null, method: 'POST', data: { username, password }, signal }));
     assert(login.token && login.user?.id, 'Invalid login identity');
-    actors[job] = { id: login.user.id, job, role, token: login.token };
+    actors[job] = { id: login.user.id, job, role, token: login.token,
+      loginUser: { id: login.user.id, role: login.user.role, permissions: login.user.permissions, dataScopes: login.user.dataScopes } };
   }
   // Cross-instance token readiness, before measuring business writes.
   dataOf(await request('/warehouses', { instance: 1, signal }));
@@ -250,7 +251,7 @@ async function paymentVerification(signal) {
   const eventPayload = events.length === 1 ? JSON.parse(events[0].payloadJson) : null;
   const readbacks = await Promise.all(urls.map(async (_, instance) => dataOf(await request(`/orders/${order.id}`, { actor: actors.finance1, instance, signal }))));
   const persisted = await prisma.order.findUnique({ where: { id: order.id }, include: { paymentRecords: true } });
-  const reconciliation = await require('./lib/payment-adjustment-reconciliation.cjs').paymentAdjustmentReconciliation({ request, dataOf, actors, prisma, runId, urls }, signal);
+  const reconciliation = await require('./lib/payment-adjustment-reconciliation.cjs').paymentAdjustmentReconciliation({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal);
   // Exercise the shared rebuild via real barter APIs, not a direct DB write.
   const mixed = await barterFixture('payment-ledger-rebuild', true, signal);
   dataOf(await request('/adjustments', { actor: actors.finance1, method: 'POST', signal, data: {
@@ -441,6 +442,10 @@ async function main() {
     await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
   }
   await runner.run('barter-dual-stock-posting-replay', barterPosting);
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { paymentReversalAcceptanceProbe } = require('./lib/enterprise-round2-payment-reversal.cjs');
+    await runner.run('payment-reversal-browser', signal => paymentReversalAcceptanceProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 240000 });
+  }
   await runner.run('barter-offset-cash-difference', barterDifference);
   await runner.run('barter-reversal-conservation', barterReversal);
   await runner.run('barter-consumed-receipt-reversal-blocked', barterConsumedReversal);

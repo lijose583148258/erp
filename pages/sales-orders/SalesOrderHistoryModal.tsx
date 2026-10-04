@@ -169,7 +169,9 @@ const SalesOrderHistoryModal: React.FC<Props> = ({
                                             </div>
                                             <div className="flex flex-col items-end gap-1">
                                                 <span className={`px-2 py-0.5 rounded-md text-[11px] font-black uppercase ${rec.status === 'verified' ? 'bg-emerald-100 text-emerald-600' : 'bg-slate-200 text-slate-500'}`}>
-                                                    {rec.status === 'verified' ? t.paymentVerified : t.paymentPending}
+                                                    {rec.status === 'verified' ? t.paymentVerified : rec.status === 'pending' ? t.paymentPending : rec.status === 'reversed'
+                                                        ? language === 'en' ? 'Reversed (original retained)' : language === 'vi' ? 'Đã đảo (giữ chứng từ gốc)' : '已冲销（原凭证保留）'
+                                                        : language === 'en' ? 'Unconfirmed state (cannot verify)' : language === 'vi' ? 'Trạng thái chưa xác nhận' : '状态未确认（不可核销）'}
                                                 </span>
                                                 {rec.isProxy && (
                                                     <div className="px-2 py-1 bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400 text-[11px] font-black rounded-lg border border-amber-200 dark:border-amber-800 flex items-center">

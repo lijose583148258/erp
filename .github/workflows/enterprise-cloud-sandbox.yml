@@ -109,6 +109,10 @@ on:
       - 'backend/tests/realtime-event-dedup.test.ts'
       - 'scripts/payment-event-*.cjs'
       - 'scripts/payment-submission-*.cjs'
+      - 'scripts/payment-reversal-*.cjs'
+      - 'scripts/lib/payment-reversal-*.cjs'
+      - 'backend/src/services/payment-reversal*.ts'
+      - 'pages/collections/paymentReversalIntent*.ts'
       - 'backend/src/controllers/customer/customer-query.controller.ts'
       - 'backend/src/controllers/customer/customer-read-recovery.test.ts'
       - 'pages/production/ProductionQualityInspectionPanel.tsx'
@@ -377,7 +381,7 @@ jobs:
             printf 'PAYMENT_EVENT_FIXTURE_PORT=%s\n' "${payment_event_port}"
             printf 'ROUND2_PAYMENT_RECEIVER_URL=http://127.0.0.1:%s\n' "${payment_event_port}"
             printf 'ROUND2_PAYMENT_RECEIVER_TOKEN=%s\n' "${generated_secret}"
-            printf 'AILAODA_WEBHOOK_ENDPOINTS=[{"url":"http://host.docker.internal:%s/events","events":["payment.verified"]}]\n' "${payment_event_port}"
+            printf 'AILAODA_WEBHOOK_ENDPOINTS=[{"url":"http://host.docker.internal:%s/events","events":["payment.verified","payment.reversed"]}]\n' "${payment_event_port}"
           } >> "${GITHUB_ENV}"
 
           postgres_host_port="$(python - <<'PY'
@@ -440,6 +444,9 @@ jobs:
           node scripts/payment-event-contract.test.cjs
           node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-submission.service.test.ts
           npm run test:unit:payment-submission
+          npm run test:unit:payment-reversal
+          node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-reversal.service.test.ts backend/src/services/payment-reversal-event.service.test.ts backend/src/services/payment-reversal-receipts.test.ts backend/src/services/collection-state-aggregate-lock.test.ts
+          npm run test:contract:enterprise-round2
 
       - name: Remove stale generated runtime evidence
         shell: bash
@@ -484,6 +491,12 @@ jobs:
             node scripts/payment-event-migration-audit-v1.cjs
           PAYMENT_MIGRATION_ALLOW_FIXTURES=true PAYMENT_MIGRATION_DATABASE_URL="${postgres_url}" \
             node scripts/payment-submission-migration-audit-v1.cjs
+          PAYMENT_MIGRATION_ALLOW_FIXTURES=true PAYMENT_MIGRATION_DATABASE_URL="${postgres_url}" \
+            node scripts/payment-reversal-migration-audit-v1.cjs
+          npm --prefix backend run build
+          aggregate_url="$(node -e 'const u=new URL(process.env.DATABASE_URL);u.searchParams.delete("schema");console.log(u.href)')"
+          PAYMENT_AGGREGATE_ALLOW_FIXTURES=true PAYMENT_AGGREGATE_DATABASE_URL="${aggregate_url}" \
+            node scripts/payment-reversal-aggregate-audit-v1.cjs
           source_dir="${RUNNER_TEMP}/ailaoda-postgres-cutover-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           source_db="${source_dir}/source.db"
           source_backup_dir="${source_dir}/backups"
@@ -834,7 +847,7 @@ jobs:
         id: round2_business
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}
         continue-on-error: true
-        timeout-minutes: 6
+        timeout-minutes: 8
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
           ROUND2_BROWSER: "true"

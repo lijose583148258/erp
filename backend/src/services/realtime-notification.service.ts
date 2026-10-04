@@ -8,7 +8,7 @@ import { createRedisClient, ensureRedisConnected, isRedisConfigured } from '../i
 
 export type RealtimeNotificationEvent = {
   id?: string;
-  type: 'order.created' | 'order.updated' | 'order.status_changed' | 'order.completed' | 'payment.submitted' | 'payment.verified';
+  type: 'order.created' | 'order.updated' | 'order.status_changed' | 'order.completed' | 'payment.submitted' | 'payment.verified' | 'payment.reversed';
   title: string;
   message: string;
   resourceType: 'order' | 'payment' | 'system';

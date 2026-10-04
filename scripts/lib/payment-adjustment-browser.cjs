@@ -3,9 +3,16 @@ const { expect } = require('playwright/test');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
 const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 
+// Cloud does not export the runner's default report path. Pass it explicitly.
+function paymentAdjustmentEvidenceFolder({ reportPath, runId }) {
+  assert(typeof reportPath === 'string' && path.isAbsolute(reportPath), 'Payment adjustment requires an explicit absolute reportPath');
+  assert(typeof runId === 'string' && /^[A-Za-z0-9._-]+$/.test(runId), 'Payment adjustment requires a safe runId');
+  return path.join(path.dirname(reportPath), `${runId}-payment-adjustment`);
+}
+
 async function paymentAdjustmentBrowser(ctx, order, originalPaymentId, evidence, signal) {
-  const { actors, urls, runId } = ctx;
-  const folder = path.join(path.dirname(ctx.reportPath || process.env.ROUND2_REPORT_PATH), `${runId}-payment-adjustment`);
+  const { actors, urls } = ctx;
+  const folder = paymentAdjustmentEvidenceFolder(ctx);
   fs.mkdirSync(folder, { recursive: true });
   const browser = (await launchBrowserWithGuard({ retryLimit: 1 })).browser;
   const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
@@ -46,4 +53,4 @@ async function paymentAdjustmentBrowser(ctx, order, originalPaymentId, evidence,
     assert.deepEqual(evidence.browserErrors, []);
   } finally { signal.removeEventListener('abort', abort); await browser.close(); }
 }
-module.exports = { paymentAdjustmentBrowser };
+module.exports = { paymentAdjustmentBrowser, paymentAdjustmentEvidenceFolder };

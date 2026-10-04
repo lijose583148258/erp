@@ -19,6 +19,9 @@ model User {
   orders        Order[]
   orderImportBatches OrderImportBatch[]
   paymentSubmissions PaymentSubmission[]
+  paymentReversalsRequested PaymentReversalRequest[] @relation("PaymentReversalRequester")
+  paymentReversalsReviewed PaymentReversalRequest[] @relation("PaymentReversalReviewer")
+  paymentReversalsPosted PaymentReversal[] @relation("PaymentReversalPoster")
   samples       Sample[]
   shipments     Shipment[]
   rmas          Rma[]
@@ -125,6 +128,10 @@ model AuditLog {
 
   // 关联
   user            User      @relation(fields: [userId], references: [id])
+  reversalRequestAudit PaymentReversalRequest? @relation("PaymentReversalRequestAudit")
+  reversalOriginalAudits PaymentReversalRequest[] @relation("PaymentReversalOriginalAudit")
+  reversalReviewAudit PaymentReversalRequest? @relation("PaymentReversalReviewAudit")
+  reversalPostingAudit PaymentReversal? @relation("PaymentReversalPostingAudit")
 
   @@index([userId])
   @@index([action])

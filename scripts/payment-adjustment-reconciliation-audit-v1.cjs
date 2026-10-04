@@ -32,7 +32,7 @@ async function main() {
     assert(login.token && login.user?.id); actors[job] = { id: login.user.id, token: login.token, role };
   }
   prisma = createAuditPrismaClient();
-  report.evidence = await paymentAdjustmentReconciliation({ request, dataOf, actors, prisma, runId, urls }, signal);
+  report.evidence = await paymentAdjustmentReconciliation({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal);
   require('./lib/payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(report.evidence, { requireBarter: false });
   report.status = 'passed';
 }

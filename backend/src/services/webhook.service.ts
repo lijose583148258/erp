@@ -7,7 +7,8 @@ export type WebhookEventType =
   | 'order.status_changed'
   | 'order.completed'
   | 'payment.submitted'
-  | 'payment.verified';
+  | 'payment.verified'
+  | 'payment.reversed';
 
 export type WebhookEvent = {
   id?: string;

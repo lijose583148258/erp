@@ -248,6 +248,8 @@ model PaymentRecord {
   barterSettlement BarterSettlement?
   barterOffsetPostings BarterOffsetPosting[]
   submission PaymentSubmission?
+  reversalRequests PaymentReversalRequest[]
+  reversal PaymentReversal?
   createdAt       DateTime  @default(now()) @map("created_at")
   updatedAt       DateTime  @updatedAt @map("updated_at")
 

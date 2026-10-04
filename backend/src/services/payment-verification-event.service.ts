@@ -7,8 +7,8 @@ export const paymentVerificationEventKey = (paymentId: number) => `payment.verif
 export const webhookDestinationKey = (endpoint: WebhookEndpoint) =>
   crypto.createHash('sha256').update(new URL(endpoint.url).href).digest('hex');
 
-export const paymentWebhookDestinations = () => {
-  const endpoints = parseWebhookEndpoints().filter(endpoint => !endpoint.events?.length || endpoint.events.includes('payment.verified'));
+export const paymentWebhookDestinations = (eventType: 'payment.verified' | 'payment.reversed' = 'payment.verified') => {
+  const endpoints = parseWebhookEndpoints().filter(endpoint => !endpoint.events?.length || endpoint.events.includes(eventType));
   return new Map(endpoints.map(endpoint => [webhookDestinationKey(endpoint), endpoint]));
 };
 

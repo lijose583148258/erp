@@ -8,7 +8,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
-if (cumulative || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit')) process.env.ROUND2_BROWSER = 'true';
+if (cumulative || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
@@ -18,6 +18,7 @@ let paymentReceiver, appControl;
 let appRestartGeneration = 0;
 const appProcesses = [];
 const env = { ...process.env,
+  ROUND2_REVERSAL_BROWSER: String(process.argv.includes('--payment-reversal-browser')),
   NODE_ENV: 'production', AILAODA_DEPLOYMENT_MODE: 'local', DATABASE_URL: `file:${db.replace(/\\/g, '/')}`,
   AILAODA_RUNTIME_DB_PATH: db, JWT_SECRET: crypto.randomBytes(48).toString('hex'),
   LOG_DIR: path.join(sandbox, 'logs'), BACKUP_DIR: path.join(sandbox, 'backups'), UPLOAD_DIR: path.join(sandbox, 'uploads'),
@@ -107,7 +108,7 @@ async function main() {
     const secret = crypto.randomBytes(32).toString('hex');
     paymentReceiver = await require('./fixtures/payment-event-receiver.cjs').createPaymentEventReceiver({ secret, folder: path.join(sandbox, 'payment-event-receiver') });
     env.AILAODA_WEBHOOK_SECRET = secret;
-    env.AILAODA_WEBHOOK_ENDPOINTS = JSON.stringify([{ url: `http://127.0.0.1:${paymentReceiver.port}/events`, events: ['payment.verified'] }]);
+    env.AILAODA_WEBHOOK_ENDPOINTS = JSON.stringify([{ url: `http://127.0.0.1:${paymentReceiver.port}/events`, events: ['payment.verified','payment.reversed'] }]);
     env.ROUND2_PAYMENT_RECEIVER_URL = `http://127.0.0.1:${paymentReceiver.port}`;
     env.ROUND2_PAYMENT_RECEIVER_TOKEN = secret;
     const controlToken = crypto.randomBytes(32).toString('hex'); let busy = false;
@@ -160,7 +161,7 @@ async function main() {
       // A failing prior package must not truncate independent later packages.
       const child = start(label, [path.join(root, script), ...args], root,
         { APP_URL: urls[0], SECONDARY_APP_URL: urls[1], ROUND2_REPORT_PATH: target });
-      const timer = setTimeout(() => child.kill(), label === 'legacy-cash' ? 120000 : 300000);
+      const timer = setTimeout(() => child.kill(), label === 'legacy-cash' ? 120000 : label === 'round2' ? 420000 : 300000);
       try { const result = await child.completion; executions.push({ label, ...result, acceptable: allowed.includes(result.code) }); }
       catch (error) { executions.push({ label, acceptable: false, error: error.message }); }
       finally { clearTimeout(timer); }
@@ -177,8 +178,8 @@ async function main() {
     process.exitCode = result.status !== 'passed' ? 1 : result.fullAcceptanceStatus !== 'passed' ? 2 : 0;
     return;
   }
-  const reconciliation = process.argv.includes('--payment-reconciliation');
-  const auditScript = reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const reconciliation = process.argv.includes('--payment-reconciliation') || process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser');
+  const auditScript = process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);

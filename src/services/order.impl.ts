@@ -3,6 +3,7 @@ import { SalesOrder, OrderStatus, CommissionStatus, PaymentRecord, HistoryLog, C
 import { ApiDataResponse, toApiRecord, toApiRecordArray, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../../utils/apiMapping';
 import { decorateSalesOrder } from '../../utils/orderCommercialState';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from './order.mapping';
+import { mapPaymentRecordStatus } from './payment-record-status';
 
 const normalizeDate = (value: unknown) => {
     if (!value) return '';
@@ -26,7 +27,7 @@ const mapPaymentRecord = (value: unknown): PaymentRecord => {
     payerName: toOptionalString(record.payerName),
     note: toOptionalString(record.note),
     recordedBy: toOptionalString(record.recordedBy || record.verifiedBy),
-    status: String(record.status || '').toLowerCase() === 'verified' ? 'verified' : 'pending',
+    status: mapPaymentRecordStatus(record.status),
     createdByRole: record.createdByRole as PaymentRecord['createdByRole'],
     milestoneId: toOptionalString(record.milestoneId),
     };

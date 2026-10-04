@@ -15,6 +15,7 @@ import {
   statusBadge,
 } from './collectionCenter.helpers';
 import type { CollectionActionPermissions } from './useCollectionCenter';
+import CollectionPaymentReversalButton from './CollectionPaymentReversalButton';
 
 type DetailTab = 'ledger' | 'promises' | 'disputes' | 'holds' | 'milestones';
 
@@ -28,6 +29,7 @@ type Props = {
   milestones: CollectionMilestoneRecord[];
   formatPrice: (value?: number | null) => string;
   onVerifyPayment: (paymentId: number) => Promise<void>;
+  onOpenPaymentReversal: (payment: CollectionLedgerRecord) => void;
   onPromiseStatus: (promiseId: number, status: 'kept' | 'missed' | 'cancelled') => Promise<void>;
   onDisputeStatus: (disputeId: number, status: 'reviewing' | 'resolved' | 'rejected' | 'withdrawn') => Promise<void>;
   onReleaseHold: (item: CollectionHoldRecord) => Promise<void>;
@@ -45,6 +47,7 @@ const tabs: Array<{ id: DetailTab; label: string }> = [
 const paymentStatusLabelMap: Record<string, string> = {
   pending: '待核销',
   verified: '已核销',
+  reversed: '已冲销（原凭证保留）',
   unpaid: '未回款',
   partial: '部分回款',
   paid: '已收齐',
@@ -95,6 +98,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
   milestones,
   formatPrice,
   onVerifyPayment,
+  onOpenPaymentReversal,
   onPromiseStatus,
   onDisputeStatus,
   onReleaseHold,
@@ -173,7 +177,9 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                   </div>
                   {row.note ? <div className="mt-1 text-xs font-bold text-slate-400 dark:text-slate-500">{row.note}</div> : null}
                 </div>
-                {row.status !== 'verified' && permissions.canVerifyPayment ? (
+                <div className="flex flex-wrap gap-2">
+                <CollectionPaymentReversalButton payment={row} permissions={permissions} onOpen={onOpenPaymentReversal} location="detail" />
+                {row.status === 'pending' && permissions.canVerifyPayment ? (
                   <button
                     type="button"
                     onClick={() => void onVerifyPayment(row.id)}
@@ -182,6 +188,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                     核销该笔
                   </button>
                 ) : null}
+                </div>
               </div>
             </div>
           ))}

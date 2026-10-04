@@ -2,13 +2,20 @@ jest.mock('../config/database', () => ({ __esModule: true, default: {} }));
 jest.mock('./realtime-notification.service', () => ({ publishDurableRealtimeNotification: jest.fn().mockResolvedValue(undefined) }));
 import { drainPaymentEventOutbox, paymentEventRetryDelay } from './payment-event-outbox.service';
 import { paymentWebhookDestinations, recordPaymentVerifiedEventTx } from './payment-verification-event.service';
+import { publishDurableRealtimeNotification } from './realtime-notification.service';
 
 const instant = new Date('2026-10-02T00:00:00.000Z');
-const event = { id: 'stable-event-id', type: 'payment.verified', resourceType: 'payment', resourceId: 7, occurredAt: instant.toISOString(), data: { orderId: 9 } };
-function fixture(payloadJson = JSON.stringify(event)) {
+const event = { id: 'stable-event-id', type: 'payment.verified', resourceType: 'payment', resourceId: 7, occurredAt: instant.toISOString(),
+  data: { paymentId: 7, orderId: 9, amount: 300, currency: 'CNY', auditId: 11, verifiedBy: 2 } };
+const reversalEvent = { ...event, type: 'payment.reversed', data: { paymentId: 7, orderId: 9, amount: -300, currency: 'CNY', auditId: 12,
+  reversalId: 'reversal-id', requestId: 'request-id', requestedBy: 1, reviewedBy: 2, beforePaidAmount: 350, afterPaidAmount: 50 } };
+function fixture(payloadJson = JSON.stringify(event), storedOverrides: object = {}, candidateOverrides: object = {}) {
+  const parsedType = (() => { try { return JSON.parse(payloadJson).type; } catch { return event.type; } })();
   const updateMany = jest.fn().mockResolvedValue({ count: 1 });
   const db = { businessEventDelivery: {
-    findMany: jest.fn().mockResolvedValue([{ id: 1, channel: 'webhook', destinationKey: 'target', attempts: 0, event: { payloadJson } }]),
+    findMany: jest.fn().mockResolvedValue([{ id: 1, eventId: 19, channel: 'webhook', destinationKey: 'target', attempts: 0,
+      event: { id: 19, eventType: parsedType, eventKey: `${parsedType}:7`, aggregateType: 'payment', aggregateId: '7', createdAt: instant,
+        payloadJson, ...storedOverrides }, ...candidateOverrides }]),
     updateMany,
   } };
   return { db: db as any, updateMany };
@@ -97,5 +104,80 @@ describe('payment event durable delivery', () => {
     };
     await expect(recordPaymentVerifiedEventTx(tx as any, 7, 2)).rejects.toThrow('audit failed');
     expect(tx.businessEvent.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('payment reversal outbox identity and immutable payload binding (mock transport only)', () => {
+  test('a valid reversal uses its own type and exact immutable before/after balance', async () => {
+    const { db } = fixture(JSON.stringify(reversalEvent));
+    const send = jest.fn().mockResolvedValue({ ok: true });
+    expect(await drainPaymentEventOutbox({ db, now: () => instant, send })).toMatchObject({ delivered: 1, deferred: 0 });
+    expect(send).toHaveBeenCalledWith(expect.anything(), reversalEvent);
+    expect(db.businessEventDelivery.findMany.mock.calls[0][0].where.event.eventType.in).toEqual(['payment.verified', 'payment.reversed']);
+  });
+
+  test.each([
+    { eventType: 'payment.verified' }, { eventKey: 'payment.verified:7' }, { eventKey: 'payment.reversed:8' },
+    { eventKey: null }, { aggregateType: 'order' }, { aggregateId: '8' }, { aggregateId: '07' }, { id: 20 },
+    { createdAt: new Date(instant.getTime() + 1) }, { createdAt: '2026-10-02T00:00:00.000Z' },
+  ])('corrupt durable event owner %p stays pending without sending', async overrides => {
+    const { db, updateMany } = fixture(JSON.stringify(reversalEvent), overrides);
+    const send = jest.fn();
+    expect((await drainPaymentEventOutbox({ db, send })).deferred).toBe(1);
+    expect(send).not.toHaveBeenCalled();
+    expect(updateMany.mock.calls[1][0].data).toMatchObject({ status: 'pending', lastErrorCode: 'DELIVERY_ERROR' });
+  });
+
+  test.each([
+    { paymentId: 8 }, { paymentId: '7' }, { orderId: 0 }, { orderId: Number.MAX_SAFE_INTEGER + 1 }, { auditId: null },
+    { amount: 300 }, { amount: 0 }, { amount: -300.001 }, { amount: -Number.MAX_SAFE_INTEGER }, { currency: 'USD' },
+    { requestedBy: undefined }, { reviewedBy: undefined }, { requestedBy: 2 }, { requestedBy: 0 }, { reviewedBy: '2' },
+    { reversalId: '' }, { reversalId: '../path' }, { requestId: null }, { requestId: ' ' },
+    { beforePaidAmount: 300 }, { afterPaidAmount: 51 }, { beforePaidAmount: -1 }, { afterPaidAmount: -1 },
+    { beforePaidAmount: 350.001 }, { afterPaidAmount: 50.001 }, { afterPaidAmount: undefined },
+  ])('corrupt reversal financial or actor facts %p are not delivered', async overrides => {
+    const { db } = fixture(JSON.stringify({ ...reversalEvent, data: { ...reversalEvent.data, ...overrides } }));
+    const send = jest.fn();
+    expect((await drainPaymentEventOutbox({ db, send })).deferred).toBe(1);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test.each([{ resourceId: 8 }, { resourceId: '7' }, { resourceType: 'order' }, { data: [] }, { id: '../unsafe-id' },
+    { occurredAt: '2026-10-02T01:00:00+01:00' }])('corrupt envelope %p is not accepted', async overrides => {
+    const { db } = fixture(JSON.stringify({ ...reversalEvent, ...overrides }));
+    const send = jest.fn();
+    expect((await drainPaymentEventOutbox({ db, send })).deferred).toBe(1);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test('delivery FK and included event ID must match', async () => {
+    const { db } = fixture(JSON.stringify(reversalEvent), {}, { eventId: 20 });
+    const send = jest.fn();
+    expect((await drainPaymentEventOutbox({ db, send })).deferred).toBe(1);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  test.each([0.29, 1.1, 10.01])('decimal cents %p are validated without binary-point false failures', async amount => {
+    const data = { ...reversalEvent.data, amount: -amount, beforePaidAmount: amount, afterPaidAmount: 0 };
+    const { db } = fixture(JSON.stringify({ ...reversalEvent, data }));
+    expect((await drainPaymentEventOutbox({ db, send: async () => ({ ok: true }) })).delivered).toBe(1);
+  });
+
+  test.each([{ verifiedBy: undefined }, { auditId: 0 }, { paymentId: 8 }, { amount: -1 }, { amount: 0 }, { amount: 1.001 }, { currency: '' }])(
+    'old verified transport also fails closed for malformed payload %p', async overrides => {
+      const { db } = fixture(JSON.stringify({ ...event, data: { ...event.data, ...overrides } }));
+      const send = jest.fn();
+      expect((await drainPaymentEventOutbox({ db, send })).deferred).toBe(1);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+  test.each([
+    ['payment.reversed', 'Payment reversed', 'warning'], ['payment.verified', 'Payment verified', 'success'],
+  ])('realtime %s retains own type/title/severity, not a fake verification', async (type, title, severity) => {
+    const payload = type === 'payment.reversed' ? reversalEvent : event;
+    const { db } = fixture(JSON.stringify(payload), {}, { channel: 'realtime', destinationKey: 'finance-notifications' });
+    jest.mocked(publishDurableRealtimeNotification).mockClear();
+    expect((await drainPaymentEventOutbox({ db })).delivered).toBe(1);
+    expect(publishDurableRealtimeNotification).toHaveBeenCalledWith(expect.objectContaining({ id: payload.id, type, title, severity, resourceId: 7 }));
   });
 });

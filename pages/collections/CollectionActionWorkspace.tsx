@@ -8,6 +8,7 @@ import type {
   CollectionPromiseRecord,
 } from '../../src/services/collections.service';
 import type { CollectionActionPermissions } from './useCollectionCenter';
+import CollectionPaymentReversalButton from './CollectionPaymentReversalButton';
 import {
   formatDate,
   formatDateTime,
@@ -15,6 +16,7 @@ import {
   getElapsedDays,
   getHoldStrategy,
   paymentBadge,
+  paymentStatusLabel,
 } from './collectionCenter.helpers';
 
 type Props = {
@@ -32,6 +34,7 @@ type Props = {
   onBatchReminder: () => Promise<void>;
   onReminder: (orderId: number) => Promise<void>;
   onVerifyPayment: (paymentId: number) => Promise<void>;
+  onOpenPaymentReversal: (payment: CollectionLedgerRecord) => void;
   onPromiseStatus: (promiseId: number, status: 'kept' | 'missed' | 'cancelled') => Promise<void>;
   onDisputeStatus: (disputeId: number, status: 'reviewing' | 'resolved' | 'rejected' | 'withdrawn') => Promise<void>;
   onReleaseHold: (item: CollectionHoldRecord) => Promise<void>;
@@ -70,6 +73,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
   onBatchReminder,
   onReminder,
   onVerifyPayment,
+  onOpenPaymentReversal,
   onPromiseStatus: _onPromiseStatus,
   onDisputeStatus: _onDisputeStatus,
   onReleaseHold: _onReleaseHold,
@@ -83,7 +87,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
     : [];
   const orderSnapshot = orderLedger[0] || null;
   const verifiedAmount = orderLedger.filter((row) => row.status === 'verified').reduce((sum, row) => sum + row.amount, 0);
-  const pendingAmount = orderLedger.filter((row) => row.status !== 'verified').reduce((sum, row) => sum + row.amount, 0);
+  const pendingAmount = orderLedger.filter((row) => row.status === 'pending').reduce((sum, row) => sum + row.amount, 0);
   const finalAmount = selectedOverdue?.finalAmount ?? orderSnapshot?.finalAmount ?? 0;
   const paidAmount = selectedOverdue?.paidAmount ?? orderSnapshot?.paidAmount ?? verifiedAmount;
   const outstandingAmount = selectedOverdue?.outstanding ?? Math.max(0, finalAmount - paidAmount);
@@ -152,7 +156,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
               <div className="flex flex-wrap items-center gap-3">
                 <div className="text-lg font-black text-slate-900 dark:text-white">{currentCustomerLabel}</div>
                 <span className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-black tracking-[0.14em] ${paymentBadge(currentPaymentStatus)}`}>
-                  {currentPaymentStatus}
+                  {paymentStatusLabel(currentPaymentStatus)}
                 </span>
               </div>
               <div className="mt-2 text-xs font-bold text-slate-500 dark:text-slate-400">
@@ -257,7 +261,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                         <div className="flex items-center gap-2">
                           <div className="text-sm font-black text-slate-900 dark:text-white">{formatPrice(record.amount)}</div>
                           <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${paymentBadge(record.status)}`}>
-                            {record.status}
+                            {paymentStatusLabel(record.status)}
                           </span>
                         </div>
                         <div className="mt-1 text-xs font-bold text-slate-500 dark:text-slate-400">
@@ -265,7 +269,9 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                         </div>
                         {record.note ? <div className="mt-1 text-xs font-bold text-slate-400 dark:text-slate-500">{record.note}</div> : null}
                       </div>
-                      {record.status !== 'verified' && permissions.canVerifyPayment ? (
+                      <div className="flex flex-wrap gap-2">
+                      <CollectionPaymentReversalButton payment={record} permissions={permissions} onOpen={onOpenPaymentReversal} location="workspace" />
+                      {record.status === 'pending' && permissions.canVerifyPayment ? (
                         <button
                           type="button"
                           data-testid={`collection-workspace-verify-${record.id}`}
@@ -275,6 +281,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
                           核销该笔
                         </button>
                       ) : null}
+                      </div>
                     </div>
                   </div>
                 )) : (

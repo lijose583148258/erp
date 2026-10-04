@@ -26,16 +26,17 @@ async function createPaymentEventReceiver({ secret, folder, host = '127.0.0.1', 
         if (!equal(req.headers.authorization, `Bearer ${secret}`)) { reply(401, {}); return; }
         if (req.method === 'POST' && req.url === '/arm') {
           const data = JSON.parse(raw); assert(Number.isSafeInteger(data.paymentId) && data.paymentId > 0);
+          const eventType = data.eventType || 'payment.verified'; assert(['payment.verified','payment.reversed'].includes(eventType));
           assert(!target || target.release, 'Previous target has not been released');
-          target = { paymentId: data.paymentId, requests: 0, phase: 'armed', release: false };
+          target = { paymentId: data.paymentId, eventType, requests: 0, phase: 'armed', release: false };
           reply(200, { armed: true }); return;
         }
         if (req.method === 'POST' && req.url === '/release') {
           assert(target); target.release = true; reply(200, { released: true }); return;
         }
         if (req.method === 'GET' && req.url === '/state') {
-          reply(200, { target, attempts: attempts.filter(a => a.paymentId === target?.paymentId),
-            accepted: [...accepted.values()].filter(a => a.paymentId === target?.paymentId) }); return;
+          const matches = a => a.paymentId === target?.paymentId && (a.eventType || 'payment.verified') === target?.eventType;
+          reply(200, { target, attempts: attempts.filter(matches), accepted: [...accepted.values()].filter(matches) }); return;
         }
         reply(404, {}); return;
       }
@@ -43,17 +44,18 @@ async function createPaymentEventReceiver({ secret, folder, host = '127.0.0.1', 
       const signature = `sha256=${crypto.createHmac('sha256', secret).update(`${timestamp}.${raw}`).digest('hex')}`;
       if (!equal(req.headers['x-ailaoda-signature'], signature)) { reply(401, {}); return; }
       const event = JSON.parse(raw);
-      assert.equal(event.type, 'payment.verified'); assert.equal(req.headers['x-ailaoda-event-id'], event.id);
+      assert(['payment.verified','payment.reversed'].includes(event.type)); assert.equal(req.headers['x-ailaoda-event-id'], event.id);
+      if (event.type === 'payment.reversed') assert(Number(event.data.amount) < 0 && event.data.currency === 'CNY' && event.data.reversalId);
       assert(Number.isSafeInteger(Number(event.data.paymentId)));
       const digest = crypto.createHash('sha256').update(raw).digest('hex');
-      const matching = target && Number(event.data.paymentId) === target.paymentId;
-      const attempt = { paymentId: Number(event.data.paymentId), eventId: event.id, digest, at: new Date().toISOString(), signatureValid: true };
+      const matching = target && Number(event.data.paymentId) === target.paymentId && event.type === target.eventType;
+      const attempt = { paymentId: Number(event.data.paymentId), eventType: event.type, eventId: event.id, digest, at: new Date().toISOString(), signatureValid: true };
       attempts.push(attempt);
       if (matching && ++target.requests === 1) { target.phase = 'rejected-503'; attempt.status = 503; reply(503, {}); return; }
       const prior = accepted.get(event.id);
       if (prior && prior.digest !== digest) { attempt.status = 409; reply(409, { error: 'EVENT_ID_PAYLOAD_CHANGED' }); return; }
       if (!prior) {
-        const row = { eventId: event.id, paymentId: Number(event.data.paymentId), orderId: event.data.orderId,
+        const row = { eventId: event.id, eventType: event.type, paymentId: Number(event.data.paymentId), orderId: event.data.orderId,
           amount: Number(event.data.amount), digest, acceptedAt: new Date().toISOString(), effects: 1 };
         const fd = fs.openSync(ledgerFile, 'a');
         try { fs.writeSync(fd, `${JSON.stringify(row)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }

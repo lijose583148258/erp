@@ -31,6 +31,7 @@ const holdSourceLabelMap: Record<string, string> = {
 const ledgerStatusLabelMap: Record<string, string> = {
   verified: '已核销',
   pending: '待核销',
+  reversed: '已冲销（原凭证保留）',
 };
 
 const promiseStatusLabelMap: Record<string, string> = {

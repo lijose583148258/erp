@@ -322,6 +322,14 @@ async function applyAuthorizationPolicyMigrations() {
       'Backfill canonical material-master access for existing built-in roles without replacing user-managed role policies.',
     );
   }
+
+  const paymentReversalPolicy = '2026-10-03-payment-reversal-separation-v1';
+  if (!(await hasPolicyMigration(paymentReversalPolicy))) {
+    for (const role of ['admin','finance'] as const) {
+      await grantMissingRolePermissions(role, ['orders.payment.reversal.request', 'orders.payment.reversal.review']);
+    }
+    await markPolicyMigration(paymentReversalPolicy, 'Grant original cash reversal request/review to finance and admin only; service enforces independent people. Preserve all existing/custom role policies.');
+  }
 }
 
 export async function ensureAuthorizationPolicySeed() {
