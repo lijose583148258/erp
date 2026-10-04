@@ -85,3 +85,15 @@
 后端全量 97 suites / 798 tests、客户端 15+77 tests、完整来源/防伪合约 340 tests、类型、构建、编码、密钥及 diff 门禁通过。全仓 lint 无错误、保留既有采购 Hook 警告 1。AST 图谱 12230 节点 / 21504 边；33 个 JSON/生成文件无 AST 节点。
 
 以上是当前本机候选，不是正式云端结论。提交推送后必须取得同一 SHA 的 PostgreSQL 企业云累积与冲销浏览器证据；旧 716c848 云端失败不能由本机覆盖。20 人全角色的 37 项完整验收尚未完成。
+
+### 2026-10-04 云端无依赖源码门禁修复
+
+已推送 `c2f565f2f83faacfa418a743c5dcbef8ca4dcc26` 的企业云 run `37178035669` 如实失败：依赖拓扑通过，源码门禁失败，应用业务作业被跳过，**没有新的云端业务通过证据**。原始日志 `output/review/round2-job-111364683271.log` 显示 `payment-adjustment-context-contract.test.cjs` 导入纯路径函数时，模块顶层提前加载 `playwright/test`；源码门禁 checkout 后直接执行 Node 合约，不安装浏览器依赖。本机已有 node_modules 掩盖了此问题。
+
+修复只把浏览器依赖加载移到真实浏览器执行函数内部，不安装额外依赖、不模拟浏览器、不跳过测试。新增合约在独立临时目录实际启动 Node 子进程，先确认 `playwright/test` 真正不可解析，再加载复制的纯上下文模块并验证目录计算。旧代码真实负证 3 passed / 1 failed 保留在 `output/review/payment-reversal/bare-context-negative.log`；修复后完整来源合约 **341/341**，负证没有重新写为通过。
+
+源码门禁上传的旧 `source-gate.json` 只在测试之前检查文件存在，不能代表后续合约或整个 job 通过。独立验收以实际 job 结论及原始业务证据为准；不因为该文件出现 `passed` 就推进验收计数。源码 job 运行器 Node 版本尚未固定、仅调整脚本变更的自动触发路径覆盖仍需另补，本次手动 dispatch 不冒充这些覆盖已成立。
+
+此窄修复仍必须重新执行所有前序包累积回归、只读对账及浏览器读回，再提交推送并核对新 SHA 云端结果。历史正式通过基线仍为 24/37；c2f565f 的本机候选 25/37 不覆盖本次云端失败。
+
+窄修复当前源完整重放已完成：`output/round2/1791089927606-d9fc69c5/cumulative-regression.json` **32/32**，固定目录 **25 passed / 0 failed / 12 not_run**。主控独立只读复核 `output/review/payment-reversal/local-bare-fix-verification.json` 检查源指纹、所有受保护旧链条摘要、原始回执和全库 24 张订单，金额差异 0、完整性 ok、外键异常 0；12 张新截图重新逐张目视。完整 CLI 退出码仍为 2，因为完整 37 项尚未完成，不把它包装为全验收绿色。另重放当前源真实 PostgreSQL 聚合支持包 `output/payment-reversal-aggregate/1791090256280-7753e2d55471/report.json`：客户 300/300、共享节点 300/600 pending、源未变化、随机 schema 清除及专属集群停止。lint 无错误，既有采购 Hook 警告 1；diff 检查通过，AST 图谱更新为 12231 节点 / 21505 边。新 SHA 云端仍未验收。

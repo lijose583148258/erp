@@ -1,7 +1,4 @@
 const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
-const { expect } = require('playwright/test');
-const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
-const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 
 // Cloud does not export the runner's default report path. Pass it explicitly.
 function paymentAdjustmentEvidenceFolder({ reportPath, runId }) {
@@ -11,6 +8,11 @@ function paymentAdjustmentEvidenceFolder({ reportPath, runId }) {
 }
 
 async function paymentAdjustmentBrowser(ctx, order, originalPaymentId, evidence, signal) {
+  // Source contracts use the pure context helper without installed browser deps.
+  // Load them only when an actual browser flow is executed; never fake that flow.
+  const { expect } = require('playwright/test');
+  const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
+  const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
   const { actors, urls } = ctx;
   const folder = paymentAdjustmentEvidenceFolder(ctx);
   fs.mkdirSync(folder, { recursive: true });
