@@ -1,6 +1,6 @@
 import { StatusBadge } from '../../components/ui/StatusBadge';
 import type { BarterAgreement } from '../../services/barter.service';
-import { barterStatusLabelMap } from './barterWorkspaceParts';
+import { barterStatusLabelMap } from './barterStatus';
 
 type Props = {
   agreements: BarterAgreement[];
@@ -31,12 +31,12 @@ export function BarterAgreementList({
                 <div className="text-sm font-black text-slate-900">{agreement.agreementNo}</div>
                 <div className="mt-1 text-xs font-bold text-slate-400">{agreement.counterpartyName}</div>
               </div>
-              <StatusBadge status={agreement.status} label={barterStatusLabelMap[agreement.status] || agreement.status} className="shrink-0" />
+              <StatusBadge status={agreement.hasPendingRefund ? 'pending' : agreement.status} label={agreement.hasPendingRefund ? (agreement.status === 'completed' ? '抵扣完成 · 差额待处理' : '差额待处理') : barterStatusLabelMap[agreement.status] || agreement.status} className="shrink-0" />
             </div>
             <div className="mt-3 grid grid-cols-3 gap-3 text-sm font-bold text-slate-700">
-              <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">已抵</div><div>{formatPrice(agreement.executedOffsetAmount)}</div></div>
-              <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">待抵</div><div>{formatPrice(agreement.remainingOffsetAmount)}</div></div>
-              <div><div className="text-[10px] uppercase tracking-[0.2em] text-slate-400">批次</div><div>{agreement.batchCount || 0}</div></div>
+              <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">已抵</div><div>{formatPrice(agreement.executedOffsetAmount)}</div></div>
+              <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">待抵</div><div>{formatPrice(agreement.remainingOffsetAmount)}</div></div>
+              <div><div className="text-xs uppercase tracking-[0.2em] text-slate-400">批次</div><div>{agreement.batchCount || 0}</div></div>
             </div>
           </button>
         ))}

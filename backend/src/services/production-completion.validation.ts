@@ -1,3 +1,6 @@
+import { PACKAGING_PERCENTAGE_V1 } from '../domain/production-packaging-basis';
+import { DENSITY_PERCENTAGE_V1 } from '../domain/production-density-basis';
+import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 type ProductionCompletionIssueType =
   | 'missing_material'
   | 'unit_mismatch'
@@ -27,6 +30,7 @@ export class ProductionCompletionValidationError extends Error {
 
 type BomValidationItem = {
   id?: number | null;
+  materialId?: number | null;
   materialCode?: string | null;
   materialName?: string | null;
   ingredientRole?: string | null;
@@ -40,6 +44,7 @@ type BomValidationItem = {
 };
 
 type StockValidationSnapshot = {
+  materialId?: number | null;
   productName?: string | null;
   batchNo?: string | null;
   unit?: string | null;
@@ -113,6 +118,12 @@ const getToleranceRateForBomItem = (item: BomValidationItem) => {
 };
 
 const bomItemMatchesStock = (bomItem: BomValidationItem, stock: StockValidationSnapshot | null | undefined) => {
+  const bomMaterialId = Number(bomItem.materialId || 0);
+  const stockMaterialId = Number(stock?.materialId || 0);
+  if (bomMaterialId > 0 || stockMaterialId > 0) {
+    return bomMaterialId > 0 && stockMaterialId > 0 && bomMaterialId === stockMaterialId;
+  }
+
   const itemTokens = [
     normalizeMaterialToken(bomItem.materialCode),
     normalizeMaterialToken(bomItem.materialName),
@@ -163,10 +174,11 @@ export const assertBomConsumptionCoverage = (
       return;
     }
 
-    const expected = expectedBase * (1 + Number(item.lossRate || 0) / 100);
+    const massBasis = item.dosageMode === MASS_PERCENTAGE_V1 || item.dosageMode === PACKAGING_PERCENTAGE_V1 || item.dosageMode === DENSITY_PERCENTAGE_V1;
+    const expected = massBasis ? massRequiredQuantityV1(item.quantityPerUnit, outputQuantity, item.lossRate) : expectedBase * (1 + Number(item.lossRate || 0) / 100);
     const actual = matchedRecords.reduce((sum, record) => sum + Number(record.quantity || 0), 0);
     const toleranceRate = getToleranceRateForBomItem(item);
-    const tolerance = Math.max(expected * toleranceRate, 0.001);
+    const tolerance = Math.max(expected * toleranceRate, massBasis ? 0.0000005 : 0.001);
 
     if (actual + tolerance < expected) {
       issues.push({

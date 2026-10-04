@@ -1,6 +1,6 @@
 import prisma from '../config/database';
 import { recordSearchMetric } from '../middleware/metricsMiddleware';
-import { createExternalSearchProviders, getSearchStatus, type SearchIndex } from './search.service';
+import { createExternalSearchProviders, getSearchStatus, setExternalSearchReady, type SearchIndex } from './search.service';
 import { logger } from '../utils/logger';
 
 type CustomerSearchDocument = {
@@ -31,7 +31,18 @@ type OrderSearchDocument = {
 type ReindexResult = {
   enabled: boolean;
   indexes: Record<SearchIndex, { documents: number }>;
+  readiness: {
+    providerCount: number;
+    readyProviders: number;
+  };
   completedAt: string;
+};
+
+type SearchInitializationState = {
+  status: 'idle' | 'running' | 'ready' | 'failed';
+  mode: 'ensure' | 'reindex' | null;
+  startedAt: string | null;
+  completedAt: string | null;
 };
 
 const DEFAULT_REINDEX_BATCH_SIZE = 500;
@@ -41,9 +52,10 @@ const runAcrossSearchProviders = async <T>(operation: (provider: ReturnType<type
   if (providers.length === 0) throw new Error('MEILISEARCH_NOT_CONFIGURED');
   const results = await Promise.allSettled(providers.map(operation));
   const fulfilled = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+  const configuredMinimum = Number(process.env.SEARCH_MIN_WRITE_SUCCESSES || 1);
   const minimumSuccesses = Math.min(
     providers.length,
-    Math.max(1, Number(process.env.SEARCH_MIN_WRITE_SUCCESSES || 1)),
+    Math.max(1, Number.isFinite(configuredMinimum) ? Math.floor(configuredMinimum) : 1),
   );
   if (fulfilled.length < minimumSuccesses) {
     const reasons = results
@@ -54,8 +66,15 @@ const runAcrossSearchProviders = async <T>(operation: (provider: ReturnType<type
   return fulfilled;
 };
 let activeReindex: Promise<ReindexResult> | null = null;
+let activeInitialization: Promise<void> | null = null;
 let lastReindex: ReindexResult | null = null;
 let lastError: string | null = null;
+let initialization: SearchInitializationState = {
+  status: 'idle',
+  mode: null,
+  startedAt: null,
+  completedAt: null,
+};
 
 const getBatchSize = () => {
   const value = Number(process.env.SEARCH_REINDEX_BATCH_SIZE || DEFAULT_REINDEX_BATCH_SIZE);
@@ -77,6 +96,12 @@ const asOrderDocument = (row: {
   customerNameVi: row.customer?.nameVi || null,
 });
 
+const envFlag = (name: string, fallback: boolean) => {
+  const value = String(process.env[name] || '').trim().toLowerCase();
+  if (!value) return fallback;
+  return !['0', 'false', 'no', 'off'].includes(value);
+};
+
 const searchableAttributes: Record<SearchIndex, string[]> = {
   customers: [
     'name',
@@ -97,12 +122,78 @@ const searchableAttributes: Record<SearchIndex, string[]> = {
 
 export class SearchIndexService {
   static getStatus() {
+    const search = getSearchStatus();
+    const enabled = search.externalConfigured && search.configuredDriver === 'meilisearch';
     return {
-      ...getSearchStatus(),
+      ...search,
+      ready: !enabled || initialization.status === 'ready',
+      initialization: enabled ? initialization : {
+        status: 'disabled',
+        mode: null,
+        startedAt: null,
+        completedAt: null,
+      },
       reindexRunning: Boolean(activeReindex),
       lastReindex,
       lastError,
     };
+  }
+
+  static initialize() {
+    if (activeInitialization) return activeInitialization;
+    if (createExternalSearchProviders().length === 0) {
+      initialization = { status: 'ready', mode: 'ensure', startedAt: null, completedAt: new Date().toISOString() };
+      return Promise.resolve();
+    }
+
+    const mode: SearchInitializationState['mode'] = envFlag('SEARCH_REINDEX_ON_STARTUP', true) ? 'reindex' : 'ensure';
+    setExternalSearchReady(false);
+    initialization = {
+      status: 'running',
+      mode,
+      startedAt: new Date().toISOString(),
+      completedAt: null,
+    };
+    lastError = null;
+    activeInitialization = (async () => {
+      try {
+        if (mode === 'reindex') {
+          if (activeReindex) {
+            await activeReindex;
+          } else {
+            activeReindex = this.runReindex();
+            try {
+              lastReindex = await activeReindex;
+            } finally {
+              activeReindex = null;
+            }
+          }
+        } else {
+          await this.ensureIndexesAndSettings();
+          const expected = await this.readExpectedDocumentCounts();
+          await this.waitForIndexReadiness(expected);
+        }
+        lastError = null;
+        setExternalSearchReady(true);
+        initialization = {
+          ...initialization,
+          status: 'ready',
+          completedAt: new Date().toISOString(),
+        };
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : String(error);
+        setExternalSearchReady(false);
+        initialization = {
+          ...initialization,
+          status: 'failed',
+          completedAt: new Date().toISOString(),
+        };
+        throw error;
+      } finally {
+        activeInitialization = null;
+      }
+    })();
+    return activeInitialization;
   }
 
   static async syncCustomer(customerId: number) {
@@ -174,14 +265,29 @@ export class SearchIndexService {
 
   static async reindexAll(): Promise<ReindexResult> {
     if (activeReindex) throw new Error('SEARCH_REINDEX_IN_PROGRESS');
+    setExternalSearchReady(false);
     activeReindex = this.runReindex();
     try {
       const result = await activeReindex;
       lastReindex = result;
       lastError = null;
+      setExternalSearchReady(true);
+      initialization = {
+        status: 'ready',
+        mode: 'reindex',
+        startedAt: initialization.startedAt || new Date().toISOString(),
+        completedAt: result.completedAt,
+      };
       return result;
     } catch (error) {
       lastError = error instanceof Error ? error.message : String(error);
+      setExternalSearchReady(false);
+      initialization = {
+        status: 'failed',
+        mode: 'reindex',
+        startedAt: initialization.startedAt || new Date().toISOString(),
+        completedAt: new Date().toISOString(),
+      };
       throw error;
     } finally {
       activeReindex = null;
@@ -203,20 +309,98 @@ export class SearchIndexService {
       throw new Error('MEILISEARCH_NOT_CONFIGURED');
     }
 
-    for (const index of Object.keys(searchableAttributes) as SearchIndex[]) {
-      await runAcrossSearchProviders(async provider => {
-        const taskUid = await provider.updateSearchableAttributes(index, searchableAttributes[index]);
-        if (taskUid !== null) await provider.waitForTask(taskUid);
-      });
-    }
+    await this.ensureIndexesAndSettings();
+    await this.clearIndexesForRebuild();
 
     const indexes: ReindexResult['indexes'] = {
       customers: { documents: await this.reindexCustomers() },
       orders: { documents: await this.reindexOrders() },
     };
+    const expected = await this.readExpectedDocumentCounts();
+    if (indexes.customers.documents !== expected.customers || indexes.orders.documents !== expected.orders) {
+      throw new Error(`MEILISEARCH_REINDEX_SOURCE_CHANGED_customers_${indexes.customers.documents}_of_${expected.customers}_orders_${indexes.orders.documents}_of_${expected.orders}`);
+    }
+    const readiness = await this.waitForIndexReadiness(expected);
     recordSearchMetric('reindex', 'customers');
     recordSearchMetric('reindex', 'orders');
-    return { enabled: true, indexes, completedAt: new Date().toISOString() };
+    return { enabled: true, indexes, readiness, completedAt: new Date().toISOString() };
+  }
+
+  private static async ensureIndexesAndSettings() {
+    for (const index of Object.keys(searchableAttributes) as SearchIndex[]) {
+      await runAcrossSearchProviders(async provider => {
+        const createTaskUid = await provider.ensureIndex(index);
+        if (createTaskUid !== null) {
+          try {
+            await provider.waitForTask(createTaskUid);
+          } catch (error) {
+            // Concurrent replicas can each enqueue a create task after seeing
+            // a missing index. Meilisearch marks the losing task as failed,
+            // even though the winning task created the exact index. Read it
+            // back before treating that expected race as idempotent.
+            if (!await provider.indexExists(index)) throw error;
+            logger.info(`[SearchIndexService] ${index} was created by a concurrent replica`);
+          }
+        }
+        const settingsTaskUid = await provider.updateSearchableAttributes(index, searchableAttributes[index]);
+        if (settingsTaskUid !== null) await provider.waitForTask(settingsTaskUid);
+      });
+    }
+  }
+
+  private static async clearIndexesForRebuild() {
+    for (const index of Object.keys(searchableAttributes) as SearchIndex[]) {
+      await runAcrossSearchProviders(async provider => {
+        const clearTaskUid = await provider.deleteAllDocuments(index);
+        if (clearTaskUid !== null) await provider.waitForTask(clearTaskUid);
+      });
+    }
+  }
+
+  private static async readExpectedDocumentCounts(): Promise<Record<SearchIndex, number>> {
+    const [customers, orders] = await Promise.all([
+      prisma.customer.count(),
+      prisma.order.count(),
+    ]);
+    return { customers, orders };
+  }
+
+  private static async waitForIndexReadiness(expected: Record<SearchIndex, number>) {
+    const providers = createExternalSearchProviders();
+    if (providers.length === 0) throw new Error('MEILISEARCH_NOT_CONFIGURED');
+    const configuredMinimum = Number(process.env.SEARCH_MIN_READY_SUCCESSES || providers.length);
+    const minimumReady = Math.min(
+      providers.length,
+      Math.max(1, Number.isFinite(configuredMinimum) ? Math.floor(configuredMinimum) : providers.length),
+    );
+    const configuredTimeoutMs = Number(process.env.SEARCH_STARTUP_TIMEOUT_MS || 120_000);
+    const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1_000, configuredTimeoutMs) : 120_000;
+    const deadline = Date.now() + timeoutMs;
+    let lastReasons: string[] = [];
+
+    while (Date.now() < deadline) {
+      const results = await Promise.allSettled(providers.map(async (provider) => {
+        const stats = await Promise.all((Object.keys(expected) as SearchIndex[]).map(async index => {
+          const value = await provider.getIndexStats(index);
+          const documents = Number(value.numberOfDocuments || 0);
+          if (value.isIndexing || documents !== expected[index]) {
+            throw new Error(`${index}:${documents}/${expected[index]}${value.isIndexing ? ':indexing' : ''}`);
+          }
+          return { index, documents };
+        }));
+        return stats;
+      }));
+      const readyProviders = results.filter(result => result.status === 'fulfilled').length;
+      if (readyProviders >= minimumReady) {
+        return { providerCount: providers.length, readyProviders };
+      }
+      lastReasons = results.flatMap(result => result.status === 'rejected'
+        ? [result.reason instanceof Error ? result.reason.message : String(result.reason)]
+        : []);
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+
+    throw new Error(`MEILISEARCH_READINESS_TIMEOUT_${minimumReady}_OF_${providers.length}: ${lastReasons.join('; ')}`);
   }
 
   private static async reindexCustomers() {

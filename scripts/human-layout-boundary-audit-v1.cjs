@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const { chromium } = require('playwright');
 const { createBrowserHumanFlowAuditContext } = require('./lib/browser-human-flow-audit-utils.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -19,13 +19,6 @@ const TIMEOUTS = {
   readBack: 15000,
   screenshot: 5000,
   close: 5000,
-};
-
-const ROLE_PASSWORDS = {
-  admin: 'admin123',
-  sales: 'sales123',
-  warehouse: 'warehouse123',
-  finance: 'finance123',
 };
 
 const REQUIRED_TEXTS = {
@@ -55,7 +48,7 @@ const contextHelpers = createBrowserHumanFlowAuditContext({
   reportPath: REPORT_PATH,
   runId: RUN_ID,
   data: { requiredTexts: REQUIRED_TEXTS },
-  rolePasswords: ROLE_PASSWORDS,
+  rolePasswords: {},
   timeouts: TIMEOUTS,
 });
 
@@ -114,6 +107,7 @@ async function run() {
   const checks = [];
 
   try {
+    const { admin } = await ensureUiAuditAccounts('human_layout_boundary', ['admin']);
     browser = await chromium.launch({ headless: true });
     const context = await browser.newContext({ viewport: { width: 1600, height: 980 } });
     const page = await context.newPage();
@@ -128,6 +122,7 @@ async function run() {
     await contextHelpers.resetRuntimeCaches(page);
     await contextHelpers.withTimeout('login-audit-user-api', TIMEOUTS.login, async () => {
       await loginUiAuditUser(page, APP_URL, {
+        account: admin,
         storage: {
           'ailao.language': 'zh',
           language: 'zh',

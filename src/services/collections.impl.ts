@@ -133,6 +133,106 @@ export interface CollectionLedgerRecord {
   milestonePercentage: number | null;
 }
 
+export type PaymentReversalReason = 'registration_error' | 'bank_return';
+export type PaymentReversalDecision = 'approve' | 'reject';
+export interface OriginalPaymentFacts {
+  version: 'original-payment-facts/v1';
+  id: number;
+  orderId: number;
+  amount: number;
+  currency: string;
+  exchangeRate: number;
+  baseAmount: number;
+  method: string;
+  date: string;
+  payerName: string | null;
+  isProxy: boolean;
+  note: string | null;
+  verifiedBy: number | null;
+  milestoneId: number | null;
+  createdAt: string;
+}
+export interface PaymentReversalRequestReceipt {
+  version: 'payment-reversal-request/v1';
+  requestId: string;
+  requestKey: string;
+  paymentId: number;
+  orderId: number;
+  requestedBy: number;
+  amount: number;
+  currency: string;
+  status: 'pending';
+  auditId: number;
+  requestedAt: string;
+  reasonCategory: PaymentReversalReason;
+  reason: string;
+}
+export interface PaymentReversalReviewReceipt {
+  version: 'payment-reversal-review/v1';
+  requestId: string;
+  reviewKey: string;
+  paymentId: number;
+  orderId: number;
+  requestedBy: number;
+  reviewedBy: number;
+  amount: number;
+  currency: string;
+  status: 'posted' | 'rejected';
+  auditId: number;
+  reviewedAt: string;
+  beforePaidAmount: number;
+  afterPaidAmount: number;
+  reversalId: string | null;
+}
+export interface PaymentReversalRequestRecord {
+  id: string;
+  paymentId: number;
+  status: 'pending' | 'posted' | 'rejected';
+  requestedBy: number;
+  reasonCategory: PaymentReversalReason;
+  reason: string;
+  createdAt: string;
+  reviewedBy: number | null;
+  reviewNote: string | null;
+  reviewedAt: string | null;
+  originalPayment: OriginalPaymentFacts;
+  requestReceipt: PaymentReversalRequestReceipt;
+  reviewReceipt: PaymentReversalReviewReceipt | null;
+}
+export interface PaymentReversalOrderSnapshot {
+  id: number;
+  currency: string;
+  finalAmount: number;
+  paidAmount: number;
+  receivableAdjustmentAmount: number;
+  paymentStatus: string;
+}
+export interface PaymentReversalHistory {
+  paymentId: number;
+  paymentStatus: string;
+  originalPayment: OriginalPaymentFacts;
+  currentOrder: PaymentReversalOrderSnapshot;
+  /** Server-side eligibility includes barter ownership, not just the method label. */
+  eligibility: { allowed: boolean; errorCode?: string; message?: string };
+  requests: PaymentReversalRequestRecord[];
+  reversal: null | {
+    id: string;
+    requestId: string;
+    amount: number;
+    currency: string;
+    postedBy: number;
+    auditId: number;
+    postedAt: string;
+    receipt: PaymentReversalReviewReceipt;
+  };
+}
+export interface PaymentReversalResult {
+  replayed: boolean;
+  request: PaymentReversalRequestRecord;
+  receipt: PaymentReversalRequestReceipt | PaymentReversalReviewReceipt;
+  currentOrder: PaymentReversalOrderSnapshot;
+}
+
 export interface CollectionOverdueRecord {
   orderId: number;
   orderNo: string;
@@ -307,6 +407,21 @@ export const collectionsService = {
 
   async verifyPayment(paymentId: number): Promise<void> {
     await api.post(`/collections/payments/${paymentId}/verify`, {});
+  },
+
+  async getPaymentReversalHistory(paymentId: number, options: ApiRequestOptions = {}): Promise<PaymentReversalHistory> {
+    const response = await api.get<any, { success: boolean; data: PaymentReversalHistory }>(`/collections/payments/${paymentId}/reversal-requests`, { signal: options.signal });
+    return response.data;
+  },
+
+  async requestPaymentReversal(paymentId: number, payload: { requestKey: string; reasonCategory: PaymentReversalReason; reason: string }): Promise<PaymentReversalResult> {
+    const response = await api.post<any, { success: boolean; data: PaymentReversalResult }>(`/collections/payments/${paymentId}/reversal-requests`, payload);
+    return response.data;
+  },
+
+  async reviewPaymentReversal(requestId: string, payload: { reviewKey: string; decision: PaymentReversalDecision; note: string }): Promise<PaymentReversalResult> {
+    const response = await api.post<any, { success: boolean; data: PaymentReversalResult }>(`/collections/payment-reversal-requests/${encodeURIComponent(requestId)}/review`, payload);
+    return response.data;
   },
 
   async createReminder(orderId: number): Promise<void> {

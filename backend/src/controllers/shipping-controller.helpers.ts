@@ -3,6 +3,7 @@ import prisma from '../config/database';
 import { queryRawCompat } from '../utils/raw-sql-compat';
 import type { AuthRequest } from '../middleware/auth';
 import type { TransactionClient } from '../services/stock-movement.service';
+import { readOrderFulfillment } from '../services/order-fulfillment.service';
 import {
     buildCustomerDataScopeWhere,
     buildOrderDataScopeWhere,
@@ -17,8 +18,6 @@ export const getCustomerDisplayName = (customer: {
     nameEn?: string | null;
     nameVi?: string | null;
 }) => customer.nameZh || customer.nameEn || customer.nameVi || customer.name || '';
-
-const ACTIVE_SHIPMENT_STATUSES = new Set(['in_transit', 'delivered']);
 
 export const SHIPMENT_STATUS_TRANSITIONS: Record<string, string[]> = {
     pending: ['in_transit', 'exception'],
@@ -222,25 +221,20 @@ export async function getShipmentDetail(shipmentId: number) {
 }
 
 export async function syncOrderShipmentState(tx: TransactionClient, orderId: number) {
-    const [order, shipments] = await Promise.all([
-        tx.order.findUnique({
-            where: { id: orderId },
-            select: { id: true, status: true },
-        }),
-        tx.shipment.findMany({
-            where: { orderId },
-            select: { status: true },
-        }),
-    ]);
-
-    if (!order || order.status === 'cancelled') {
-        return;
-    }
+    // Serialize different shipment writers on their shared order before reading
+    // the aggregate. Otherwise the last partial receipt can leave stale status.
+    const claim = await tx.order.updateMany({
+        where: { id: orderId, status: { notIn: ['cancelled', 'completed'] } },
+        data: { updatedAt: new Date() },
+    });
+    if (claim.count !== 1) return;
+    const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
+    const fulfillment = await readOrderFulfillment(tx, orderId);
 
     let nextStatus = order.status;
-    if (shipments.length > 0 && shipments.every((shipment: { status: string }) => shipment.status === 'delivered')) {
+    if (fulfillment.fullyDelivered) {
         nextStatus = 'delivered';
-    } else if (shipments.some((shipment: { status: string }) => ACTIVE_SHIPMENT_STATUSES.has(shipment.status))) {
+    } else if (fulfillment.hasDispatched || fulfillment.hasAccepted || order.status === 'delivered') {
         nextStatus = 'shipped';
     }
 

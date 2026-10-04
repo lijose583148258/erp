@@ -8,6 +8,7 @@ const barterSideSchema = z.enum(['our', 'counterparty']);
 
 const barterItemSchema = z.object({
   side: barterSideSchema,
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   itemName: z.string().trim().min(1),
   specification: z.string().trim().optional(),
   unit: z.string().trim().min(1),
@@ -87,3 +88,15 @@ export const barterPostSchema = z.object({
 export const barterReverseSchema = z.object({
   reason: z.string().trim().min(1),
 }).passthrough();
+
+export const barterRefundSchema = z.object({
+  amount: z.number().finite().positive().refine(value => Math.abs(value * 100 - Math.round(value * 100)) < 0.000001, '金额最多两位小数'),
+  currency: z.string().trim().regex(/^[A-Z]{3}$/),
+  requestKey: z.string().uuid(),
+  paymentReference: z.string().trim().min(3).max(160),
+  paymentDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(value => {
+    const date = new Date(`${value}T00:00:00Z`);
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === value && value <= new Date().toISOString().slice(0, 10);
+  }, '退款日期必须是真实且不晚于今天的日期'),
+  note: z.string().trim().min(3).max(1000),
+}).strict();

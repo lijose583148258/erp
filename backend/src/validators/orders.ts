@@ -23,6 +23,7 @@ const paymentMethodSchema = z.enum([
 });
 
 const orderItemSchema = z.object({
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   productName: z.string().trim().min(1).max(120),
   quantity: z.coerce.number().positive(),
   unitPrice: z.coerce.number().nonnegative(),
@@ -79,7 +80,7 @@ export const paymentSchema = z.object({
   method: paymentMethodSchema,
   payerName: z.string().trim().optional(),
   note: z.string().trim().optional(),
-  isProxy: z.coerce.boolean().optional(),
+  isProxy: z.boolean().optional(),
 }).passthrough();
 
 export const batchReminderSchema = z.object({

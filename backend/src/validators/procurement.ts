@@ -67,6 +67,7 @@ export const updateContractSchema = z.object({
 
 export const createPurchaseOrderSchema = z.object({
   supplierId: z.coerce.number().int().positive(),
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   item: z.string().trim().min(1),
   quantity: z.coerce.number().positive(),
   unit: z.string().trim().min(1),
@@ -85,6 +86,18 @@ export const createPurchaseOrderSchema = z.object({
   salesOrderId: z.coerce.number().int().positive().optional().nullable(),
   isB2B: z.coerce.boolean().optional(),
 }).passthrough();
+
+// A complete, explicitly priced amendment; identity/currency/FX are immutable here.
+export const revisePurchaseOrderSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  expectedUpdatedAt: z.string().datetime(),
+  quantity: z.number().finite().positive(),
+  price: z.number().finite().nonnegative(),
+  taxAmount: z.number().finite().nonnegative(),
+  eta: z.string().refine(value => /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, '预计到货日期无效'),
+  reason: z.string().trim().min(3).max(1000),
+}).strict();
 
 export const createPurchaseReceiptSchema = z.object({
   quantity: z.coerce.number().positive(),

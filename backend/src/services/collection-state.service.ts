@@ -2,24 +2,56 @@ import prisma from '../config/database';
 import { AuthRequest } from '../middleware/auth';
 import type { Prisma } from '@prisma/client';
 import {
+    calculateMilestoneAmounts,
     determineReceivablePaymentStatus,
+    getEffectiveReceivableAmount,
     getDunningLevel,
     getOutstandingAmount,
     getOverdueDays,
     isOverdue,
 } from './collection/collection.helpers';
 import { withDbRetry } from '../utils/dbRetry';
+import { addMoney, compareMoney, type DecimalInput } from '../utils/money';
+import { recordPaymentVerifiedEventTx } from './payment-verification-event.service';
+import { getAppliedFinanceAdjustmentAmountTx } from './payment-ledger-contribution';
 
-// 浮点精度修复：将金额转换为整数分进行比较，消除 0.1+0.2 !== 0.3 的问题
-const toCents = (n: number) => Math.round(n * 100);
 type CollectionDb = typeof prisma | Prisma.TransactionClient;
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING = 'PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING';
 export const PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE = 'Verified payments would exceed order outstanding balance.';
+export const PAYMENT_VERIFICATION_INVALID_STATE = 'PAYMENT_VERIFICATION_INVALID_STATE';
+export const PAYMENT_STATE_BELOW_ZERO = 'PAYMENT_STATE_BELOW_ZERO';
 export const getPaymentVerificationConflictMessage = (error: unknown) => (
     error instanceof Error && error.message === PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING
         ? PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING_MESSAGE
-        : null
+        : error instanceof Error && error.message === PAYMENT_VERIFICATION_INVALID_STATE
+            ? 'Only pending payments can be verified.'
+            : error instanceof Error && error.message === PAYMENT_STATE_BELOW_ZERO
+                ? 'Applied payment ledger would be below zero; reconciliation is required.'
+                : null
 );
+
+export const calculateVerifiedPaymentState = (input: {
+    verifiedPayments: Array<{ amount: DecimalInput }>;
+    finalAmount: DecimalInput;
+    receivableAdjustmentAmount?: DecimalInput;
+    appliedFinanceAdjustmentAmount?: DecimalInput;
+}) => {
+    const paidAmount = addMoney(input.appliedFinanceAdjustmentAmount, ...input.verifiedPayments.map(payment => payment.amount));
+    const effectiveReceivableAmount = getEffectiveReceivableAmount(
+        input.finalAmount,
+        input.receivableAdjustmentAmount,
+    );
+    return {
+        paidAmount,
+        effectiveReceivableAmount,
+        exceedsOutstanding: compareMoney(paidAmount, effectiveReceivableAmount) > 0,
+        paymentStatus: determineReceivablePaymentStatus(
+            paidAmount,
+            input.finalAmount,
+            input.receivableAdjustmentAmount,
+        ),
+    };
+};
 
 export class CollectionStateService {
     private static syncAllCustomerOverdueAmountsInFlight: Promise<number> | null = null;
@@ -36,6 +68,11 @@ export class CollectionStateService {
     }
 
     private static async syncCustomerOverdueAmountWithClient(db: CollectionDb, customerId: number): Promise<number> {
+        // All writers of a customer's derived balances share this row lock.
+        // Read the contributing orders only AFTER the lock, never from a stale
+        // pre-lock snapshot. On Serializable transactions a conflicting snapshot
+        // is retried by the enclosing withDbRetry instead of overwriting totals.
+        await db.$executeRaw`UPDATE "customers" SET "id" = "id" WHERE "id" = ${customerId}`;
         const orders = await db.order.findMany({
             where: {
                 customerId,
@@ -56,19 +93,19 @@ export class CollectionStateService {
             if (!isOverdue(
                 order.createdAt,
                 order.paymentTerms,
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
                 now,
             )) {
                 return sum;
             }
 
-            return sum + getOutstandingAmount(
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
-            );
+            return addMoney(sum, getOutstandingAmount(
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
+            ));
         }, 0);
 
         await db.customer.update({
@@ -95,159 +132,43 @@ export class CollectionStateService {
     }
 
     private static async runSyncAllCustomerOverdueAmounts(): Promise<number> {
-        const [customers, orders, openPromises, openDisputes] = await Promise.all([
-            prisma.customer.findMany({
-                select: {
-                    id: true,
-                    overdueAmount: true,
-                    dunningLevel: true,
-                    collectionsStatus: true,
-                    nextActionAt: true,
-                    creditHold: true,
-                    creditHoldReason: true,
-                    creditHoldSource: true,
-                    shipmentHold: true,
-                    shipmentHoldReason: true,
-                    shipmentHoldSource: true,
-                },
-            }),
-            prisma.order.findMany({
-                where: {
-                    status: { not: 'cancelled' },
-                    paymentStatus: { not: 'paid' },
-                },
-                select: {
-                    customerId: true,
-                    finalAmount: true,
-                    paidAmount: true,
-                    receivableAdjustmentAmount: true,
-                    paymentTerms: true,
-                    createdAt: true,
-                },
-            }),
-            prisma.collectionPromise.findMany({
-                where: { status: 'open' },
-                orderBy: { promisedAt: 'asc' },
-                select: {
-                    customerId: true,
-                    promisedAt: true,
-                },
-            }),
-            prisma.collectionDispute.findMany({
-                where: { status: { in: ['open', 'reviewing'] } },
-                select: { customerId: true },
-            }),
-        ]);
-
-        const now = new Date();
-        const orderStateByCustomer = new Map<number, { overdueAmount: number; dunningLevel: number }>();
-        for (const order of orders) {
-            const current = orderStateByCustomer.get(order.customerId) || { overdueAmount: 0, dunningLevel: 0 };
-            if (isOverdue(
-                order.createdAt,
-                order.paymentTerms,
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
-                now,
-            )) {
-                const daysOverdue = getOverdueDays(order.createdAt, order.paymentTerms, now);
-                current.overdueAmount += getOutstandingAmount(
-                    Number(order.finalAmount),
-                    Number(order.paidAmount),
-                    Number(order.receivableAdjustmentAmount),
-                );
-                current.dunningLevel = Math.max(current.dunningLevel, getDunningLevel(daysOverdue));
-            }
-            orderStateByCustomer.set(order.customerId, current);
-        }
-
-        const promisedAtByCustomer = new Map<number, Date>();
-        for (const promise of openPromises) {
-            if (!promisedAtByCustomer.has(promise.customerId)) {
-                promisedAtByCustomer.set(promise.customerId, promise.promisedAt);
-            }
-        }
-
-        const disputedCustomers = new Set(openDisputes.map(dispute => dispute.customerId));
-        const updates = customers.map(customer => {
-            const orderState = orderStateByCustomer.get(customer.id) || { overdueAmount: 0, dunningLevel: 0 };
-            const hasPromise = promisedAtByCustomer.has(customer.id);
-            const hasDispute = disputedCustomers.has(customer.id);
-            const promisedAt = promisedAtByCustomer.get(customer.id) || null;
-            const autoCreditHold = orderState.dunningLevel >= 3 || hasDispute;
-            const autoShipmentHold = orderState.dunningLevel >= 4 || hasDispute;
-
-            let collectionsStatus = 'normal';
-            if (customer.creditHold || customer.shipmentHold) {
-                collectionsStatus = 'hold';
-            } else if (hasDispute) {
-                collectionsStatus = 'disputed';
-            } else if (hasPromise) {
-                collectionsStatus = 'promised';
-            } else if (orderState.dunningLevel >= 4) {
-                collectionsStatus = 'legal';
-            } else if (orderState.dunningLevel >= 3) {
-                collectionsStatus = 'hold';
-            } else if (orderState.dunningLevel >= 1) {
-                collectionsStatus = 'watch';
-            }
-
-            const data: Record<string, any> = {
-                overdueAmount: orderState.overdueAmount,
-                dunningLevel: orderState.dunningLevel,
-                collectionsStatus,
-                nextActionAt: promisedAt,
-            };
-
-            if (customer.creditHoldSource !== 'manual') {
-                if (autoCreditHold) {
-                    data.creditHold = true;
-                    data.creditHoldReason = hasDispute ? 'Open dispute under review' : `System hold: dunning level ${orderState.dunningLevel}`;
-                    data.creditHoldSource = hasDispute ? 'dispute' : 'system';
-                    data.creditHoldUpdatedAt = now;
-                } else if (customer.creditHold) {
-                    data.creditHold = false;
-                    data.creditHoldReason = null;
-                    data.creditHoldSource = null;
-                    data.creditHoldUpdatedAt = now;
-                }
-            }
-
-            if (customer.shipmentHoldSource !== 'manual') {
-                if (autoShipmentHold) {
-                    data.shipmentHold = true;
-                    data.shipmentHoldReason = hasDispute ? 'Open dispute blocks shipment' : `System hold: dunning level ${orderState.dunningLevel}`;
-                    data.shipmentHoldSource = hasDispute ? 'dispute' : 'system';
-                    data.shipmentHoldUpdatedAt = now;
-                } else if (customer.shipmentHold) {
-                    data.shipmentHold = false;
-                    data.shipmentHoldReason = null;
-                    data.shipmentHoldSource = null;
-                    data.shipmentHoldUpdatedAt = now;
-                }
-            }
-
-            return { customerId: customer.id, data };
+        // A whole-database snapshot followed by later updates can overwrite a
+        // payment that committed in between. Recompute each customer under the
+        // same transaction lock used by interactive verification and reversal.
+        const customers = await prisma.customer.findMany({
+            select: { id: true },
+            orderBy: { id: 'asc' },
         });
-
-        const chunkSize = 80;
-        for (let index = 0; index < updates.length; index += chunkSize) {
-            const chunk = updates.slice(index, index + chunkSize);
-            await withDbRetry(
-                () => prisma.$transaction(chunk.map(update => prisma.customer.update({
-                    where: { id: update.customerId },
-                    data: update.data,
-                }))),
-                {
-                    label: 'syncAllCustomerOverdueAmounts',
-                    attempts: 5,
-                    baseDelayMs: 120,
-                },
-            );
+        for (const customer of customers) {
+            await this.syncCustomerOverdueAmount(customer.id);
         }
-
         return customers.length;
+    }
+
+    static async recalculateContractMilestonePaymentStateTx(tx: Prisma.TransactionClient, milestoneId: number) {
+        // Lock order -> customer -> milestone at every payment write path.
+        // Milestones can span orders, so an order lock alone cannot protect the
+        // verified-payment aggregate from another order's verification/reversal.
+        await tx.$executeRaw`UPDATE "contract_milestones" SET "id" = "id" WHERE "id" = ${milestoneId}`;
+        const milestone = await tx.contractMilestone.findUnique({
+            where: { id: milestoneId },
+            select: { id: true, amount: true, percentage: true,
+                contract: { select: { totalAmount: true } } },
+        });
+        if (!milestone) throw new Error(`Contract milestone not found: ${milestoneId}`);
+        const payments = await tx.paymentRecord.aggregate({
+            where: { milestoneId, status: 'verified' },
+            _sum: { amount: true },
+        });
+        const amounts = calculateMilestoneAmounts({
+            explicitAmount: milestone.amount,
+            contractTotalAmount: milestone.contract.totalAmount,
+            percentage: milestone.percentage,
+            verifiedPayments: [{ amount: payments._sum.amount }],
+        });
+        const status = compareMoney(amounts.paidAmount, amounts.targetAmount) >= 0 ? 'paid' : 'pending';
+        await tx.contractMilestone.update({ where: { id: milestoneId }, data: { status } });
+        return { paidAmount: amounts.paidAmount, targetAmount: amounts.targetAmount, status };
     }
 
     static async recalculateOrderPaymentState(orderId: number) {
@@ -258,6 +179,13 @@ export class CollectionStateService {
     }
 
     static async recalculateOrderPaymentStateTx(tx: Prisma.TransactionClient, orderId: number) {
+        // All order payment rebuilds use the same row lock as verification,
+        // including barter post/reversal, before reading committed ledger facts.
+        const order = await tx.order.update({
+            where: { id: orderId },
+            data: { updatedAt: new Date() },
+            select: { id: true, customerId: true, finalAmount: true, receivableAdjustmentAmount: true },
+        });
         const payments = await tx.paymentRecord.findMany({
             where: {
                 orderId,
@@ -268,26 +196,14 @@ export class CollectionStateService {
             },
         });
 
-        const order = await tx.order.findUnique({
-            where: { id: orderId },
-            select: {
-                id: true,
-                customerId: true,
-                finalAmount: true,
-                receivableAdjustmentAmount: true,
-            },
+        const { paidAmount, paymentStatus, exceedsOutstanding } = calculateVerifiedPaymentState({
+            verifiedPayments: payments,
+            finalAmount: order.finalAmount,
+            receivableAdjustmentAmount: order.receivableAdjustmentAmount,
+            appliedFinanceAdjustmentAmount: await getAppliedFinanceAdjustmentAmountTx(tx, orderId),
         });
-
-        if (!order) {
-            throw new Error(`Order not found: ${orderId}`);
-        }
-
-        const paidAmount = payments.reduce((sum, payment) => sum + Number(payment.amount), 0);
-        const paymentStatus = determineReceivablePaymentStatus(
-            paidAmount,
-            Number(order.finalAmount),
-            Number(order.receivableAdjustmentAmount),
-        );
+        if (compareMoney(paidAmount, 0) < 0) throw new Error(PAYMENT_STATE_BELOW_ZERO);
+        if (exceedsOutstanding) throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
 
         await tx.order.update({
             where: { id: orderId },
@@ -328,6 +244,8 @@ export class CollectionStateService {
             };
         }
 
+        if (payment.status !== 'pending') throw new Error(PAYMENT_VERIFICATION_INVALID_STATE);
+
         const verified = await withDbRetry(() => prisma.$transaction(async (tx) => {
             const claim = await tx.paymentRecord.updateMany({
                 where: { id: payment.id, status: 'pending' },
@@ -338,7 +256,9 @@ export class CollectionStateService {
             });
 
             if (claim.count !== 1) {
-                return false;
+                const current = await tx.paymentRecord.findUnique({ where: { id: payment.id }, select: { status: true } });
+                if (current?.status === 'verified') return false;
+                throw new Error(PAYMENT_VERIFICATION_INVALID_STATE);
             }
 
             // Serialize same-order verification before aggregating paid totals.
@@ -362,67 +282,30 @@ export class CollectionStateService {
                 },
                 select: { amount: true },
             });
-            const paidAmount = allVerifiedPayments.reduce((sum, record) => sum + Number(record.amount), 0);
-            const effectiveReceivableAmount = Math.max(
-                0,
-                Number(order.finalAmount) - Number(order.receivableAdjustmentAmount || 0),
-            );
-            if (toCents(paidAmount) > toCents(effectiveReceivableAmount)) {
+            const paymentState = calculateVerifiedPaymentState({
+                verifiedPayments: allVerifiedPayments,
+                finalAmount: order.finalAmount,
+                receivableAdjustmentAmount: order.receivableAdjustmentAmount,
+                appliedFinanceAdjustmentAmount: await getAppliedFinanceAdjustmentAmountTx(tx, order.id),
+            });
+            if (compareMoney(paymentState.paidAmount, 0) < 0) throw new Error(PAYMENT_STATE_BELOW_ZERO);
+            if (paymentState.exceedsOutstanding) {
                 throw new Error(PAYMENT_VERIFICATION_EXCEEDS_OUTSTANDING);
             }
-
-            const paymentStatus = determineReceivablePaymentStatus(
-                paidAmount,
-                Number(order.finalAmount),
-                Number(order.receivableAdjustmentAmount),
-            );
 
             await tx.order.update({
                 where: { id: order.id },
                 data: {
-                    paidAmount,
-                    paymentStatus,
+                    paidAmount: paymentState.paidAmount,
+                    paymentStatus: paymentState.paymentStatus,
                 },
             });
 
-            if (payment.milestoneId) {
-                const milestone = await tx.contractMilestone.findUnique({
-                    where: { id: payment.milestoneId },
-                    select: {
-                        id: true,
-                        amount: true,
-                        percentage: true,
-                        status: true,
-                        contract: {
-                            select: {
-                                totalAmount: true,
-                            },
-                        },
-                    },
-                });
-
-                if (milestone) {
-                    const milestoneTarget = milestone.amount !== null
-                        ? Number(milestone.amount)
-                        : Number(milestone.contract.totalAmount) * Number(milestone.percentage) / 100;
-                    const milestonePaid = await tx.paymentRecord.aggregate({
-                        where: {
-                            milestoneId: milestone.id,
-                            status: 'verified',
-                        },
-                        _sum: { amount: true },
-                    });
-                    const milestonePaidAmount = Number(milestonePaid._sum.amount || 0);
-
-                    if (milestonePaidAmount >= milestoneTarget) {
-                        await tx.contractMilestone.update({
-                            where: { id: milestone.id },
-                            data: { status: 'paid' },
-                        });
-                    }
-                }
-            }
             await this.syncCustomerOverdueAmountTx(tx, order.customerId);
+            if (payment.milestoneId) {
+                await this.recalculateContractMilestonePaymentStateTx(tx, payment.milestoneId);
+            }
+            await recordPaymentVerifiedEventTx(tx, payment.id, verifiedBy);
             return true;
         }), { label: 'verifyPaymentRecord' });
 
@@ -445,6 +328,7 @@ export class CollectionStateService {
     }
 
     private static async refreshCustomerCollectionStateWithClient(db: CollectionDb, customerId: number) {
+        await db.$executeRaw`UPDATE "customers" SET "id" = "id" WHERE "id" = ${customerId}`;
         const [customer, overdueOrders, openPromises, openDisputes] = await Promise.all([
             db.customer.findUnique({
                 where: { id: customerId },
@@ -502,9 +386,9 @@ export class CollectionStateService {
             if (!isOverdue(
                 order.createdAt,
                 order.paymentTerms,
-                Number(order.finalAmount),
-                Number(order.paidAmount),
-                Number(order.receivableAdjustmentAmount),
+                order.finalAmount,
+                order.paidAmount,
+                order.receivableAdjustmentAmount,
                 now,
             )) {
                 return max;

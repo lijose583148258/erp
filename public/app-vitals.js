@@ -83,7 +83,7 @@
         list.getEntries().forEach(callback);
       });
       observer.observe({ type: type, buffered: true });
-    } catch (_error) {
+    } catch {
       // Older browsers do not support every performance entry type.
     }
   }

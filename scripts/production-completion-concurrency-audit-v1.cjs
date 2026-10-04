@@ -5,6 +5,11 @@ const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001';
 const REPORT_DIR = path.join(__dirname, '../output/playwright');
 const REPORT_PATH = path.join(REPORT_DIR, 'production-completion-concurrency-audit-report-v1.json');
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
+const AUDIT_API_USERNAME = process.env.AUDIT_API_USERNAME;
+const AUDIT_API_PASSWORD = process.env.AUDIT_API_PASSWORD;
+if (!AUDIT_API_USERNAME || !AUDIT_API_PASSWORD) {
+  throw new Error('AUDIT_API_USERNAME and AUDIT_API_PASSWORD are required');
+}
 
 const {
   report,
@@ -39,6 +44,7 @@ function buildBomPayload(materialCodes) {
     status: 'active',
     formulationMode: 'percentage',
     outputUnit: 'kg',
+    shelfLifeDays: 365,
     standardBatchSize: 100,
     batchSizeUnit: 'kg',
     notes: 'production completion concurrency audit',
@@ -75,7 +81,7 @@ async function completeWithoutThrow(token, workOrderId, payload) {
   writeReport();
 
   try {
-    const token = await login('admin', 'admin123');
+    const token = await login(AUDIT_API_USERNAME, AUDIT_API_PASSWORD);
     recordStep('login_admin', 'passed', { appUrl: APP_URL });
 
     const bootstrap = await ensureWarehouseAndLocations(token);

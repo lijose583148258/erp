@@ -1,11 +1,12 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
-import { ChevronLeft, ChevronRight, DollarSign, FileSpreadsheet, Search, SlidersHorizontal, Upload, X } from 'lucide-react';
+import React, { useCallback, useId, useMemo, useRef, useState } from 'react';
+import { ChevronLeft, ChevronRight, DollarSign, FileSpreadsheet, Search, Upload, X } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { assertSafeSpreadsheetFile } from '../utils/spreadsheetSecurity';
 import { exportRowsToXlsx, parseSpreadsheetFileAsObjects } from '../utils/spreadsheetIO';
 import { StatusBadge as UnifiedStatusBadge } from './ui/StatusBadge';
 import { getStatusLabel } from './ui/statusBadgeLogic';
 import { readNumberPreference, readStringArrayPreference, writeNumberPreference, writeStringArrayPreference } from './ui/tablePreferences';
+import { ColumnVisibilityMenu } from './ui/ColumnVisibilityMenu';
 
 export interface Column<T> {
   header: string;
@@ -23,6 +24,7 @@ export interface Column<T> {
 interface DataTableProps<T> {
   tableId?: string;
   title: string;
+  description?: string;
   columns: Column<T>[];
   data: T[];
   isLoading?: boolean;
@@ -88,6 +90,7 @@ const getCellTitle = (value: unknown): string | undefined => {
 const DataTableInner = <T extends Record<string, any>>({
   tableId,
   title,
+  description,
   columns,
   data,
   isLoading,
@@ -102,6 +105,9 @@ const DataTableInner = <T extends Record<string, any>>({
   pageSizeOptions = [15, 30, 50],
 }: DataTableProps<T>) => {
   const { t, notify } = useAppContext();
+  const generatedId = useId();
+  const titleId = `data-table-title-${generatedId}`;
+  const descriptionId = `data-table-description-${generatedId}`;
   const preferenceKey = tableId || title.replace(/\s+/g, '-').toLowerCase();
   const pageSizeStorageKey = `ailao.table.${preferenceKey}.pageSize`;
   const columnStorageKey = `ailao.table.${preferenceKey}.columns`;
@@ -252,12 +258,20 @@ const DataTableInner = <T extends Record<string, any>>({
   }, [effectivePage, totalPages]);
 
   return (
-    <div className="app-density-surface rounded-xl border border-slate-200 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
-      <div className="flex flex-col gap-3 border-b border-slate-100 bg-slate-50/50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/20 lg:flex-row lg:items-center lg:justify-between">
+    <div
+      data-enterprise-grid
+      data-grid-state={isLoading ? 'loading' : displayedData.length === 0 ? 'empty' : 'ready'}
+      role="region"
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
+      className="app-density-surface rounded-xl border border-slate-200 bg-white shadow-sm overflow-visible dark:border-slate-800 dark:bg-slate-900"
+    >
+      <div className="flex flex-col gap-3 rounded-t-xl border-b border-slate-100 bg-slate-50/50 px-4 py-3 dark:border-slate-800 dark:bg-slate-800/20 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h2 className="text-base font-black tracking-tight text-slate-800 dark:text-white">{title}</h2>
+          <h2 id={titleId} className="text-base font-black tracking-tight text-slate-800 dark:text-white">{title}</h2>
+          {description ? <p id={descriptionId} className="mt-1 text-xs font-medium leading-5 text-slate-500 dark:text-slate-400">{description}</p> : null}
           <div className="mt-1 flex items-center gap-2">
-            <span className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-blue-500 dark:bg-blue-900/30 dark:text-blue-300">
+            <span role="status" aria-live="polite" className="inline-flex items-center rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-black uppercase tracking-wider text-blue-500 dark:bg-blue-900/30 dark:text-blue-300">
               {pagination?.total ?? filteredData.length} {t.records || '条记录'}
             </span>
             {searchTerm && (
@@ -276,7 +290,7 @@ const DataTableInner = <T extends Record<string, any>>({
               placeholder={t.search || '搜索...'}
               aria-label={`${title} 搜索`}
               title={`${title} 搜索`}
-              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-8 pr-8 text-sm font-medium outline-none transition-all focus:border-blue-300 focus:ring-2 focus:ring-blue-100 dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2 pl-8 pr-8 text-sm font-medium outline-none transition-[border-color,box-shadow] duration-150 focus:border-blue-300 focus:ring-2 focus:ring-blue-100 motion-reduce:transition-none dark:border-slate-700 dark:bg-slate-900 dark:focus:ring-blue-900/30"
             />
             {searchTerm && (
               <button
@@ -313,42 +327,19 @@ const DataTableInner = <T extends Record<string, any>>({
               data-testid={tableId ? `${tableId}-export` : undefined}
               aria-label="导出 Excel"
               title="导出 Excel"
-              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-all hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-200"
+              className="inline-flex min-h-9 items-center justify-center gap-1 rounded-xl bg-white px-3 py-2 text-xs font-bold text-slate-700 shadow-sm transition-colors duration-150 hover:bg-slate-50 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-200"
             >
               <FileSpreadsheet size={13} />{isExporting ? '导出中...' : '导出'}
             </button>
           </div>
 
-          <details className="relative">
-            <summary
-              aria-label="显示或隐藏表格列"
-              title="显示或隐藏表格列"
-              className="flex min-h-9 cursor-pointer list-none items-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
-            >
-              <SlidersHorizontal size={13} />列
-            </summary>
-            <div className="absolute right-0 top-10 z-40 w-56 rounded-2xl border border-slate-200 bg-white p-3 shadow-xl dark:border-slate-700 dark:bg-slate-900">
-              <div className="mb-2 flex items-center justify-between gap-2">
-                <span className="text-xs font-black text-slate-700 dark:text-slate-200">显示列</span>
-                <button type="button" onClick={resetColumnVisibility} className="min-h-8 rounded-lg px-2 text-xs font-bold text-blue-600 hover:bg-blue-50 dark:text-blue-300 dark:hover:bg-blue-950/30">重置</button>
-              </div>
-              <div className="max-h-64 space-y-1 overflow-y-auto">
-                {columns.map((column) => (
-                  <label key={column.key} className="flex min-h-9 items-center gap-2 rounded-xl px-2 text-xs font-bold text-slate-600 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumnKeySet.has(column.key)}
-                      onChange={(event) => setColumnVisibility(column.key, event.target.checked)}
-                      aria-label={`显示列：${column.header}`}
-                      title={`显示列：${column.header}`}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600"
-                    />
-                    <span className="truncate">{column.header}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-          </details>
+          <ColumnVisibilityMenu
+            columns={columns.map(column => ({ key: column.key, label: column.header }))}
+            visibleColumnKeys={visibleColumnKeySet}
+            onVisibilityChange={setColumnVisibility}
+            onReset={resetColumnVisibility}
+            className="rounded-xl border-0 bg-slate-100 px-3.5 py-2 tracking-normal dark:bg-slate-800"
+          />
 
           {onImport && (
             <>
@@ -368,7 +359,7 @@ const DataTableInner = <T extends Record<string, any>>({
                 onClick={() => fileInputRef.current?.click()}
                 aria-label="导入表格文件"
                 title="导入表格文件"
-                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-all hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
+                className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-xl bg-slate-100 px-3.5 py-2 text-xs font-bold text-slate-600 transition-colors duration-150 hover:bg-slate-200 motion-reduce:transition-none dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700"
               >
                 <Upload size={13} />导入
               </button>
@@ -378,7 +369,7 @@ const DataTableInner = <T extends Record<string, any>>({
       </div>
 
       <div className="overflow-x-auto">
-        <table className="app-density-table min-w-full text-left">
+        <table aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined} className="app-density-table min-w-full text-left">
           <thead>
             <tr className="border-b border-slate-100 bg-slate-50/95 dark:border-slate-800 dark:bg-slate-800/95">
               {visibleColumns.map((col, i) => (
@@ -464,7 +455,7 @@ const DataTableInner = <T extends Record<string, any>>({
       </div>
 
       {totalPages > 1 && (
-        <div className="flex items-center justify-between border-t border-slate-100 px-4 py-2.5 dark:border-slate-800">
+        <div className="flex items-center justify-between rounded-b-xl border-t border-slate-100 px-4 py-2.5 dark:border-slate-800">
           <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
             第 {(effectivePage - 1) * (pagination?.pageSize || itemsPerPage) + 1}-{Math.min(effectivePage * (pagination?.pageSize || itemsPerPage), pagination?.total ?? filteredData.length)} 条，共 {pagination?.total ?? filteredData.length} 条
           </span>
@@ -486,7 +477,7 @@ const DataTableInner = <T extends Record<string, any>>({
               onClick={() => pagination ? pagination.onPageChange(Math.max(1, effectivePage - 1)) : setCurrentPage((p) => Math.max(1, p - 1))}
               aria-label="上一页"
               title="上一页"
-              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800"
+              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl p-1.5 text-slate-400 transition-colors duration-150 hover:bg-slate-100 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800"
             >
               <ChevronLeft size={16} />
             </button>
@@ -497,7 +488,7 @@ const DataTableInner = <T extends Record<string, any>>({
                 onClick={() => pagination ? pagination.onPageChange(n) : setCurrentPage(n)}
                 aria-label={`第 ${n} 页`}
                 title={`第 ${n} 页`}
-                className={`min-h-8 min-w-8 rounded-xl px-2 py-1 text-xs font-bold transition-all ${
+                className={`min-h-8 min-w-8 rounded-xl px-2 py-1 text-xs font-bold transition-colors duration-150 motion-reduce:transition-none ${
                   n === effectivePage
                     ? 'bg-blue-500 text-white shadow-sm'
                     : 'text-slate-500 hover:bg-slate-100 dark:text-slate-400 dark:hover:bg-slate-800'
@@ -512,7 +503,7 @@ const DataTableInner = <T extends Record<string, any>>({
               onClick={() => pagination ? pagination.onPageChange(Math.min(totalPages, effectivePage + 1)) : setCurrentPage((p) => Math.min(totalPages, p + 1))}
               aria-label="下一页"
               title="下一页"
-              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl p-1.5 text-slate-400 transition-all hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800"
+              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-xl p-1.5 text-slate-400 transition-colors duration-150 hover:bg-slate-100 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-slate-800"
             >
               <ChevronRight size={16} />
             </button>

@@ -164,7 +164,12 @@ function checkRuntimePortPolicy(findings) {
 
   const runtimeConfig = requireText(findings, 'backend/src/config/runtime.ts', 'runtime-port-policy');
   if (runtimeConfig) {
-    if (!/http:\/\/127\.0\.0\.1:5001/.test(runtimeConfig) || !/http:\/\/localhost:5001/.test(runtimeConfig)) {
+    const hasLiteralStableOrigins = /http:\/\/127\.0\.0\.1:5001/.test(runtimeConfig)
+      && /http:\/\/localhost:5001/.test(runtimeConfig);
+    const hasPortDerivedStableOrigins = /`http:\/\/127\.0\.0\.1:\$\{runtime\.port\}`/.test(runtimeConfig)
+      && /`http:\/\/localhost:\$\{runtime\.port\}`/.test(runtimeConfig)
+      && /port:\s*Number\(process\.env\.PORT\s*\|\|\s*5001\)/.test(runtimeConfig);
+    if (!hasLiteralStableOrigins && !hasPortDerivedStableOrigins) {
       addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'default CORS origins must include both stable 5001 loopback origins');
     }
     if (!/AILAODA_ALLOW_DEV_ORIGINS/.test(runtimeConfig)) {

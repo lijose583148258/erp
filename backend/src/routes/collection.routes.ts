@@ -4,6 +4,8 @@ import { authenticate, authorizePermission, authRoute } from '../middleware/auth
 import { validateRequest } from '../middleware/validateRequest';
 import { validateZod } from '../middleware/validateZod';
 import { CollectionController } from '../controllers/collection.controller';
+import { PaymentReversalController } from '../controllers/collection/payment-reversal.controller';
+import { createPaymentReversalSchema, reviewPaymentReversalSchema } from '../validators/payment-reversal';
 import {
     createDisputeSchema,
     batchReminderSchema,
@@ -19,8 +21,16 @@ import {
 
 const router = Router();
 const controller = new CollectionController();
+const reversals = new PaymentReversalController();
 
 router.use(authenticate);
+
+router.get('/payments/:paymentId/reversal-requests', authorizePermission('collections.read'),
+    [param('paymentId').isInt({ min: 1 })], validateRequest, authRoute((req, res) => reversals.history(req, res)));
+router.post('/payments/:paymentId/reversal-requests', authorizePermission('orders.payment.reversal.request'),
+    [param('paymentId').isInt({ min: 1 })], validateRequest, validateZod(createPaymentReversalSchema), authRoute((req, res) => reversals.request(req, res)));
+router.post('/payment-reversal-requests/:requestId/review', authorizePermission('orders.payment.reversal.review'),
+    [param('requestId').isUUID()], validateRequest, validateZod(reviewPaymentReversalSchema), authRoute((req, res) => reversals.review(req, res)));
 
 router.get('/summary', authorizePermission('collections.read'), authRoute((req, res) => controller.getSummary(req, res)));
 router.get('/workbench', authorizePermission('collections.read'), authRoute((req, res) => controller.getWorkbench(req, res)));

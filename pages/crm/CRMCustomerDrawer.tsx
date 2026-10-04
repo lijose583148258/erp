@@ -106,7 +106,7 @@ export function CRMCustomerDrawer({
               <button onClick={onClose} className="mb-4 flex items-center text-sm font-bold text-slate-500 lg:hidden">
                 <ArrowLeft size={18} className="mr-2" />返回
               </button>
-              <div className="text-[10px] font-black uppercase tracking-[0.28em] text-blue-500">{t.crmCustomer360 || 'Customer 360'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.28em] text-blue-500">{t.crmCustomer360 || 'Customer 360'}</div>
               <h4 className="mt-2 text-2xl font-black italic tracking-tight text-slate-900 dark:text-white">
                 {selectedCustomer.displayName || selectedCustomer.name}
               </h4>
@@ -130,14 +130,14 @@ export function CRMCustomerDrawer({
                   type="button"
                   data-testid={`crm-customer-detail-nav-${section.id}`}
                   onClick={() => setActiveSection(section.id)}
-                  className={`rounded-2xl border px-3 py-3 text-left transition-all ${
+ className={`rounded-2xl border px-3 py-3 text-left transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${
                     active
                       ? 'border-blue-500 bg-blue-600 text-white shadow-lg shadow-blue-500/20'
                       : 'border-slate-100 bg-slate-50 text-slate-500 hover:border-blue-200 hover:bg-white hover:text-slate-900 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-300'
                   }`}
                 >
                   <div className="text-xs font-black tracking-tight">{section.label}</div>
-                  <div className={`mt-1 text-[10px] font-black uppercase tracking-[0.16em] ${active ? 'text-blue-100' : 'text-slate-400'}`}>{section.hint}</div>
+                  <div className={`mt-1 text-xs font-black uppercase tracking-[0.16em] ${active ? 'text-blue-100' : 'text-slate-400'}`}>{section.hint}</div>
                 </button>
               );
             })}

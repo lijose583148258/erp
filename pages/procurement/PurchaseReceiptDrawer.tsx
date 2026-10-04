@@ -56,7 +56,7 @@ export const PurchaseReceiptDrawer = ({
     <aside className="h-full w-full max-w-xl overflow-y-auto border-l border-slate-200 bg-white p-6 shadow-2xl dark:border-slate-800 dark:bg-slate-950">
       <div className="flex items-start justify-between gap-4">
         <div>
-          <p className="text-[10px] font-black text-emerald-600">收货台账</p>
+          <p className="text-xs font-black text-emerald-600">收货台账</p>
           <h3 className="mt-2 text-2xl font-black tracking-tight text-slate-900 dark:text-white">收货批次</h3>
           <p className="mt-1 text-sm font-bold text-slate-500">{receiptDrawerOrder.item} · #{receiptDrawerOrder.id}</p>
         </div>
@@ -76,7 +76,7 @@ export const PurchaseReceiptDrawer = ({
           ['剩余', receiptBundle?.receiptSummary.remainingQuantity ?? receiptDrawerOrder.quantity],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
-            <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
+            <p className="text-xs font-black uppercase tracking-widest text-slate-400">{label}</p>
             <p className="mt-2 font-data text-xl font-black text-slate-900 dark:text-white">{String(value)}</p>
           </div>
         ))}
@@ -85,7 +85,7 @@ export const PurchaseReceiptDrawer = ({
       <div className="mt-6 rounded-3xl border border-slate-200 p-4 dark:border-slate-800">
         <div className="mb-4 flex items-center justify-between">
           <h4 className="text-sm font-black text-slate-800 dark:text-slate-100">新增收货批次</h4>
-          <span className="rounded-full bg-emerald-50 px-3 py-1 text-[10px] font-black text-emerald-700">
+          <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-black text-emerald-700">
             {receiptDrawerOrder.status === 'received' ? '已收满' : '可继续收货'}
           </span>
         </div>
@@ -118,7 +118,7 @@ export const PurchaseReceiptDrawer = ({
           onClick={submitReceipt}
           disabled={isReceiptLoading || !canWrite || receiptDrawerOrder.status === 'received'}
           aria-busy={isReceiptSubmitting}
-          className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-[10px] font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
+          className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {isReceiptSubmitting ? '保存中...' : isReceiptLoading ? '加载中...' : '保存收货批次'}
         </button>

@@ -24,6 +24,7 @@ export const useProductionWorkspaceDerivedState = ({
   bomKeyword,
   bomItems,
   bomStandardBatchSize,
+  bomOutputUnit,
 }: {
   summary: ProductionSummary | null;
   boms: ProductionBom[];
@@ -36,6 +37,7 @@ export const useProductionWorkspaceDerivedState = ({
   bomKeyword: string;
   bomItems: BomItemDraft[];
   bomStandardBatchSize: string;
+  bomOutputUnit: string;
 }) => {
   const displayedBoms = useMemo(() => filterProductionBoms(boms, bomKeyword), [boms, bomKeyword]);
   const stats = useMemo(() => buildProductionStats(summary, boms, workOrders, batches), [summary, boms, workOrders, batches]);
@@ -51,8 +53,8 @@ export const useProductionWorkspaceDerivedState = ({
   const selectedBomProcessSummary = useMemo(() => getJsonSummary(selectedBom?.processJson), [selectedBom]);
   const selectedBomQualitySummary = useMemo(() => getJsonSummary(selectedBom?.qualitySpecJson), [selectedBom]);
   const bomDraftPreviewSummary = useMemo(
-    () => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize),
-    [bomItems, numericStandardBatchSize],
+    () => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize, bomOutputUnit),
+    [bomItems, numericStandardBatchSize, bomOutputUnit],
   );
   const bomDraftWarning = useMemo(
     () => formatBomDraftPreviewWarnings(bomDraftPreviewSummary.rejectedRows),

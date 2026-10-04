@@ -14,6 +14,7 @@ import {
   readManifestReport,
   readSnapshotPayload,
   readSnapshotReport,
+  stringifyMigrationJson,
   timestampStamp,
   writeAuditReport,
   type SnapshotTable,
@@ -65,7 +66,7 @@ export const exportSnapshot = async () => {
   const outputDir = ensureSnapshotDir();
   const fileName = `postgres-snapshot-${timestampStamp()}.json`;
   const outputPath = path.join(outputDir, fileName);
-  fs.writeFileSync(outputPath, JSON.stringify(payload, null, 2), 'utf8');
+  fs.writeFileSync(outputPath, stringifyMigrationJson(payload, 2), 'utf8');
   const totalRowCount = snapshotTables.reduce((sum, table) => sum + table.rowCount, 0);
   const checksumSha256 = hashFile(outputPath);
   const criticalTables = CRITICAL_TABLE_NAMES.map((name) => {

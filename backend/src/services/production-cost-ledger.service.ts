@@ -1,11 +1,15 @@
 import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { addMoney, multiplyMoney, prorateMoney, roundMoney } from '../utils/money';
+import { StockMovementConflictError } from './stock-movement.errors';
 
 export type InventoryCostLedgerSourceType =
   | 'production_completion'
   | 'production_material_consumption'
   | 'production_finished_goods_receipt'
+  | 'production_scrap'
+  | 'production_rework_return'
   | 'production_adjustment'
   | 'production_reversal'
   | 'inventory_adjustment'
@@ -23,6 +27,7 @@ export interface InventoryCostLedgerInput {
   costAmountDelta?: number | null;
   note?: string | null;
   createdBy: number;
+  requireReconciledQuantity?: boolean;
 }
 
 export interface InventoryCostLedgerRecord {
@@ -76,7 +81,6 @@ export interface InventoryCostLedgerBatchSummary {
 }
 
 const roundQuantity = (value: number) => Number(value.toFixed(6));
-const roundMoney = (value: number) => Number(value.toFixed(2));
 
 const toNumber = (value: unknown) => {
   const parsed = Number(value);
@@ -94,6 +98,35 @@ type BatchCostSnapshot = {
   totalCostAmountDelta: number;
   currentUnitCost: number | null;
 };
+
+export const calculateInventoryUnitCost = (
+  costAmountDelta: number,
+  quantityDelta: number,
+  fallbackUnitCost: number | null = null,
+) => quantityDelta === 0
+  ? fallbackUnitCost
+  : prorateMoney(costAmountDelta, 1, quantityDelta);
+
+export const calculateInventoryCostDelta = (
+  quantityDelta: number,
+  explicitCostDelta: number | null | undefined,
+  currentUnitCost: number | null,
+) => {
+  if (explicitCostDelta !== null && explicitCostDelta !== undefined) {
+    return roundMoney(explicitCostDelta);
+  }
+
+  if (currentUnitCost !== null && Number.isFinite(currentUnitCost)) {
+    return multiplyMoney(quantityDelta, currentUnitCost);
+  }
+
+  return 0;
+};
+
+// Prorate the remaining carrying amount directly. Multiplying an already
+// rounded unit cost (100 / 3 => 33.33) would strand cents on final depletion.
+export const calculateInventoryIssueCost = (quantityDelta: number, quantityOnHand: number, carryingAmount: number) =>
+  quantityOnHand > 0 ? prorateMoney(carryingAmount, quantityDelta, quantityOnHand) : 0;
 
 const mapLedgerRecord = (record: any): InventoryCostLedgerRecord => ({
   id: Number(record.id),
@@ -142,29 +175,13 @@ const getBatchCostSnapshot = async (tx: any, batchId: number): Promise<BatchCost
 
   const totalQuantityDelta = roundQuantity(toNumber(aggregate._sum.quantityDelta));
   const totalCostAmountDelta = roundMoney(toNumber(aggregate._sum.costAmountDelta));
-  const currentUnitCost = totalQuantityDelta !== 0 ? roundMoney(totalCostAmountDelta / totalQuantityDelta) : null;
+  const currentUnitCost = calculateInventoryUnitCost(totalCostAmountDelta, totalQuantityDelta);
 
   return {
     totalQuantityDelta,
     totalCostAmountDelta,
     currentUnitCost,
   };
-};
-
-const resolveCostDelta = (
-  quantityDelta: number,
-  explicitCostDelta: number | null | undefined,
-  currentUnitCost: number | null,
-) => {
-  if (explicitCostDelta !== null && explicitCostDelta !== undefined) {
-    return roundMoney(explicitCostDelta);
-  }
-
-  if (currentUnitCost !== null && Number.isFinite(currentUnitCost)) {
-    return roundMoney(quantityDelta * currentUnitCost);
-  }
-
-  return 0;
 };
 
 const insertLedgerRow = async (tx: any, input: InventoryCostLedgerInput) => {
@@ -182,10 +199,23 @@ const insertLedgerRow = async (tx: any, input: InventoryCostLedgerInput) => {
   const quantityAfter = roundQuantity(input.quantityAfter);
 
   const costSnapshot = await getBatchCostSnapshot(tx, input.batchId);
-  const costAmountDelta = resolveCostDelta(quantityDelta, input.costAmountDelta, costSnapshot.currentUnitCost);
+  if (input.requireReconciledQuantity && quantityBefore !== costSnapshot.totalQuantityDelta) {
+    throw new StockMovementConflictError(`STOCK_COST_RECONCILIATION_REQUIRED:${batch.batchNo}`);
+  }
+  const costAmountDelta = input.costAmountDelta == null && quantityDelta < 0 && costSnapshot.totalQuantityDelta > 0
+    ? calculateInventoryIssueCost(quantityDelta, costSnapshot.totalQuantityDelta, costSnapshot.totalCostAmountDelta)
+    : calculateInventoryCostDelta(
+    quantityDelta,
+    input.costAmountDelta,
+    costSnapshot.currentUnitCost,
+  );
   const costBefore = roundMoney(costSnapshot.totalCostAmountDelta);
-  const costAfter = roundMoney(costBefore + costAmountDelta);
-  const unitCost = quantityDelta !== 0 ? roundMoney(costAmountDelta / quantityDelta) : costSnapshot.currentUnitCost;
+  const costAfter = addMoney(costBefore, costAmountDelta);
+  const unitCost = calculateInventoryUnitCost(
+    costAmountDelta,
+    quantityDelta,
+    costSnapshot.currentUnitCost,
+  );
   const ledgerNo = buildBusinessNo('ICL');
 
   if (input.adjustmentId !== undefined && input.adjustmentId !== null) {
@@ -261,6 +291,7 @@ export class ProductionCostLedgerService {
     costAmountDelta?: number | null;
     note?: string | null;
     createdBy: number;
+    requireReconciledQuantity?: boolean;
   }) {
     const productionSourceType: InventoryCostLedgerSourceType = input.quantityDelta < 0
       ? 'production_material_consumption'
@@ -277,6 +308,7 @@ export class ProductionCostLedgerService {
       costAmountDelta: input.costAmountDelta ?? null,
       note: input.note || null,
       createdBy: input.createdBy,
+      requireReconciledQuantity: input.requireReconciledQuantity,
     });
   }
 
@@ -289,10 +321,12 @@ export class ProductionCostLedgerService {
     costAmountDelta?: number | null;
     note?: string | null;
     createdBy: number;
+    requireReconciledQuantity?: boolean;
+    sourceType?: InventoryCostLedgerSourceType;
   }) {
     return insertLedgerRow(tx, {
       batchId: input.batchId,
-      sourceType: 'inventory_adjustment',
+      sourceType: input.sourceType || 'inventory_adjustment',
       sourceRef: input.sourceRef ?? null,
       quantityBefore: input.quantityBefore,
       quantityDelta: input.quantityDelta,
@@ -300,6 +334,7 @@ export class ProductionCostLedgerService {
       costAmountDelta: input.costAmountDelta ?? null,
       note: input.note || null,
       createdBy: input.createdBy,
+      requireReconciledQuantity: input.requireReconciledQuantity,
     });
   }
 
@@ -351,7 +386,7 @@ export class ProductionCostLedgerService {
 
     const totalQuantityDelta = roundQuantity(toNumber(summary._sum.quantityDelta));
     const totalCostAmountDelta = roundMoney(toNumber(summary._sum.costAmountDelta));
-    const currentUnitCost = totalQuantityDelta !== 0 ? roundMoney(totalCostAmountDelta / totalQuantityDelta) : null;
+    const currentUnitCost = calculateInventoryUnitCost(totalCostAmountDelta, totalQuantityDelta);
     const batch = batchRow ? {
       id: batchRow.id,
       batchNo: batchRow.batchNo,

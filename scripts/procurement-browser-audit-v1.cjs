@@ -1,13 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   ensureDir,
   safeScreenshot: captureScreenshot,
   withTimebox: runWithTimebox,
 } = require('./lib/audit-utils.cjs');
 const { createProcurementBrowserAuditHelpers } = require('./lib/procurement-browser-audit-helpers.cjs');
+const { ensureReleasedMaterial, selectMaterialCombobox } = require('./lib/material-audit-fixture.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -24,6 +25,7 @@ const DATA = {
   customerName: `PO-CUS-${RUN_ID}`,
   aliasText: `Trade ${RUN_ID}`,
   purchaseItem: `PO-ITEM-${RUN_ID}`,
+  materialCode: `PO-MAT-${RUN_ID}`,
   purchaseQuantity: '18',
   purchasePrice: '3800',
 };
@@ -44,6 +46,7 @@ const report = {
 };
 
 let authToken = '';
+let auditAccount = null;
 
 function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
@@ -66,6 +69,7 @@ const {
   captureScreenshot,
   forbiddenMojibake: FORBIDDEN_MOJIBAKE,
   getAuthToken: () => authToken,
+  getAuditAccount: () => auditAccount,
   loginUiAuditUser,
   readBackTimeout: TIMEOUTS.readBack,
   recordStep,
@@ -306,7 +310,7 @@ async function createPurchaseOrder(page) {
     await page.getByTestId('b2b-toggle').click();
     await selectOptionByValue(page.getByTestId('linked-sales-order-select'), report.salesOrder.id);
     await selectOptionByValue(page.getByTestId('purchase-supplier-select'), report.supplier.id);
-    await page.getByTestId('purchase-item-input').fill(DATA.purchaseItem);
+    await selectMaterialCombobox(page, 'purchase-item-input', DATA.materialCode, DATA.purchaseItem);
     await page.getByTestId('purchase-quantity-input').fill(DATA.purchaseQuantity);
     await page.getByTestId('purchase-price-input').fill(DATA.purchasePrice);
     await verifyNavigationWarning(page, DATA.purchaseItem, 'purchase-order-unsaved-navigation-warning');
@@ -541,6 +545,8 @@ async function run() {
   let browser;
   let page = null;
   try {
+    const accounts = await ensureUiAuditAccounts('procurement_browser', ['admin']);
+    auditAccount = accounts.admin;
     const launched = await launchBrowserWithGuard({
       recordStep,
       retryLimit: 1,
@@ -550,6 +556,13 @@ async function run() {
     report.launcher = launched.launcher;
     page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     await seedLoginState(page);
+    report.material = await ensureReleasedMaterial({
+      request: (endpoint, options) => apiFetch(page, endpoint, options),
+      code: DATA.materialCode,
+      name: DATA.purchaseItem,
+      unit: 'kg',
+      category: 'raw_material',
+    });
     await ensureReceiptLocation(page);
     await ensureLinkedSalesOrder(page);
     await openProcurement(page);
