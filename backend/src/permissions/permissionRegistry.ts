@@ -61,7 +61,9 @@ export type Permission =
   | 'assets.read'
   | 'assets.write'
   | 'production.read'
-  | 'production.write'
+  | 'production.bom.write'
+  | 'production.plan.write'
+  | 'production.execute'
   | 'production.quality.inspect'
   | 'production.quality.release'
   | 'production.cost.read'
@@ -154,7 +156,9 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'assets.read', resource: 'assets', action: 'read', label: '查看资产', group: '资产' },
   { code: 'assets.write', resource: 'assets', action: 'write', label: '管理资产', group: '资产' },
   { code: 'production.read', resource: 'production', action: 'read', label: '查看生产', group: '生产' },
-  { code: 'production.write', resource: 'production', action: 'write', label: '管理生产', group: '生产' },
+  { code: 'production.bom.write', resource: 'production.bom', action: 'write', label: '维护生产配方版本', group: '生产' },
+  { code: 'production.plan.write', resource: 'production.plan', action: 'write', label: '创建和取消生产工单', group: '生产' },
+  { code: 'production.execute', resource: 'production', action: 'execute', label: '执行工序、完工和生产处置', group: '生产' },
   { code: 'production.quality.inspect', resource: 'production.quality', action: 'inspect', label: '执行生产质检', group: '生产', description: '录入结构化检验测量值，不包含最终批次放行权限' },
   { code: 'production.quality.release', resource: 'production.quality', action: 'release', label: '审核并放行生产批次', group: '生产', description: '审核检验记录并决定放行或隔离；同一人不得同时检验和放行同一记录' },
   { code: 'production.cost.read', resource: 'production.cost', action: 'read', label: '查看生产成本', group: '生产', description: '查看批次成本台账、生产成本归集和成本核算结果' },
@@ -249,7 +253,9 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
     'production.quality.inspect',
     'production.quality.release',
     'production.cost.read',
@@ -332,7 +338,9 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
     'production.quality.release',
     'production.cost.read',
     'adjustments.read',
@@ -409,7 +417,9 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
     'production.quality.inspect',
     'adjustments.read',
     'adjustments.write',

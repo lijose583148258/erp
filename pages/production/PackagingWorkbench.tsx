@@ -84,7 +84,7 @@ export function PackagingWorkbench({ onCreated }: { onCreated: () => Promise<voi
         </div>}
       </li>)}</ul></>}
       {pending && <section className="space-y-3 rounded-xl border border-amber-300 p-4" aria-label="包装版本审核确认"><p>确认{pending.action==='approve'?'批准':'停用'} {pending.revision.specCode}/{pending.revision.version}？停用不改变已在制工单。</p><FormField label="审核/停用依据" value={reason} onChange={setReason} dataTestId="packaging-review-reason" /><button type="button" className={button} disabled={busy} onClick={review}>确认包装版本操作</button><button type="button" className={button} disabled={busy} onClick={()=>setPending(null)}>取消操作</button></section>}
-      {output && can(currentUser,'production.write') && <fieldset disabled={busy} className="space-y-4"><legend className="font-bold">批准规格 → 冻结包装配方</legend>
+      {output && can(currentUser,'production.bom.write') && <fieldset disabled={busy} className="space-y-4"><legend className="font-bold">批准规格 → 冻结包装配方</legend>
         <FormField label="批准的包装版本" as="select" value={selected?String(selected):''} onChange={v=>setSelected(v?Number(v):null)} options={[{value:'',label:'请选择批准版本'},...rows.filter(r=>r.status==='approved').map(r=>({value:String(r.id),label:`${r.specCode}/${r.version} · ${r.netMass} ${r.massUnit}/${r.packageUnit}`}))]} dataTestId="packaging-bom-revision" />
         <FormField label="新 BOM 版本" value={version} onChange={setVersion} dataTestId="packaging-bom-version" />
         {lines.map((line,i)=><div key={i} className="grid gap-3 rounded-xl border border-slate-200 p-3 dark:border-slate-700 sm:grid-cols-2">

@@ -1,6 +1,6 @@
-﻿import { Router } from 'express';
+﻿import { Router, type Response, type NextFunction } from 'express';
 import { param } from 'express-validator';
-import { authenticate, authorizePermission, authRoute } from '../middleware/auth';
+import { authenticate, authorizePermission, authRoute, type AuthRequest } from '../middleware/auth';
 import { validateZod } from '../middleware/validateZod';
 import { validateRequest } from '../middleware/validateRequest';
 import { ProductionController } from '../controllers/production.controller';
@@ -21,11 +21,11 @@ router.use(authenticate);
 
 router.get('/summary', authorizePermission('production.read'), authRoute((req, res) => controller.getSummary(req, res)));
 router.get('/boms', authorizePermission('production.read'), authRoute((req, res) => controller.getBoms(req, res)));
-router.post('/boms', authorizePermission('production.write'), validateZod(createProductionBomSchema), authRoute((req, res) => controller.createBom(req, res)));
+router.post('/boms', authorizePermission('production.bom.write'), validateZod(createProductionBomSchema), authRoute((req, res) => controller.createBom(req, res)));
 router.get('/work-orders', authorizePermission('production.read'), authRoute((req, res) => controller.getWorkOrders(req, res)));
 router.get('/work-orders/:id/preview-consumption', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.previewConsumption(req, res)));
 router.get('/work-orders/:id/dispositions', authorizePermission('production.read'), [param('id').isInt({ min: 1 })], validateRequest, authRoute((req, res) => controller.listWorkOrderDispositions(req, res)));
-router.post('/work-orders/:id/dispositions', authorizePermission('production.write'), [param('id').isInt({ min: 1 })], validateRequest, validateZod(createProductionDispositionSchema), authRoute((req, res) => controller.createWorkOrderDisposition(req, res)));
+router.post('/work-orders/:id/dispositions', authorizePermission('production.execute'), [param('id').isInt({ min: 1 })], validateRequest, validateZod(createProductionDispositionSchema), authRoute((req, res) => controller.createWorkOrderDisposition(req, res)));
 router.get(
   '/batches/:batchId/trace',
   authorizePermission('production.read'),
@@ -40,10 +40,10 @@ router.get(
   validateRequest,
   authRoute((req, res) => controller.getBatchCostLedger(req, res)),
 );
-router.post('/work-orders', authorizePermission('production.write'), validateZod(createProductionWorkOrderSchema), authRoute((req, res) => controller.createWorkOrder(req, res)));
+router.post('/work-orders', authorizePermission('production.plan.write'), validateZod(createProductionWorkOrderSchema), authRoute((req, res) => controller.createWorkOrder(req, res)));
 router.patch(
   '/work-orders/:id/status',
-  authorizePermission('production.write'),
+  (req: AuthRequest, res: Response, next: NextFunction) => authorizePermission(req.body?.status === 'cancelled' ? 'production.plan.write' : 'production.execute')(req, res, next),
   [param('id').isInt({ min: 1 })],
   validateRequest,
   validateZod(updateProductionWorkOrderStatusSchema),
@@ -51,7 +51,7 @@ router.patch(
 );
 router.patch(
   '/work-orders/:id/steps/:stepId',
-  authorizePermission('production.write'),
+  authorizePermission('production.execute'),
   [param('id').isInt({ min: 1 }), param('stepId').isInt({ min: 1 })],
   validateRequest,
   validateZod(updateProductionStepSchema),

@@ -128,7 +128,7 @@ export function DensityConversionWorkbench({ onCreated }: Props) {
       <p className="text-sm leading-6 text-slate-700 dark:text-slate-300">仅可使用一条已批准的真实原料批次密度依据。服务端冻结批号、密度、温度、绝对压力、组分、方法及来源，并自行计算体积单耗；不能由页面填写快照或覆盖换算结果。完工时仍须逐项录入并核对实际条件。</p>
       {error ? <p role="alert" className="text-sm font-bold text-rose-700 dark:text-rose-300">{error}</p> : null}
       {message ? <p role="status" className="text-sm font-bold text-emerald-700 dark:text-emerald-300">{message}</p> : null}
-      <fieldset disabled={busy || !can(currentUser, 'production.write')} className="grid gap-4 md:grid-cols-2">
+      <fieldset disabled={busy || !can(currentUser, 'production.bom.write')} className="grid gap-4 md:grid-cols-2">
         <MaterialMasterCombobox label="输出成品 / 半成品" value={outputText} selectedMaterialId={output?.id ?? null} onTextChange={setOutputText} onClearSelection={() => setOutput(null)} onSelect={selectOutput} dataTestId="density-conversion-output" allowedCategories={['finished_good', 'semi_finished']} />
         <MaterialMasterCombobox label="按体积领用的原料" value={inputText} selectedMaterialId={input?.id ?? null} onTextChange={setInputText} onClearSelection={() => setInput(null)} onSelect={selectInput} dataTestId="density-conversion-input" allowedCategories={['raw_material', 'semi_finished']} />
         <label className="text-sm font-bold text-slate-700 dark:text-slate-200">已批准批次密度依据<select data-testid="density-conversion-revision" className={`${fieldClass} mt-1`} value={revisionId} onChange={event => setRevisionId(event.target.value)}><option value="">选择已批准依据</option>{revisions.map(row => <option key={row.id} value={row.id}>{row.batchNo} · {row.specCode}/{row.version} · {row.densityKgPerL} kg/L @ {row.temperatureC} °C / {row.pressureKpaAbs} kPa</option>)}</select></label>
@@ -141,7 +141,7 @@ export function DensityConversionWorkbench({ onCreated }: Props) {
         <label className="text-sm font-bold text-slate-700 dark:text-slate-200">QC 上限（至少填一边）<input data-testid="density-conversion-qc-upper" className={`${fieldClass} mt-1`} inputMode="decimal" value={qualityUpperLimit} onChange={event => setQualityUpperLimit(event.target.value)} /></label>
       </fieldset>
       {selectedRevision ? <div data-testid="density-conversion-frozen-source" className="rounded-xl border border-cyan-200 bg-white/75 p-3 text-sm leading-6 text-slate-700 dark:border-cyan-900 dark:bg-slate-950/60 dark:text-slate-200">冻结候选：批次 {selectedRevision.batchNo}；{selectedRevision.densityKgPerL} kg/L；{selectedRevision.temperatureC} °C；{selectedRevision.pressureKpaAbs} kPa（绝对）；组分/条件 {selectedRevision.compositionReference}；方法 {selectedRevision.methodReference}；来源 {selectedRevision.sourceReference}。</div> : null}
-      {!can(currentUser, 'production.write') ? <p className="text-sm font-bold text-amber-700 dark:text-amber-300">当前角色仅可查看，不能创建 BOM 版本。</p> : <button type="button" data-testid="density-conversion-save" className={buttonClass} disabled={busy} onClick={() => void create()}>{busy ? '保存并回读中…' : '保存受控密度换算 BOM'}</button>}
+      {!can(currentUser, 'production.bom.write') ? <p className="text-sm font-bold text-amber-700 dark:text-amber-300">当前角色仅可查看，不能创建 BOM 版本。</p> : <button type="button" data-testid="density-conversion-save" className={buttonClass} disabled={busy} onClick={() => void create()}>{busy ? '保存并回读中…' : '保存受控密度换算 BOM'}</button>}
     </div>
   </details>;
 }

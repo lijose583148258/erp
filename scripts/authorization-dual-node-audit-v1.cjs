@@ -26,6 +26,102 @@ async function account(job, role, password) {
   return { token: login.token, id: login.user.id, role, profile: { id: login.user.id, role: login.user.role, permissions: login.user.permissions, dataScopes: login.user.dataScopes } };
 }
 function check(id, value) { report.checks.push({ id, status: value ? 'passed' : 'failed' }); }
+async function productionResponsibilities(password) {
+  const e = report.production = { scope: 'Three real production responsibilities, not the full20 workforce', actors: [], allowed: [], denied: [], browser: [] };
+  const permissions = { research: 'production.bom.write', planner: 'production.plan.write', operator: 'production.execute' };
+  const actors = {};
+  for (const [job, permission] of Object.entries(permissions)) {
+    const role = `${runId.replace(/-/g, '_')}_${job}`;
+    dataOf(await request('/roles', { method: 'POST', data: { code: role, name: job, dataScopes: ['warehouse_visible'],
+      permissions: ['dashboard.read', 'production.read', 'materials.read', permission], isActive: true } }));
+    actors[job] = await account(job, role, password); e.actors.push({ job, ...actors[job].profile });
+  }
+  const raw = await ensureReleasedMaterial({ request, code: `${runId}-raw`, name: `${runId}-raw`, category: 'raw_material' });
+  const fg = await ensureReleasedMaterial({ request, code: `${runId}-fg`, name: `${runId}-fg`, category: 'finished_good' });
+  const bomPayload = instance => ({ materialId: fg.id, productName: fg.nameZh, version: `roles-${instance}`, status: 'active',
+    outputUnit: 'kg', shelfLifeDays: 365, items: [{ materialId: raw.id, quantityPerUnit: 1, unit: 'kg' }] });
+  const orderPayload = bomId => ({ bomId, productName: fg.nameZh, targetQuantity: 1, steps: [{ title: 'Production role boundary' }] });
+  const orders = [], boms = [];
+  for (const instance of [0, 1]) {
+    const bom = await request('/production/boms', { actor: actors.research, instance, method: 'POST', data: bomPayload(instance) });
+    boms.push(dataOf(bom)); e.allowed.push({ job: 'research', instance, operation: 'bom', ...bom });
+    const order = await request('/production/work-orders', { actor: actors.planner, instance, method: 'POST', data: orderPayload(boms[instance].id) });
+    orders.push(dataOf(order)); e.allowed.push({ job: 'planner', instance, operation: 'plan', ...order });
+    const started = await request(`/production/work-orders/${orders[instance].id}/status`, { actor: actors.operator, instance, method: 'PATCH', data: { status: 'in_progress' } });
+    dataOf(started); e.allowed.push({ job: 'operator', instance, operation: 'start', ...started });
+    const step = await request(`/production/work-orders/${orders[instance].id}/steps/${orders[instance].steps[0].id}`, { actor: actors.operator, instance, method: 'PATCH', data: { status: 'in_progress' } });
+    dataOf(step); e.allowed.push({ job: 'operator', instance, operation: 'step', ...step });
+  }
+  const snapshot = async () => ({
+    boms: await prisma.productionBom.findMany({ where: { materialId: fg.id }, include: { items: true }, orderBy: { id: 'asc' } }),
+    orders: await prisma.productionWorkOrder.findMany({ where: { id: { in: orders.map(o => o.id) } }, include: { steps: true }, orderBy: { id: 'asc' } }),
+    audits: await prisma.auditLog.findMany({ where: { resource: 'production', userId: { in: e.actors.map(a => a.id) } }, orderBy: { id: 'asc' } }),
+    balances: await prisma.stockBalance.findMany({ where: { materialId: { in: [raw.id, fg.id] } }, orderBy: { id: 'asc' } }),
+    costs: await prisma.inventoryCostLedger.findMany({ where: { workOrderId: { in: orders.map(o => o.id) } }, orderBy: { id: 'asc' } }),
+  });
+  e.before = await snapshot();
+  for (const instance of [0, 1]) {
+    for (const [job, operation, endpoint, method, data] of [
+      ['planner', 'bom', '/production/boms', 'POST', bomPayload(instance + 2)],
+      ['operator', 'bom', '/production/boms', 'POST', bomPayload(instance + 2)],
+      ['research', 'plan', '/production/work-orders', 'POST', orderPayload(boms[0].id)],
+      ['operator', 'plan', '/production/work-orders', 'POST', orderPayload(boms[0].id)],
+      ['research', 'execute', `/production/work-orders/${orders[0].id}/status`, 'PATCH', { status: 'qc_pending' }],
+      ['planner', 'execute', `/production/work-orders/${orders[0].id}/status`, 'PATCH', { status: 'qc_pending' }],
+      ['research', 'cancel', `/production/work-orders/${orders[0].id}/status`, 'PATCH', { status: 'cancelled' }],
+      ['operator', 'cancel', `/production/work-orders/${orders[0].id}/status`, 'PATCH', { status: 'cancelled' }],
+    ]) e.denied.push({ job, instance, operation, ...(await request(endpoint, { actor: actors[job], instance, method, data })) });
+  }
+  e.after = await snapshot(); assert.deepEqual(e.after, e.before, 'Forbidden production actions changed business facts or audits');
+  assert(e.denied.every(r => r.status === 403));
+  // Rejected-request security logs are required, not forbidden business effects.
+  for (let attempt = 0; attempt < 10; attempt++) {
+    e.denialAudits = await prisma.auditLog.findMany({ where: { userId: { in: e.actors.map(a => a.id) },
+      resource: { startsWith: '/api/production/' }, details: { startsWith: 'Status: 403,' } }, orderBy: { id: 'asc' } });
+    if (e.denialAudits.length === e.denied.length) break;
+    await new Promise(resolve => setTimeout(resolve, 25));
+  }
+  assert.equal(e.denialAudits.length, 16);
+  const { expect } = require('playwright/test');
+  const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
+  const browser = (await launchBrowserWithGuard({ launchTimeoutMs: 15000, totalTimeoutMs: 30000, maxAttemptsPerStrategy: 1 })).browser;
+  const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
+  const folder = path.join(path.dirname(reportPath), `${runId}-production-roles`); fs.mkdirSync(folder, { recursive: true });
+  try {
+    for (const [job, actor] of Object.entries(actors)) {
+      const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+      const page = await context.newPage(); page.setDefaultTimeout(10000); const errors = [];
+      page.on('pageerror', error => errors.push(error.message));
+      page.on('response', response => { if (response.status() >= 400 && response.url().includes('/api/')) errors.push(`${response.status()} ${new URL(response.url()).pathname}`); });
+      await page.addInitScript(({ token, user }) => {
+        for (const key of ['token','auth_token','erp_auth_token']) localStorage.setItem(key, token);
+        for (const key of ['user','currentUser','erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
+        localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
+      }, { token: actor.token, user: { ...actor.profile, id: String(actor.id), name: job, segment: 'mixed' } });
+      await page.goto(`${urls[1]}/#production`); await page.locator('#loading').waitFor({ state: 'hidden' });
+      await expect(page.getByText('已保存配方版本（只读回读）', { exact: true })).toBeVisible();
+      await expect(page.getByText('未授权', { exact: true })).toBeVisible();
+      if (job === 'research') await expect(page.getByTestId('production-bom-save')).toBeVisible();
+      else await expect(page.getByTestId('production-bom-save')).toHaveCount(0);
+      const bomScreenshot = path.join(folder, `${job}-bom.png`); await page.screenshot({ path: bomScreenshot });
+      await page.getByTestId('production-desk-work-orders').click();
+      if (job === 'planner') await expect(page.getByTestId('production-work-order-save')).toBeVisible();
+      else await expect(page.getByTestId('production-work-order-save')).toHaveCount(0);
+      await page.getByPlaceholder('搜索工单').fill(orders[0].workOrderNo);
+      const row = page.getByTestId(`production-work-order-row-${orders[0].id}`); await expect(row).toBeVisible(); await row.click();
+      await expect(page.getByTestId(`production-work-order-bom-${orders[0].id}`)).toContainText(boms[0].version);
+      await expect(row.getByRole('button', { name: '取消', exact: true })).toHaveCount(job === 'planner' ? 1 : 0);
+      await expect(row.getByRole('button', { name: '送检', exact: true })).toHaveCount(job === 'operator' ? 1 : 0);
+      const workOrderScreenshot = path.join(folder, `${job}-work-order.png`); await page.screenshot({ path: workOrderScreenshot });
+      assert.deepEqual(errors, []); e.browser.push({ job, actorId: actor.id, role: actor.role, instance: 1, boundBomId: boms[0].id,
+        workOrderId: orders[0].id, inventoryReadback: '未授权', bomSaveVisible: job === 'research', planSaveVisible: job === 'planner', executeVisible: job === 'operator', cancelVisible: job === 'planner', errors, bomScreenshot, workOrderScreenshot });
+      await context.close();
+    }
+  } finally { signal.removeEventListener('abort', abort); await browser.close(); }
+  const cancelled = await request(`/production/work-orders/${orders[1].id}/status`, { actor: actors.planner, instance: 1, method: 'PATCH', data: { status: 'cancelled' } });
+  assert.equal(dataOf(cancelled).status, 'cancelled'); e.allowed.push({ job: 'planner', instance: 1, operation: 'cancel', ...cancelled });
+  e.final = await snapshot(); e.status = 'passed';
+}
 async function main() {
   assert.equal(process.env.ROUND2_ALLOW_MUTATIONS, 'true'); assert(process.env.DATABASE_URL || process.env.AUDIT_DATABASE_URL);
   assert(urls[0] && urls[1] && urls[0] !== urls[1]); for (const url of urls) assert(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname));
@@ -91,6 +187,7 @@ async function main() {
     && report.observations.revokedTransfers.every(r => r.status === 403));
   report.roleAudits = await prisma.auditLog.findMany({ where: { resource: 'authorization.role', resourceId: createdRole.id }, orderBy: { id: 'asc' } });
   check('policy-changes-have-actor-audit', report.roleAudits.length === 3 && report.roleAudits.every(a => a.userId === admin.id));
+  await productionResponsibilities(password);
   report.commitAfter = headCommit(root); report.sourceHashAfter = sourceFingerprint(root);
   check('source-unchanged', report.commitAfter === report.commit && report.sourceHashAfter === report.sourceHash);
   report.status = report.checks.every(c => c.status === 'passed') ? 'passed' : 'failed';

@@ -42,7 +42,10 @@ import {
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
 import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
-import { MENU_PERMISSION_BY_MODULE } from '../app/permissions';
+import { MENU_PERMISSION_BY_MODULE, can } from '../app/permissions';
+import { AppContext } from '../app/AppContext';
+import { OrderActionButtons } from '../pages/production/ProductionWorkspacePrimitives';
+import { ProductionWorkspaceHeader } from '../pages/production/ProductionWorkspaceHeader';
 import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
 import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
 import { readStringArrayPreference } from '../components/ui/tablePreferences';
@@ -62,6 +65,36 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'production UI uses exact responsibilities without umbrella or role-name fallback',
+    run: () => {
+      const permissions = ['production.bom.write', 'production.plan.write', 'production.execute'] as const;
+      for (const permission of permissions) {
+        const user = { role: 'custom_production', permissions: [permission] } as any;
+        for (const candidate of permissions) assert.equal(can(user, candidate), candidate === permission);
+        for (const status of ['planned', 'in_progress', 'qc_pending'] as const) {
+          const markup = renderToStaticMarkup(<AppContext.Provider value={{ currentUser: user } as any}>
+            <OrderActionButtons workOrderId={1} status={status} onAction={async () => {}} />
+          </AppContext.Provider>);
+          const buttons = [...new JSDOM(markup).window.document.querySelectorAll('button')].map(b => b.textContent?.trim());
+          assert.deepEqual(buttons, permission === 'production.plan.write' ? ['取消'] : permission === 'production.execute'
+            ? [status === 'planned' ? '开工' : status === 'in_progress' ? '送检' : '完工'] : []);
+        }
+      }
+      for (const permissions of [[], ['production.write']]) {
+        const user = { role: 'warehouse', permissions } as any;
+        assert.equal(can(user, 'production.execute'), false); assert.equal(can(user, 'production.bom.write'), false);
+      }
+      for (const permitted of [false, true]) {
+        const markup = renderToStaticMarkup(<AppContext.Provider value={{ currentUser: { role: 'custom_production', permissions: permitted ? ['assets.read'] : ['production.read'] } } as any}>
+          <ProductionWorkspaceHeader title="生产" description="权限读取" isInitialLoading={false} onRefresh={() => {}}
+            stats={{ totalBoms: 0, totalWorkOrders: 0, activeWorkOrders: 0, qcPendingCount: 0, batchCount: 0, totalStock: 543 }} />
+        </AppContext.Provider>);
+        const text = new JSDOM(markup).window.document.body.textContent || '';
+        assert.equal(text.includes('未授权'), !permitted); assert.equal(text.includes('543'), permitted);
+      }
+    },
+  },
   {
     name: 'genealogy readback preserves actual lots, work orders and per-line units without invented totals',
     run: () => {

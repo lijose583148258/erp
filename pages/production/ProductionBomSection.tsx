@@ -1,3 +1,5 @@
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 import React, { Dispatch, SetStateAction } from 'react';
 import { DocumentInputGuide } from '../../components/ui/DocumentInputGuide';
 import { MobileRecordCard, MobileRecordState } from '../../components/ui/MobileRecordCard';
@@ -154,6 +156,8 @@ export function ProductionBomSection({
   selectedBomQualitySummary,
   onFormTouched,
 }: ProductionBomSectionProps) {
+  const { currentUser } = useAppContext();
+  const canWriteBom = can(currentUser, 'production.bom.write');
   const isBomMasterReady = Boolean(bomProductName.trim() && bomVersion.trim() && bomOutputUnit.trim());
   const [showAdvancedFields, setShowAdvancedFields] = React.useState(false);
   const bomDraftPreview = React.useMemo(() => buildBomDraftPreviewSummary(bomItems, numericStandardBatchSize, bomOutputUnit), [bomItems, numericStandardBatchSize, bomOutputUnit]);
@@ -192,7 +196,7 @@ export function ProductionBomSection({
         </div>
       </details>
 
-      <div className="space-y-5">
+      {canWriteBom && <div className="space-y-5">
         <div className="rounded-[32px] border border-white/50 bg-white/70 p-6 shadow-[0_20px_50px_rgba(0,0,0,0.03)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/70 space-y-5">
           <SectionHeader title="新建配方：主数据" subtitle="只维护产品、版本、状态、生效期；不要在这里填写原料行" />
           <div className="flex flex-wrap items-center gap-2 rounded-[20px] border border-blue-100 bg-blue-50/70 px-4 py-3 text-xs font-bold text-blue-800 dark:border-blue-900/40 dark:bg-blue-950/20 dark:text-blue-200">
@@ -362,8 +366,7 @@ export function ProductionBomSection({
             <button data-testid="production-bom-save" onClick={handleCreateBom} disabled={loading || bomSaving} aria-busy={bomSaving} className="px-6 py-4 bg-blue-600 text-white rounded-[24px] font-black text-xs uppercase tracking-widest shadow-xl shadow-blue-500/30 transition-[background-color,box-shadow] motion-reduce:transition-none hover:bg-blue-700 disabled:opacity-60">{bomSaving ? '保存中...' : '保存配方版本（主数据 + 明细）'}</button>
           </div>
         </div>
-      </div>
-
+      </div>}
       <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-5">
         <SectionHeader title="已保存配方版本（只读回读）" subtitle="这里只负责查找、选中、核对；不在列表里直接编辑明细，避免主数据和明细冲突" />
         <Field label="搜索配方" value={bomKeyword} onChange={setBomKeyword} placeholder="搜索产品、编号或版本" />

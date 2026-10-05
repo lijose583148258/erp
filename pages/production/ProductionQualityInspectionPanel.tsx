@@ -50,6 +50,7 @@ export function ProductionQualityInspectionPanel({
   onComplete,
 }: Props) {
   const { currentUser } = useAppContext();
+  const canExecute = can(currentUser, 'production.execute');
   const canInspect = can(currentUser, 'production.quality.inspect');
   const canRelease = can(currentUser, 'production.quality.release');
   const characteristics = workOrder.bom?.qualityCharacteristics || [];
@@ -96,7 +97,7 @@ export function ProductionQualityInspectionPanel({
       {workOrder.status !== 'qc_pending' && workOrder.status !== 'completed' ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-xs font-bold leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/20 dark:text-amber-200">
           当前工单状态为 {workOrder.status}。完成生产步骤后先送检，送检后才开放测量值录入。
-          <button type="button" onClick={onMarkQcPending} className="mt-3 block min-h-11 rounded-xl bg-slate-900 px-4 text-xs font-black text-white">送交质检</button>
+          {canExecute && <button type="button" onClick={onMarkQcPending} className="mt-3 block min-h-11 rounded-xl bg-slate-900 px-4 text-xs font-black text-white">送交质检</button>}
         </div>
       ) : null}
 
@@ -169,7 +170,7 @@ export function ProductionQualityInspectionPanel({
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 dark:border-emerald-900/50 dark:bg-emerald-950/20">
           <div className="flex items-center gap-2 text-sm font-black text-emerald-800 dark:text-emerald-200"><BadgeCheck size={18} />检验已由 {latest.reviewedBy} 放行</div>
           <p className="mt-1 text-xs font-bold text-emerald-700 dark:text-emerald-300">成品质检已放行；完工还需校验投入批次的放行状态与实际库存。</p>
-          <button type="button" data-testid="production-quality-enter-completion" onClick={onComplete} className="mt-3 min-h-12 w-full rounded-xl bg-emerald-600 px-5 text-xs font-black text-white transition-colors duration-200 hover:bg-emerald-700 motion-reduce:transition-none sm:w-auto">进入耗料确认并完工</button>
+          {canExecute && <button type="button" data-testid="production-quality-enter-completion" onClick={onComplete} className="mt-3 min-h-12 w-full rounded-xl bg-emerald-600 px-5 text-xs font-black text-white transition-colors duration-200 hover:bg-emerald-700 motion-reduce:transition-none sm:w-auto">进入耗料确认并完工</button>}
         </div>
       ) : null}
 

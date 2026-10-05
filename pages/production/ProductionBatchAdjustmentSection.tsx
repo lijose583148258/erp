@@ -1,3 +1,5 @@
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 import { ArrowUpRight, Filter, Search, ShieldAlert, Undo2 } from 'lucide-react';
 import { ProductBatch } from '../../services/asset.service';
 import { AdjustmentRecord } from '../../services/adjustment.service';
@@ -116,6 +118,8 @@ export function ProductionBatchAdjustmentSection({
   setAdjustmentStatus,
   handleReverseAdjustment,
 }: ProductionBatchAdjustmentSectionProps) {
+  const { currentUser } = useAppContext();
+  const canExecute = can(currentUser, 'production.execute');
   return (
     <>
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-8">
@@ -216,7 +220,7 @@ export function ProductionBatchAdjustmentSection({
                   ))}
                 </div>
               </div>
-              <div data-testid="production-disposition-panel" className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-3">
+              {canExecute && <div data-testid="production-disposition-panel" className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">批次异常调整（现场入口）</div>
                   <div className="text-[11px] font-black text-slate-500">{selectedTemplate.label}</div>
@@ -295,7 +299,7 @@ export function ProductionBatchAdjustmentSection({
                 />
                 <TextareaField dataTestId="production-adjustment-note-input" label="备注" value={adjustmentNote} onChange={setAdjustmentNote} placeholder="可填损耗原因、工艺说明或盘点备注" />
                 <button data-testid="production-adjustment-save" onClick={handleCreateAdjustment} disabled={adjustmentSaving || !completedWorkOrderNo} aria-busy={adjustmentSaving} className="px-5 py-3 rounded-2xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest disabled:opacity-60">{adjustmentSaving ? '保存中...' : selectedTemplate.id === 'production_loss' ? '过账报废损耗' : '过账返工回收'}</button>
-              </div>
+              </div>}
             </>
           ) : (
             <div className="rounded-[28px] border border-dashed border-slate-200 dark:border-slate-700 p-10 text-center text-slate-400 font-bold">暂无可查看批次</div>
@@ -364,7 +368,7 @@ export function ProductionBatchAdjustmentSection({
                   <Td><AdjustmentBadge status={record.status} /></Td>
                   <Td className="text-xs text-slate-400 font-black uppercase tracking-tight">{formatDate(record.createdAt)}</Td>
                   <Td>
-                    <button data-testid="production-adjustment-reverse-button" onClick={() => handleReverseAdjustment(record)} disabled={record.status !== 'posted'} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest disabled:opacity-40"><Undo2 size={12} className="inline mr-1" />冲销</button>
+                    {can(currentUser, 'adjustments.reverse') && <button data-testid="production-adjustment-reverse-button" onClick={() => handleReverseAdjustment(record)} disabled={record.status !== 'posted'} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest disabled:opacity-40"><Undo2 size={12} className="inline mr-1" />冲销</button>}
                   </Td>
                 </tr>
               ))}

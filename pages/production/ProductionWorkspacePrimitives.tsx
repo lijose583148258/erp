@@ -1,3 +1,5 @@
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 import React from 'react';
 import type { ProductBatch } from '../../services/asset.service';
 import type { AdjustmentRecord } from '../../services/adjustment.service';
@@ -162,44 +164,23 @@ export const OrderActionButtons = ({
   status: ProductionWorkOrderStatus;
   onAction: (workOrderId: number, status: ProductionWorkOrderStatus) => Promise<void>;
 }) => {
-  if (status === 'completed' || status === 'cancelled') {
+  const { currentUser } = useAppContext();
+  const canExecute = can(currentUser, 'production.execute');
+  const canPlan = can(currentUser, 'production.plan.write');
+  if (status === 'completed' || status === 'cancelled' || (!canExecute && !canPlan)) {
     return <MiniTag label={WO_LABELS[status]} />;
   }
 
-  if (status === 'qc_pending') {
-    return (
-      <>
-        <button onClick={() => void onAction(workOrderId, 'completed')} className="px-3 py-2 rounded-xl bg-emerald-600 text-white text-xs font-black uppercase tracking-widest">
-          完工
-        </button>
-        <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
-          取消
-        </button>
-      </>
-    );
-  }
-
-  if (status === 'in_progress') {
-    return (
-      <>
-        <button onClick={() => void onAction(workOrderId, 'qc_pending')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest">
-          送检
-        </button>
-        <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
-          取消
-        </button>
-      </>
-    );
-  }
-
+  const nextStatus: ProductionWorkOrderStatus = status === 'qc_pending' ? 'completed' : status === 'in_progress' ? 'qc_pending' : 'in_progress';
+  const actionLabel = status === 'qc_pending' ? '完工' : status === 'in_progress' ? '送检' : '开工';
   return (
     <>
-      <button onClick={() => void onAction(workOrderId, 'in_progress')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest">
-        开工
-      </button>
-      <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
+      {canExecute && <button onClick={() => void onAction(workOrderId, nextStatus)} className={`px-3 py-2 rounded-xl ${status === 'qc_pending' ? 'bg-emerald-600' : 'bg-blue-600'} text-white text-xs font-black uppercase tracking-widest`}>
+        {actionLabel}
+      </button>}
+      {canPlan && <button onClick={() => void onAction(workOrderId, 'cancelled')} className="px-3 py-2 rounded-xl bg-slate-200 text-slate-700 text-xs font-black uppercase tracking-widest dark:bg-slate-800 dark:text-slate-200">
         取消
-      </button>
+      </button>}
     </>
   );
 };

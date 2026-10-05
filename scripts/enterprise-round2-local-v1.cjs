@@ -8,7 +8,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
-if (cumulative || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
+if (cumulative || process.argv.includes('--authorization-freshness') || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');

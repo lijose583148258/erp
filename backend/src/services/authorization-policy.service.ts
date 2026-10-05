@@ -329,6 +329,27 @@ async function applyAuthorizationPolicyMigrations() {
     }
     await markPolicyMigration(paymentReversalPolicy, 'Grant original cash reversal request/review to finance and admin only; service enforces independent people. Preserve all existing/custom role policies.');
   }
+
+  const productionSplitCode = '2026-10-05-production-responsibility-split-v1';
+  if (!(await hasPolicyMigration(productionSplitCode))) {
+    // Replace only existing umbrella grants, including custom roles. Commit the
+    // replacement and marker together; a restart never restores revoked grants.
+    await prisma.$transaction(async tx => {
+      const legacy = await tx.authRolePermission.findMany({
+        where: { permissionCode: 'production.write' }, select: { roleCode: true }, orderBy: { roleCode: 'asc' },
+      });
+      for (const { roleCode } of legacy) {
+        for (const permissionCode of ['production.bom.write', 'production.plan.write', 'production.execute']) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode, permissionCode } },
+            create: { roleCode, permissionCode }, update: {} });
+        }
+      }
+      await tx.authRolePermission.deleteMany({ where: { permissionCode: 'production.write' } });
+      await tx.authPermission.deleteMany({ where: { code: 'production.write' } });
+      await tx.authPolicyMigration.upsert({ where: { code: productionSplitCode },
+        create: { code: productionSplitCode, description: 'Replace existing production.write grants with explicit BOM, planning and execution permissions; retain other policies and independent QC/QA gates.' }, update: {} });
+    });
+  }
 }
 
 export async function ensureAuthorizationPolicySeed() {

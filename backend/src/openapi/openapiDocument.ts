@@ -472,7 +472,7 @@ export const buildOpenApiDocument = () => {
       post: {
         tags: ['Production'],
         summary: 'Create a governed production BOM',
-        description: 'Creates a production BOM with an explicit finished-product shelf-life policy. Requires production.write.',
+        description: 'Creates a production BOM with an explicit finished-product shelf-life policy. Requires production.bom.write.',
         security: secured(true),
         requestBody: {
           required: true,
@@ -512,7 +512,7 @@ export const buildOpenApiDocument = () => {
       post: {
         tags: ['Production'],
         summary: 'Post physical scrap or a quarantined rework return',
-        description: 'Only completed work-order output is eligible. Scrap deducts an exact stock balance with carrying cost. Rework may recover only a prior scrap balance and creates a new quarantined batch that still needs QA release. Requires production.write.',
+        description: 'Only completed work-order output is eligible. Scrap deducts an exact stock balance with carrying cost. Rework may recover only a prior scrap balance and creates a new quarantined batch that still needs QA release. Requires production.execute.',
         security: secured(true),
         parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
         requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionDispositionRequest' } } } },

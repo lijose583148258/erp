@@ -1,3 +1,5 @@
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AppContextType } from '../../types';
 import { assetService, type ProductBatch } from '../../services/asset.service';
@@ -16,6 +18,9 @@ import type {
 } from './productionWorkspaceConfig';
 
 export const useProductionWorkspaceData = (notify: AppContextType['notify']) => {
+  const { currentUser } = useAppContext();
+  const canReadBatches = can(currentUser, 'assets.read');
+  const canReadAdjustments = can(currentUser, 'adjustments.read');
   const [summary, setSummary] = useState<ProductionSummary | null>(null);
   const [boms, setBoms] = useState<ProductionBom[]>([]);
   const [workOrders, setWorkOrders] = useState<ProductionWorkOrder[]>([]);
@@ -48,8 +53,8 @@ export const useProductionWorkspaceData = (notify: AppContextType['notify']) => 
         productionService.getSummary({ signal }),
         productionService.getBoms({ signal }),
         productionService.getWorkOrders({ status: workOrderFilter === 'all' ? undefined : workOrderFilter, keyword: workOrderKeyword.trim() || undefined }, { signal }),
-        assetService.getBatches({ status: batchStatus === 'all' ? undefined : batchStatus, keyword: batchKeyword.trim() || undefined }, { signal }),
-        adjustmentService.getAll({ page: 1, pageSize: 100, domain: 'production', status: adjustmentStatus === 'all' ? undefined : adjustmentStatus }, { signal }),
+        canReadBatches ? assetService.getBatches({ status: batchStatus === 'all' ? undefined : batchStatus, keyword: batchKeyword.trim() || undefined }, { signal }) : [],
+        canReadAdjustments ? adjustmentService.getAll({ page: 1, pageSize: 100, domain: 'production', status: adjustmentStatus === 'all' ? undefined : adjustmentStatus }, { signal }) : { data: [] },
       ]);
 
       if (signal?.aborted) return;
@@ -67,7 +72,7 @@ export const useProductionWorkspaceData = (notify: AppContextType['notify']) => 
     } finally {
       if (!signal?.aborted) setLoading(false);
     }
-  }, [adjustmentStatus, batchKeyword, batchStatus, notify, workOrderFilter, workOrderKeyword]);
+  }, [adjustmentStatus, batchKeyword, batchStatus, canReadAdjustments, canReadBatches, notify, workOrderFilter, workOrderKeyword]);
 
   useEffect(() => {
     const controller = new AbortController();

@@ -59,7 +59,7 @@ function validateBaseline(baseline) {
     }
     assert(revision.round2Checks.every(id => known.includes(id)), 'Unknown baseline check');
     assert(['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'].every(id => revision.independentChecks.includes(id)), 'Core independent checks cannot be removed');
-    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'authorization-dual-node'].includes(id)), 'Independent adapters must be implemented explicitly');
+    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'authorization-dual-node', 'production-responsibilities'].includes(id)), 'Independent adapters must be implemented explicitly');
     previous = revision;
   }
   return previous;
@@ -72,6 +72,61 @@ function verifyFresh(report, context, provider, now) {
   assert(started >= Date.parse(context.startedAt) && finished >= started && finished <= now, 'Evidence outside execution window');
   assert.equal(report.metadata?.provider || report.provider, provider, 'Wrong database environment');
   assert(!report.error && !report.executionError && !report.setupError, 'Report contains execution errors');
+}
+
+function verifyProductionResponsibilities(p) {
+  assert.equal(p.status, 'passed'); assert.deepEqual(p.actors.map(a => a.job), ['research', 'planner', 'operator']);
+  assert.equal(new Set(p.actors.map(a => a.id)).size, 3); assert.equal(new Set(p.actors.map(a => a.role)).size, 3);
+  const permissions = { research: 'production.bom.write', planner: 'production.plan.write', operator: 'production.execute' };
+  const actors = Object.fromEntries(p.actors.map(a => [a.job, a]));
+  for (const a of p.actors) {
+    assert.deepEqual([...a.permissions].sort(), ['dashboard.read', 'materials.read', 'production.read', permissions[a.job]].sort());
+    assert.deepEqual(a.dataScopes, ['warehouse_visible']); assert(!['admin', 'manager', 'warehouse'].includes(a.role));
+  }
+  const allowed = [0, 1].flatMap(instance => [['research', 'bom', 201], ['planner', 'plan', 201], ['operator', 'start', 200], ['operator', 'step', 200]]
+    .map(([job, operation, status]) => ({ job, operation, instance, status })));
+  allowed.push({ job: 'planner', operation: 'cancel', instance: 1, status: 200 });
+  assert.deepEqual(p.allowed.map(({ job, operation, instance, status }) => ({ job, operation, instance, status })), allowed);
+  assert(p.allowed.every(r => r.json.success === true && r.json.data?.id));
+  const denied = [0, 1].flatMap(instance => [['planner', 'bom'], ['operator', 'bom'], ['research', 'plan'], ['operator', 'plan'],
+    ['research', 'execute'], ['planner', 'execute'], ['research', 'cancel'], ['operator', 'cancel']].map(([job, operation]) => ({ job, operation, instance, status: 403 })));
+  assert.deepEqual(p.denied.map(({ job, operation, instance, status }) => ({ job, operation, instance, status })), denied);
+  for (const r of p.denied) {
+    const permission = r.operation === 'cancel' ? permissions.planner : r.operation === 'execute' ? permissions.operator : r.operation === 'bom' ? permissions.research : permissions.planner;
+    assert.equal(r.json.success, false); assert.deepEqual(r.json.requiredPermissions, [permission]);
+  }
+  assert.deepEqual(p.after, p.before, 'Denied writes changed business rows');
+  assert.equal(p.before.boms.length, 2); assert.equal(p.before.orders.length, 2); assert.equal(p.before.audits.length, 8);
+  assert.deepEqual(p.before.balances, []); assert.deepEqual(p.before.costs, []);
+  for (const [index, order] of p.before.orders.entries()) {
+    const bom = p.before.boms[index]; assert.equal(order.bomId, bom.id);
+    assert.equal(bom.createdBy, actors.research.id); assert.equal(order.createdBy, actors.planner.id);
+    assert.equal(bom.items.length, 1); assert.equal(bom.items[0].quantityPerUnit, 1); assert.equal(bom.items[0].unit, 'kg');
+    assert.equal(order.status, 'in_progress'); assert.equal(order.steps.length, 1); assert.equal(order.steps[0].status, 'in_progress');
+    for (const [action, actorId, resourceId] of [['CREATE_PRODUCTION_BOM', actors.research.id, bom.id], ['CREATE_PRODUCTION_WORK_ORDER', actors.planner.id, order.id],
+      ['UPDATE_PRODUCTION_WORK_ORDER_STATUS', actors.operator.id, order.id], ['UPDATE_PRODUCTION_STEP', actors.operator.id, order.steps[0].id]]) {
+      assert.equal(p.before.audits.filter(a => a.action === action && a.userId === actorId && a.resourceId === resourceId).length, 1);
+    }
+  }
+  assert.equal(p.denialAudits.length, 16); assert.equal(new Set(p.denialAudits.map(a => a.id)).size, 16);
+  assert(p.denialAudits.every(a => p.actors.some(actor => actor.id === a.userId) && a.resource.startsWith('/api/production/') && a.details.startsWith('Status: 403,')));
+  assert.deepEqual(p.browser.map(b => b.job), ['research', 'planner', 'operator']);
+  for (const b of p.browser) {
+    assert.equal(b.actorId, actors[b.job].id); assert.equal(b.role, actors[b.job].role); assert.equal(b.instance, 1);
+    assert.equal(b.boundBomId, p.before.boms[0].id); assert.equal(b.workOrderId, p.before.orders[0].id); assert.deepEqual(b.errors, []);
+    assert.equal(b.inventoryReadback, '未授权');
+    for (const [key, job] of [['bomSaveVisible', 'research'], ['planSaveVisible', 'planner'], ['executeVisible', 'operator'], ['cancelVisible', 'planner']]) assert.equal(b[key], b.job === job);
+    assert(b.bomScreenshot && b.workOrderScreenshot);
+  }
+  assert.deepEqual(p.final.boms, p.before.boms); assert.deepEqual(p.final.orders[0], p.before.orders[0]);
+  assert.equal(p.final.orders[1].id, p.before.orders[1].id); assert.equal(p.final.orders[1].status, 'cancelled');
+  assert.deepEqual({ ...p.final.orders[1], status: null, updatedAt: null }, { ...p.before.orders[1], status: null, updatedAt: null }, 'Cancellation rewrote unrelated work order facts');
+  assert.deepEqual(p.final.balances, []); assert.deepEqual(p.final.costs, []); assert.equal(p.final.audits.length, 9);
+  assert.deepEqual(p.final.audits.slice(0, 8), p.before.audits);
+  const cancelAudit = p.final.audits[8];
+  assert.equal(cancelAudit.action, 'UPDATE_PRODUCTION_WORK_ORDER_STATUS'); assert.equal(cancelAudit.userId, actors.planner.id); assert.equal(cancelAudit.resourceId, p.before.orders[1].id);
+  for (const r of p.allowed) assert.equal(r.json.data.id, r.operation === 'bom' ? p.before.boms[r.instance].id : r.operation === 'step' ? p.before.orders[r.instance].steps[0].id : p.before.orders[r.instance].id);
+  return { actors: 3, authorizedWrites: 9, deniedWrites: 16, deniedBusinessEffects: 0, browserRoles: 3, fullWorkforceAccepted: false };
 }
 
 function evaluateRegression({ baseline, context, currentCommit, currentSourceHash, reports, steps = {}, executionErrors = [], now = Date.now() }) {
@@ -169,6 +224,10 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     assert.equal(r.roleAudits.length, 3); assert(r.roleAudits.every(row => row.userId === r.adminId));
     return { evidenceSha256: sha256(JSON.stringify(r)) };
   });
+  if (revision?.independentChecks.includes('production-responsibilities')) record('production-responsibilities', () => {
+    const r = reports.authorization; verifyFresh(r, context, provider, now); assert.equal(r.status, 'passed');
+    return { ...verifyProductionResponsibilities(r.production), evidenceSha256: sha256(JSON.stringify(r.production)) };
+  });
   if (context?.profile === 'cloud') for (const id of revision?.cloudSteps || []) record(`cloud:${id}`, () => {
     assert.equal(steps[id]?.outcome, 'success', 'Prior cloud audit failed, skipped or missing (conclusion is not sufficient)');
     return { outcome: steps[id].outcome };
@@ -180,4 +239,4 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     summary: { expected: results.length, passed: results.filter(r => r.status === 'passed').length, failed: results.filter(r => r.status === 'failed').length },
     checks: results, finishedAt: new Date(now).toISOString() };
 }
-module.exports = { beginRegression, headCommit, sourceFingerprint, readRegressionStamp, validateBaseline, evaluateRegression };
+module.exports = { beginRegression, headCommit, sourceFingerprint, readRegressionStamp, validateBaseline, evaluateRegression, verifyProductionResponsibilities };

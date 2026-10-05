@@ -29,6 +29,15 @@ function fixture(profile = 'cloud') {
     roleAudits: [1, 2, 3].map(id => ({ id, userId: 1 })) };
   authorization.after = structuredClone(authorization.before);
   authorization.observations.profilesAfterRevoke = [0, 1].map(instance => ({ instance, profile: { id: 2, permissions: ['warehouse.read'] } }));
+  const jobs = ['research','planner','operator'];
+  const write = ['production.bom.write','production.plan.write','production.execute'];
+  const production = authorization.production = {status:'passed',actors:jobs.map((job,i)=>({job,id:i+3,role:'custom_'+job,permissions:['dashboard.read','materials.read','production.read',write[i]],dataScopes:['warehouse_visible']}))};
+  production.before={boms:[0,1].map(i=>({id:10+i,createdBy:3,items:[{quantityPerUnit:1,unit:'kg'}]})),orders:[0,1].map(i=>({id:20+i,bomId:10+i,createdBy:4,status:'in_progress',steps:[{id:30+i,status:'in_progress'}]})),audits:[0,1].flatMap(i=>[['CREATE_PRODUCTION_BOM',3,10+i],['CREATE_PRODUCTION_WORK_ORDER',4,20+i],['UPDATE_PRODUCTION_WORK_ORDER_STATUS',5,20+i],['UPDATE_PRODUCTION_STEP',5,30+i]].map(([action,userId,resourceId])=>({action,userId,resourceId}))),balances:[],costs:[]};
+  production.after=structuredClone(production.before);production.final=structuredClone(production.before);production.final.orders[1].status='cancelled';production.final.audits.push({action:'UPDATE_PRODUCTION_WORK_ORDER_STATUS',userId:4,resourceId:21});
+  production.allowed=[0,1].flatMap(instance=>[['research','bom',201,10+instance],['planner','plan',201,20+instance],['operator','start',200,20+instance],['operator','step',200,30+instance]].map(([job,operation,status,id])=>({job,operation,instance,status,json:{success:true,data:{id}}})));production.allowed.push({job:'planner',operation:'cancel',instance:1,status:200,json:{success:true,data:{id:21}}});
+  production.denied=[0,1].flatMap(instance=>[['planner','bom'],['operator','bom'],['research','plan'],['operator','plan'],['research','execute'],['planner','execute'],['research','cancel'],['operator','cancel']].map(([job,operation])=>({job,operation,instance,status:403,json:{success:false,requiredPermissions:[operation==='bom'?write[0]:operation==='execute'?write[2]:write[1]]}})));
+  production.denialAudits=production.denied.map((d,i)=>({id:i+1,userId:production.actors.find(a=>a.job===d.job).id,resource:'/api/production/fixture',details:'Status: 403, Duration: 1ms'}));
+  production.browser=production.actors.map(a=>({job:a.job,actorId:a.id,role:a.role,instance:1,boundBomId:10,workOrderId:20,inventoryReadback:'未授权',errors:[],bomSaveVisible:a.job==='research',planSaveVisible:a.job==='planner',executeVisible:a.job==='operator',cancelVisible:a.job==='planner',bomScreenshot:'synthetic-bom.png',workOrderScreenshot:'synthetic-order.png'}));
   const legacy = { ...stamp, provider: 'sqlite', status: 'passed', before: 'c'.repeat(64), after: 'c'.repeat(64), integrity: 'ok',
     repeatedRepairUnchanged: true, originalBusinessRowsUnchanged: true, fixtureKind: 'reconstructed-legacy-schema', originalTableCount: 63,
     obligations: [{ status: 'review', requestKey: null, paymentReference: null }], attempts: [{ refundRejected: true, reversalRejected: true }] };
@@ -46,6 +55,28 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+for (const [label, mutate] of [
+  ['missing real role', p => p.actors.pop()],
+  ['broad grant', p => p.actors[0].permissions.push('production.execute')],
+  ['missing allowed node', p => p.allowed.splice(4, 4)],
+  ['denial silently allowed', p => { p.denied[0].status = 201; }],
+  ['wrong guard denial', p => { p.denied[0].json.requiredPermissions = ['materials.read']; }],
+  ['business side effect', p => { p.after.orders[0].status = 'cancelled'; }],
+  ['wrong BOM creator', p => { p.before.boms[0].createdBy = 4; p.after = structuredClone(p.before); }],
+  ['missing business audit', p => p.before.audits.pop()],
+  ['missing rejection audit', p => p.denialAudits.pop()],
+  ['UI plan escalation', p => { p.browser[2].planSaveVisible = true; }],
+  ['UI error', p => p.browser[0].errors.push('403 unrelated-module read')],
+  ['BOM rewritten on cancellation', p => { p.final.boms[0].items[0].quantityPerUnit = 2; }],
+  ['allowed response belongs to another order', p => { p.allowed[1].json.data.id = 999; }],
+  ['wrong cancellation audit actor', p => { p.final.audits[8].userId = 5; }],
+  ['cancellation changes frozen BOM link', p => { p.final.orders[1].bomId = 999; }],
+  ['unauthorized stock shown as zero', p => { p.browser[0].inventoryReadback = 0; }],
+]) test(`production responsibility verifier rejects synthetic corruption: ${label}`, () => {
+  const data = fixture(); mutate(data.reports.authorization.production);
+  const result = evaluateRegression(data); assert.equal(result.checks.find(c => c.id === 'production-responsibilities').status, 'failed');
 });
 
 for (const scenario of ['valid-noisy-output', 'missing-result', 'wrong-mode', 'unexpected-grant']) test(`fallback audit requires actual worker evidence: ${scenario}`, () => {

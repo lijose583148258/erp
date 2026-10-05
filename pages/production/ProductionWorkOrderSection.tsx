@@ -1,3 +1,5 @@
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 import { BadgeCheck, Clock3, Filter, Plus, RefreshCcw, Search } from 'lucide-react';
 import { Dispatch, SetStateAction } from 'react';
 import { ProductionQualityCheck, ProductionStep, ProductionWorkOrder, ProductionWorkOrderStatus } from '../../services/production.service';
@@ -124,9 +126,12 @@ export function ProductionWorkOrderSection({
   handleCreateQc,
   handleReviewQc,
 }: ProductionWorkOrderSectionProps) {
+  const { currentUser } = useAppContext();
+  const canPlan = can(currentUser, 'production.plan.write');
+  const canExecute = can(currentUser, 'production.execute');
   return (
     <>
-      <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-8">
+      {canPlan && <div className="bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-8">
         <SectionHeader title="工单工作台" subtitle="排产 / 工序 / 质检 / 完工" />
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
           <Field
@@ -193,8 +198,7 @@ export function ProductionWorkOrderSection({
           <button data-testid="production-work-order-save" onClick={handleCreateWorkOrder} disabled={loading || workOrderSaving} aria-busy={workOrderSaving} className="rounded-[24px] bg-blue-600 px-6 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl shadow-blue-500/30 transition-colors duration-150 hover:bg-blue-700 motion-reduce:transition-none disabled:opacity-60">{workOrderSaving ? '保存中...' : '创建工单'}</button>
  <button onClick={() => void loadData()} className="px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-200 rounded-[24px] font-black text-xs uppercase tracking-widest flex items-center gap-2"><RefreshCcw size={14} />刷新</button>
         </div>
-      </div>
-
+      </div>}
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-8">
         <div className="xl:col-span-3 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8">
           <div className="flex items-center justify-between mb-6">
@@ -283,10 +287,10 @@ export function ProductionWorkOrderSection({
                         <span className="inline-flex items-center gap-1"><BadgeCheck size={12} /> 完成 {formatDate(step.completedAt)}</span>
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {step.status !== 'in_progress' && (
+                        {canExecute && step.status !== 'in_progress' && (
                           <button onClick={() => void handleStepAction(step, 'in_progress')} className="px-3 py-2 rounded-xl bg-blue-600 text-white text-xs font-black uppercase tracking-widest">开始</button>
                         )}
-                        {step.status !== 'completed' && (
+                        {canExecute && step.status !== 'completed' && (
                           <button onClick={() => void handleStepAction(step, 'completed')} className="px-3 py-2 rounded-xl bg-slate-900 text-white text-xs font-black uppercase tracking-widest">完成</button>
                         )}
                       </div>

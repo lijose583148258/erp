@@ -98,3 +98,10 @@ test('invalid database policy fails closed instead of partially authorizing or a
   findMany.mockResolvedValue(rows('warehouse.write', 'invalid'));
   await expect(casbinAllowsPermission('warehouse', 'warehouse.write')).rejects.toThrow('Invalid permission format');
 });
+
+test.each(['production.bom.write', 'production.plan.write', 'production.execute'] as const)('a production responsibility does not imply the other responsibilities: %s', async permission => {
+  findMany.mockResolvedValue([{ roleCode: 'custom_production', permissionCode: permission }]);
+  for (const candidate of ['production.bom.write', 'production.plan.write', 'production.execute'] as const) {
+    expect(await casbinAllowsPermission('custom_production', candidate)).toBe(candidate === permission);
+  }
+});

@@ -853,6 +853,7 @@ jobs:
         timeout-minutes: 3
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
+          ROUND2_BROWSER: "true"
         run: node ./scripts/authorization-dual-node-audit-v1.cjs
 
       - name: Exercise Round 2 inventory, payment and barter business acceptance

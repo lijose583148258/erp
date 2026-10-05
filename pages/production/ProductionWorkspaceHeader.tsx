@@ -1,5 +1,7 @@
 import { ArrowUpRight, Factory, Layers3, PackageCheck, Play, ScanBarcode, TriangleAlert } from 'lucide-react';
 import { StatCard } from './ProductionWorkspacePrimitives';
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 
 export type ProductionWorkspaceStats = {
   totalBoms: number;
@@ -24,7 +26,9 @@ export const ProductionWorkspaceHeader = ({
   stats,
   isInitialLoading,
   onRefresh,
-}: ProductionWorkspaceHeaderProps) => (
+}: ProductionWorkspaceHeaderProps) => {
+  const { currentUser } = useAppContext();
+  return (
   <>
     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
       <div>
@@ -49,7 +53,8 @@ export const ProductionWorkspaceHeader = ({
       <StatCard title="活跃工单" value={isInitialLoading ? '加载中...' : stats.activeWorkOrders} color="bg-cyan-500" icon={<Play size={24} />} />
       <StatCard title="待质检" value={isInitialLoading ? '加载中...' : stats.qcPendingCount} color="bg-amber-500" icon={<TriangleAlert size={24} />} />
       <StatCard title="批次数量" value={isInitialLoading ? '加载中...' : stats.batchCount} color="bg-violet-500" icon={<ScanBarcode size={24} />} />
-      <StatCard title="库存总量" value={isInitialLoading ? '加载中...' : stats.totalStock} color="bg-slate-700" icon={<ArrowUpRight size={24} />} />
+      <StatCard title="库存总量" value={!can(currentUser, 'assets.read') ? '未授权' : isInitialLoading ? '加载中...' : stats.totalStock} color="bg-slate-700" icon={<ArrowUpRight size={24} />} />
     </div>
   </>
 );
+};

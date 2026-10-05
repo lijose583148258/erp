@@ -100,7 +100,7 @@ const compareDrafts = (actual: BomItemDraft[], expected: BomItemDraft[]) => {
 export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngine; grid: GridRenderer }) {
   const { currentUser } = useAppContext();
   const labAllowed = canUseBomGridLab(currentUser);
-  const canWriteProduction = can(currentUser, 'production.write');
+  const canWriteProduction = can(currentUser, 'production.bom.write');
   const [rows, setRows] = useState<BomGridRow[]>(() => [toBomGridRow(createEmptyItem(), 1, 'lab-empty-0001')]);
   const [fixtures, setFixtures] = useState<GoldenFixtures | null>(null);
   const [validation, setValidation] = useState<BomValidationResult | null>(null);
@@ -204,7 +204,7 @@ export function BomGridLabPage({ engine, grid: Grid }: { engine: BomGridLabEngin
 
   const saveAndReadBack = async () => {
     if (!canWriteProduction) {
-      setMessage('当前账号没有 production.write 权限，禁止执行保存回读。');
+      setMessage('当前账号没有 production.bom.write 权限，禁止执行保存回读。');
       return;
     }
     const currentValidation = adapter.validate();
