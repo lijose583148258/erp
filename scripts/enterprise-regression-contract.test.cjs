@@ -225,4 +225,8 @@ for (const [label, corrupt] of [
   ['browser API failure', e => { e.browser[1].errors = ['403 /api/orders']; }],
   ['stale purchase permission notice', e => { e.browser[1].purchaseNotice = '审批和收货需要采购写入权限'; }],
   ['stale receipt permission notice', e => { e.browser[0].receiptNotice = '保存收货需要采购写入权限'; }],
+  ['editable loading form', e => { e.receiptLoadingGuard.inputsDisabled = 0; }],
+  ['missing loading proof', e => { delete e.receiptLoadingGuard; }],
+  ['default quantity submitted instead of input', e => { e.writes[3].request.quantity = 12; }],
+  ['default batch submitted instead of input', e => { e.writes[3].request.batchNo = 'default'; }],
 ]) test(`PO proof rejects ${label}`, () => { const e = purchaseRoleProofFixture(); corrupt(e); assert.throws(() => verifyPurchaseRoleProof(e)); });

@@ -26,7 +26,9 @@ function purchaseRoleProofFixture() {
     receiptNotice: a.job === 'receiver' ? null : '当前角色只能查看收货批次，保存收货需要采购收货登记权限。',
     batchReadback: 'owned', acceptedReadback: '合格 5kg', errors: [], permissionScreenshot: 'pending.png', receiptScreenshot: 'receipt.png' }));
   const denialAudits = denied.map((r, i) => ({ id: 100 + i, userId: actors.find(a => a.job === r.job).id, resource: '/api/procurement/orders/1', details: 'Status: 403, denied' }));
+  writes[3].request = { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: 'owned' };
   return JSON.parse(JSON.stringify({ version: 'purchase-role-browser/v1', status: 'passed', orderId: 1, materialId: 1, batchNo: 'owned', actors, denied, denialAudits, before, afterDenied: before, final, writes, browser,
+    receiptLoadingGuard: { inputsDisabled: 6, saveDisabled: true },
     readbacks: [0, 1].map(instance => ({ instance, purchaseOrder: order, receipts: [receipt], receiptSummary: summary })) }));
 }
 module.exports = { purchaseRoleProofFixture };

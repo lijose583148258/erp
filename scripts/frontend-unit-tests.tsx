@@ -58,6 +58,8 @@ import { BarterLedgerPanel } from '../pages/barter/BarterLedgerPanel';
 import { ProductionGenealogyReadback } from '../pages/production/ProductionGenealogyReadback';
 import { buildBatchTrace, buildEffectiveBomItemsPayload } from '../pages/production/ProductionWorkspaceDerived';
 import { readProductionBatchTrace } from '../services/productionBatchTrace';
+import { PurchaseReceiptDrawer } from '../pages/procurement/PurchaseReceiptDrawer';
+import { createEmptyReceiptForm } from '../pages/procurement/procurementForms';
 
 type FrontendUnitTest = {
   name: string;
@@ -65,6 +67,25 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'receipt inputs and save stay disabled until loaded, including failed reads and in-flight saves',
+    run: () => {
+      for (const state of ['loading', 'failed', 'saving', 'read-only', 'received', 'ready']) {
+        const order = { id: '1', quantity: 12, status: state === 'received' ? 'received' : 'in_transit' } as any;
+        const bundle = ['loading', 'failed'].includes(state) ? null : { purchaseOrder: order, receipts: [], receiptSummary: { orderedQuantity: 12, processedQuantity: 0, acceptedQuantity: 0, remainingQuantity: 12 } } as any;
+        const markup = renderToStaticMarkup(<AppContext.Provider value={{} as any}>
+          <PurchaseReceiptDrawer receiptDrawerOrder={order} receiptBundle={bundle} receiptForm={createEmptyReceiptForm()}
+            setReceiptForm={() => {}} receiptErrors={{}} clearReceiptError={() => {}} isReceiptLoading={state === 'loading'}
+            isReceiptSubmitting={state === 'saving'} submitReceipt={() => {}} onClose={() => {}} canWrite={state !== 'read-only'} />
+        </AppContext.Provider>);
+        const dom = new JSDOM(markup);
+        const controls = dom.window.document.querySelectorAll('input, textarea, [data-testid="purchase-receipt-save-button"]');
+        assert.equal(controls.length, 7);
+        for (const control of controls) assert.equal(control.hasAttribute('disabled'), state !== 'ready', state);
+        dom.window.close();
+      }
+    },
+  },
   {
     name: 'production UI uses exact responsibilities without umbrella or role-name fallback',
     run: () => {

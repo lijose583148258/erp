@@ -181,7 +181,7 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     const page = pages[job]; const response = page.waitForResponse(r => new URL(r.url()).pathname.endsWith(`/procurement/orders/${id}${suffix}`) && r.request().method() === method);
     await page.getByTestId(testId).click(); const r = await response; const body = await r.json();
     assert([200, 201].includes(r.status()), JSON.stringify(body));
-    evidence.writes.push({ job, operation: suffix || 'revise', instance: 1, status: r.status(), response: body });
+    evidence.writes.push({ job, operation: suffix || 'revise', instance: 1, status: r.status(), request: r.request().postDataJSON(), response: body });
   }
   try {
     const errors = {};
@@ -209,10 +209,25 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     await write('approver', `purchase-order-approve-${id}`, '/status', 'PATCH');
     await expect(pages.approver.getByTestId(`purchase-order-dispatch-${id}`)).toHaveCount(0);
     await load('buyer'); await write('buyer', `purchase-order-dispatch-${id}`, '/status', 'PATCH');
-    const receiver = await load('receiver'); await receiver.getByTestId(`purchase-order-receipts-${id}`).click();
+    const receiver = await load('receiver');
+    // Hold the real receipt read until the loading UI is checked. No sleep or
+    // mocked response: a slow backend must not overwrite editable user input.
+    let releaseReceipt;
+    const receiptGate = new Promise(resolve => { releaseReceipt = resolve; });
+    await receiver.route(`**/api/procurement/orders/${id}/receipts`, async route => { await receiptGate; await route.continue(); }, { times: 1 });
+    try {
+      await receiver.getByTestId(`purchase-order-receipts-${id}`).click();
+      await expect(receiver.getByTestId('purchase-receipt-save-button')).toHaveText('加载中...');
+      const inputs = receiver.getByTestId('purchase-receipt-drawer').locator('input, textarea');
+      assert.equal(await inputs.count(), 6);
+      for (const input of await inputs.all()) await expect(input).toBeDisabled();
+      await expect(receiver.getByTestId('purchase-receipt-save-button')).toBeDisabled();
+      evidence.receiptLoadingGuard = { inputsDisabled: 6, saveDisabled: true };
+    } finally { releaseReceipt(); }
     await receiver.getByTestId('purchase-receipt-quantity-input').fill('5'); await receiver.getByTestId('purchase-receipt-accepted-input').fill('5');
     await receiver.getByTestId('purchase-receipt-rejected-input').fill('0'); await receiver.getByTestId('purchase-receipt-batch-input').fill(batchNo);
     await write('receiver', 'purchase-receipt-save-button', '/receipts', 'POST');
+    assert.deepEqual(evidence.writes.at(-1).request, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
     await expect(receiver.getByTestId('purchase-receipt-drawer')).toContainText(batchNo);
     for (const row of evidence.browser) {
       const page = await load(row.job); await page.getByTestId(`purchase-order-receipts-${id}`).click();

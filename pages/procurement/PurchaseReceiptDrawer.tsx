@@ -35,10 +35,12 @@ export const PurchaseReceiptDrawer = ({
     sourceId: 'purchase-receipt-drawer',
     label: '采购收货批次',
     open: true,
+    enabled: !isReceiptLoading && receiptBundle !== null,
     resetKey: receiptBundle?.receipts.length ?? 0,
     value: receiptForm,
   });
-  const handleClose = () => requestClose(onClose);
+  const handleClose = () => { if (!isReceiptSubmitting) requestClose(onClose); };
+  const formDisabled = isReceiptLoading || isReceiptSubmitting || !receiptBundle || !canWrite || receiptDrawerOrder.status === 'received';
   const updateReceiptField = (field: keyof PurchaseReceiptForm, value: string) => {
     clearReceiptError(field);
     setReceiptForm(prev => ({ ...prev, [field]: value }));
@@ -103,20 +105,20 @@ export const PurchaseReceiptDrawer = ({
           <FormField dataTestId="purchase-receipt-quantity-input" label="本次数量" value={receiptForm.quantity} onChange={(value) => {
             clearReceiptError('quantity');
             setReceiptForm(prev => ({ ...prev, quantity: value, acceptedQuantity: prev.acceptedQuantity || value }));
-          }} error={receiptErrors.quantity} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
-          <FormField dataTestId="purchase-receipt-accepted-input" label="合格数量" value={receiptForm.acceptedQuantity} onChange={(value) => updateReceiptField('acceptedQuantity', value)} error={receiptErrors.acceptedQuantity} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
-          <FormField dataTestId="purchase-receipt-rejected-input" label="差异数量" value={receiptForm.rejectedQuantity} onChange={(value) => updateReceiptField('rejectedQuantity', value)} error={receiptErrors.rejectedQuantity} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
+          }} error={receiptErrors.quantity} disabled={formDisabled} />
+          <FormField dataTestId="purchase-receipt-accepted-input" label="合格数量" value={receiptForm.acceptedQuantity} onChange={(value) => updateReceiptField('acceptedQuantity', value)} error={receiptErrors.acceptedQuantity} disabled={formDisabled} />
+          <FormField dataTestId="purchase-receipt-rejected-input" label="差异数量" value={receiptForm.rejectedQuantity} onChange={(value) => updateReceiptField('rejectedQuantity', value)} error={receiptErrors.rejectedQuantity} disabled={formDisabled} />
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <FormField dataTestId="purchase-receipt-batch-input" label="入库批次" value={receiptForm.batchNo} onChange={(value) => updateReceiptField('batchNo', value)} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
-          <FormField label="差异原因" value={receiptForm.discrepancyReason} onChange={(value) => updateReceiptField('discrepancyReason', value)} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
+          <FormField dataTestId="purchase-receipt-batch-input" label="入库批次" value={receiptForm.batchNo} onChange={(value) => updateReceiptField('batchNo', value)} disabled={formDisabled} />
+          <FormField label="差异原因" value={receiptForm.discrepancyReason} onChange={(value) => updateReceiptField('discrepancyReason', value)} disabled={formDisabled} />
         </div>
-        <FormField className="mt-3" as="textarea" rows={3} label="备注" value={receiptForm.note} onChange={(value) => updateReceiptField('note', value)} disabled={!canWrite || receiptDrawerOrder.status === 'received'} />
+        <FormField className="mt-3" as="textarea" rows={3} label="备注" value={receiptForm.note} onChange={(value) => updateReceiptField('note', value)} disabled={formDisabled} />
         <button
           type="button"
           data-testid="purchase-receipt-save-button"
           onClick={submitReceipt}
-          disabled={isReceiptLoading || !canWrite || receiptDrawerOrder.status === 'received'}
+          disabled={formDisabled}
           aria-busy={isReceiptSubmitting}
           className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >

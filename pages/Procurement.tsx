@@ -73,6 +73,7 @@ const Procurement = () => {
   const [supplierSaveVersion, setSupplierSaveVersion] = useState(0);
   const [orderSaveVersion, setOrderSaveVersion] = useState(0);
   const localWriteVersionRef = useRef(0);
+  const receiptLoadVersionRef = useRef(0);
 
   useProcurementUnsavedFormGuards({
     supplierSaveVersion,
@@ -208,23 +209,26 @@ const Procurement = () => {
   };
 
   const openReceiptDrawer = async (order: PurchaseOrder) => {
+    const version = ++receiptLoadVersionRef.current;
     try {
       switchProcurementDesk('receipts');
       setReceiptDrawerOrder(order);
+      setReceiptBundle(null);
       setIsReceiptLoading(true);
       const bundle = await procurementService.getOrderReceipts(order.id);
+      if (version !== receiptLoadVersionRef.current) return;
       setReceiptBundle(bundle);
       resetReceiptForm(order, bundle);
     } catch {
+      if (version !== receiptLoadVersionRef.current) return;
       notify('error', t.connectionFailed || '收货批次读取失败');
     } finally {
-      setIsReceiptLoading(false);
+      if (version === receiptLoadVersionRef.current) setIsReceiptLoading(false);
     }
   };
 
   const submitReceipt = async () => {
-    if (isReceiptSubmitting) return;
-    if (!receiptDrawerOrder) return;
+    if (isReceiptLoading || isReceiptSubmitting || !receiptDrawerOrder || !receiptBundle) return;
     if (!canReceiveProcurement) {
       notify('warning', '当前角色只能查看采购收货批次，不能保存收货');
       return;
@@ -543,7 +547,7 @@ const Procurement = () => {
           isReceiptLoading={isReceiptLoading || isReceiptSubmitting}
           isReceiptSubmitting={isReceiptSubmitting}
           submitReceipt={submitReceipt}
-          onClose={() => setReceiptDrawerOrder(null)}
+          onClose={() => { receiptLoadVersionRef.current += 1; setReceiptDrawerOrder(null); }}
           canWrite={canReceiveProcurement}
         />
       )}

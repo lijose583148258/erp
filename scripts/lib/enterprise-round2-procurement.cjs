@@ -74,6 +74,9 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
 function verifyPurchaseRoleProof(e) {
   const assert = require('node:assert/strict');
   assert.equal(e.version, 'purchase-role-browser/v1'); assert.equal(e.status, 'passed');
+  assert.deepEqual(e.receiptLoadingGuard, { inputsDisabled: 6, saveDisabled: true });
+  assert.deepEqual(e.writes.find(w => w.operation === '/receipts')?.request,
+    { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo });
   const jobs = { buyer: 'procurement.write', approver: 'procurement.approve', receiver: 'procurement.receive' };
   assert.deepEqual(e.actors.map(a => a.job), Object.keys(jobs));
   assert.equal(new Set(e.actors.map(a => a.id)).size, 3); assert.equal(new Set(e.actors.map(a => a.role)).size, 3);
