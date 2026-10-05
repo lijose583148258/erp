@@ -27,7 +27,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
 } });
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
-if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback');
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
@@ -413,8 +413,13 @@ async function main() {
     return;
   }
   if (process.env.ROUND2_ONLY_CHECK) {
-    assert(['payment-event-audit-once', 'payment-submit-durable-replay'].includes(process.env.ROUND2_ONLY_CHECK));
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback'].includes(process.env.ROUND2_ONLY_CHECK));
     assert.equal(process.env.ROUND2_BROWSER, 'true');
+    if (process.env.ROUND2_ONLY_CHECK === 'purchase-browser-readback') {
+      const { purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
+      await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+      return;
+    }
     if (process.env.ROUND2_ONLY_CHECK === 'payment-submit-durable-replay') {
       const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
       await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
@@ -427,8 +432,9 @@ async function main() {
   await runner.run('stock-20-contention', stockContention);
   await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
   if (process.env.ROUND2_BROWSER === 'true') {
-    const { purchaseRevisionBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
+    const { purchaseRevisionBrowser, purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
     await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+    await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
   }
   await runner.run('transfer-shipping-contention', transferShipping);
   await runner.run('shipping-cost-conservation', shippingCost);

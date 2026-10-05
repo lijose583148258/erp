@@ -168,6 +168,7 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     assert(check.evidence && Object.keys(check.evidence).length, 'Missing read-back evidence');
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
+    if (id === 'purchase-browser-readback') require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(check.evidence);
     if (id === 'payment-duplicate-verification') require('./payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(check.evidence.reconciliation);
     if (id === 'payment-reversal-browser') {
       assert.equal(check.evidence.version, 'payment-reversal-acceptance/v1');

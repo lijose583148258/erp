@@ -117,7 +117,7 @@ export const PurchaseOrderWorkspace = ({
       </div>
       {!canWrite ? (
         <div className="m-6 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-5 text-sm font-bold leading-6 text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-          当前角色只能查看采购单，新增采购单、审批、发运和收货需要采购写入权限。
+          当前角色不能新增或修改采购单；审批与收货按对应操作权限控制。
         </div>
       ) : (
       <>

@@ -43,8 +43,12 @@ import { useProcurementUnsavedFormGuards } from './procurement/useProcurementUns
 
 const Procurement = () => {
   const { t, notify, language, currentUser } = useAppContext();
-  const canReadProcurement = can(currentUser, 'procurement.read') || can(currentUser, 'procurement.write');
+  const canReadProcurement = can(currentUser, 'procurement.read');
   const canWriteProcurement = can(currentUser, 'procurement.write');
+  const canApproveProcurement = can(currentUser, 'procurement.approve');
+  const canReceiveProcurement = can(currentUser, 'procurement.receive');
+  const canReadSales = can(currentUser, 'orders.read');
+  const canReadSuppliers = can(currentUser, 'procurement.suppliers.read');
   const [activeDesk, setActiveDesk] = useState<ProcurementDeskTab>('suppliers');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -83,8 +87,8 @@ const Procurement = () => {
     try {
       setIsLoading(true);
       const [suppliersData, salesData] = await Promise.all([
-        procurementService.getAllSuppliers(),
-        orderService.getAll(),
+        canReadSuppliers ? procurementService.getAllSuppliers() : Promise.resolve([]),
+        canReadSales ? orderService.getAll() : Promise.resolve([]),
       ]);
       const ordersData = canReadProcurement ? await procurementService.getAllOrders() : [];
 
@@ -97,7 +101,7 @@ const Procurement = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [canReadProcurement, notify, t.loadDataFail]);
+  }, [canReadProcurement, canReadSales, canReadSuppliers, notify, t.loadDataFail]);
 
   useEffect(() => {
     void loadData();
@@ -181,8 +185,9 @@ const Procurement = () => {
   );
 
   const updatePurchaseStatus = async (order: PurchaseOrder, status: PurchaseOrder['status']) => {
-    if (!canWriteProcurement) {
-      notify('warning', '当前角色只能查看采购数据，不能变更采购状态');
+    const allowed = status === 'approved' ? canApproveProcurement : status === 'received' ? canReceiveProcurement : canWriteProcurement;
+    if (!allowed) {
+      notify('warning', '当前角色未获得此采购操作权限');
       return;
     }
     try {
@@ -220,7 +225,7 @@ const Procurement = () => {
   const submitReceipt = async () => {
     if (isReceiptSubmitting) return;
     if (!receiptDrawerOrder) return;
-    if (!canWriteProcurement) {
+    if (!canReceiveProcurement) {
       notify('warning', '当前角色只能查看采购收货批次，不能保存收货');
       return;
     }
@@ -266,7 +271,7 @@ const Procurement = () => {
     <div className="flex justify-end gap-2">
       <button type="button" data-testid={`purchase-order-revise-${order.id}`} onClick={() => setRevisionOrder(order)}
         title="采购版本与变更" className="rounded-full border px-3 py-2 text-xs font-bold">版本 {order.revision ?? 0}</button>
-      {order.status === 'pending' && canWriteProcurement && (
+      {order.status === 'pending' && canApproveProcurement && (
         <button
           data-testid={`purchase-order-approve-${order.id}`}
           type="button"
@@ -539,7 +544,7 @@ const Procurement = () => {
           isReceiptSubmitting={isReceiptSubmitting}
           submitReceipt={submitReceipt}
           onClose={() => setReceiptDrawerOrder(null)}
-          canWrite={canWriteProcurement}
+          canWrite={canReceiveProcurement}
         />
       )}
     </PageShell>

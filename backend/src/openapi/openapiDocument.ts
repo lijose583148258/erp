@@ -240,7 +240,7 @@ export const buildOpenApiDocument = () => {
       post: {
         tags: ['Procurement'],
         summary: 'Create a purchase order commitment',
-        description: 'Creates a procurement commitment. Inventory is not increased until a later receipt is posted. Canonical material identity is propagated when materialId is supplied.',
+        description: 'Requires procurement.write; creating approved/in-transit (including confirmed/shipped aliases) also requires procurement.approve. Inventory is not increased until a later receipt, protected by procurement.receive. The legacy B2B status-sync shortcut requires all three responsibilities. Canonical material identity is propagated when materialId is supplied.',
         security: secured(true),
         requestBody: {
           required: true,

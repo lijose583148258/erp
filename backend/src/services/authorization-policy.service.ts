@@ -330,6 +330,23 @@ async function applyAuthorizationPolicyMigrations() {
     await markPolicyMigration(paymentReversalPolicy, 'Grant original cash reversal request/review to finance and admin only; service enforces independent people. Preserve all existing/custom role policies.');
   }
 
+  const procurementSplitCode = '2026-10-05-procurement-responsibility-split-v1';
+  if (!(await hasPolicyMigration(procurementSplitCode))) {
+    await prisma.$transaction(async tx => {
+      const legacy = await tx.authRolePermission.findMany({
+        where: { permissionCode: 'procurement.write' }, select: { roleCode: true }, orderBy: { roleCode: 'asc' },
+      });
+      for (const { roleCode } of legacy) {
+        for (const permissionCode of ['procurement.approve', 'procurement.receive']) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode, permissionCode } },
+            create: { roleCode, permissionCode }, update: {} });
+        }
+      }
+      await tx.authPolicyMigration.upsert({ where: { code: procurementSplitCode },
+        create: { code: procurementSplitCode, description: 'Preserve existing procurement.write holders with explicit approval/receipt grants once; subsequent administrator revocations remain effective.' }, update: {} });
+    });
+  }
+
   const productionSplitCode = '2026-10-05-production-responsibility-split-v1';
   if (!(await hasPolicyMigration(productionSplitCode))) {
     // Replace only existing umbrella grants, including custom roles. Commit the

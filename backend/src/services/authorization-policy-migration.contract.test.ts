@@ -21,7 +21,7 @@ describe('authorization policy migrations', () => {
 describe('production responsibility cutover (mocked seed contract, not database acceptance)', () => {
   const code = '2026-10-05-production-responsibility-split-v1';
   const permissions = ['production.bom.write', 'production.plan.write', 'production.execute'];
-  function fixture(legacy: string[], alreadyMigrated = false) {
+  function fixture(legacy: string[], alreadyMigrated = false, migrationCode = code) {
     const tx = {
       authRolePermission: { findMany: jest.fn().mockResolvedValue(legacy.map(roleCode => ({ roleCode }))),
         upsert: jest.fn().mockResolvedValue({}), deleteMany: jest.fn().mockResolvedValue({ count: legacy.length }) },
@@ -31,7 +31,7 @@ describe('production responsibility cutover (mocked seed contract, not database 
     const db = { authPermission: { upsert: jest.fn().mockResolvedValue({}) },
       authRole: { findUnique: jest.fn().mockResolvedValue({ dataScopesJson: '[]' }), upsert: jest.fn().mockResolvedValue({}) },
       authRolePermission: { count: jest.fn().mockResolvedValue(1) },
-      authPolicyMigration: { findUnique: jest.fn().mockImplementation(({ where }) => Promise.resolve(where.code === code && !alreadyMigrated ? null : { id: 1 })) },
+      authPolicyMigration: { findUnique: jest.fn().mockImplementation(({ where }) => Promise.resolve(where.code === migrationCode && !alreadyMigrated ? null : { id: 1 })) },
       $transaction: jest.fn(async action => action(tx)),
     };
     jest.doMock('../config/database', () => ({ __esModule: true, default: db }));
@@ -63,5 +63,24 @@ describe('production responsibility cutover (mocked seed contract, not database 
     const f = fixture(['manager']); f.tx.authRolePermission.upsert.mockRejectedValueOnce(new Error('cutover interrupted'));
     await expect(f.seed()).rejects.toThrow('cutover interrupted'); expect(f.tx.authPolicyMigration.upsert).not.toHaveBeenCalled();
     await f.seed(); expect(f.db.$transaction).toHaveBeenCalledTimes(2); expect(f.tx.authPolicyMigration.upsert).toHaveBeenCalledTimes(1);
+  });
+  it('adds approval/receipt only to existing procurement holders, without replacing their draft grants', async () => {
+    const migrationCode = '2026-10-05-procurement-responsibility-split-v1';
+    const f = fixture(['manager', 'inactive_custom_buyer'], false, migrationCode); await f.seed();
+    expect(f.tx.authRolePermission.findMany).toHaveBeenCalledWith({ where: { permissionCode: 'procurement.write' }, select: { roleCode: true }, orderBy: { roleCode: 'asc' } });
+    expect(f.tx.authRolePermission.upsert.mock.calls.map(([arg]) => arg.create)).toEqual(
+      ['manager', 'inactive_custom_buyer'].flatMap(roleCode => ['procurement.approve', 'procurement.receive'].map(permissionCode => ({ roleCode, permissionCode }))));
+    expect(f.tx.authRolePermission.deleteMany).not.toHaveBeenCalled(); expect(f.tx.authPermission.deleteMany).not.toHaveBeenCalled();
+    expect(f.tx.authPolicyMigration.upsert).toHaveBeenCalledWith(expect.objectContaining({ where: { code: migrationCode } }));
+  });
+  it('a completed procurement migration does not restore revoked approval/receipt grants', async () => {
+    const f = fixture(['manager'], true, '2026-10-05-procurement-responsibility-split-v1'); await f.seed();
+    expect(f.db.$transaction).not.toHaveBeenCalled();
+  });
+  it('a procurement grant failure cannot mark migration complete and is retried', async () => {
+    const f = fixture(['manager'], false, '2026-10-05-procurement-responsibility-split-v1');
+    f.tx.authRolePermission.upsert.mockRejectedValueOnce(new Error('procurement interrupted'));
+    await expect(f.seed()).rejects.toThrow('procurement interrupted'); expect(f.tx.authPolicyMigration.upsert).not.toHaveBeenCalled();
+    await f.seed(); expect(f.db.$transaction).toHaveBeenCalledTimes(2);
   });
 });

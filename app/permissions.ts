@@ -70,6 +70,8 @@ export type FrontendPermission =
   | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
+  | 'procurement.approve'
+  | 'procurement.receive'
   | 'procurement.b2b.read'
   | 'materials.read'
   | 'materials.write'
@@ -177,6 +179,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
     'materials.read',
     'materials.write',
@@ -252,6 +256,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
     'materials.read',
     'materials.write',
@@ -318,6 +324,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
     'materials.read',
   ],

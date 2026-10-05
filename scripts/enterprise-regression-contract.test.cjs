@@ -13,7 +13,7 @@ function fixture(profile = 'cloud') {
   const stamp = { regression: context, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:03.000Z', provider: profile === 'cloud' ? 'postgresql' : 'sqlite' };
   const protectedIds = baseline.revisions.at(-1).round2Checks;
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
-    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : id === 'payment-reversal-browser' ? { version: 'payment-reversal-acceptance/v1', api: require('./fixtures/payment-reversal-api-proof-fixture.cjs').paymentReversalApiProofFixture(), browser: require('./fixtures/payment-reversal-browser-proof-fixture.cjs').paymentReversalBrowserProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') } : { readback: true } })) };
+    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'purchase-browser-readback' ? require('./fixtures/purchase-role-proof-fixture.cjs').purchaseRoleProofFixture() : id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : id === 'payment-reversal-browser' ? { version: 'payment-reversal-acceptance/v1', api: require('./fixtures/payment-reversal-api-proof-fixture.cjs').paymentReversalApiProofFixture(), browser: require('./fixtures/payment-reversal-browser-proof-fixture.cjs').paymentReversalBrowserProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') } : { readback: true } })) };
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
@@ -200,3 +200,29 @@ test('cloud always replays prior checks, isolates legacy failures and aggregates
   assert.equal(baseline.revisions[0].round2Checks.length, 12);
   assert.equal(baseline.revisions[0].cloudSteps.length, 22);
 });
+
+const { verifyPurchaseRoleProof } = require('./lib/enterprise-round2-procurement.cjs');
+const { purchaseRoleProofFixture } = require('./fixtures/purchase-role-proof-fixture.cjs');
+test('synthetic PO verifier fixture is valid but not business execution', () => {
+  assert.deepEqual(verifyPurchaseRoleProof(purchaseRoleProofFixture()), { actors: 3, deniedWrites: 26, browserWrites: 4, receivedQuantity: 5, remainingQuantity: 7, receivedCost: 50 });
+});
+for (const [label, corrupt] of [
+  ['shared identity', e => { e.actors[1].id = e.actors[0].id; }],
+  ['buyer overgrant', e => { e.actors[0].permissions.push('procurement.receive'); }],
+  ['warehouse all scope', e => { e.actors[2].dataScopes = ['all']; }],
+  ['missing denial', e => { e.denied.pop(); }],
+  ['wrong denial permission', e => { e.denied[0].response.requiredPermissions = ['procurement.write']; }],
+  ['denied side effect', e => { e.afterDenied.orders[0].quantity = 999; }],
+  ['missing rejection audit', e => { e.denialAudits.pop(); }],
+  ['approval actor swapped', e => { e.final.audits[2].userId = 10; }],
+  ['receipt receiver swapped', e => { e.final.receipts[0].receivedBy = 10; }],
+  ['stock overreceipt', e => { e.final.balances[0].quantity = 12; }],
+  ['batch trace swapped', e => { e.final.costs[0].batchId = 999; }],
+  ['cost drift', e => { e.final.costs[0].costAmountDelta = 120; }],
+  ['stale second node', e => { e.readbacks[1].receiptSummary.remainingQuantity = 12; }],
+  ['unauthorized browser action', e => { e.browser[0].receiveEnabled = true; }],
+  ['missing browser', e => { e.browser.pop(); }],
+  ['browser API failure', e => { e.browser[1].errors = ['403 /api/orders']; }],
+  ['stale purchase permission notice', e => { e.browser[1].purchaseNotice = '审批和收货需要采购写入权限'; }],
+  ['stale receipt permission notice', e => { e.browser[0].receiptNotice = '保存收货需要采购写入权限'; }],
+]) test(`PO proof rejects ${label}`, () => { const e = purchaseRoleProofFixture(); corrupt(e); assert.throws(() => verifyPurchaseRoleProof(e)); });

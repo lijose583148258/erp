@@ -79,6 +79,8 @@ export type Permission =
   | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
+  | 'procurement.approve'
+  | 'procurement.receive'
   | 'procurement.b2b.read'
   | 'materials.read'
   | 'materials.write'
@@ -172,7 +174,9 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'finance.read', resource: 'finance', action: 'read', label: '查看财务', group: '财务' },
   { code: 'procurement.suppliers.read', resource: 'procurement.suppliers', action: 'read', label: '查看供应商基础资料', group: '采购' },
   { code: 'procurement.read', resource: 'procurement', action: 'read', label: '查看采购', group: '采购' },
-  { code: 'procurement.write', resource: 'procurement', action: 'write', label: '管理采购', group: '采购' },
+  { code: 'procurement.write', resource: 'procurement', action: 'write', label: '维护采购单与供应商', group: '采购' },
+  { code: 'procurement.approve', resource: 'procurement', action: 'approve', label: '审批采购单', group: '采购' },
+  { code: 'procurement.receive', resource: 'procurement', action: 'receive', label: '登记采购收货', group: '采购' },
   { code: 'procurement.b2b.read', resource: 'procurement.b2b', action: 'read', label: '查看 B2B 采购状态', group: '采购' },
   { code: 'materials.read', resource: 'materials', action: 'read', label: '查看物料主数据', group: '物料主数据' },
   { code: 'materials.write', resource: 'materials', action: 'write', label: '维护物料主数据', group: '物料主数据', description: '创建、修改、启用、冻结或停用统一物料及其别名' },
@@ -271,6 +275,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
     'materials.read',
     'materials.write',
@@ -355,6 +361,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
     'materials.read',
     'materials.write',
@@ -431,6 +439,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
     'materials.read',
     ],

@@ -91,7 +91,7 @@ export const PurchaseReceiptDrawer = ({
         </div>
         {!canWrite && (
           <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700 dark:border-amber-900/40 dark:bg-amber-900/20 dark:text-amber-200">
-            当前角色只能查看收货批次，保存收货需要采购写入权限。
+            当前角色只能查看收货批次，保存收货需要采购收货登记权限。
           </div>
         )}
         {receiptErrorCount > 0 && (
