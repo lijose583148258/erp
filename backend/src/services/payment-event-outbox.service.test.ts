@@ -41,6 +41,23 @@ describe('payment event durable delivery', () => {
     expect((await drainPaymentEventOutbox({ db, send })).claimed).toBe(0);
     expect(send).not.toHaveBeenCalled();
   });
+  it('a durable receipt cannot be marked delivered before the send acknowledgement resolves', async () => {
+    const { db, updateMany } = fixture();
+    let acknowledge!: (value: { ok: true }) => void;
+    let entered!: () => void;
+    const sending = new Promise<void>(resolve => { entered = resolve; });
+    const send = async () => {
+      entered();
+      return new Promise<{ ok: true }>(resolve => { acknowledge = resolve; });
+    };
+    const drain = drainPaymentEventOutbox({ db, now: () => instant, send });
+    await sending;
+    expect(updateMany).toHaveBeenCalledTimes(1);
+    expect(updateMany.mock.calls[0][0].data.status).toBe('sending');
+    acknowledge({ ok: true });
+    expect((await drain).delivered).toBe(1);
+    expect(updateMany.mock.calls[1][0].data.status).toBe('delivered');
+  });
   it('failure stays pending, backs off and does not persist sensitive errors', async () => {
     const { db, updateMany } = fixture();
     await drainPaymentEventOutbox({ db, now: () => instant, send: async () => ({ ok: false, errorCode: 'https://user:secret@example.invalid' }) });

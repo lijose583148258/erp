@@ -9,6 +9,7 @@ const expectedAudits = [
   ['search_readiness', 'Meilisearch initialization, rebuild and readiness'],
   ['human_workflows', 'Human ERP workflows'],
   ['staff_20', '20 distinct chemical trading and factory staff'],
+  ['authorization_dual_node', 'Cross-node role grant/revoke coherence and denied stock-write zero effect'],
   ['shared_session', 'Shared session across app instances'],
   ['telemetry_ingestion', 'Telemetry ingestion'],
   ['ai_isolation', 'AI isolation red team'],

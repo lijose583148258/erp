@@ -23,6 +23,9 @@ on:
       - 'backend/src/services/backup.service.ts'
       - 'backend/src/services/stock-movement*.ts'
       - 'backend/src/controllers/warehouse.controller.ts'
+      - 'backend/src/permissions/casbinAuthorization*.ts'
+      - 'backend/src/services/authorization-policy.service.ts'
+      - 'scripts/authorization-dual-node-audit-v1.cjs'
       - 'backend/src/routes/warehouse.routes.ts'
       - 'scripts/cloud-postgres-*.cjs'
       - 'scripts/postgres-*.cjs'
@@ -842,6 +845,15 @@ jobs:
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
         run: node ./scripts/sales-fulfillment-plan-audit-v1.cjs
+
+      - name: Verify role grants and revocations across both application nodes
+        id: authorization_dual_node
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 3
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+        run: node ./scripts/authorization-dual-node-audit-v1.cjs
 
       - name: Exercise Round 2 inventory, payment and barter business acceptance
         id: round2_business

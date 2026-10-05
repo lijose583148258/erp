@@ -8,7 +8,6 @@ import {
   ROLE_POLICIES,
   isBuiltInRole,
 } from '../permissions/permissionRegistry';
-import { resetAuthorizationEnforcer } from '../permissions/casbinAuthorization';
 import { writeRoleAuditLog } from './role-audit.service';
 
 export interface AuthRoleView {
@@ -340,7 +339,6 @@ export async function ensureAuthorizationPolicySeed() {
       await upsertPermissionDefinitions();
       await upsertSystemRoles();
       await applyAuthorizationPolicyMigrations();
-      resetAuthorizationEnforcer();
       authorizationSeeded = true;
     })().catch((error) => {
       authorizationSeeded = false;
@@ -469,7 +467,6 @@ export async function createRole(input: SaveRoleInput, operatorId?: number): Pro
     }
   });
 
-  resetAuthorizationEnforcer();
   const role = (await listRoles()).find((item) => item.code === input.code);
   if (!role) throw new Error('Role was created but could not be read back.');
   await writeRoleAuditLog({
@@ -525,7 +522,6 @@ export async function updateRole(roleCode: string, input: SaveRoleInput, operato
     }
   });
 
-  resetAuthorizationEnforcer();
   const role = (await listRoles()).find((item) => item.code === roleCode);
   if (!role) throw new Error('Role was updated but could not be read back.');
   await writeRoleAuditLog({

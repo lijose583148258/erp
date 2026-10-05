@@ -6,8 +6,7 @@ async function main() {
   const database = await import('../../backend/src/config/database.ts');
   const prisma = database.default;
   const authorization = await import('../../backend/src/permissions/casbinAuthorization.ts');
-  const { casbinAllowsPermission, resetAuthorizationEnforcer } = authorization;
-  resetAuthorizationEnforcer();
+  const { casbinAllowsPermission } = authorization;
 
   let allowed = false;
   let errorMessage: string | null = null;
@@ -30,7 +29,7 @@ async function main() {
     errorMessage,
   };
 
-  console.log(JSON.stringify(result, null, 2));
+  console.log(`RBAC_FALLBACK_PROBE_RESULT ${JSON.stringify(result)}`);
 
   if (mode === 'strict') {
     if (!errorMessage || allowed) {

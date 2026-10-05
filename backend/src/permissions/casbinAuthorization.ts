@@ -1,7 +1,7 @@
 import { Enforcer, newEnforcer, newModelFromString } from 'casbin';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
-import { BuiltInRole, Permission, ROLE_POLICIES } from './permissionRegistry';
+import { Permission, ROLE_POLICIES, isBuiltInRole } from './permissionRegistry';
 
 const MODEL = `
 [request_definition]
@@ -16,8 +16,6 @@ e = some(where (p.eft == allow))
 [matchers]
 m = r.sub == p.sub && r.obj == p.obj && r.act == p.act
 `;
-
-let enforcerPromise: Promise<Enforcer> | null = null;
 
 type RolePermissionRow = {
   roleCode: string;
@@ -45,32 +43,19 @@ export function permissionToCasbinTuple(permission: Permission): { object: strin
   };
 }
 
-async function buildEnforcer(): Promise<Enforcer> {
-  const model = newModelFromString(MODEL);
-  const enforcer = await newEnforcer(model);
-  enforcer.enableAutoSave(false);
-
+async function buildEnforcer(role: string): Promise<Enforcer> {
+  let rows: RolePermissionRow[];
   try {
-    const rows = (await prisma.authRolePermission.findMany({
-      where: { role: { isActive: true } },
+    // Cache neither grants nor denials: another node may just have changed this
+    // role. One authoritative snapshot is used for the entire decision.
+    rows = (await prisma.authRolePermission.findMany({
+      where: { roleCode: role, role: { isActive: true } },
       select: {
         roleCode: true,
         permissionCode: true,
       },
-      orderBy: [
-        { roleCode: 'asc' },
-        { permissionCode: 'asc' },
-      ],
+      orderBy: { permissionCode: 'asc' },
     })) as RolePermissionRow[];
-
-    if (rows.length === 0) {
-      throw new Error('Dynamic RBAC table has no role permission rows.');
-    }
-
-    for (const row of rows) {
-      const { object, action } = permissionToCasbinTuple(row.permissionCode);
-      await enforcer.addPolicy(row.roleCode, object, action);
-    }
   } catch (error) {
     if (!allowsBuiltInRbacFallback()) {
       logger.error('Dynamic RBAC policy load failed and built-in fallback is disabled.', error);
@@ -82,38 +67,32 @@ async function buildEnforcer(): Promise<Enforcer> {
     // decisions must come from auth_role_permissions so super-admin changes
     // survive restarts and table failures do not become false-green access.
     logger.warn('Dynamic RBAC policy load failed; using explicit built-in RBAC fallback.', error);
-    for (const [role, policy] of Object.entries(ROLE_POLICIES) as Array<[BuiltInRole, typeof ROLE_POLICIES[BuiltInRole]]>) {
-      for (const permission of policy.permissions) {
-        const { object, action } = permissionToCasbinTuple(permission);
-        await enforcer.addPolicy(role, object, action);
-      }
-    }
+    rows = isBuiltInRole(role)
+      ? ROLE_POLICIES[role].permissions.map(permissionCode => ({ roleCode: role, permissionCode }))
+      : [];
   }
 
+  // An empty policy is a denial (including inactive/deleted roles), never a
+  // reason to restore built-in grants. Each decision owns its Casbin instance.
+  const enforcer = await newEnforcer(newModelFromString(MODEL));
+  enforcer.enableAutoSave(false);
+  for (const row of rows) {
+    const { object, action } = permissionToCasbinTuple(row.permissionCode);
+    await enforcer.addPolicy(row.roleCode, object, action);
+  }
   return enforcer;
 }
 
-export function getAuthorizationEnforcer(): Promise<Enforcer> {
-  if (!enforcerPromise) {
-    enforcerPromise = buildEnforcer();
-  }
-
-  return enforcerPromise;
-}
-
-export function resetAuthorizationEnforcer() {
-  enforcerPromise = null;
-}
-
 export async function casbinAllowsPermission(role: string, permission: Permission): Promise<boolean> {
-  const enforcer = await getAuthorizationEnforcer();
-  const { object, action } = permissionToCasbinTuple(permission);
-  return enforcer.enforce(role, object, action);
+  return casbinAllowsAllPermissions(role, [permission]);
 }
 
 export async function casbinAllowsAllPermissions(role: string, permissions: readonly Permission[]): Promise<boolean> {
+  if (permissions.length === 0) return true;
+  const enforcer = await buildEnforcer(role);
   for (const permission of permissions) {
-    const allowed = await casbinAllowsPermission(role, permission);
+    const { object, action } = permissionToCasbinTuple(permission);
+    const allowed = await enforcer.enforce(role, object, action);
     if (!allowed) {
       return false;
     }

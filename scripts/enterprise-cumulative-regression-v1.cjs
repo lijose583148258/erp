@@ -19,6 +19,7 @@ try {
       reports: { round2: safeRead(process.env.REGRESSION_ROUND2_PATH || 'output/audit/enterprise-round2-v1.json'),
         sales: safeRead(process.env.REGRESSION_SALES_PATH || 'output/audit/sales-partial-fulfillment/report.json'),
         salesPlan: safeRead(process.env.REGRESSION_SALES_PLAN_PATH || 'output/audit/sales-fulfillment-plan/report.json'),
+        authorization: safeRead('output/audit/authorization-dual-node-v1.json'),
         legacy: safeRead(process.env.REGRESSION_LEGACY_PATH || 'output/audit/barter-cash-legacy-upgrade.json') },
       steps: JSON.parse(process.env.BUSINESS_AUDIT_STEPS_JSON || '{}') });
     report.readErrors = errors; write(output, report);

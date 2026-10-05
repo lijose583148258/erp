@@ -5,6 +5,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
+const { setTimeout: delay } = require('node:timers/promises');
 
 async function createPaymentEventReceiver({ secret, folder, host = '127.0.0.1', port = 0 }) {
   assert(typeof secret === 'string' && secret.length >= 32);
@@ -67,6 +68,10 @@ async function createPaymentEventReceiver({ secret, folder, host = '127.0.0.1', 
         target.phase = 'accepted-awaiting-ack'; attempt.status = 'ack-withheld'; return;
       }
       if (matching) target.phase = 'acknowledged';
+      // Windows V8 wall clocks can differ across processes by a timer tick.
+      // Separate the real ACK from receipt time; never rewrite timestamps or
+      // loosen the strict recovery proof. See the acceptance doc's clock probe.
+      if (matching && process.platform === 'win32') await delay(25);
       attempt.status = 202; reply(202, { eventId: event.id, replay: !!prior });
     } catch (error) { if (!res.headersSent) reply(400, { error: error.message }); }
   });

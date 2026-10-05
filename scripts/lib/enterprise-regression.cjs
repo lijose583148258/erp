@@ -59,7 +59,7 @@ function validateBaseline(baseline) {
     }
     assert(revision.round2Checks.every(id => known.includes(id)), 'Unknown baseline check');
     assert(['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'].every(id => revision.independentChecks.includes(id)), 'Core independent checks cannot be removed');
-    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan'].includes(id)), 'Independent adapters must be implemented explicitly');
+    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'authorization-dual-node'].includes(id)), 'Independent adapters must be implemented explicitly');
     previous = revision;
   }
   return previous;
@@ -145,6 +145,29 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     const r = reports.salesPlan; verifyFresh(r, context, provider, now);
     const proof = require('./sales-fulfillment-plan-proof.cjs').verifySalesPlanProof(r);
     return { ...proof, evidenceSha256: sha256(JSON.stringify(r)) };
+  });
+  if (revision?.independentChecks.includes('authorization-dual-node')) record('authorization-dual-node', () => {
+    const r = reports.authorization; verifyFresh(r, context, provider, now);
+    assert.equal(r.version, 'authorization-dual-node/v1'); assert.equal(r.status, 'passed');
+    assert.equal(r.commit, context.commit); assert.equal(r.commitAfter, context.commit);
+    assert.equal(r.sourceHash, context.sourceHash); assert.equal(r.sourceHashAfter, context.sourceHash);
+    assert.deepEqual(r.checks.map(c => c.id), ['new-grant-visible-on-both-nodes', 'granted-role-can-really-write-on-both-nodes',
+      'revoke-denies-real-write-on-both-nodes', 'revoked-write-has-zero-stock-or-ledger-effect',
+      'auth-me-and-enforcement-agree', 'policy-changes-have-actor-audit', 'source-unchanged']);
+    assert(r.checks.every(c => c.status === 'passed'));
+    for (const [key, status] of [['newRoleReads', 200], ['authorizedTransfers', 201], ['revokedTransfers', 403]]) {
+      const rows = r.observations[key]; assert.deepEqual(rows.map(row => row.instance), [0, 1]);
+      assert(rows.every(row => row.status === status), `Wrong real HTTP outcome: ${key}`);
+    }
+    assert.deepEqual(r.observations.profilesAfterRevoke.map(row => row.instance), [0, 1]);
+    assert(r.observations.profilesAfterRevoke.every(row => row.profile.id === r.actor.id
+      && !row.profile.permissions.includes('warehouse.write')));
+    assert.deepEqual(r.before.balances.map(row => row.quantity).sort((a, b) => a - b), [2, 98]);
+    assert.equal(r.before.movements.length, 5); assert.equal(r.before.entries.length, 3);
+    for (const key of ['balances', 'movements', 'entries', 'batches', 'costs']) assert(Array.isArray(r.before[key]));
+    assert.deepEqual(r.after, r.before, 'Denied requests changed physical stock, cost or ledger facts');
+    assert.equal(r.roleAudits.length, 3); assert(r.roleAudits.every(row => row.userId === r.adminId));
+    return { evidenceSha256: sha256(JSON.stringify(r)) };
   });
   if (context?.profile === 'cloud') for (const id of revision?.cloudSteps || []) record(`cloud:${id}`, () => {
     assert.equal(steps[id]?.outcome, 'success', 'Prior cloud audit failed, skipped or missing (conclusion is not sufficient)');

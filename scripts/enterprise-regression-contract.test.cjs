@@ -17,6 +17,18 @@ function fixture(profile = 'cloud') {
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
+  // Synthetic verifier fixture only; real acceptance comes from HTTP + raw DB.
+  const authorization = { ...stamp, version: 'authorization-dual-node/v1', status: 'passed', adminId: 1, actor: { id: 2 },
+    commit: context.commit, commitAfter: context.commit, sourceHash: context.sourceHash, sourceHashAfter: context.sourceHash,
+    checks: ['new-grant-visible-on-both-nodes', 'granted-role-can-really-write-on-both-nodes',
+      'revoke-denies-real-write-on-both-nodes', 'revoked-write-has-zero-stock-or-ledger-effect',
+      'auth-me-and-enforcement-agree', 'policy-changes-have-actor-audit', 'source-unchanged'].map(id => ({ id, status: 'passed' })),
+    observations: Object.fromEntries([['newRoleReads', 200], ['authorizedTransfers', 201], ['revokedTransfers', 403]]
+      .map(([key, status]) => [key, [0, 1].map(instance => ({ instance, status }))])),
+    before: { balances: [{ quantity: 98 }, { quantity: 2 }], movements: [1, 2, 3, 4, 5], entries: [1, 2, 3], batches: [], costs: [] },
+    roleAudits: [1, 2, 3].map(id => ({ id, userId: 1 })) };
+  authorization.after = structuredClone(authorization.before);
+  authorization.observations.profilesAfterRevoke = [0, 1].map(instance => ({ instance, profile: { id: 2, permissions: ['warehouse.read'] } }));
   const legacy = { ...stamp, provider: 'sqlite', status: 'passed', before: 'c'.repeat(64), after: 'c'.repeat(64), integrity: 'ok',
     repeatedRepairUnchanged: true, originalBusinessRowsUnchanged: true, fixtureKind: 'reconstructed-legacy-schema', originalTableCount: 63,
     obligations: [{ status: 'review', requestKey: null, paymentReference: null }], attempts: [{ refundRejected: true, reversalRejected: true }] };
@@ -24,7 +36,7 @@ function fixture(profile = 'cloud') {
   steps.round2_business = { outcome: 'failure', conclusion: 'success' }; steps.cash_legacy_upgrade = { outcome: 'success' };
   // Disk reports are separately serialized; do not retain aliases to the expected context.
   return JSON.parse(JSON.stringify({ baseline, context, currentCommit: context.commit, currentSourceHash: context.sourceHash,
-    reports: { round2, sales, salesPlan, legacy }, steps, now: Date.parse('2026-01-01T00:00:04.000Z') }));
+    reports: { round2, sales, salesPlan, authorization, legacy }, steps, now: Date.parse('2026-01-01T00:00:04.000Z') }));
 }
 
 test('baseline replay may pass while full 37-check acceptance remains incomplete', () => {
@@ -34,6 +46,24 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+for (const scenario of ['valid-noisy-output', 'missing-result', 'wrong-mode', 'unexpected-grant']) test(`fallback audit requires actual worker evidence: ${scenario}`, () => {
+  const source = fs.readFileSync(path.join(__dirname, 'casbin-fallback-policy-audit-v1.cjs'), 'utf8');
+  const outputs = ['strict', 'fallback'].map(mode => {
+    const result = { mode, allowed: mode === 'fallback', errorMessage: mode === 'strict' ? 'Missing dynamic tables' : null };
+    if (scenario === 'wrong-mode') result.mode = 'other';
+    if (scenario === 'unexpected-grant') result.allowed = !result.allowed;
+    return { status: 0, signal: null, stderr: '', stdout: '{"unrelated":"Prisma logger JSON"}\n'
+      + (scenario === 'missing-result' ? '' : `RBAC_FALLBACK_PROBE_RESULT ${JSON.stringify(result)}\n`) };
+  });
+  let report;
+  const processStub = { env: {}, platform: 'linux', cwd: () => path.resolve(__dirname, '..'), exitCode: 0 };
+  require('node:vm').runInNewContext(source, { process: processStub, console: { log() {} },
+    require: name => name === 'fs' ? { mkdirSync() {}, writeFileSync(file, json) { report = JSON.parse(json); } }
+      : name === 'child_process' ? { spawnSync: () => outputs.shift() } : require(name) });
+  assert.equal(report.status, scenario === 'valid-noisy-output' ? 'passed' : 'failed');
+  assert.equal(processStub.exitCode, scenario === 'valid-noisy-output' ? 0 : 1);
 });
 
 test('existing accepted payment ID cannot pass after erasing its newly protected applied-finance evidence', () => {
@@ -70,6 +100,14 @@ for (const [label, mutate] of [
   ['missing supply plan replay', d => { d.reports.salesPlan = null; }],
   ['stale supply plan evidence', d => { d.reports.salesPlan.regression.key = 'old'; }],
   ['empty supply plan browser proof', d => { d.reports.salesPlan.browserCreate = {}; }],
+  ['missing cross-node authorization replay', d => { d.reports.authorization = null; }],
+  ['stale authorization source', d => { d.reports.authorization.sourceHashAfter = 'd'.repeat(64); }],
+  ['secondary node grant denied', d => { d.reports.authorization.observations.newRoleReads[1].status = 403; }],
+  ['secondary node revoked write succeeds', d => { d.reports.authorization.observations.revokedTransfers[1].status = 201; }],
+  ['denied write altered stock', d => { d.reports.authorization.after.balances[0].quantity = 97; }],
+  ['denied write altered cost', d => { d.reports.authorization.after.costs.push({ costAmountDelta: -10 }); }],
+  ['UI profile still grants revoked permission', d => { d.reports.authorization.observations.profilesAfterRevoke[1].profile.permissions.push('warehouse.write'); }],
+  ['skipped cross-node authorization cloud process', d => { d.steps.authorization_dual_node.outcome = 'skipped'; }],
   ['minimal fixture replacing legacy database', d => { d.reports.legacy.originalTableCount = 1; d.reports.legacy.fixtureKind = 'minimal-legacy-boundary'; }],
   ['legacy business mutation', d => { d.reports.legacy.after = 'd'.repeat(64); }],
   ['legacy refund incorrectly opened', d => { d.reports.legacy.obligations[0].status = 'open'; }],

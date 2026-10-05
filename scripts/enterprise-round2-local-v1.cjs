@@ -151,11 +151,13 @@ async function main() {
   if (cumulative) {
     const salesPath = path.join(sandbox, 'sales-partial', 'report.json');
     const salesPlanPath = path.join(sandbox, 'sales-plan', 'report.json');
+    const authorizationPath = path.join(sandbox, 'authorization-dual-node-v1.json');
     const executions = [];
     for (const [label, script, target, args, allowed] of [
       ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
       ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
+      ['authorization', 'scripts/authorization-dual-node-audit-v1.cjs', authorizationPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
     ]) {
       // A failing prior package must not truncate independent later packages.
@@ -170,7 +172,7 @@ async function main() {
     const read = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
     const result = evaluateRegression({ baseline: require('./config/enterprise-regression-baseline-v1.json'),
       context: read(env.REGRESSION_CONTEXT_PATH), currentCommit: headCommit(root), currentSourceHash: sourceFingerprint(root),
-      reports: { round2: read(reportPath), sales: read(salesPath), salesPlan: read(salesPlanPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
+      reports: { round2: read(reportPath), sales: read(salesPath), salesPlan: read(salesPlanPath), authorization: read(authorizationPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
       executionErrors: executions.filter(e => !e.acceptable) });
     result.executions = executions;
     const file = path.join(sandbox, 'cumulative-regression.json'); fs.writeFileSync(file, JSON.stringify(result, null, 2));
@@ -179,7 +181,8 @@ async function main() {
     return;
   }
   const reconciliation = process.argv.includes('--payment-reconciliation') || process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser');
-  const auditScript = process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const authorization = process.argv.includes('--authorization-freshness');
+  const auditScript = authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);
@@ -188,7 +191,7 @@ async function main() {
     process.exitCode = result.code ?? 1;
     if (!fs.existsSync(reportPath)) throw new Error('Audit terminated without a report');
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-    console.log(JSON.stringify(reconciliation ? { status: report.status, scope: report.scope, reportPath }
+    console.log(JSON.stringify(reconciliation || authorization ? { status: report.status, scope: report.scope, reportPath }
       : { status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
     // A terminated child or unfinished report never becomes green.
     if (!report.finishedAt || report.status !== 'passed') process.exitCode ||= 2;
