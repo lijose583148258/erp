@@ -28,8 +28,8 @@ export const useShipping = () => {
         try {
             const [s, aSum, cust] = await Promise.all([
                 shipmentService.getAll({ signal }),
-                assetService.getSummaries({ signal }),
-                customerService.getAll({ signal })
+                can(currentUser, 'assets.read') ? assetService.getSummaries({ signal }) : Promise.resolve([]),
+                can(currentUser, 'customers.read') ? customerService.getAll({ signal }) : Promise.resolve([])
             ]);
             if (signal?.aborted) return;
             setShipments(s || []);

@@ -5,6 +5,36 @@ const os = require('node:os');
 const path = require('node:path');
 const catalog = require('./config/enterprise-round2-v1.json');
 const { validateCatalog, summarize, createRound2Runner, synchronizedBurst } = require('./lib/enterprise-round2-runner.cjs');
+const { verifyInventoryBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
+const { inventoryBrowserFixture } = require('./fixtures/inventory-browser-proof-fixture.cjs');
+
+test('inventory readback verifier accepts stock and both legitimate transfer/shipping outcomes', () => {
+  for (const status of [undefined, 'pending', 'in_transit']) {
+    const { source, proof } = inventoryBrowserFixture(status);
+    assert.equal(verifyInventoryBrowser(proof, source).actors.length, 2);
+  }
+});
+
+for (const [label, mutate] of [
+  ['stale displayed quantity', ({ proof }) => { proof.readbacks[0].balances[0].cells[2] = '100'; }],
+  ['wrong batch', ({ proof }) => { proof.readbacks[0].balances[0].cells[1] = 'other-batch'; }],
+  ['wrong location', ({ proof }) => { proof.readbacks[0].balances[0].cells[5] = 'other-location'; }],
+  ['missing ledger', ({ proof }) => { proof.readbacks[0].ledger = []; }],
+  ['missing movement quantity', ({ proof }) => { proof.readbacks[0].ledger[0].text = 'entry-1 ref-1 posted 1 行 / 40 unit-product unit-batch'; }],
+  ['same actor twice', ({ proof }) => { proof.readbacks[1].actorId = proof.readbacks[0].actorId; }],
+  ['same node twice', ({ proof }) => { proof.readbacks[1].instance = 0; }],
+  ['unauthorized customer read', ({ proof }) => { proof.readbacks[0].customerCatalogRequests = 1; }],
+  ['wrong shipment status', ({ proof }) => { proof.readbacks[0].shipment.status = '待发货'; }],
+  ['covered shipment status', ({ proof }) => { proof.readbacks[0].shipment.statusUnobscured = false; }],
+  ['lost screenshot', ({ proof }) => { proof.readbacks[0].screenshots.pop(); }],
+  ['API failure', ({ proof }) => { proof.readbacks[0].httpStatuses[0] = 403; }],
+  ['runtime error', ({ proof }) => { proof.runtimeErrors.push('403 Forbidden'); }],
+  ['cost drift', ({ source }) => { source.state.costs[0].costAmountDelta += 1; }],
+  ['physical balance drift', ({ source }) => { source.state.batch.stockQuantity += 1; }],
+]) test(`inventory browser rejects ${label}`, () => {
+  const fixture = inventoryBrowserFixture('in_transit'); mutate(fixture);
+  assert.throws(() => verifyInventoryBrowser(fixture.proof, fixture.source));
+});
 
 test('20 positions, 12 chains and unique obligations are frozen', () => {
   assert(validateCatalog(catalog).length >= 24);

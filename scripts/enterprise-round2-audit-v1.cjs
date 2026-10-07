@@ -27,7 +27,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
 } });
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
-if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback', 'stock-contention-browser', 'transfer-shipping-browser');
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
@@ -404,6 +404,13 @@ async function barterConsumedReversal(signal) {
   }, { settlementId: ctx.settlement.id, shipmentId: delivery.id, reversalStatus: result.status, reversalMessage: result.json?.message, before, after });
 }
 
+async function runInventoryBrowser(id, source) {
+  if (process.env.ROUND2_BROWSER !== 'true') return;
+  if (!source) { runner.block(id, 'Stock race did not reconcile; no browser pass can be inferred'); return; }
+  const { inventoryRaceBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
+  await runner.run(id, signal => inventoryRaceBrowser({ actors, urls, reportPath, runId }, source, signal), { timeoutMs: 120000 });
+}
+
 async function main() {
   try {
     await setup(AbortSignal.timeout(90_000));
@@ -413,8 +420,13 @@ async function main() {
     return;
   }
   if (process.env.ROUND2_ONLY_CHECK) {
-    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback'].includes(process.env.ROUND2_ONLY_CHECK));
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'inventory-browser'].includes(process.env.ROUND2_ONLY_CHECK));
     assert.equal(process.env.ROUND2_BROWSER, 'true');
+    if (process.env.ROUND2_ONLY_CHECK === 'inventory-browser') {
+      await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
+      await runInventoryBrowser('transfer-shipping-browser', await runner.run('transfer-shipping-contention', transferShipping));
+      return;
+    }
     if (process.env.ROUND2_ONLY_CHECK === 'purchase-browser-readback') {
       const { purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
       await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
@@ -429,14 +441,14 @@ async function main() {
     await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
     return;
   }
-  await runner.run('stock-20-contention', stockContention);
+  await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
   await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
   if (process.env.ROUND2_BROWSER === 'true') {
     const { purchaseRevisionBrowser, purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
     await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
     await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
   }
-  await runner.run('transfer-shipping-contention', transferShipping);
+  await runInventoryBrowser('transfer-shipping-browser', await runner.run('transfer-shipping-contention', transferShipping));
   await runner.run('shipping-cost-conservation', shippingCost);
   await runner.run('payment-duplicate-verification', paymentVerification);
   if (process.env.ROUND2_BROWSER === 'true') {

@@ -736,6 +736,73 @@
         "sales_fulfillment_plan",
         "authorization_dual_node"
       ]
+    },
+    {
+      "id": "inventory-race-browser-v1",
+      "evidence": "output/round2/1791303448343-57be8245/enterprise-round2-v1.json",
+      "round2Checks": [
+        "stock-20-contention",
+        "po-stale-edit-conflict",
+        "po-reapproval-browser",
+        "transfer-shipping-contention",
+        "shipping-cost-conservation",
+        "payment-duplicate-verification",
+        "barter-dual-stock-posting-replay",
+        "barter-offset-cash-difference",
+        "barter-reversal-conservation",
+        "barter-consumed-receipt-reversal-blocked",
+        "barter-partial-fulfillment",
+        "barter-negative-cash-adjustment",
+        "bom-revision-freeze",
+        "bom-history-browser",
+        "dual-workorder-same-lot",
+        "genealogy-readback",
+        "qc-quarantine-blocks-issue",
+        "qa-release-traceability-browser",
+        "mass-packaging-density-conversion",
+        "conversion-cost-conservation",
+        "loss-return-scrap-rework",
+        "production-cost-reconciliation",
+        "payment-event-audit-once",
+        "payment-submit-durable-replay",
+        "payment-reversal-browser",
+        "purchase-browser-readback",
+        "stock-contention-browser",
+        "transfer-shipping-browser"
+      ],
+      "independentChecks": [
+        "sales-partial-fulfillment",
+        "barter-cash-legacy-upgrade",
+        "sales-fulfillment-plan",
+        "authorization-dual-node",
+        "production-responsibilities"
+      ],
+      "cloudSteps": [
+        "browser_fonts",
+        "sales_partial_fulfillment",
+        "search_readiness",
+        "human_workflows",
+        "staff_20",
+        "shared_session",
+        "telemetry_ingestion",
+        "ai_isolation",
+        "ai_runtime",
+        "order_import_governance",
+        "order_import_retention",
+        "order_write_scope",
+        "ha_load",
+        "warehouse_adjustment",
+        "ha_soak",
+        "redis_failover",
+        "degradable_failover",
+        "concurrent_writes",
+        "postgres_backup_restore",
+        "postgres_promotion",
+        "postgres_cutover_verdict",
+        "enterprise_pilot_verdict",
+        "sales_fulfillment_plan",
+        "authorization_dual_node"
+      ]
     }
   ]
 }

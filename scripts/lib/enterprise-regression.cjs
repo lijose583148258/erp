@@ -169,6 +169,12 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
     if (id === 'purchase-browser-readback') require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(check.evidence);
+    if (id === 'stock-contention-browser' || id === 'transfer-shipping-browser') {
+      const sourceId = id === 'stock-contention-browser' ? 'stock-20-contention' : 'transfer-shipping-contention';
+      const source = round2.checks.find(c => c.id === sourceId);
+      assert.equal(source?.status, 'passed', 'Browser proof requires its successful same-run stock race');
+      require('./enterprise-round2-inventory-browser.cjs').verifyInventoryBrowser(check.evidence, source.evidence);
+    }
     if (id === 'payment-duplicate-verification') require('./payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(check.evidence.reconciliation);
     if (id === 'payment-reversal-browser') {
       assert.equal(check.evidence.version, 'payment-reversal-acceptance/v1');

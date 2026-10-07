@@ -14,6 +14,14 @@ function fixture(profile = 'cloud') {
   const protectedIds = baseline.revisions.at(-1).round2Checks;
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
     startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'purchase-browser-readback' ? require('./fixtures/purchase-role-proof-fixture.cjs').purchaseRoleProofFixture() : id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : id === 'payment-reversal-browser' ? { version: 'payment-reversal-acceptance/v1', api: require('./fixtures/payment-reversal-api-proof-fixture.cjs').paymentReversalApiProofFixture(), browser: require('./fixtures/payment-reversal-browser-proof-fixture.cjs').paymentReversalBrowserProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') } : { readback: true } })) };
+  for (const [browserId, sourceId, status] of [
+    ['stock-contention-browser', 'stock-20-contention', undefined],
+    ['transfer-shipping-browser', 'transfer-shipping-contention', 'in_transit'],
+  ]) {
+    const { source, proof } = require('./fixtures/inventory-browser-proof-fixture.cjs').inventoryBrowserFixture(status);
+    round2.checks.find(c => c.id === browserId).evidence = proof;
+    round2.checks.find(c => c.id === sourceId).evidence = source;
+  }
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
@@ -95,6 +103,15 @@ for (const scenario of ['valid-noisy-output', 'missing-result', 'wrong-mode', 'u
       : name === 'child_process' ? { spawnSync: () => outputs.shift() } : require(name) });
   assert.equal(report.status, scenario === 'valid-noisy-output' ? 'passed' : 'failed');
   assert.equal(processStub.exitCode, scenario === 'valid-noisy-output' ? 0 : 1);
+});
+
+for (const id of ['stock-contention-browser', 'transfer-shipping-browser']) test(`${id} must replay real facts, not a passed flag`, () => {
+  const data = fixture();
+  data.reports.round2.checks.find(c => c.id === id).evidence.readbacks[0].customerCatalogRequests = 1;
+  const result = evaluateRegression(data);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.checks.find(c => c.id === `round2:${id}`).status, 'failed');
+  assert.equal(result.checks.find(c => c.id === 'sales-partial-fulfillment').status, 'passed');
 });
 
 test('existing accepted payment ID cannot pass after erasing its newly protected applied-finance evidence', () => {
