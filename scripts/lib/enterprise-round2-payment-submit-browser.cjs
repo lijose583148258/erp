@@ -12,6 +12,7 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
   e.browserErrors = []; e.screenshots = [];
   async function open(actor, instance, hash) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    await page.context().tracing.start({ screenshots: true, snapshots: true });
     page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(20000); page.on('pageerror', err => e.browserErrors.push(err.message));
     await page.addInitScript(({ token, user }) => {
       for (const k of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(k, token);
@@ -92,6 +93,23 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
         font: await verifyRenderedCjk(page, `[data-testid="collection-payment-detail-${id}"]`) });
     }
     assert.equal(e.browserErrors.length, 0);
+  } catch (error) {
+    // Keep the failing page and network evidence; a locator timeout alone cannot
+    // distinguish authentication, lazy-module loading, and business UI failures.
+    e.browserFailure = [];
+    for (const [index, context] of browser.contexts().entries()) {
+      const page = context.pages()[0], failure = { index };
+      try {
+        failure.page = await page.evaluate(() => ({ url: location.href, text: document.body.innerText.slice(0, 8000),
+          issues: window.__AILAODA_CLIENT_ISSUES__ || [] }));
+        failure.screenshot = path.join(folder, `failure-${index}.png`);
+        await page.screenshot({ path: failure.screenshot, timeout: 5000 });
+        failure.trace = path.join(folder, `failure-${index}.zip`);
+        await context.tracing.stop({ path: failure.trace });
+      } catch (captureError) { failure.captureError = captureError.message; }
+      e.browserFailure.push(failure);
+    }
+    throw error;
   } finally {
     signal.removeEventListener('abort', abort); await browser.close(); fs.writeFileSync(path.join(folder, 'evidence.json'), JSON.stringify(e, null, 2));
   }
