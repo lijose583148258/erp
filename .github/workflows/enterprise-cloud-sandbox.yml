@@ -103,6 +103,7 @@ on:
       - 'backend/src/services/production-quality*.ts'
       - 'backend/src/utils/dbRetry*.ts'
       - 'backend/src/utils/readOnlyDbRetry.ts'
+      - 'backend/src/middleware/auth*.ts'
       - 'backend/src/services/payment-*.ts'
       - 'backend/src/services/collection-state.service.ts'
       - 'backend/src/controllers/order-payment.controller.ts'
@@ -439,7 +440,7 @@ jobs:
         run: npm run test:contract:cloud-topology
 
       - name: Verify read-only reconnect boundary
-        run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/controllers/customer/customer-read-recovery.test.ts backend/src/utils/dbRetry.test.ts
+        run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/controllers/customer/customer-read-recovery.test.ts backend/src/utils/dbRetry.test.ts backend/src/middleware/auth-read-recovery.test.ts backend/src/permissions/casbinAuthorization.test.ts
 
       - name: Verify payment event delivery boundaries
         run: |

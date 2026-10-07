@@ -9,6 +9,7 @@ import {
   isBuiltInRole,
 } from '../permissions/permissionRegistry';
 import { writeRoleAuditLog } from './role-audit.service';
+import { withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
 
 export interface AuthRoleView {
   id: number;
@@ -436,29 +437,26 @@ export async function listRoles(): Promise<AuthRoleView[]> {
 }
 
 export async function roleExistsAndActive(roleCode: string): Promise<boolean> {
-  try {
-    await ensureAuthorizationPolicySeed();
-    const role = await prisma.authRole.findFirst({
-      where: { code: roleCode, isActive: true },
-      select: { id: true },
-    });
-    return role !== null;
-  } catch {
-    return false;
-  }
+  // Seeding may write; only the following authoritative read can be replayed.
+  await ensureAuthorizationPolicySeed();
+  const role = await withReadOnlyDbRetry(() => prisma.authRole.findFirst({
+    where: { code: roleCode, isActive: true },
+    select: { id: true },
+  }));
+  return role !== null;
 }
 
 export async function getPermissionsForRole(roleCode: string): Promise<Permission[]> {
   await ensureAuthorizationPolicySeed();
 
-  const rows = await prisma.authRolePermission.findMany({
+  const rows = await withReadOnlyDbRetry(() => prisma.authRolePermission.findMany({
     where: {
       roleCode,
       role: { isActive: true },
     },
     select: { permissionCode: true },
     orderBy: { permissionCode: 'asc' },
-  });
+  }));
 
   const permissions = rows
     .map((row) => row.permissionCode)
@@ -469,10 +467,10 @@ export async function getPermissionsForRole(roleCode: string): Promise<Permissio
 export async function getDataScopesForRole(roleCode: string): Promise<DataScope[]> {
   await ensureAuthorizationPolicySeed();
 
-  const role = await prisma.authRole.findFirst({
+  const role = await withReadOnlyDbRetry(() => prisma.authRole.findFirst({
     where: { code: roleCode, isActive: true },
     select: { dataScopesJson: true },
-  });
+  }));
 
   const scopes = parseDataScopes(role?.dataScopesJson || null);
   return scopes;

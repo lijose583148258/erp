@@ -2,6 +2,7 @@ import { Enforcer, newEnforcer, newModelFromString } from 'casbin';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { Permission, ROLE_POLICIES, isBuiltInRole } from './permissionRegistry';
+import { isClosedDbConnectionError, withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
 
 const MODEL = `
 [request_definition]
@@ -48,15 +49,16 @@ async function buildEnforcer(role: string): Promise<Enforcer> {
   try {
     // Cache neither grants nor denials: another node may just have changed this
     // role. One authoritative snapshot is used for the entire decision.
-    rows = (await prisma.authRolePermission.findMany({
+    rows = (await withReadOnlyDbRetry(() => prisma.authRolePermission.findMany({
       where: { roleCode: role, role: { isActive: true } },
       select: {
         roleCode: true,
         permissionCode: true,
       },
       orderBy: { permissionCode: 'asc' },
-    })) as RolePermissionRow[];
+    }))) as RolePermissionRow[];
   } catch (error) {
+    if (isClosedDbConnectionError(error)) throw error;
     if (!allowsBuiltInRbacFallback()) {
       logger.error('Dynamic RBAC policy load failed and built-in fallback is disabled.', error);
       throw error;
