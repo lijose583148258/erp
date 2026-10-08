@@ -151,12 +151,13 @@ async function main() {
   if (cumulative) {
     const salesPath = path.join(sandbox, 'sales-partial', 'report.json');
     const salesPlanPath = path.join(sandbox, 'sales-plan', 'report.json');
+    env.ROUND2_SALES_PLAN_REPORT = salesPlanPath;
     const authorizationPath = path.join(sandbox, 'authorization-dual-node-v1.json');
     const executions = [];
     for (const [label, script, target, args, allowed] of [
-      ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
       ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
+      ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
       ['authorization', 'scripts/authorization-dual-node-audit-v1.cjs', authorizationPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
     ]) {

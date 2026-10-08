@@ -1,4 +1,5 @@
 const path = require('node:path');
+const fs = require('node:fs');
 const crypto = require('node:crypto');
 const assert = require('node:assert/strict');
 const catalog = require('./config/enterprise-round2-v1.json');
@@ -13,7 +14,7 @@ const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-roun
 const { qcIsolationProbe } = require('./lib/enterprise-round2-qc-isolation.cjs');
 const { densityConversionProbe, assertDensityCostConservation } = require('./lib/enterprise-round2-density-conversion.cjs');
 const { productionDispositionProbe, assertProductionDispositionCostReconciliation } = require('./lib/enterprise-round2-production-disposition.cjs');
-const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
+const { readRegressionStamp, verifyFresh } = require('./lib/enterprise-regression.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
@@ -35,6 +36,7 @@ implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-
 implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay', 'payment-reversal-browser');
+if (process.env.ROUND2_SALES_PLAN_REPORT) implemented.push('presale-with-fulfillment-plan');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -441,6 +443,14 @@ async function main() {
     await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
     return;
   }
+  if (process.env.ROUND2_SALES_PLAN_REPORT) await runner.run('presale-with-fulfillment-plan', () => {
+    const source = JSON.parse(fs.readFileSync(process.env.ROUND2_SALES_PLAN_REPORT, 'utf8'));
+    assert(runner.report.regression, 'Presale proof must belong to the current cumulative run');
+    verifyFresh(source, runner.report.regression, runner.report.metadata.provider, Date.now());
+    assert.equal(source.status, 'passed');
+    const proof = require('./lib/sales-fulfillment-plan-proof.cjs').verifyPresaleProof(source);
+    return { ...proof, sourceRunId: source.runId, sourceReportSha256: crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex') };
+  });
   await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
   await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
   if (process.env.ROUND2_BROWSER === 'true') {

@@ -24,7 +24,11 @@ function fixture(profile = 'cloud') {
   }
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
-  const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture(stamp);
+  const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture({ ...stamp, runId: 'current-presale-source' });
+  round2.checks.find(c => c.id === 'presale-with-fulfillment-plan').evidence = {
+    ...require('./lib/sales-fulfillment-plan-proof.cjs').verifyPresaleProof(salesPlan), sourceRunId: salesPlan.runId,
+    sourceReportSha256: require('node:crypto').createHash('sha256').update(JSON.stringify(salesPlan)).digest('hex'),
+  };
   // Synthetic verifier fixture only; real acceptance comes from HTTP + raw DB.
   const authorization = { ...stamp, version: 'authorization-dual-node/v1', status: 'passed', adminId: 1, actor: { id: 2 },
     commit: context.commit, commitAfter: context.commit, sourceHash: context.sourceHash, sourceHashAfter: context.sourceHash,
@@ -63,6 +67,18 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+for (const [label, mutate] of [
+  ['stale source run', d => { d.reports.salesPlan.regression.key = 'old-run'; }],
+  ['wrong source digest', d => { d.reports.round2.checks.find(c => c.id === 'presale-with-fulfillment-plan').evidence.sourceReportSha256 = '0'.repeat(64); }],
+  ['wrong source identity', d => { d.reports.round2.checks.find(c => c.id === 'presale-with-fulfillment-plan').evidence.sourceRunId = 'another-source'; }],
+  ['summary without mixed-supply facts', d => { delete d.reports.salesPlan.presale; }],
+  ['source process failed', d => { d.reports.salesPlan.status = 'failed'; }],
+  ['reservation falsely claimed', d => { d.reports.round2.checks.find(c => c.id === 'presale-with-fulfillment-plan').evidence.reservationAccepted = true; }],
+]) test(`fixed presale obligation rejects ${label}`, () => {
+  const d = fixture(); mutate(d); const result = evaluateRegression(d);
+  assert.equal(result.checks.find(c => c.id === 'round2:presale-with-fulfillment-plan').status, 'failed');
 });
 
 for (const [label, mutate] of [

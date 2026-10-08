@@ -169,6 +169,11 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
     if (id === 'purchase-browser-readback') require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(check.evidence);
+    if (id === 'presale-with-fulfillment-plan') {
+      const source = reports.salesPlan; verifyFresh(source, context, provider, now); assert.equal(source.status, 'passed');
+      const proof = require('./sales-fulfillment-plan-proof.cjs').verifyPresaleProof(source);
+      assert.deepEqual(check.evidence, { ...proof, sourceRunId: source.runId, sourceReportSha256: sha256(JSON.stringify(source)) });
+    }
     if (id === 'stock-contention-browser' || id === 'transfer-shipping-browser') {
       const sourceId = id === 'stock-contention-browser' ? 'stock-20-contention' : 'transfer-shipping-contention';
       const source = round2.checks.find(c => c.id === sourceId);
@@ -246,4 +251,4 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     summary: { expected: results.length, passed: results.filter(r => r.status === 'passed').length, failed: results.filter(r => r.status === 'failed').length },
     checks: results, finishedAt: new Date(now).toISOString() };
 }
-module.exports = { beginRegression, headCommit, sourceFingerprint, readRegressionStamp, validateBaseline, evaluateRegression, verifyProductionResponsibilities };
+module.exports = { beginRegression, headCommit, sourceFingerprint, readRegressionStamp, validateBaseline, evaluateRegression, verifyProductionResponsibilities, verifyFresh };
