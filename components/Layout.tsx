@@ -7,6 +7,7 @@ import { useAppContext } from '../app/AppContext';
 import { canOpenModule } from '../app/permissions';
 import { Language, Currency, UserRole } from '../types';
 import { Brain } from 'lucide-react';
+import PageErrorBoundary from './PageErrorBoundary';
 import {
   getModuleDefinition,
   getModuleDescription,
@@ -19,6 +20,11 @@ import {
 const AIAssistant = lazy(() => import('./AIAssistant'));
 const AISettings = lazy(() => import('./AISettings'));
 const APP_BRAND = '爱劳达 ERP+CRM';
+const AI_UNAVAILABLE_COPY: Record<Language, string> = {
+  zh: 'AI 助手暂不可用，当前业务不受影响。请完成当前操作后刷新重试。',
+  en: 'AI tools are unavailable. Your work is unaffected. Finish your current task before refreshing to retry.',
+  vi: 'Trợ lý AI tạm thời không khả dụng. Công việc không bị ảnh hưởng. Hãy hoàn tất thao tác trước khi tải lại trang.',
+};
 
 const MODULE_GROUP_ORDER: ModuleGroup[] = ['overview', 'sales', 'supply', 'production', 'governance'];
 
@@ -501,10 +507,16 @@ const Layout: React.FC<LayoutProps> = ({ children, activeTab, setActiveTab, onLo
           </button>
         </div>
 
-        <Suspense fallback={null}>
-          <AIAssistant context={{ currency, language }} />
-          <AISettings isOpen={showAISettings} onClose={() => setShowAISettings(false)} />
-        </Suspense>
+        <PageErrorBoundary pageId="ai-tools" fallback={
+          <p data-testid="ai-tools-unavailable" role="status" className="shrink-0 px-4 py-2 text-sm text-slate-600 dark:text-slate-300">
+            {AI_UNAVAILABLE_COPY[language]}
+          </p>
+        }>
+          <Suspense fallback={null}>
+            <AIAssistant context={{ currency, language }} />
+            <AISettings isOpen={showAISettings} onClose={() => setShowAISettings(false)} />
+          </Suspense>
+        </PageErrorBoundary>
       </main>
     </div>
   );

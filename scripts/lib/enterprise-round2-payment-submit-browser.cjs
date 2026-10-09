@@ -11,7 +11,8 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
   const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
   e.browserErrors = []; e.screenshots = [];
   async function open(actor, instance, hash) {
-    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+    // Route faults must reach the network, not a cached service-worker response.
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     await page.context().tracing.start({ screenshots: true, snapshots: true });
     page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(20000); page.on('pageerror', err => e.browserErrors.push(err.message));
     await page.addInitScript(({ token, user }) => {
@@ -49,7 +50,20 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     e.screenshots.push({ kind: 'unknown-ack', path: unknown, font: await verifyRenderedCjk(sales, '[data-testid="sales-order-payment-modal"]') });
     await sales.unroute(pattern); e.beforeAppCrash = await snapshot();
     e.restart = await restartIsolatedApps(urls, signal, async () => { assert.deepEqual(await snapshot(), e.beforeAppCrash); });
-    await sales.reload(); await sales.locator('#loading').waitFor({ state: 'hidden' }); await openRegistration();
+    // Reproduce the cloud's failed optional chunk fetch after restart. It must
+    // not unmount the sales page or discard the durable unacknowledged payment.
+    const aiPattern = '**/assets/AIAssistant-*.js';
+    e.optionalAiModuleFailure = { failedRequests: 0, startedAt: new Date().toISOString() };
+    await sales.route(aiPattern, async route => { e.optionalAiModuleFailure.failedRequests++; await route.abort('failed'); });
+    await sales.reload(); await sales.locator('#loading').waitFor({ state: 'hidden' });
+    await expect(sales.getByTestId('ai-tools-unavailable')).toBeVisible();
+    assert(e.optionalAiModuleFailure.failedRequests >= 1);
+    e.optionalAiModuleFailure.issues = await sales.evaluate(() => window.__AILAODA_CLIENT_ISSUES__ || []);
+    assert(e.optionalAiModuleFailure.issues.some(issue => issue.scope === 'page-error-boundary:ai-tools'));
+    assert(!e.optionalAiModuleFailure.issues.some(issue => issue.scope === 'root-error-boundary'));
+    e.optionalAiModuleFailure.screenshot = path.join(folder, 'sales-ai-unavailable-payment-preserved.png');
+    await sales.screenshot({ path: e.optionalAiModuleFailure.screenshot });
+    await openRegistration();
     const restored = sales.getByTestId('sales-order-payment-modal');
     await expect(restored.getByTestId('payment-submission-unconfirmed')).toBeVisible();
     await expect(restored.getByTestId('sales-order-payment-amount')).toHaveValue('300');
@@ -75,6 +89,14 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
       assert.equal(Number(row.paidAmount), 900); assert.equal(row.paymentRecords.length, 3);
       return { instance, orderId, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus, count: row.paymentRecords.length };
     }));
+    await sales.unroute(aiPattern);
+    await sales.reload(); await expect(sales.getByTestId('ai-assistant-open')).toBeVisible();
+    await expect(sales.getByTestId('sales-desk-payments')).toBeVisible();
+    await expect(sales.getByTestId('ai-tools-unavailable')).toHaveCount(0);
+    e.optionalAiModuleFailure.afterRecovery = await snapshot();
+    assert.deepEqual(e.optionalAiModuleFailure.afterRecovery, e.finalSnapshot);
+    e.optionalAiModuleFailure.recovered = true;
+    e.optionalAiModuleFailure.finishedAt = new Date().toISOString();
     for (const [index, actor] of [actors.finance1, actors.finance2].entries()) {
       const page = await open(actor, index, 'collections'); await page.getByTestId('collection-tab-ledger').click();
       await page.getByTestId('collection-ledger-search').fill(order.orderNo);

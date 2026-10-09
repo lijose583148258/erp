@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import Skeleton, { TableSkeleton } from '../components/Skeleton';
 import { RootErrorFallback } from '../components/ErrorBoundary';
-import { PageErrorFallback } from '../components/PageErrorBoundary';
+import PageErrorBoundary, { PageErrorFallback } from '../components/PageErrorBoundary';
 import {
   getBadgeText,
   getStatusBorderBadgeClassName,
@@ -575,6 +575,19 @@ const tests: FrontendUnitTest[] = [
       assert.match(pageMarkup, /orders/);
       assert.match(pageMarkup, /收起错误详情/);
       assert.match(pageMarkup, /page failure/);
+    },
+  },
+  {
+    name: 'optional error fallback preserves healthy children and existing page fallback behavior',
+    run: () => {
+      const child = <button>Business operation</button>;
+      for (const fallback of [undefined, null, <p>AI unavailable</p>]) {
+        const boundary = new PageErrorBoundary({ children: child, pageId: 'ai-tools', fallback });
+        assert.equal(boundary.render(), child);
+        boundary.state = { ...boundary.state, ...PageErrorBoundary.getDerivedStateFromError(new Error('chunk failed')) };
+        if (fallback !== undefined) assert.equal(boundary.render(), fallback);
+        else assert.match(renderToStaticMarkup(boundary.render()), /当前页面加载失败/);
+      }
     },
   },
   {

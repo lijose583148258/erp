@@ -32,6 +32,12 @@ function verifyPaymentSubmissionProof(e, provider) {
   assert.equal(e.restart.killed, 2); assert.equal(e.restart.restarted, 2); assert.equal(e.restart.signal, 'SIGKILL'); assert.equal(e.restart.databaseRestarted, false);
   if (provider === 'postgresql') assert.deepEqual(e.restart.exitCodes, [137,137]);
   assert.deepEqual(e.finalSnapshot, e.afterAllReplays);
+  const ai = e.optionalAiModuleFailure;
+  assert(ai && Number.isInteger(ai.failedRequests) && ai.failedRequests >= 1);
+  assert.equal(ai.recovered, true); assert(ai.screenshot);
+  assert(ai.issues.some(issue => issue.scope === 'page-error-boundary:ai-tools'));
+  assert(!ai.issues.some(issue => issue.scope === 'root-error-boundary'));
+  assert.deepEqual(ai.afterRecovery, e.finalSnapshot);
   const { payments, submissions, audits, order } = e.finalSnapshot;
   assert.equal(payments.length, 3); assert.equal(submissions.length, 3); assert.equal(audits.length, 3);
   assert(payments.every(p => Number(p.amount) === 300 && p.status === 'verified' && p.orderId === e.orderId));

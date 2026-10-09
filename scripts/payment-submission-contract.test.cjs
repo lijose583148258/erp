@@ -18,6 +18,12 @@ for(const [name,mutate] of [
   ['no-second-node-readback',e=>{e.apiReadbacks.pop();}],['covered-finance-amount',e=>{e.screenshots[1].amountVisible=false;}],
   ['one-finance-actor-twice',e=>{e.screenshots[2].actorId=e.screenshots[1].actorId;}],['missing-Chinese-glyphs',e=>{e.screenshots[0].font.glyphs=[];}],
   ['mutable-ledger',e=>{e.immutabilityGuards[0].rejected=false;}],
+  ['missing-ai-fault-proof',e=>{delete e.optionalAiModuleFailure;}],
+  ['cached-ai-module-not-faulted',e=>{e.optionalAiModuleFailure.failedRequests=0;}],
+  ['root-shell-crashed',e=>{e.optionalAiModuleFailure.issues.push({scope:'root-error-boundary'});}],
+  ['no-local-ai-boundary',e=>{e.optionalAiModuleFailure.issues=[];}],
+  ['ai-not-recovered',e=>{e.optionalAiModuleFailure.recovered=false;}],
+  ['ai-recovery-duplicated-payment',e=>{e.optionalAiModuleFailure.afterRecovery.order.paidAmount=1200;}],
   ['cross-order-loser-not-rolled-back',e=>{e.crossOrderRace.paymentCount=2;}],['concurrent-over-capacity',e=>{e.capacityRace.amount=1200;}],
 ])test(`submission proof rejects ${name}`,()=>{const e=paymentSubmissionProofFixture();mutate(e);assert.throws(()=>verifyPaymentSubmissionProof(e,'postgresql'));});
 test('active submission boundary is durable and all accepted identities are append-only',()=>{
