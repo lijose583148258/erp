@@ -10,6 +10,7 @@ import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.servi
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
 import { StockMovementConflictError } from '../services/stock-movement.errors';
 import { resolveShipmentIdentity } from '../services/shipment-material-identity';
+import { claimShipmentDispatchOrder } from '../services/shipment-order-guard.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createShippingReceiptEvent } from './shipping-receipt-event.controller';
 import {
@@ -303,6 +304,9 @@ export class ShippingController {
             }
 
             const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                if (status === 'in_transit' && existingShipment.orderId) {
+                    await claimShipmentDispatchOrder(tx, existingShipment.orderId);
+                }
                 const claim = await tx.shipment.updateMany({
                     where: {
                         id: Number(id),

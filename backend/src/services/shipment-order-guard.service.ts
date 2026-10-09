@@ -3,6 +3,16 @@ import { readOrderFulfillment } from './order-fulfillment.service';
 
 type ShipmentOrderClient = Pick<Prisma.TransactionClient, 'order'>;
 
+// Dispatch and cancellation must serialize on the same order row. A check
+// outside the stock transaction can become stale before the stock issue.
+export async function claimShipmentDispatchOrder(db: ShipmentOrderClient, orderId: number): Promise<void> {
+  const claim = await db.order.updateMany({
+    where: { id: orderId, status: { in: ['confirmed', 'shipped', 'delivered'] }, shipmentHold: false },
+    data: { updatedAt: new Date() },
+  });
+  if (claim.count !== 1) throw new Error('SHIPMENT_ORDER_DISPATCH_BLOCKED');
+}
+
 export type ShipmentOrderClaimInput = {
   orderId: number;
   customerId: number;

@@ -1,4 +1,27 @@
-import { claimShipmentOrder } from './shipment-order-guard.service';
+import { claimShipmentDispatchOrder, claimShipmentOrder } from './shipment-order-guard.service';
+
+describe('claimShipmentDispatchOrder', () => {
+  it('atomically claims only an active, non-held order without rewriting its status', async () => {
+    const db = { order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }) } };
+    await expect(claimShipmentDispatchOrder(db as never, 7)).resolves.toBeUndefined();
+    expect(db.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 7, status: { in: ['confirmed', 'shipped', 'delivered'] }, shipmentHold: false },
+      data: { updatedAt: expect.any(Date) },
+    });
+    expect(db.order.updateMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects a missing, cancelled, completed or held order when its guarded claim fails', async () => {
+    const db = { order: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) } };
+    await expect(claimShipmentDispatchOrder(db as never, 7)).rejects.toThrow('SHIPMENT_ORDER_DISPATCH_BLOCKED');
+  });
+
+  it('propagates database failures rather than treating an unclaimed order as dispatchable', async () => {
+    const error = new Error('database unavailable');
+    const db = { order: { updateMany: jest.fn().mockRejectedValue(error) } };
+    await expect(claimShipmentDispatchOrder(db as never, 7)).rejects.toBe(error);
+  });
+});
 
 const input = { orderId: 7, customerId: 9, orderItemId: 11, quantity: 60 };
 const partialSnapshot = () => ({

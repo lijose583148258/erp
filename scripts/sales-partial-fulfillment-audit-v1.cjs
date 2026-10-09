@@ -219,6 +219,67 @@ async function main(){
   const issues=report.finalCostLedger.filter(row=>row.quantityDelta<0);
   assert.equal(issues.length,2);assert.equal(issues.reduce((sum,row)=>sum+row.quantityDelta,0),-100);
   assert.equal(issues.reduce((sum,row)=>sum+row.costAmountDelta,0),-1000);
+  // Existing drafts do not retain dispatch authority after cancellation.
+  // Reuse real APIs and the stock transaction; no status-only fixture writes.
+  const cancellationMaterial=await ensureReleasedMaterial({request,code:`${runId}-cancel`,name:`${runId}-cancel`,category:'finished_good'});
+  const currentSalesToken=dataOf(await request('/auth/login',{method:'POST',data:{username:`${runId}-sales`,password}})).token;
+  async function cancellationFixture(suffix){
+    token=currentSalesToken;
+    const pending=dataOf(await request('/orders',{method:'POST',data:{customerId:customer.id,items:[{materialId:cancellationMaterial.id,productName:cancellationMaterial.nameZh,quantity:10,unit:'kg',unitPrice:10}],paymentTerms:30}}));
+    token=browserLogin.token;
+    dataOf(await request(`/orders/${pending.id}/status`,{method:'PATCH',data:{status:'confirmed'}}));
+    const detail=dataOf(await request(`/orders/${pending.id}`));const batchNo=`${runId}-cancel-${suffix}`;
+    dataOf(await request('/warehouses/stock-balances',{method:'POST',data:{locationId:source.id,materialId:cancellationMaterial.id,productName:cancellationMaterial.nameZh,batchNo,quantity:10,unit:'kg',unitCost:10,sourceRef:batchNo,reason:'Isolated cancellation/dispatch regression'}}));
+    const draft=dataOf(await request('/shipping',{method:'POST',data:{customerId:customer.id,orderId:pending.id,orderItemId:detail.items[0].id,materialId:cancellationMaterial.id,productName:cancellationMaterial.nameZh,quantity:10,unit:'kg',batchNo,carrier:'Synthetic'}}));
+    async function snapshot(){
+      const batch=await prisma.productBatch.findUnique({where:{batchNo}});
+      return{order:await prisma.order.findUnique({where:{id:pending.id}}),shipment:await prisma.shipment.findUnique({where:{id:draft.id}}),batch,
+        balances:await prisma.stockBalance.findMany({where:{materialId:cancellationMaterial.id,batchNo}}),
+        cost:await prisma.inventoryCostLedger.findMany({where:{batchId:batch.id},orderBy:{id:'asc'}}),
+        issues:await prisma.stockEntry.findMany({where:{sourceType:'shipping_issue',sourceRef:draft.shipmentNo},orderBy:{id:'asc'}})};
+    }
+    return{orderId:pending.id,shipmentId:draft.id,snapshot};
+  }
+  const cancelled=await cancellationFixture('serial');
+  await page.goto(`${urls[0]}/#shipping`);
+  const cancelledDispatchButton=page.getByTestId(`shipment-dispatch-${cancelled.shipmentId}`);
+  await expect(cancelledDispatchButton).toBeVisible();
+  dataOf(await request(`/orders/${cancelled.orderId}/status`,{method:'PATCH',data:{status:'cancelled'},instance:1}));
+  report.cancelledDispatch=[];
+  for(const status of ['pending','exception']){
+    if(status==='exception') dataOf(await request(`/shipping/${cancelled.shipmentId}/status`,{method:'PATCH',data:{status}}));
+    const before=await cancelled.snapshot();
+    let response;
+    if(status==='pending'){
+      const awaiting=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/shipping/${cancelled.shipmentId}/status`&&r.request().method()==='PATCH');
+      await cancelledDispatchButton.click();const http=await awaiting;
+      response={status:http.status(),ok:http.ok(),json:await http.json()};
+      const failureToast=page.getByTestId('global-toast').filter({hasText:'保存失败'});
+      await expect(failureToast).toHaveAttribute('role','alert');
+      await expect(failureToast).toBeVisible();
+      await expect(page.getByTestId(`shipment-status-${cancelled.shipmentId}`)).toHaveText('待发货');
+      await expect(cancelledDispatchButton).toBeVisible();
+      report.cancelledDispatchBrowser={shipmentId:cancelled.shipmentId,httpStatus:response.status,toast:await failureToast.innerText(),shipmentStatus:'待发货'};
+      report.cancelledDispatchScreenshot='sales-cancelled-dispatch-blocked.png';
+      await page.screenshot({path:path.join(path.dirname(process.env.ROUND2_REPORT_PATH),report.cancelledDispatchScreenshot)});
+    }else response=await request(`/shipping/${cancelled.shipmentId}/status`,{method:'PATCH',data:{status:'in_transit'},instance:1});
+    const after=await cancelled.snapshot();report.cancelledDispatch.push({status,response,before,after});
+    assert.equal(response.status,409);assert.equal(response.json.message,'SHIPMENT_ORDER_DISPATCH_BLOCKED');assert.deepEqual(after,before);
+  }
+  const racing=await cancellationFixture('race');
+  const [cancel,dispatch]=await Promise.all([
+    request(`/orders/${racing.orderId}/status`,{method:'PATCH',data:{status:'cancelled'}}),
+    request(`/shipping/${racing.shipmentId}/status`,{method:'PATCH',data:{status:'in_transit'},instance:1}),
+  ]);
+  const after=await racing.snapshot();report.cancelDispatchRace={cancel,dispatch,after};
+  assert.equal(Number(cancel.ok)+Number(dispatch.ok),1,'Cancellation and first dispatch must not both succeed');
+  assert([400,409].includes(cancel.ok?dispatch.status:cancel.status));
+  assert.equal(after.order.status,cancel.ok?'cancelled':'shipped');assert.equal(after.shipment.status,cancel.ok?'pending':'in_transit');
+  assert.equal(after.issues.length,cancel.ok?0:1);
+  assert.equal(after.balances.reduce((sum,row)=>sum+row.quantity,0),cancel.ok?10:0);
+  assert.equal(after.batch.stockQuantity,cancel.ok?10:0);
+  assert.equal(after.cost.reduce((sum,row)=>sum+Number(row.quantityDelta),0),cancel.ok?10:0);
+  assert.equal(after.cost.reduce((sum,row)=>sum+Number(row.costAmountDelta),0),cancel.ok?100:0);
   report.status='passed';report.summary={passedChecks:1,failedChecks:0,remainingChecks:0};
 }
 main().catch(error=>{report.error=error.stack}).finally(async()=>{
