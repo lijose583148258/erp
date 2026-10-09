@@ -55,7 +55,26 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     const aiPattern = '**/assets/AIAssistant-*.js';
     e.optionalAiModuleFailure = { failedRequests: 0, startedAt: new Date().toISOString() };
     await sales.route(aiPattern, async route => { e.optionalAiModuleFailure.failedRequests++; await route.abort('failed'); });
+    // Exercise the existing user-facing recovery too: a core page chunk can fail
+    // during network change. One explicit UI reload, never a business POST retry loop.
+    const pagePattern = '**/assets/SalesOrders-*.js';
+    e.businessPageRecovery = { failedRequests: 0, reloadClicks: 0 };
+    await sales.route(pagePattern, async route => { e.businessPageRecovery.failedRequests++; await route.abort('failed'); });
     await sales.reload(); await sales.locator('#loading').waitFor({ state: 'hidden' });
+    await expect(sales.getByRole('heading', { name: '当前页面加载失败', exact: true })).toBeVisible();
+    assert(e.businessPageRecovery.failedRequests >= 1);
+    e.businessPageRecovery.issues = await sales.evaluate(() => window.__AILAODA_CLIENT_ISSUES__ || []);
+    assert(e.businessPageRecovery.issues.some(issue => issue.scope === 'page-error-boundary:orders'));
+    assert(!e.businessPageRecovery.issues.some(issue => issue.scope === 'root-error-boundary'));
+    e.businessPageRecovery.storageAtFailure = await sales.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => k.startsWith('ailaoda.payment-intent/v1.'))));
+    assert.deepEqual(e.businessPageRecovery.storageAtFailure, e.browser.storageBefore);
+    assert.deepEqual(await snapshot(), e.beforeAppCrash);
+    await sales.unroute(pagePattern);
+    await sales.getByRole('button', { name: '重新加载页面', exact: true }).click();
+    e.businessPageRecovery.reloadClicks++;
+    await expect(sales.getByTestId('sales-desk-payments')).toBeVisible();
+    await expect(sales.getByRole('heading', { name: '当前页面加载失败', exact: true })).toHaveCount(0);
+    e.businessPageRecovery.recovered = true;
     await expect(sales.getByTestId('ai-tools-unavailable')).toBeVisible();
     assert(e.optionalAiModuleFailure.failedRequests >= 1);
     e.optionalAiModuleFailure.issues = await sales.evaluate(() => window.__AILAODA_CLIENT_ISSUES__ || []);

@@ -24,6 +24,11 @@ for(const [name,mutate] of [
   ['no-local-ai-boundary',e=>{e.optionalAiModuleFailure.issues=[];}],
   ['ai-not-recovered',e=>{e.optionalAiModuleFailure.recovered=false;}],
   ['ai-recovery-duplicated-payment',e=>{e.optionalAiModuleFailure.afterRecovery.order.paidAmount=1200;}],
+  ['missing-page-recovery',e=>{delete e.businessPageRecovery;}],
+  ['no-core-page-fault',e=>{e.businessPageRecovery.failedRequests=0;}],
+  ['unbounded-page-reloads',e=>{e.businessPageRecovery.reloadClicks=2;}],
+  ['failed-user-page-recovery',e=>{e.businessPageRecovery.recovered=false;}],
+  ['lost-intent-on-page-failure',e=>{e.businessPageRecovery.storageAtFailure={};}],
   ['cross-order-loser-not-rolled-back',e=>{e.crossOrderRace.paymentCount=2;}],['concurrent-over-capacity',e=>{e.capacityRace.amount=1200;}],
 ])test(`submission proof rejects ${name}`,()=>{const e=paymentSubmissionProofFixture();mutate(e);assert.throws(()=>verifyPaymentSubmissionProof(e,'postgresql'));});
 test('active submission boundary is durable and all accepted identities are append-only',()=>{

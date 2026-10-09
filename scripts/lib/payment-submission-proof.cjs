@@ -38,6 +38,12 @@ function verifyPaymentSubmissionProof(e, provider) {
   assert(ai.issues.some(issue => issue.scope === 'page-error-boundary:ai-tools'));
   assert(!ai.issues.some(issue => issue.scope === 'root-error-boundary'));
   assert.deepEqual(ai.afterRecovery, e.finalSnapshot);
+  const page = e.businessPageRecovery;
+  assert(page && Number.isInteger(page.failedRequests) && page.failedRequests >= 1);
+  assert.equal(page.reloadClicks, 1); assert.equal(page.recovered, true);
+  assert(page.issues.some(issue => issue.scope === 'page-error-boundary:orders'));
+  assert(!page.issues.some(issue => issue.scope === 'root-error-boundary'));
+  assert.deepEqual(page.storageAtFailure, b.storageBefore);
   const { payments, submissions, audits, order } = e.finalSnapshot;
   assert.equal(payments.length, 3); assert.equal(submissions.length, 3); assert.equal(audits.length, 3);
   assert(payments.every(p => Number(p.amount) === 300 && p.status === 'verified' && p.orderId === e.orderId));

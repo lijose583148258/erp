@@ -20,6 +20,7 @@ function paymentSubmissionProofFixture(provider='postgresql') {
       storageBefore:{slot:JSON.stringify({version:'payment-intent/v1',key:idempotencyKey,userId:'10',orderId:'9',facts})},storageAfter:[]},
     restart:{killed:2,restarted:2,signal:'SIGKILL',databaseRestarted:false,exitCodes:[137,137]},finalSnapshot:state(3),afterAllReplays:state(3),
     optionalAiModuleFailure:{failedRequests:1,recovered:true,screenshot:'fixture-ai-unavailable.png',issues:[{scope:'page-error-boundary:ai-tools'}],afterRecovery:state(3)},
+    businessPageRecovery:{failedRequests:1,reloadClicks:1,recovered:true,issues:[{scope:'page-error-boundary:orders'}],storageAtFailure:{slot:JSON.stringify({version:'payment-intent/v1',key:idempotencyKey,userId:'10',orderId:'9',facts})}},
     apiReadbacks:[0,1].map(instance=>({instance,orderId:9,paidAmount:900,count:3,paymentStatus:'partial'})),
     screenshots:[{kind:'unknown-ack',path:'fixture-unknown.png',font},...[11,12].map(actorId=>({kind:'finance-readback',actorId,path:`fixture-${actorId}.png`,statusVisible:true,amountVisible:true,text:'300.00 已核销',font}))],
     immutabilityGuards:[{operation:'update',rejected:true},{operation:'delete',rejected:true}],
