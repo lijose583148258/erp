@@ -43,7 +43,8 @@ function paymentReversalBrowserProofFixture(provider = 'sqlite') {
     return {actorId,instance,loginProfile,browserProfiles:[{url:`${origins[instance]}/api/auth/me`,method:'GET',actualHTTP:200,observedAt:date(3),profile:loginProfile}]};};
   const requestBody={requestKey,reasonCategory:pending.reasonCategory,reason:pending.reason}, reviewBody={reviewKey,decision:'approve',note:posted.reviewNote};
   const lost=(body,receipt,row,paid,httpStatus,path,instance,at)=>({body,response:{success:true,data:result(row,receipt,paid,false)},httpStatus,
-    url:`${origins[instance]}${path}`,method:'POST',actualHTTP:httpStatus,committedResponseReceivedAt:date(at),responseDroppedAt:date(at)});
+    url:`${origins[instance]}${path}`,method:'POST',actualHTTP:httpStatus,committedResponseReceivedAt:date(at),responseDroppedAt:date(at),
+    transportOrderNs:[String(at*1000),String(at*1000+1),String(at*1000+2)]});
   const claim={id:10,eventId:5,channel:'webhook',destinationKey:'a'.repeat(64),status:'sending',attempts:2,nextAttemptAt:date(14),leaseToken:id(7),leaseExpiresAt:date(45),
     deliveredAt:null,lastErrorCode:'HTTP_503',createdAt:date(12)};
   const digest=hash(reversed.payloadJson);

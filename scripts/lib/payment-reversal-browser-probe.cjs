@@ -77,9 +77,12 @@ async function paymentReversalBrowserProbe(ctx, signal) {
     let droppedRequest;
     await pages[0].route(`**${endpoint}`,async route=>{
       if(route.request().method()!=='POST'||droppedRequest){await route.continue();return;}
+      const transportOrderNs=[process.hrtime.bigint().toString()];
       const response=await route.fetch(); assert.equal(response.status(),201);
       droppedRequest={body:route.request().postDataJSON(),response:await response.json(),httpStatus:response.status(),url:route.request().url(),method:route.request().method(),actualHTTP:response.status(),committedResponseReceivedAt:new Date().toISOString()};
+      transportOrderNs.push(process.hrtime.bigint().toString()); droppedRequest.transportOrderNs=transportOrderNs;
       await route.abort('connectionfailed'); droppedRequest.responseDroppedAt=new Date().toISOString();
+      transportOrderNs.push(process.hrtime.bigint().toString());
     });
     await pages[0].getByTestId('collection-reversal-reason').fill(`${runId} independently traceable original bank registration error`);
     await pages[0].getByTestId('collection-reversal-request-submit').click();
@@ -98,8 +101,11 @@ async function paymentReversalBrowserProbe(ctx, signal) {
     const reviewEndpoint=`/api/collections/payment-reversal-requests/${requestId}/review`; let droppedReview;
     await pages[1].route(`**${reviewEndpoint}`,async route=>{
       if(route.request().method()!=='POST'||droppedReview){await route.continue();return;}
+      const transportOrderNs=[process.hrtime.bigint().toString()];
       const response=await route.fetch(); assert.equal(response.status(),200); droppedReview={body:route.request().postDataJSON(),response:await response.json(),httpStatus:response.status(),url:route.request().url(),method:route.request().method(),actualHTTP:response.status(),committedResponseReceivedAt:new Date().toISOString()};
+      transportOrderNs.push(process.hrtime.bigint().toString()); droppedReview.transportOrderNs=transportOrderNs;
       await route.abort('connectionfailed'); droppedReview.responseDroppedAt=new Date().toISOString();
+      transportOrderNs.push(process.hrtime.bigint().toString());
     });
     await pages[1].getByTestId(`collection-reversal-review-note-${requestId}`).fill(`${runId} independently reviewed original full payment`);
     await pages[1].getByTestId(`collection-reversal-review-submit-${requestId}`).click();

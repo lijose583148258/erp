@@ -94,12 +94,17 @@ function verifyPaymentReversalBrowserProof(e, provider, { allowLegacy = false } 
   function dropped(d,status,endpoint,instance,receipt,row,paid) {
     assert.equal(d.httpStatus,status); assert.equal(d.response.success,true); result(d.response.data,receipt,row,paid,false);
     if(!legacy) { const url=new URL(d.url); assert.equal(url.origin,authOrigins.get(instance)); assert.equal(url.pathname,endpoint); assert.equal(d.method,'POST'); assert.equal(d.actualHTTP,status);
-      assert(iso(d.committedResponseReceivedAt)>=iso(receipt.requestedAt||receipt.reviewedAt)); assert(iso(d.responseDroppedAt)>=iso(d.committedResponseReceivedAt)); }
+      // Backend receipt time and browser-probe time are different clock domains.
+      // Exact receipt/DB equality above proves commit; this probe's monotonic clock proves transport order.
+      iso(d.committedResponseReceivedAt); iso(d.responseDroppedAt);
+      assert(Array.isArray(d.transportOrderNs)); assert.equal(d.transportOrderNs.length,3);
+      const [started,received,dropped]=d.transportOrderNs.map(value=>{ assert.equal(typeof value,'string'); assert.match(value,/^[1-9]\d*$/); return BigInt(value); });
+      assert(started<received && received<dropped, 'Fetch must finish before the committed response is dropped'); }
   }
   dropped(e.requestLostAck,201,`/api/collections/payments/${p.id}/reversal-requests`,0,requestReceipt,pending,350);
   dropped(e.reviewLostAck,200,`/api/collections/payment-reversal-requests/${r.id}/review`,1,reviewReceipt,r,50);
   assert.deepEqual(e.requestLostAck.body,{requestKey:r.requestKey,reasonCategory:r.reasonCategory,reason:r.reason}); assert.deepEqual(e.reviewLostAck.body,{reviewKey:r.reviewKey,decision:'approve',note:r.reviewNote});
-  if(!legacy) assert(iso(e.requestLostAck.responseDroppedAt)<=iso(r.reviewedAt));
+  if(!legacy) assert(BigInt(e.requestLostAck.transportOrderNs[2])<BigInt(e.reviewLostAck.transportOrderNs[0]));
   const reqIntent=one(e.requestIntentBeforeReload), revIntent=one(e.reviewIntentBeforeReload);
   assert.deepEqual(reqIntent,{version:'payment-reversal-intent/v1',kind:'request',userId:String(applicant),targetId:String(p.id),key:r.requestKey,facts:{reasonCategory:r.reasonCategory,reason:r.reason}});
   assert.deepEqual(revIntent,{version:'payment-reversal-intent/v1',kind:'review',userId:String(reviewer),targetId:r.id,key:r.reviewKey,facts:{decision:'approve',note:r.reviewNote}});
@@ -120,7 +125,12 @@ function verifyPaymentReversalBrowserProof(e, provider, { allowLegacy = false } 
   const digest=sha(reversedEvent.payloadJson); assert.deepEqual(receiver.attempts.map(a=>a.status),[503,'ack-withheld',202]);
   for(const a of receiver.attempts) { assert.equal(a.paymentId,p.id); assert.equal(a.eventType,'payment.reversed'); assert.equal(a.eventId,payload.id); assert.equal(a.digest,digest); assert.equal(a.signatureValid,true); iso(a.at); }
   const [first,second,last]=receiver.attempts; assert(iso(first.at)>=iso(payload.occurredAt)); assert(iso(first.at)<iso(second.at)); assert(iso(second.at)<=iso(restart.startedAt)); assert(iso(second.at)<expiry); assert(iso(last.at)>=expiry); assert(iso(delivered.deliveredAt)>=iso(last.at));
-  const accepted=one(receiver.accepted); assert.deepEqual(accepted,{eventId:payload.id,eventType:'payment.reversed',paymentId:p.id,orderId:e.orderId,amount:-300,digest,acceptedAt:second.at,effects:1});
+  const accepted=one(receiver.accepted), {acceptedAt,...acceptedFacts}=accepted;
+  assert.deepEqual(acceptedFacts,{eventId:payload.id,eventType:'payment.reversed',paymentId:p.id,orderId:e.orderId,amount:-300,digest,effects:1});
+  // Arrival and durable acceptance are separate clock reads. Prove causal order,
+  // not accidental same-millisecond equality, and still require pre-crash acceptance.
+  assert(iso(acceptedAt)>=iso(second.at));
+  assert(iso(acceptedAt)<=iso(legacy?restart.startedAt:e.claimBeforeCrashObservedAt));
   assert.equal(e.frames.length,2); const count=e.frames.map(a=>a.length); if(provider==='postgresql') assert.deepEqual(count,[1,1]); else assert.equal(count.reduce((n,v)=>n+v,0),1);
   for(const frame of e.frames.flat()) { assert.equal(frame.id,payload.id); assert.equal(frame.occurredAt,payload.occurredAt); assert.equal(frame.type,'payment.reversed'); assert.equal(frame.title,'Payment reversed'); assert.equal(frame.resourceType,'payment'); assert.equal(frame.resourceId,p.id); assert.equal(frame.severity,'warning'); assert(frame.message.includes(String(e.orderId))); assert.deepEqual(frame.audience.roles,['admin','manager','finance']); }
   assert.equal(e.screenshots.length,2); assert.deepEqual(e.screenshots.map(s=>s.instance),[0,1]);

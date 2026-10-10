@@ -35,6 +35,30 @@ test('Explicit historical compatibility is weaker and cannot pass the default fr
 test('passed flags and report summaries never replace raw observations',()=>{
   assert.throws(()=>verify({version:'payment-reversal-browser/v2',provider:'sqlite',passed:true,status:'passed',proof:{financeActors:2,orderPaid:50}},'sqlite'));
 });
+test('consumer acceptance can cross a millisecond after arrival but must precede the crash observation',()=>{
+  for(const provider of ['sqlite','postgresql']) {
+    const e=fixture(provider);
+    e.receiver.accepted[0].acceptedAt=new Date(Date.parse(e.receiver.attempts[1].at)+1).toISOString();
+    assert.equal(verify(e,provider).consumerEffects,1);
+    e.receiver.accepted[0].acceptedAt=new Date(Date.parse(e.receiver.attempts[1].at)-1).toISOString();
+    assert.throws(()=>verify(e,provider));
+    e.receiver.accepted[0].acceptedAt=new Date(Date.parse(e.claimBeforeCrashObservedAt)+1).toISOString();
+    assert.throws(()=>verify(e,provider));
+  }
+});
+test('Backend wall-clock skew does not replace same-probe monotonic transport order',()=>{
+  for(const provider of ['sqlite','postgresql']) {
+    const e=fixture(provider);
+    for(const dropped of [e.requestLostAck,e.reviewLostAck]) {
+      const receipt=dropped.response.data.receipt;
+      dropped.committedResponseReceivedAt=new Date(Date.parse(receipt.requestedAt||receipt.reviewedAt)-3).toISOString();
+      dropped.responseDroppedAt=new Date(Date.parse(dropped.committedResponseReceivedAt)+1).toISOString();
+    }
+    assert.equal(verify(e,provider).transportTraceVerified,true);
+    e.requestLostAck.response.data.receipt.auditId=999;
+    assert.throws(()=>verify(e,provider),'Clock independence must not permit a receipt different from persisted history');
+  }
+});
 const negatives=[
   ['provider substitution',e=>{e.provider='postgresql';}],
   ['missing raw stage',e=>{delete e.afterRequestSnapshot;}],
@@ -78,7 +102,14 @@ const negatives=[
   ['wrong negative effect event',e=>{const r=e.beforeSnapshot.events[1]; const p=JSON.parse(r.payloadJson); p.data.amount=300; r.payloadJson=JSON.stringify(p);}],
   ['request HTTP did not commit',e=>{e.requestLostAck.httpStatus=409;}],
   ['request actual response transport absent',e=>{delete e.requestLostAck.actualHTTP;}],
-  ['response drop observed before committed response',e=>{e.requestLostAck.responseDroppedAt='2026-10-03T16:00:09.000Z';}],
+  ['transport monotonic observations missing',e=>{delete e.requestLostAck.transportOrderNs;}],
+  ['transport end observation missing',e=>{e.reviewLostAck.transportOrderNs.pop();}],
+  ['transport monotonic observation invalid',e=>{e.requestLostAck.transportOrderNs[0]='NaN';}],
+  ['transport monotonic observation not a string',e=>{e.requestLostAck.transportOrderNs[0]=1;}],
+  ['response received before fetch started',e=>{e.requestLostAck.transportOrderNs[0]=e.requestLostAck.transportOrderNs[1];}],
+  ['response drop observed before committed response',e=>{e.requestLostAck.transportOrderNs[2]=e.requestLostAck.transportOrderNs[0];}],
+  ['review starts before request ACK dropped',e=>{e.reviewLostAck.transportOrderNs[0]=e.requestLostAck.transportOrderNs[1];}],
+  ['transport wall-clock provenance missing',e=>{delete e.requestLostAck.committedResponseReceivedAt;}],
   ['request network endpoint substituted',e=>{e.requestLostAck.url='http://127.0.0.1:5006/api/orders/12/payment';}],
   ['review sent to wrong application',e=>{e.reviewLostAck.url=e.reviewLostAck.url.replace('5008','5006');}],
   ['lost receipt not raw original receipt',e=>{e.requestLostAck.response.data.receipt.auditId=999;}],
@@ -131,6 +162,8 @@ test('Source instrumentation observes actual committed HTTP then actual route.ab
   const source=fs.readFileSync(path.join(__dirname,'lib/payment-reversal-browser-probe.cjs'),'utf8');
   assert.match(source,/version:'payment-reversal-browser\/v2'/); assert.equal((source.match(/await route\.fetch\(\)/g)||[]).length,2);
   assert.equal((source.match(/committedResponseReceivedAt:new Date\(\)\.toISOString\(\)/g)||[]).length,2);
+  assert.equal((source.match(/const transportOrderNs=\[process\.hrtime\.bigint\(\)\.toString\(\)\];\s+const response=await route\.fetch\(\)/g)||[]).length,2);
+  assert.equal((source.match(/transportOrderNs\.push\(process\.hrtime\.bigint\(\)\.toString\(\)\)/g)||[]).length,4);
   assert.match(source,/await route\.abort\('connectionfailed'\); droppedRequest\.responseDroppedAt=new Date\(\)\.toISOString\(\)/);
   assert.match(source,/await route\.abort\('connectionfailed'\); droppedReview\.responseDroppedAt=new Date\(\)\.toISOString\(\)/);
   assert.match(source,/profile\(actor\.loginUser\)/); assert.match(source,/page\.waitForResponse/); assert.match(source,/assert\.deepEqual\(actual,identity\.loginProfile\)/);
