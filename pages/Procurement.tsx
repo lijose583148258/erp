@@ -23,6 +23,7 @@ import { ProcurementInputGuide } from './procurement/ProcurementInputGuide';
 import { ProcurementStats } from './procurement/ProcurementStats';
 import { PurchaseOrderWorkspace } from './procurement/PurchaseOrderWorkspace';
 import { PurchaseReceiptDrawer } from './procurement/PurchaseReceiptDrawer';
+import { PurchaseRevisionDialog } from './procurement/PurchaseRevisionDialog';
 import { SupplierWorkspace } from './procurement/SupplierWorkspace';
 import {
   calculatePurchaseCostPreview,
@@ -42,8 +43,12 @@ import { useProcurementUnsavedFormGuards } from './procurement/useProcurementUns
 
 const Procurement = () => {
   const { t, notify, language, currentUser } = useAppContext();
-  const canReadProcurement = can(currentUser, 'procurement.read') || can(currentUser, 'procurement.write');
+  const canReadProcurement = can(currentUser, 'procurement.read');
   const canWriteProcurement = can(currentUser, 'procurement.write');
+  const canApproveProcurement = can(currentUser, 'procurement.approve');
+  const canReceiveProcurement = can(currentUser, 'procurement.receive');
+  const canReadSales = can(currentUser, 'orders.read');
+  const canReadSuppliers = can(currentUser, 'procurement.suppliers.read');
   const [activeDesk, setActiveDesk] = useState<ProcurementDeskTab>('suppliers');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
@@ -59,6 +64,7 @@ const Procurement = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [b2bLinks, setB2bLinks] = useState<Record<string, { linked: boolean; purchaseOrder?: PurchaseOrder }>>({});
   const [receiptDrawerOrder, setReceiptDrawerOrder] = useState<PurchaseOrder | null>(null);
+  const [revisionOrder, setRevisionOrder] = useState<PurchaseOrder | null>(null);
   const [receiptBundle, setReceiptBundle] = useState<PurchaseReceiptBundle | null>(null);
   const [isReceiptLoading, setIsReceiptLoading] = useState(false);
   const [isReceiptSubmitting, setIsReceiptSubmitting] = useState(false);
@@ -67,6 +73,7 @@ const Procurement = () => {
   const [supplierSaveVersion, setSupplierSaveVersion] = useState(0);
   const [orderSaveVersion, setOrderSaveVersion] = useState(0);
   const localWriteVersionRef = useRef(0);
+  const receiptLoadVersionRef = useRef(0);
 
   useProcurementUnsavedFormGuards({
     supplierSaveVersion,
@@ -81,8 +88,8 @@ const Procurement = () => {
     try {
       setIsLoading(true);
       const [suppliersData, salesData] = await Promise.all([
-        procurementService.getAllSuppliers(),
-        orderService.getAll(),
+        canReadSuppliers ? procurementService.getAllSuppliers() : Promise.resolve([]),
+        canReadSales ? orderService.getAll() : Promise.resolve([]),
       ]);
       const ordersData = canReadProcurement ? await procurementService.getAllOrders() : [];
 
@@ -95,7 +102,7 @@ const Procurement = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [canReadProcurement, notify, t.loadDataFail]);
+  }, [canReadProcurement, canReadSales, canReadSuppliers, notify, t.loadDataFail]);
 
   useEffect(() => {
     void loadData();
@@ -179,18 +186,20 @@ const Procurement = () => {
   );
 
   const updatePurchaseStatus = async (order: PurchaseOrder, status: PurchaseOrder['status']) => {
-    if (!canWriteProcurement) {
-      notify('warning', '当前角色只能查看采购数据，不能变更采购状态');
+    const allowed = status === 'approved' ? canApproveProcurement : status === 'received' ? canReceiveProcurement : canWriteProcurement;
+    if (!allowed) {
+      notify('warning', '当前角色未获得此采购操作权限');
       return;
     }
     try {
-      const updatedOrder = await procurementService.updateOrderStatus(order.id, status);
+      const updatedOrder = await procurementService.updateOrderStatus(order.id, status, order.revision ?? 0);
+      localWriteVersionRef.current += 1;
       setOrders(prev => prev.map(item => item.id === order.id ? updatedOrder : item));
       if (status === 'approved') notify('success', t.paymentVerified || '采购单已审核');
       if (status === 'in_transit') notify('success', t.activeTransit || '采购单已发运');
       if (status === 'received') notify('success', `${getOrderStatusLabel(status)} / ${language === 'en' ? 'stock received' : language === 'vi' ? 'đã nhập kho' : '已入库'}`);
-    } catch {
-      notify('error', t.connectionFailed || 'Purchase status update failed');
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : (t.connectionFailed || 'Purchase status update failed'));
     }
   };
 
@@ -200,24 +209,27 @@ const Procurement = () => {
   };
 
   const openReceiptDrawer = async (order: PurchaseOrder) => {
+    const version = ++receiptLoadVersionRef.current;
     try {
       switchProcurementDesk('receipts');
       setReceiptDrawerOrder(order);
+      setReceiptBundle(null);
       setIsReceiptLoading(true);
       const bundle = await procurementService.getOrderReceipts(order.id);
+      if (version !== receiptLoadVersionRef.current) return;
       setReceiptBundle(bundle);
       resetReceiptForm(order, bundle);
     } catch {
+      if (version !== receiptLoadVersionRef.current) return;
       notify('error', t.connectionFailed || '收货批次读取失败');
     } finally {
-      setIsReceiptLoading(false);
+      if (version === receiptLoadVersionRef.current) setIsReceiptLoading(false);
     }
   };
 
   const submitReceipt = async () => {
-    if (isReceiptSubmitting) return;
-    if (!receiptDrawerOrder) return;
-    if (!canWriteProcurement) {
+    if (isReceiptLoading || isReceiptSubmitting || !receiptDrawerOrder || !receiptBundle) return;
+    if (!canReceiveProcurement) {
       notify('warning', '当前角色只能查看采购收货批次，不能保存收货');
       return;
     }
@@ -261,7 +273,9 @@ const Procurement = () => {
 
   const renderPurchaseOrderActions = (order: PurchaseOrder) => (
     <div className="flex justify-end gap-2">
-      {order.status === 'pending' && canWriteProcurement && (
+      <button type="button" data-testid={`purchase-order-revise-${order.id}`} onClick={() => setRevisionOrder(order)}
+        title="采购版本与变更" className="rounded-full border px-3 py-2 text-xs font-bold">版本 {order.revision ?? 0}</button>
+      {order.status === 'pending' && canApproveProcurement && (
         <button
           data-testid={`purchase-order-approve-${order.id}`}
           type="button"
@@ -388,6 +402,7 @@ const Procurement = () => {
       setIsPurchaseSubmitting(true);
       const createdOrder = await procurementService.createOrder({
         supplierId: supplier.id,
+        materialId: newOrder.materialId || undefined,
         supplierName: getSupplierLabel(supplier) || supplier.supplierDisplayName || supplier.name,
         supplierNameZh: supplier.nameZh,
         supplierNameEn: supplier.nameEn,
@@ -515,6 +530,12 @@ const Procurement = () => {
         <div className="text-xs text-slate-400 font-bold">{t.loading || '加载中…'}</div>
       )}
 
+      {revisionOrder && <PurchaseRevisionDialog key={revisionOrder.id} order={revisionOrder} canWrite={canWriteProcurement}
+        onClose={() => setRevisionOrder(null)} onSaved={updated => {
+          localWriteVersionRef.current += 1;
+          setOrders(prev => prev.map(item => item.id === updated.id ? updated : item));
+        }} />}
+
       {receiptDrawerOrder && (
         <PurchaseReceiptDrawer
           receiptDrawerOrder={receiptDrawerOrder}
@@ -526,8 +547,8 @@ const Procurement = () => {
           isReceiptLoading={isReceiptLoading || isReceiptSubmitting}
           isReceiptSubmitting={isReceiptSubmitting}
           submitReceipt={submitReceipt}
-          onClose={() => setReceiptDrawerOrder(null)}
-          canWrite={canWriteProcurement}
+          onClose={() => { receiptLoadVersionRef.current += 1; setReceiptDrawerOrder(null); }}
+          canWrite={canReceiveProcurement}
         />
       )}
     </PageShell>

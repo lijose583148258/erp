@@ -1,0 +1,52 @@
+name: BOM Grid Governed PoC
+
+on:
+  pull_request:
+    paths:
+      - "pages/production/bom-grid-lab/**"
+      - "pages/BomGridLab*.tsx"
+      - "app/bomGridFeatureFlags.ts"
+      - "tests/fixtures/bom-grid/**"
+      - "scripts/*bom-grid*"
+      - "scripts/license-allowlist-audit-v1.cjs"
+      - "package.json"
+      - "package-lock.json"
+      - "vite.config.ts"
+      - ".github/workflows/bom-grid-governed-poc.yml"
+  workflow_dispatch:
+
+jobs:
+  candidate-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix backend ci
+      - name: Verify golden fixtures are reproducible
+        run: |
+          npm run generate:fixtures:bom-grid
+          git diff --exit-code -- tests/fixtures/bom-grid
+      - run: npm run test:contract:bom-grid
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm run audit:licenses:bom-grid-candidates
+
+  production-license-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - run: npm --prefix backend ci
+      - run: npm run build
+      - name: Reject unknown or prohibited production licenses
+        run: npm run audit:licenses

@@ -23,7 +23,7 @@ export type PoolHistorySummary = {
 
 const SectionTitle = ({ title, subtitle }: { title: string; subtitle: string }) => (
   <div className="mb-4">
-    <div className="text-[10px] font-black uppercase tracking-[0.24em] text-slate-400">{subtitle}</div>
+    <div className="text-xs font-black uppercase tracking-[0.24em] text-slate-400">{subtitle}</div>
     <h5 className="mt-1 text-lg font-black text-slate-900 dark:text-white">{title}</h5>
   </div>
 );
@@ -86,40 +86,40 @@ export function CRMCustomerMasterProfileSection({
       <SectionTitle title={t.crmMasterProfileTitle || '主数据概览'} subtitle={t.crmMasterProfile || 'Master Profile'} />
       <div className="grid gap-3 md:grid-cols-2">
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmCustomerPool || '客户池'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmCustomerPool || '客户池'}</div>
           <div className="mt-2 flex items-center justify-between">
             <span className="text-sm font-black text-slate-900 dark:text-white">{currentPoolState.toUpperCase()}</span>
-            <span className={`rounded-full px-2.5 py-1 text-[10px] font-black uppercase ${poolTone[currentPoolState]}`}>{currentPoolState}</span>
+            <span className={`rounded-full px-2.5 py-1 text-xs font-black uppercase ${poolTone[currentPoolState]}`}>{currentPoolState}</span>
           </div>
         </div>
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmCreditSnapshot || '信用快照'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmCreditSnapshot || '信用快照'}</div>
           <div className="mt-2 text-sm font-black text-slate-900 dark:text-white">已用 {formatPrice(selectedCustomer.usedCredit || 0)}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">额度 {formatPrice(selectedCustomer.creditLimit || 0)}</div>
         </div>
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmBusinessLine || '业务线'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmBusinessLine || '业务线'}</div>
           <div className="mt-2 text-sm font-black text-slate-900 capitalize dark:text-white">{selectedCustomer.segment || 'mixed'}</div>
         </div>
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmRiskLevel || '风险等级'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmRiskLevel || '风险等级'}</div>
           <div className="mt-2 text-sm font-black uppercase text-slate-900 dark:text-white">{selectedCustomer.riskLevel || '--'}</div>
         </div>
       </div>
 
       <div className="mt-4 grid gap-3 md:grid-cols-3">
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmPrimaryContact || '主联系人'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmPrimaryContact || '主联系人'}</div>
           <div className="mt-2 text-sm font-black text-slate-900 dark:text-white">{primaryContact?.name || '--'}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">{[primaryContact?.phone, primaryContact?.email].filter(Boolean).join(' / ') || '未补联系方式'}</div>
         </div>
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmPrimaryAddress || '主地址'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmPrimaryAddress || '主地址'}</div>
           <div className="mt-2 text-sm font-black text-slate-900 dark:text-white">{primaryAddress?.label || '--'}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">{[primaryAddress?.city, primaryAddress?.countryCode].filter(Boolean).join(' / ') || '未补地址'}</div>
         </div>
         <div className="rounded-[20px] bg-white p-4 dark:bg-slate-950">
-          <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmAliases || '别名'}</div>
+          <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmAliases || '别名'}</div>
           <div className="mt-2 text-sm font-black text-slate-900 dark:text-white">{aliasCount}</div>
           <div className="mt-1 text-xs font-medium text-slate-500">{aliasCount > 0 ? customerNames.aliases.slice(0, 2).join(' / ') : '暂无历史名'}</div>
         </div>
@@ -128,10 +128,10 @@ export function CRMCustomerMasterProfileSection({
       <div className="mt-4 rounded-[24px] border border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
         <div className="mb-3 flex items-center justify-between gap-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmMasterNameAlias || '主名称与别名'}</div>
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmMasterNameAlias || '主名称与别名'}</div>
             <div className="mt-1 text-xs font-medium text-slate-500">{t.crmMasterNameAliasHint || '客户三语名称与历史名集中维护，支持手填和自动联想后的统一落库。'}</div>
           </div>
-          {readOnlyProfile && <div className="rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800">{t.crmReadOnly || '只读'}</div>}
+          {readOnlyProfile && <div className="rounded-full bg-slate-100 px-3 py-1 text-xs font-black uppercase tracking-[0.18em] text-slate-500 dark:bg-slate-800">{t.crmReadOnly || '只读'}</div>}
         </div>
 
         {canEditProfile ? (
@@ -149,15 +149,15 @@ export function CRMCustomerMasterProfileSection({
         ) : (
           <div className="grid gap-3 md:grid-cols-2">
             <div className="rounded-[18px] bg-slate-50 p-3 dark:bg-slate-900">
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmMainName || '主名称'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t.crmMainName || '主名称'}</div>
               <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{selectedCustomer.name || '--'}</div>
             </div>
             <div className="rounded-[18px] bg-slate-50 p-3 dark:bg-slate-900">
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmThreeLanguageName || '三语名称'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t.crmThreeLanguageName || '三语名称'}</div>
               <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{[selectedCustomer.nameZh, selectedCustomer.nameEn, selectedCustomer.nameVi].filter(Boolean).join(' / ') || '--'}</div>
             </div>
             <div className="rounded-[18px] bg-slate-50 p-3 md:col-span-2 dark:bg-slate-900">
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmHistoryAliases || '历史名 / 别名'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t.crmHistoryAliases || '历史名 / 别名'}</div>
               <div className="mt-1 text-sm font-black text-slate-900 dark:text-white">{customerNames.aliases.join(' / ') || '--'}</div>
             </div>
           </div>
@@ -167,7 +167,7 @@ export function CRMCustomerMasterProfileSection({
       <div className="mt-4 rounded-[24px] border border-slate-100 bg-white p-4 dark:border-slate-800 dark:bg-slate-950">
         <div className="flex items-center justify-between gap-4">
           <div>
-            <div className="text-[10px] font-black uppercase tracking-[0.2em] text-slate-400">{t.crmCertificatesAndNotes || '证照与备注'}</div>
+            <div className="text-xs font-black uppercase tracking-[0.2em] text-slate-400">{t.crmCertificatesAndNotes || '证照与备注'}</div>
             <div className="mt-2 text-xs font-medium text-slate-500">{selectedCustomer.notes || (t.crmNoNotes || '暂无备注')}</div>
           </div>
           <button disabled={readOnlyProfile} onClick={() => !readOnlyProfile && licenseInputRef.current?.click()} className="rounded-xl bg-slate-900 px-3 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-white dark:text-slate-900">
@@ -275,7 +275,7 @@ export function CRMCustomerOwnershipSection({
         <div className="space-y-4">
           <div className="grid gap-2">
             <div className="rounded-[24px] border border-blue-100 bg-blue-50/70 p-4 dark:border-blue-900/40 dark:bg-blue-950/20">
-              <div className="text-[10px] font-black uppercase tracking-[0.22em] text-blue-500">{t.crmPoolActionConfirmMode || '动作确认模式'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.22em] text-blue-500">{t.crmPoolActionConfirmMode || '动作确认模式'}</div>
               <div className="mt-2 text-xs font-bold leading-relaxed text-blue-900 dark:text-blue-100">
                 {t.crmPoolActionConfirmModeHint || '先选择动作，再核对原因、影响预览和确认记录，避免公海、私海、内池误操作。'}
               </div>
@@ -290,12 +290,12 @@ export function CRMCustomerOwnershipSection({
                   className={`rounded-2xl border px-3 py-3 text-left text-[11px] font-black uppercase tracking-[0.16em] transition disabled:opacity-50 ${poolActionCopy[poolState].tone}`}
                 >
                   <span className="block">{poolActionCopy[poolState].title}</span>
-                  <span className="mt-1 block text-[10px] opacity-75">{poolLabels[currentPoolState]} → {poolLabels[poolState]}</span>
+                  <span className="mt-1 block text-xs opacity-75">{poolLabels[currentPoolState]} → {poolLabels[poolState]}</span>
                 </button>
               ))}
             </div>
             <div className="rounded-[22px] border border-slate-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-950">
-              <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmAssignPrivate || '分配到私海'}</div>
+              <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t.crmAssignPrivate || '分配到私海'}</div>
               <input list="crm-sales-assignees" value={poolSalespersonId} onChange={(event) => setPoolSalespersonId(event.target.value)} className="mt-3 w-full rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm font-bold outline-none dark:border-slate-700 dark:bg-slate-900" placeholder={t.crmSalespersonSearchPlaceholder || '手填或搜索：销售 ID / 姓名 / 业务线'} />
               <datalist id="crm-sales-assignees">
                 {salesAssignees.map((member) => (
@@ -319,20 +319,20 @@ export function CRMCustomerOwnershipSection({
               <div className="rounded-[28px] border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-700 dark:bg-slate-950">
                 <div className="flex items-start justify-between gap-3">
                   <div>
-                    <div className="text-[10px] font-black uppercase tracking-[0.22em] text-slate-400">{t.crmPoolActionPreview || '动作预览'}</div>
+                    <div className="text-xs font-black uppercase tracking-[0.22em] text-slate-400">{t.crmPoolActionPreview || '动作预览'}</div>
                     <div className="mt-2 text-lg font-black text-slate-900 dark:text-white">{pendingCopy.title}</div>
                   </div>
-                  <span className="rounded-2xl bg-slate-100 px-3 py-2 text-[10px] font-black uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-200">
+                  <span className="rounded-2xl bg-slate-100 px-3 py-2 text-xs font-black uppercase tracking-[0.16em] text-slate-600 dark:bg-slate-800 dark:text-slate-200">
                     {poolLabels[currentPoolState]} → {poolLabels[pendingPoolAction]}
                   </span>
                 </div>
                 <div className="mt-4 grid gap-2 md:grid-cols-2">
                   <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
-                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmPoolActionReason || '原因'}</div>
+                    <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t.crmPoolActionReason || '原因'}</div>
                     <div className="mt-2 text-xs font-bold text-slate-700 dark:text-slate-200">{trimmedReason || (t.crmPoolNoReasonWarning || '未填写原因，建议补充后再确认')}</div>
                   </div>
                   <div className="rounded-2xl bg-slate-50 p-3 dark:bg-slate-900">
-                    <div className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{t.crmPoolActionImpact || '影响预览'}</div>
+                    <div className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{t.crmPoolActionImpact || '影响预览'}</div>
                     <div className="mt-2 text-xs font-bold leading-relaxed text-slate-700 dark:text-slate-200">{pendingCopy.summary}</div>
                   </div>
                 </div>
@@ -392,7 +392,7 @@ export function CRMCustomerAddressesSection({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-black text-slate-900 dark:text-white">{address.label || `${addressTypeLabel[address.type]} ${idx + 1}`}</div>
-                <div className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{addressTypeLabel[address.type]} {address.isPrimary ? ` / ${t.crmPrimaryTag || 'PRIMARY'}` : ''}</div>
+                <div className="mt-1 text-xs font-black uppercase tracking-[0.18em] text-slate-400">{addressTypeLabel[address.type]} {address.isPrimary ? ` / ${t.crmPrimaryTag || 'PRIMARY'}` : ''}</div>
               </div>
               <div className="text-xs font-bold text-slate-500">{address.countryCode || '--'} {address.city ? `· ${address.city}` : ''}</div>
             </div>
@@ -447,7 +447,7 @@ export function CRMCustomerContactsSection({
             <div className="mb-3 flex items-center justify-between gap-3">
               <div>
                 <div className="text-sm font-black text-slate-900 dark:text-white">{contact.name || `联系人 ${idx + 1}`}</div>
-                <div className="mt-1 text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{contact.isPrimary ? (t.crmPrimaryContactTag || 'PRIMARY CONTACT') : (t.crmSecondaryContactTag || 'SECONDARY CONTACT')}</div>
+                <div className="mt-1 text-xs font-black uppercase tracking-[0.18em] text-slate-400">{contact.isPrimary ? (t.crmPrimaryContactTag || 'PRIMARY CONTACT') : (t.crmSecondaryContactTag || 'SECONDARY CONTACT')}</div>
               </div>
               <div className="text-xs font-bold text-slate-500">{contact.language || '--'} {contact.department ? `· ${contact.department}` : ''}</div>
             </div>

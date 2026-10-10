@@ -19,12 +19,14 @@ const useTouchedState = () => {
 
 export const useProductionBomForm = () => {
   const touch = useTouchedState();
+  const [bomMaterialId, setBomMaterialId] = useState<number | null>(null);
   const [bomProductName, setBomProductName] = useState('');
   const [bomVersion, setBomVersion] = useState('v1');
   const [bomType, setBomType] = useState<BomType>('standard');
   const [bomStatus, setBomStatus] = useState<BomLifecycleStatus>('draft');
   const [bomFormulationMode, setBomFormulationMode] = useState('fixed');
   const [bomOutputUnit, setBomOutputUnit] = useState('kg');
+  const [bomShelfLifeDays, setBomShelfLifeDays] = useState('');
   const [bomStandardBatchSize, setBomStandardBatchSize] = useState('');
   const [bomBatchSizeUnit, setBomBatchSizeUnit] = useState('kg');
   const [bomDensity, setBomDensity] = useState('');
@@ -35,14 +37,17 @@ export const useProductionBomForm = () => {
   const [bomQualitySpecText, setBomQualitySpecText] = useState('');
   const [bomNotes, setBomNotes] = useState('');
   const [bomItems, setBomItems] = useState<BomItemDraft[]>(newBomItems());
+  const [bomQualityCharacteristics, setBomQualityCharacteristics] = useState<QualityCharacteristicDraft[]>([]);
 
   const resetBomForm = () => {
+    setBomMaterialId(null);
     setBomProductName('');
     setBomVersion('v1');
     setBomType('standard');
     setBomStatus('draft');
     setBomFormulationMode('fixed');
     setBomOutputUnit('kg');
+    setBomShelfLifeDays('');
     setBomStandardBatchSize('');
     setBomBatchSizeUnit('kg');
     setBomDensity('');
@@ -53,9 +58,15 @@ export const useProductionBomForm = () => {
     setBomQualitySpecText('');
     setBomNotes('');
     setBomItems(newBomItems());
+    setBomQualityCharacteristics([]);
   };
 
   return {
+    bomMaterialId,
+    setBomMaterialId: (value: number | null) => {
+      touch.markTouched();
+      setBomMaterialId(value);
+    },
     bomProductName,
     setBomProductName: (value: string) => {
       touch.markTouched();
@@ -85,6 +96,11 @@ export const useProductionBomForm = () => {
     setBomOutputUnit: (value: string) => {
       touch.markTouched();
       setBomOutputUnit(value);
+    },
+    bomShelfLifeDays,
+    setBomShelfLifeDays: (value: string) => {
+      touch.markTouched();
+      setBomShelfLifeDays(value);
     },
     bomStandardBatchSize,
     setBomStandardBatchSize: (value: string) => {
@@ -136,12 +152,43 @@ export const useProductionBomForm = () => {
       touch.markTouched();
       setBomItems(value);
     },
+    bomQualityCharacteristics,
+    setBomQualityCharacteristics: (value: SetStateAction<QualityCharacteristicDraft[]>) => {
+      touch.markTouched();
+      setBomQualityCharacteristics(value);
+    },
     resetBomForm,
     touched: touch.touched,
     markTouched: touch.markTouched,
     clearTouched: touch.clearTouched,
   };
 };
+
+export type QualityCharacteristicDraft = {
+  rowKey: string;
+  code: string;
+  name: string;
+  valueType: 'numeric' | 'text';
+  unit: string;
+  lowerLimit: string;
+  upperLimit: string;
+  targetText: string;
+  testMethod: string;
+  required: boolean;
+};
+
+export const newQualityCharacteristicDraft = (): QualityCharacteristicDraft => ({
+  rowKey: globalThis.crypto?.randomUUID?.() || `quality-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+  code: '',
+  name: '',
+  valueType: 'numeric',
+  unit: '',
+  lowerLimit: '',
+  upperLimit: '',
+  targetText: '',
+  testMethod: '',
+  required: true,
+});
 
 export const useProductionWorkOrderForm = (createInitialSteps: () => StepDraft[]) => {
   const touch = useTouchedState();
@@ -216,38 +263,45 @@ export const useProductionWorkOrderForm = (createInitialSteps: () => StepDraft[]
 
 export const useProductionQualityForm = () => {
   const touch = useTouchedState();
-  const [qcResult, setQcResult] = useState<'pass' | 'fail'>('pass');
-  const [qcDefectRate, setQcDefectRate] = useState('');
+  const [qcSampleNo, setQcSampleNo] = useState('');
+  const [qcMeasurementValues, setQcMeasurementValues] = useState<Record<number, string>>({});
+  const [qcInstrumentNumbers, setQcInstrumentNumbers] = useState<Record<number, string>>({});
   const [qcNote, setQcNote] = useState('');
-  const [qcCheckedBy, setQcCheckedBy] = useState('');
+  const [qcReviewNote, setQcReviewNote] = useState('');
 
   const resetQualityForm = () => {
-    setQcResult('pass');
-    setQcDefectRate('');
+    setQcSampleNo('');
+    setQcMeasurementValues({});
+    setQcInstrumentNumbers({});
     setQcNote('');
-    setQcCheckedBy('');
+    setQcReviewNote('');
   };
 
   return {
-    qcResult,
-    setQcResult: (value: 'pass' | 'fail') => {
+    qcSampleNo,
+    setQcSampleNo: (value: string) => {
       touch.markTouched();
-      setQcResult(value);
+      setQcSampleNo(value);
     },
-    qcDefectRate,
-    setQcDefectRate: (value: string) => {
+    qcMeasurementValues,
+    setQcMeasurementValue: (characteristicId: number, value: string) => {
       touch.markTouched();
-      setQcDefectRate(value);
+      setQcMeasurementValues(current => ({ ...current, [characteristicId]: value }));
+    },
+    qcInstrumentNumbers,
+    setQcInstrumentNumber: (characteristicId: number, value: string) => {
+      touch.markTouched();
+      setQcInstrumentNumbers(current => ({ ...current, [characteristicId]: value }));
     },
     qcNote,
     setQcNote: (value: string) => {
       touch.markTouched();
       setQcNote(value);
     },
-    qcCheckedBy,
-    setQcCheckedBy: (value: string) => {
+    qcReviewNote,
+    setQcReviewNote: (value: string) => {
       touch.markTouched();
-      setQcCheckedBy(value);
+      setQcReviewNote(value);
     },
     resetQualityForm,
     touched: touch.touched,

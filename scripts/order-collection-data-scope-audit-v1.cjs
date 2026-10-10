@@ -204,7 +204,7 @@ async function createOrder(token, customerId, productName) {
 async function recordPayment(token, orderId, amount, note) {
   const response = await apiFetch(`/orders/${orderId}/payment`, {
     method: 'POST',
-    data: {
+    data: { idempotencyKey: require('node:crypto').randomUUID(),
       amount,
       method: 'cash',
       payerName: 'scope-audit',

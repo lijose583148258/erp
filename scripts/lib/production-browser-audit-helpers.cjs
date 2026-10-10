@@ -75,11 +75,24 @@ async function readAuthTokenFromStorage(page) {
 }
 
 async function switchProductionDesk(page, { testId, fallbackName, expectedText }, waitForBodyText, timeout) {
-  const desk = page.getByTestId(testId);
-  if (await desk.count()) {
-    await desk.click();
-  } else {
-    await page.getByRole('button', { name: fallbackName }).click();
+  const primaryDesk = page.locator(`[data-testid="${testId}"]:visible`).first();
+  const fallbackDesk = page.locator('button:visible').filter({ hasText: fallbackName }).first();
+  const desk = await primaryDesk.count() ? primaryDesk : fallbackDesk;
+
+  await desk.waitFor({ state: 'visible', timeout });
+  await desk.scrollIntoViewIfNeeded();
+
+  // Keep the interaction human-equivalent and fail with a bounded, actionable
+  // error instead of letting Playwright's default 30s click timeout outlive the
+  // audit step's 20s timebox.
+  await desk.click({ timeout: Math.min(timeout, 5000) });
+
+  if ((await desk.getAttribute('role')) === 'tab') {
+    await page.waitForFunction(
+      (nextTestId) => document.querySelector(`[data-testid="${nextTestId}"]`)?.getAttribute('aria-selected') === 'true',
+      testId,
+      { timeout },
+    );
   }
   await waitForBodyText(page, [expectedText], timeout);
 }
@@ -144,8 +157,15 @@ async function setControlByTestId(page, testId, value) {
 }
 
 async function fillBomHeaderFields(page, testData) {
-  await page.getByTestId('production-bom-product-name').fill(testData.bomName);
+  const productInput = page.getByTestId('production-bom-product-name');
+  await productInput.fill(testData.finishedGood?.code || testData.bomName);
+  if (testData.finishedGood?.code) {
+    const option = page.getByRole('option').filter({ hasText: testData.finishedGood.code }).first();
+    await option.waitFor({ state: 'visible', timeout: 10000 });
+    await option.click();
+  }
   await page.getByTestId('production-bom-output-unit').fill(testData.outputUnit);
+  await page.getByTestId('production-bom-shelf-life-days').fill(testData.shelfLifeDays);
   await page.getByTestId('production-bom-standard-batch-size').fill(testData.standardBatchSize);
   const advancedToggle = page.getByTestId('production-bom-toggle-advanced');
   if (await advancedToggle.count()) {

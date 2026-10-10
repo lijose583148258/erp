@@ -134,7 +134,7 @@ export const ProductionBomOperatingFields: React.FC<Props> = ({
           className={`${inputClassName} min-h-8 rounded-lg border border-slate-200 bg-white text-right dark:border-slate-700 dark:bg-slate-900`}
         />
       </div>
-      <div className="grid grid-cols-3 gap-1 text-[10px] font-black">
+      <div className="grid grid-cols-3 gap-1 text-xs font-black">
         <span className="rounded-lg bg-slate-100 px-2 py-1 text-slate-500 dark:bg-slate-800 dark:text-slate-300">
           批量 {formatNumber(metrics.effectiveBatchQuantity, 4)}
         </span>
@@ -147,11 +147,11 @@ export const ProductionBomOperatingFields: React.FC<Props> = ({
       </div>
       <div className="flex flex-wrap gap-1">
         {metrics.riskCodes.length ? metrics.riskCodes.map((code) => (
-          <span key={code} className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-black text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
+          <span key={code} className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-black text-amber-700 dark:bg-amber-900/30 dark:text-amber-200">
             {RISK_LABELS[code] || code}
           </span>
         )) : (
-          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-black text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">正常</span>
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-black text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200">正常</span>
         )}
       </div>
     </div>

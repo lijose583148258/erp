@@ -7,19 +7,17 @@
  */
 const fs = require('fs');
 const path = require('path');
+const { applyAuditDatabaseContext } = require('./lib/audit-runtime-context.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
+applyAuditDatabaseContext(process.env);
 const { PrismaClient } = require('../backend/node_modules/@prisma/client');
-
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
 
 const API_URL = (process.env.API_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'collection-performance-audit-report-v1.json');
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 10_000);
 const SCRIPT_TIMEOUT_MS = Number(process.env.SCRIPT_TIMEOUT_MS || 290_000);
-const ADMIN = {
-  username: process.env.AUDIT_ADMIN_USER || 'admin',
-  password: process.env.AUDIT_ADMIN_PASSWORD || 'admin123',
-};
+let ADMIN;
 
 const ENDPOINTS = [
   ['/collections/summary', 'summary'],
@@ -199,6 +197,8 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
+    const accounts = await ensureUiAuditAccounts('collection_performance', ['admin']);
+    ADMIN = accounts.admin;
     report.database = await databaseSnapshot();
     const token = await login();
 

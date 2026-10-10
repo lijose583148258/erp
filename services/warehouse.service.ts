@@ -144,6 +144,7 @@ export const warehouseService = {
   /** 手动录入库存 */
   async createStockBalance(data: {
     locationId: number;
+    materialId: number;
     productName: string;
     batchNo: string;
     quantity: number;

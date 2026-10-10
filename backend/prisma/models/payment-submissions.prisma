@@ -1,0 +1,15 @@
+// Durable identities for new registrations only. Never invent keys for history.
+model PaymentSubmission {
+  id          Int           @id @default(autoincrement())
+  requestKey  String        @unique @map("request_key")
+  userId      Int           @map("user_id")
+  user        User          @relation(fields: [userId], references: [id], onDelete: Restrict)
+  fingerprint String
+  paymentId   Int           @unique @map("payment_id")
+  payment     PaymentRecord @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  resultJson  String        @map("result_json")
+  createdAt   DateTime      @default(now()) @map("created_at")
+
+  @@index([userId, createdAt])
+  @@map("payment_submissions")
+}

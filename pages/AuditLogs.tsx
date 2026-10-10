@@ -56,7 +56,7 @@ const AuditLogs = () => {
             header: t.actionType || '操作类型',
             key: 'action',
             accessor: (row) => (
-                <span className={`px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest ${row.action === 'CREATE' ? 'bg-emerald-50 text-emerald-600' :
+                <span className={`px-2 py-0.5 rounded-lg text-xs font-black uppercase tracking-widest ${row.action === 'CREATE' ? 'bg-emerald-50 text-emerald-600' :
                     row.action === 'UPDATE' ? 'bg-blue-50 text-blue-600' :
                         row.action === 'DELETE' ? 'bg-rose-50 text-rose-600' :
                             'bg-slate-50 text-slate-600'
@@ -84,7 +84,7 @@ const AuditLogs = () => {
             header: t.timestamp || '时间',
             key: 'createdAt',
             accessor: (row) => (
-                <div className="flex items-center text-slate-400 text-[10px] font-medium">
+                <div className="flex items-center text-slate-400 text-xs font-medium">
                     <Clock size={10} className="mr-1" />
                     {new Date(row.createdAt).toLocaleString()}
                 </div>
@@ -125,7 +125,7 @@ const AuditLogs = () => {
                         <Search size={16} className="text-slate-400 mr-2" />
                         <input type="text" aria-label="搜索审计日志" title="搜索审计日志" placeholder={t.phSearchAudit} className="min-h-8 bg-transparent border-none focus:ring-0 text-xs w-full sm:w-48 font-bold" />
                     </div>
-                    <button type="button" aria-label="筛选审计日志" title="筛选审计日志" className="inline-flex min-h-8 min-w-8 items-center justify-center p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-blue-600 transition-all">
+ <button type="button" aria-label="筛选审计日志" title="筛选审计日志" className="inline-flex min-h-8 min-w-8 items-center justify-center p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-800 text-slate-400 hover:text-blue-600 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
                         <Filter size={18} />
                     </button>
                 </div>

@@ -9,6 +9,7 @@ const existingResult = {
     entryId: 10,
     stockBalanceId: 30,
     locationId: 1,
+    materialId: 7,
     productName: 'Resin A',
     batchNo: 'B-1',
     unit: 'kg',
@@ -20,9 +21,20 @@ const existingResult = {
 };
 
 describe('stock movement concurrency and idempotency', () => {
+  const activeMaterial = {
+    id: 7,
+    code: 'RM-0007',
+    nameZh: 'Resin A',
+    baseUnit: 'kg',
+    status: 'active',
+    isTemporary: false,
+    shelfLifeDays: 365,
+  };
+
   it('accepts only an exact replay for an existing requestId', () => {
     expect(() => assertIdempotentReplayMatches(existingResult, [{
       locationId: 1,
+      materialId: 7,
       productName: 'Resin A',
       batchNo: 'B-1',
       unit: 'kg',
@@ -31,10 +43,39 @@ describe('stock movement concurrency and idempotency', () => {
 
     expect(() => assertIdempotentReplayMatches(existingResult, [{
       locationId: 1,
+      materialId: 7,
       productName: 'Resin A',
       batchNo: 'B-1',
       unit: 'kg',
       quantityDelta: -30,
+    }])).toThrow(StockMovementConflictError);
+  });
+
+  it('does not silently skip valuation when a shipping actor is missing', async () => {
+    const tx = {
+      stockEntry: { findFirst: jest.fn(async () => null), create: jest.fn() },
+      material: { findUnique: jest.fn(async () => activeMaterial) },
+    } as any;
+    await expect(StockMovementService.postStockEntry({
+      sourceType: 'shipping_issue', sourceRef: 'SHIP1',
+      lines: [{ locationId: 1, materialId: 7, productName: 'Resin A', batchNo: 'B1', quantityDelta: -10, unit: 'kg' }],
+    }, tx)).rejects.toThrow('requires an accountable actor');
+    expect(tx.stockEntry.create).not.toHaveBeenCalled();
+  });
+
+  it('treats material identity as part of the idempotency signature', () => {
+    const governedResult = {
+      ...existingResult,
+      movements: [{ ...existingResult.movements[0], materialId: 7 }],
+    };
+
+    expect(() => assertIdempotentReplayMatches(governedResult, [{
+      locationId: 1,
+      materialId: 8,
+      productName: 'Resin A',
+      batchNo: 'B-1',
+      unit: 'kg',
+      quantityDelta: -20,
     }])).toThrow(StockMovementConflictError);
   });
 
@@ -51,6 +92,10 @@ describe('stock movement concurrency and idempotency', () => {
       },
       stockMovement: { findMany: jest.fn(async () => existingResult.movements) },
       stockBalance: { findMany: jest.fn(async () => existingResult.balances) },
+      material: {
+        findMany: jest.fn(async () => [activeMaterial]),
+        findUnique: jest.fn(async () => activeMaterial),
+      },
     } as any;
 
     await expect(StockMovementService.postStockEntry({
@@ -58,6 +103,7 @@ describe('stock movement concurrency and idempotency', () => {
       sourceRef: 'warehouse_adjustment:req-1',
       lines: [{
         locationId: 1,
+        materialId: 7,
         productName: 'Resin A',
         batchNo: 'B-1',
         unit: 'kg',
@@ -65,6 +111,42 @@ describe('stock movement concurrency and idempotency', () => {
         expectedQuantityBefore: 100,
       }],
     }, tx)).resolves.toMatchObject({ entry: { id: 10 } });
+    expect(tx.stockEntry.create).not.toHaveBeenCalled();
+  });
+
+  it('keeps an exact posted replay idempotent after the material is archived', async () => {
+    const archivedMaterial = { ...activeMaterial, status: 'inactive' };
+    const tx = {
+      stockEntry: {
+        findFirst: jest.fn(async () => ({
+          id: 10,
+          sourceType: 'procurement_receipt',
+          sourceRef: 'purchase_order:42',
+          status: 'posted',
+        })),
+        create: jest.fn(),
+      },
+      stockMovement: { findMany: jest.fn(async () => existingResult.movements) },
+      stockBalance: { findMany: jest.fn(async () => existingResult.balances) },
+      material: {
+        findMany: jest.fn(),
+        findUnique: jest.fn(async () => archivedMaterial),
+      },
+    } as any;
+
+    await expect(StockMovementService.postStockEntry({
+      sourceType: 'procurement_receipt',
+      sourceRef: 'purchase_order:42',
+      lines: [{
+        locationId: 1,
+        materialId: 7,
+        productName: 'Resin A',
+        batchNo: 'B-1',
+        unit: 'kg',
+        quantityDelta: -20,
+      }],
+    }, tx)).resolves.toMatchObject({ entry: { id: 10 } });
+    expect(tx.material.findMany).not.toHaveBeenCalled();
     expect(tx.stockEntry.create).not.toHaveBeenCalled();
   });
 
@@ -81,10 +163,15 @@ describe('stock movement concurrency and idempotency', () => {
         })),
       },
       location: { findUnique: jest.fn(async () => ({ id: 1, warehouseId: 1 })) },
+      material: {
+        findMany: jest.fn(async () => [activeMaterial]),
+        findUnique: jest.fn(async () => activeMaterial),
+      },
       stockBalance: {
         findUnique: jest.fn(async () => ({
           id: 30,
           locationId: 1,
+          materialId: 7,
           productName: 'Resin A',
           batchNo: 'B-1',
           unit: 'kg',
@@ -99,6 +186,7 @@ describe('stock movement concurrency and idempotency', () => {
       sourceRef: 'warehouse_adjustment:req-2',
       lines: [{
         locationId: 1,
+        materialId: 7,
         productName: 'Resin A',
         batchNo: 'B-1',
         unit: 'kg',

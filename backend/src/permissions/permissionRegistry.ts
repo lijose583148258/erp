@@ -27,6 +27,8 @@ export type Permission =
   | 'orders.shippingReady.read'
   | 'orders.payment.record'
   | 'orders.payment.verify'
+  | 'orders.payment.reversal.request'
+  | 'orders.payment.reversal.review'
   | 'collections.read'
   | 'collections.sync'
   | 'collections.reminder.write'
@@ -59,7 +61,11 @@ export type Permission =
   | 'assets.read'
   | 'assets.write'
   | 'production.read'
-  | 'production.write'
+  | 'production.bom.write'
+  | 'production.plan.write'
+  | 'production.execute'
+  | 'production.quality.inspect'
+  | 'production.quality.release'
   | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
@@ -73,7 +79,12 @@ export type Permission =
   | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
+  | 'procurement.approve'
+  | 'procurement.receive'
   | 'procurement.b2b.read'
+  | 'materials.read'
+  | 'materials.write'
+  | 'materials.govern'
   | 'commercial.read'
   | 'commercial.workflow.manage'
   | 'commercial.notification.write'
@@ -81,6 +92,7 @@ export type Permission =
   | 'system.read'
   | 'system.metrics.read'
   | 'system.backup.manage'
+  | 'settings.read'
   | 'audit.read'
   | 'ai.assistant.use';
 
@@ -112,6 +124,8 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'orders.shippingReady.read', resource: 'orders.shippingReady', action: 'read', label: '查看可发货订单', group: '物流' },
   { code: 'orders.payment.record', resource: 'orders.payment', action: 'record', label: '登记回款', group: '财务' },
   { code: 'orders.payment.verify', resource: 'orders.payment', action: 'verify', label: '核验回款', group: '财务' },
+  { code: 'orders.payment.reversal.request', resource: 'orders.payment.reversal', action: 'request', label: '申请原回款冲销', group: '财务' },
+  { code: 'orders.payment.reversal.review', resource: 'orders.payment.reversal', action: 'review', label: '独立审批原回款冲销', group: '财务' },
   { code: 'collections.read', resource: 'collections', action: 'read', label: '查看回款中心', group: '回款' },
   { code: 'collections.sync', resource: 'collections', action: 'sync', label: '同步逾期回款状态', group: '回款' },
   { code: 'collections.reminder.write', resource: 'collections.reminder', action: 'write', label: '创建催收提醒', group: '回款' },
@@ -144,7 +158,11 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'assets.read', resource: 'assets', action: 'read', label: '查看资产', group: '资产' },
   { code: 'assets.write', resource: 'assets', action: 'write', label: '管理资产', group: '资产' },
   { code: 'production.read', resource: 'production', action: 'read', label: '查看生产', group: '生产' },
-  { code: 'production.write', resource: 'production', action: 'write', label: '管理生产', group: '生产' },
+  { code: 'production.bom.write', resource: 'production.bom', action: 'write', label: '维护生产配方版本', group: '生产' },
+  { code: 'production.plan.write', resource: 'production.plan', action: 'write', label: '创建和取消生产工单', group: '生产' },
+  { code: 'production.execute', resource: 'production', action: 'execute', label: '执行工序、完工和生产处置', group: '生产' },
+  { code: 'production.quality.inspect', resource: 'production.quality', action: 'inspect', label: '执行生产质检', group: '生产', description: '录入结构化检验测量值，不包含最终批次放行权限' },
+  { code: 'production.quality.release', resource: 'production.quality', action: 'release', label: '审核并放行生产批次', group: '生产', description: '审核检验记录并决定放行或隔离；同一人不得同时检验和放行同一记录' },
   { code: 'production.cost.read', resource: 'production.cost', action: 'read', label: '查看生产成本', group: '生产', description: '查看批次成本台账、生产成本归集和成本核算结果' },
   { code: 'adjustments.read', resource: 'adjustments', action: 'read', label: '查看调整单', group: '调整' },
   { code: 'adjustments.write', resource: 'adjustments', action: 'write', label: '新建调整单', group: '调整' },
@@ -156,14 +174,20 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'finance.read', resource: 'finance', action: 'read', label: '查看财务', group: '财务' },
   { code: 'procurement.suppliers.read', resource: 'procurement.suppliers', action: 'read', label: '查看供应商基础资料', group: '采购' },
   { code: 'procurement.read', resource: 'procurement', action: 'read', label: '查看采购', group: '采购' },
-  { code: 'procurement.write', resource: 'procurement', action: 'write', label: '管理采购', group: '采购' },
+  { code: 'procurement.write', resource: 'procurement', action: 'write', label: '维护采购单与供应商', group: '采购' },
+  { code: 'procurement.approve', resource: 'procurement', action: 'approve', label: '审批采购单', group: '采购' },
+  { code: 'procurement.receive', resource: 'procurement', action: 'receive', label: '登记采购收货', group: '采购' },
   { code: 'procurement.b2b.read', resource: 'procurement.b2b', action: 'read', label: '查看 B2B 采购状态', group: '采购' },
+  { code: 'materials.read', resource: 'materials', action: 'read', label: '查看物料主数据', group: '物料主数据' },
+  { code: 'materials.write', resource: 'materials', action: 'write', label: '维护物料主数据', group: '物料主数据', description: '创建、修改、启用、冻结或停用统一物料及其别名' },
+  { code: 'materials.govern', resource: 'materials', action: 'govern', label: '执行物料历史治理', group: '物料主数据', description: '预览、应用或回滚历史自由文本到统一物料的批量关联，仅限受控治理人员' },
   { code: 'audit.read', resource: 'audit', action: 'read', label: '查看审计日志', group: '审计' },
   { code: 'ai.assistant.use', resource: 'ai.assistant', action: 'use', label: '使用受管 AI 助手', group: '智能助手', description: '仅允许发送经过隐私门禁的安全上下文，不授予业务明细读取权限' },
   { code: 'finance.currency.sync', resource: 'finance.currency', action: 'sync', label: 'Sync currency rates', group: 'finance' },
   { code: 'system.read', resource: 'system', action: 'read', label: 'Read system status', group: 'system' },
   { code: 'system.metrics.read', resource: 'system.metrics', action: 'read', label: 'Read Prometheus metrics', group: 'system' },
   { code: 'system.backup.manage', resource: 'system.backup', action: 'manage', label: 'Manage system backups', group: 'system' },
+  { code: 'settings.read', resource: 'settings', action: 'read', label: '查看系统设置入口', group: '系统', description: '控制前端系统设置入口可见性；具体设置写入仍由各自后端权限保护' },
   { code: 'commercial.read', resource: 'commercial', action: 'read', label: '查看商业化平台', group: '平台治理' },
   { code: 'commercial.workflow.manage', resource: 'commercial.workflow', action: 'manage', label: '管理审批工作流', group: '平台治理' },
   { code: 'commercial.notification.write', resource: 'commercial.notification', action: 'write', label: '发布平台通知', group: '平台治理' },
@@ -199,6 +223,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'orders.shippingReady.read',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -231,7 +257,11 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
+    'production.quality.inspect',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -245,7 +275,12 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
+    'materials.govern',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -253,6 +288,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'system.read',
     'system.metrics.read',
     'system.backup.manage',
+    'settings.read',
     'audit.read',
     'ai.assistant.use',
     ],
@@ -308,7 +344,10 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -322,7 +361,11 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -361,6 +404,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'rma.read',
     'rma.write',
     'procurement.b2b.read',
+    'materials.read',
     ],
   },
   warehouse: {
@@ -381,7 +425,10 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
+    'production.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
@@ -392,7 +439,10 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
+    'materials.read',
     ],
   },
   finance: {
@@ -404,6 +454,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'orders.export',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -430,6 +482,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'finance.currency.sync',
     'procurement.suppliers.read',
     'procurement.read',
+    'materials.read',
     ],
   },
 };

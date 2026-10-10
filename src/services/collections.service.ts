@@ -13,4 +13,13 @@ export type {
   CollectionPromiseRecord,
   CollectionSummary,
   CollectionWorkbenchBundle,
+  OriginalPaymentFacts,
+  PaymentReversalReason,
+  PaymentReversalDecision,
+  PaymentReversalRequestReceipt,
+  PaymentReversalReviewReceipt,
+  PaymentReversalRequestRecord,
+  PaymentReversalOrderSnapshot,
+  PaymentReversalHistory,
+  PaymentReversalResult,
 } from './collections.impl';

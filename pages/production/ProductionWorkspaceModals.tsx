@@ -1,5 +1,5 @@
 import type { AdjustmentRecord } from '../../services/adjustment.service';
-import type { ProductionWorkOrder } from '../../services/production.service';
+import type { ProductionConsumptionRecord, ProductionWorkOrder } from '../../services/production.service';
 import { CompleteWorkOrderModal } from './CompleteWorkOrderModal';
 import { ProductionAdjustmentReverseDialog } from './ProductionAdjustmentReverseDialog';
 
@@ -9,7 +9,7 @@ type ProductionWorkspaceModalsProps = {
   reverseAdjustment: AdjustmentRecord | null;
   reverseSubmitting: boolean;
   onCloseComplete: () => void;
-  onConfirmComplete: (consumptionRecords: { stockBalanceId: number; quantity: number }[]) => Promise<void>;
+  onConfirmComplete: (consumptionRecords: ProductionConsumptionRecord[]) => Promise<void>;
   onCancelReverse: () => void;
   onConfirmReverse: (note: string) => Promise<void>;
 };
@@ -30,6 +30,7 @@ export const ProductionWorkspaceModals = ({
         workOrderId={completingWorkOrder.id}
         productName={completingWorkOrder.productName}
         targetQuantity={Number(completingWorkOrder.targetQuantity || 0)}
+        densitySnapshotJson={completingWorkOrder.densitySnapshotJson}
         onClose={onCloseComplete}
         onConfirm={onConfirmComplete}
       />

@@ -2,6 +2,7 @@ import type { ReceivableAdjustment } from '@prisma/client';
 import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { addMoney, compareMoney, maxMoney, multiplyMoney, roundMoney, subtractMoney } from '../utils/money';
 import {
   determineReceivablePaymentStatus,
   getEffectiveReceivableAmount,
@@ -45,8 +46,6 @@ export interface ListReceivableAdjustmentFilters {
   pageSize: number;
 }
 
-const toCents = (value: number) => Math.round(Number(value || 0) * 100);
-const roundMoney = (value: number) => Number(Number(value || 0).toFixed(2));
 const now = () => new Date();
 
 const RECEIVABLE_ADJUSTMENT_TYPE_SET = new Set<string>(RECEIVABLE_ADJUSTMENT_TYPES);
@@ -86,7 +85,7 @@ const normalizeBaseAmount = (amount: number, exchangeRate?: number | null, baseA
     return roundMoney(Number(baseAmount));
   }
   const rate = Number(exchangeRate || 1);
-  return roundMoney(amount * (Number.isFinite(rate) && rate > 0 ? rate : 1));
+  return multiplyMoney(amount, Number.isFinite(rate) && rate > 0 ? rate : 1);
 };
 
 const formatAdjustment = (record: ReceivableAdjustment & {
@@ -152,8 +151,12 @@ export class ReceivableAdjustmentService {
 
   static async createAdjustment(input: CreateReceivableAdjustmentInput, createdBy: number) {
     const adjustmentType = normalizeReceivableAdjustmentType(input.adjustmentType);
-    const amount = roundMoney(Number(input.amount));
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const rawAmount = Number(input.amount);
+    if (!Number.isFinite(rawAmount)) {
+      throw new Error('应收调整金额必须大于 0。');
+    }
+    const amount = roundMoney(rawAmount);
+    if (compareMoney(amount, 0) <= 0) {
       throw new Error('应收调整金额必须大于 0。');
     }
 
@@ -180,7 +183,7 @@ export class ReceivableAdjustmentService {
       Number(order.paidAmount),
       Number(order.receivableAdjustmentAmount),
     );
-    if (toCents(amount) > toCents(available)) {
+    if (compareMoney(amount, available) > 0) {
       throw new Error(RECEIVABLE_ADJUSTMENT_EXCEEDS_AVAILABLE);
     }
 
@@ -260,8 +263,8 @@ export class ReceivableAdjustmentService {
       if (order.status === 'cancelled') throw new Error('Cancelled orders cannot receive receivable adjustments.');
 
       const currentAdjustment = Number(order.receivableAdjustmentAmount || 0);
-      const nextAdjustment = roundMoney(currentAdjustment + Number(adjustment.amount));
-      if (toCents(nextAdjustment) > toCents(Number(order.finalAmount) - Number(order.paidAmount))) {
+      const nextAdjustment = addMoney(currentAdjustment, adjustment.amount);
+      if (compareMoney(nextAdjustment, subtractMoney(order.finalAmount, order.paidAmount)) > 0) {
         throw new Error(RECEIVABLE_ADJUSTMENT_EXCEEDS_AVAILABLE);
       }
 
@@ -357,7 +360,7 @@ export class ReceivableAdjustmentService {
       });
 
       const currentAdjustment = Number(order.receivableAdjustmentAmount || 0);
-      const nextAdjustment = Math.max(0, roundMoney(currentAdjustment - Number(adjustment.amount)));
+      const nextAdjustment = maxMoney(0, subtractMoney(currentAdjustment, adjustment.amount));
       const paymentStatus = determineReceivablePaymentStatus(
         Number(order.paidAmount),
         Number(order.finalAmount),

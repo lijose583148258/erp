@@ -1,9 +1,12 @@
 ﻿import { Router } from 'express';
 import { ProcurementController } from '../controllers/procurement.controller';
-import { authenticate, authorizePermission } from '../middleware/auth';
+import { authenticate, authorizePermission, type AuthRequest } from '../middleware/auth';
+import type { Response, NextFunction } from 'express';
+import { normalizePurchaseStatus } from '../services/procurement-domain.service';
 import { validateZod } from '../middleware/validateZod';
 import {
   createPurchaseOrderSchema,
+  revisePurchaseOrderSchema,
   createPurchaseReceiptSchema,
   createSupplierSchema,
   idParamSchema,
@@ -20,14 +23,24 @@ router.get('/suppliers', authorizePermission('procurement.suppliers.read'), proc
 router.post('/suppliers', authorizePermission('procurement.write'), validateZod(createSupplierSchema), procurementController.createSupplier);
 
 router.get('/orders', authorizePermission('procurement.read'), procurementController.getOrders);
-router.post('/orders', authorizePermission('procurement.write'), validateZod(createPurchaseOrderSchema), procurementController.createOrder);
-router.patch('/orders/:id/status', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(purchaseStatusUpdateSchema), procurementController.updateOrderStatus);
+router.post('/orders', authorizePermission('procurement.write'), validateZod(createPurchaseOrderSchema),
+  (req: AuthRequest, res: Response, next: NextFunction) => ['approved', 'in_transit'].includes(normalizePurchaseStatus(req.body.status))
+    ? authorizePermission('procurement.approve')(req, res, next) : next(), procurementController.createOrder);
+router.patch('/orders/:id', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(revisePurchaseOrderSchema), procurementController.reviseOrder);
+router.get('/orders/:id/revisions', authorizePermission('procurement.read'), validateZod(idParamSchema, 'params'), procurementController.getOrderRevisions);
+router.patch('/orders/:id/status', validateZod(idParamSchema, 'params'), validateZod(purchaseStatusUpdateSchema),
+  (req: AuthRequest, res: Response, next: NextFunction) => {
+    const status = normalizePurchaseStatus(req.body.status);
+    return authorizePermission(status === 'approved' ? 'procurement.approve' : status === 'received' ? 'procurement.receive' : 'procurement.write')(req, res, next);
+  }, procurementController.updateOrderStatus);
 router.get('/orders/:id/receipts', authorizePermission('procurement.read'), validateZod(idParamSchema, 'params'), procurementController.getOrderReceipts);
-router.post('/orders/:id/receipts', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(createPurchaseReceiptSchema), procurementController.createReceipt);
+router.post('/orders/:id/receipts', authorizePermission('procurement.receive'), validateZod(idParamSchema, 'params'), validateZod(createPurchaseReceiptSchema), procurementController.createReceipt);
 
 router.post('/orders/:id/link-b2b', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), procurementController.linkB2BOrder);
 router.get('/b2b-status/:salesOrderId', authorizePermission('procurement.b2b.read'), validateZod(salesOrderIdParamSchema, 'params'), procurementController.getB2BStatus);
-router.post('/sync-b2b/:salesOrderId', authorizePermission('procurement.write'), validateZod(salesOrderIdParamSchema, 'params'), procurementController.syncB2BStatus);
+// The legacy shortcut can skip approval and post stock in one call. Ordinary
+// buyers/approvers/receivers use their explicit routes instead.
+router.post('/sync-b2b/:salesOrderId', authorizePermission('procurement.write', 'procurement.approve', 'procurement.receive'), validateZod(salesOrderIdParamSchema, 'params'), procurementController.syncB2BStatus);
 
 export default router;
 

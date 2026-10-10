@@ -1,0 +1,55 @@
+// Requests preserve original facts and acknowledgements. Only review state moves.
+model PaymentReversalRequest {
+  id                    String        @id
+  requestKey            String        @unique @map("request_key")
+  paymentId             Int           @map("payment_id")
+  payment               PaymentRecord @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  activePaymentId       Int?          @unique @map("active_payment_id")
+  requestedBy           Int           @map("requested_by")
+  requester             User          @relation("PaymentReversalRequester", fields: [requestedBy], references: [id], onDelete: Restrict)
+  reasonCategory        String        @map("reason_category")
+  reason                String
+  fingerprint           String
+  originalPaymentJson   String        @map("original_payment_json")
+  requestReceiptJson    String        @map("request_receipt_json")
+  requestAuditId        Int           @unique @map("request_audit_id")
+  requestAudit          AuditLog      @relation("PaymentReversalRequestAudit", fields: [requestAuditId], references: [id], onDelete: Restrict)
+  originalAuditId       Int?          @map("original_audit_id")
+  originalAudit         AuditLog?     @relation("PaymentReversalOriginalAudit", fields: [originalAuditId], references: [id], onDelete: Restrict)
+  status                String        @default("pending")
+  reviewKey             String?       @unique @map("review_key")
+  reviewFingerprint     String?       @map("review_fingerprint")
+  reviewedBy            Int?          @map("reviewed_by")
+  reviewer              User?         @relation("PaymentReversalReviewer", fields: [reviewedBy], references: [id], onDelete: Restrict)
+  reviewNote            String?       @map("review_note")
+  reviewAuditId         Int?          @unique @map("review_audit_id")
+  reviewAudit           AuditLog?     @relation("PaymentReversalReviewAudit", fields: [reviewAuditId], references: [id], onDelete: Restrict)
+  reviewReceiptJson     String?       @map("review_receipt_json")
+  reviewedAt            DateTime?     @map("reviewed_at")
+  createdAt             DateTime      @default(now()) @map("created_at")
+  reversal              PaymentReversal?
+
+  @@index([paymentId, createdAt])
+  @@map("payment_reversal_requests")
+}
+
+// One immutable compensating effect per original cash payment, never a deletion.
+model PaymentReversal {
+  id              String                 @id
+  paymentId       Int                    @unique @map("payment_id")
+  payment         PaymentRecord          @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  requestId       String                 @unique @map("request_id")
+  request         PaymentReversalRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  postedBy        Int                    @map("posted_by")
+  poster          User                   @relation("PaymentReversalPoster", fields: [postedBy], references: [id], onDelete: Restrict)
+  auditId         Int                    @unique @map("audit_id")
+  audit           AuditLog               @relation("PaymentReversalPostingAudit", fields: [auditId], references: [id], onDelete: Restrict)
+  amount          Float
+  currency        String
+  beforeStateJson String                 @map("before_state_json")
+  afterStateJson  String                 @map("after_state_json")
+  receiptJson     String                 @map("receipt_json")
+  createdAt       DateTime               @default(now()) @map("created_at")
+
+  @@map("payment_reversals")
+}

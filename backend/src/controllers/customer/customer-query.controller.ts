@@ -5,6 +5,7 @@ import { logger } from '../../utils/logger';
 import { CustomerQueryService } from '../../services/customer-query.service';
 import { loadCustomerForRequest, loadOrderStats } from './customer.persistence';
 import { buildCustomerPayload } from './customer.payload';
+import { withReadOnlyDbRetry } from '../../utils/readOnlyDbRetry';
 
 export async function getCustomers(req: AuthRequest, res: Response) {
     try {
@@ -44,20 +45,26 @@ export async function getCustomerStats(req: AuthRequest, res: Response) {
 export async function getCustomerById(req: AuthRequest, res: Response) {
     try {
       const id = Number(req.params.id);
-      const customer = await loadCustomerForRequest(req, id);
+      // Readiness may have recovered one pool connection while another still
+      // points at the old primary. Rebuild this pure read, including access
+      // scope, on recovery; never retry the response or any mutation handler.
+      const data = await withReadOnlyDbRetry(async () => {
+        const customer = await loadCustomerForRequest(req, id);
+        if (!customer) return null;
+        const statsMap = await loadOrderStats([customer.id]);
+        return buildCustomerPayload(customer, statsMap.get(customer.id));
+      });
 
-      if (!customer) {
+      if (!data) {
         return res.status(404).json({
           success: false,
           message: '客户不存在',
         } as ApiResponse);
       }
 
-      const [statsMap] = await Promise.all([loadOrderStats([customer.id])]);
-
       return res.json({
         success: true,
-        data: buildCustomerPayload(customer, statsMap.get(customer.id)),
+        data,
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户详情错误:', error);

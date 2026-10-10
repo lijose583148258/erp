@@ -8,7 +8,7 @@ const { PrismaClient } = require(path.join(process.cwd(), 'backend', 'node_modul
 const OUTPUT_DIR = path.resolve(process.cwd(), 'output', 'audit');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'payment-order-reconcile-audit-v1.json');
 const STRICT = process.env.AILAODA_RECONCILE_STRICT === '1';
-const EPSILON = Number(process.env.AILAODA_PAYMENT_RECONCILE_EPSILON || 0.01);
+const EPSILON = Number(process.env.AILAODA_PAYMENT_RECONCILE_EPSILON || 0.005);
 const SAMPLE_LIMIT = Number(process.env.AILAODA_RECONCILE_SAMPLE_LIMIT || 20);
 const FULL_SCAN_LIMIT = Number(process.env.AILAODA_RECONCILE_FULL_SCAN_LIMIT || 100000);
 
@@ -50,160 +50,8 @@ function roundMoney(value) {
   return Number(toNumber(value).toFixed(2));
 }
 
-function nearlyEqual(a, b) {
-  return Math.abs(toNumber(a) - toNumber(b)) <= EPSILON;
-}
-
-function determinePaymentStatus(paidAmount, finalAmount, receivableAdjustmentAmount) {
-  const effectiveReceivableAmount = Math.max(0, toNumber(finalAmount) - toNumber(receivableAdjustmentAmount));
-  if (Math.round(toNumber(paidAmount) * 100) >= Math.round(effectiveReceivableAmount * 100)) return 'paid';
-  if (toNumber(paidAmount) > 0) return 'partial';
-  return 'unpaid';
-}
-
-function addSample(samples, key, row) {
-  if (!samples[key]) samples[key] = [];
-  if (samples[key].length < SAMPLE_LIMIT) samples[key].push(row);
-}
-
-function hasAuditEvidenceMarker(row) {
-  return [
-    row.customerName,
-    row.customerNameZh,
-    row.customerNameEn,
-    row.paymentNoteMarkers,
-    row.adjustmentReasonMarkers,
-  ].some(value => /CONC-ORDER-CUST|Concurrency Order Customer|duplicate-payment|concurrency-audit-|AUDIT-DIRTY-DATA-REPAIR/i.test(String(value || '')));
-}
-
 function classifyRows(rows) {
-  const counters = {
-    totalScanned: rows.length,
-    cleanCurrentPolicy: 0,
-    verifiedPaymentMismatch: 0,
-    legacyFinanceAdjustmentApplied: 0,
-    legacyFinanceAdjustmentIgnoredByCurrentPolicy: 0,
-    verifiedPaymentsExceedEffectiveReceivable: 0,
-    paidAmountWithoutEvidence: 0,
-    quarantinedAuditEvidenceRisk: 0,
-    negativeLegacyFinanceWouldBelowZero: 0,
-    paymentStatusDrift: 0,
-    unresolvedDataDrift: 0,
-  };
-  const samples = {};
-
-  for (const raw of rows.map(normalizeRow)) {
-    const finalAmount = toNumber(raw.finalAmount);
-    const paidAmount = toNumber(raw.orderPaidAmount);
-    const receivableAdjustmentAmount = toNumber(raw.receivableAdjustmentAmount);
-    const verifiedPaymentAmount = toNumber(raw.verifiedPaymentAmount);
-    const financeAdjustmentAmount = toNumber(raw.financeAdjustmentAmount);
-    const effectiveReceivableAmount = Math.max(0, finalAmount - receivableAdjustmentAmount);
-    const currentPolicyDelta = roundMoney(paidAmount - verifiedPaymentAmount);
-    const legacyPolicyDelta = roundMoney(paidAmount - verifiedPaymentAmount - financeAdjustmentAmount);
-    const expectedStatus = determinePaymentStatus(paidAmount, finalAmount, receivableAdjustmentAmount);
-    const row = {
-      ...raw,
-      finalAmount,
-      orderPaidAmount: paidAmount,
-      receivableAdjustmentAmount,
-      effectiveReceivableAmount,
-      verifiedPaymentAmount,
-      financeAdjustmentAmount,
-      currentPolicyDelta,
-      legacyPolicyDelta,
-      expectedStatus,
-      explanation: null,
-    };
-
-    const matchesCurrentPolicy = nearlyEqual(currentPolicyDelta, 0);
-    const matchesLegacyPolicy = nearlyEqual(legacyPolicyDelta, 0);
-    const hasFinanceAdjustment = Math.abs(financeAdjustmentAmount) > EPSILON;
-    const statusDrift = String(raw.paymentStatus || '') !== expectedStatus;
-    const verifiedExceedsEffective = verifiedPaymentAmount - effectiveReceivableAmount > EPSILON;
-
-    if (matchesCurrentPolicy) counters.cleanCurrentPolicy += 1;
-
-    if (!matchesCurrentPolicy) {
-      counters.verifiedPaymentMismatch += 1;
-      row.explanation = 'orders.paid_amount does not match verified payment_records under the current collection policy.';
-      addSample(samples, 'verifiedPaymentMismatch', row);
-    }
-
-    if (hasFinanceAdjustment && matchesLegacyPolicy && !matchesCurrentPolicy) {
-      counters.legacyFinanceAdjustmentApplied += 1;
-      addSample(samples, 'legacyFinanceAdjustmentApplied', {
-        ...row,
-        explanation: 'paid_amount matches verified payments plus posted finance adjustment_records. This is legacy paid-amount adjustment behavior and can be overwritten by current recalculation.',
-      });
-    }
-
-    if (hasFinanceAdjustment && matchesCurrentPolicy && !matchesLegacyPolicy) {
-      counters.legacyFinanceAdjustmentIgnoredByCurrentPolicy += 1;
-      addSample(samples, 'legacyFinanceAdjustmentIgnoredByCurrentPolicy', {
-        ...row,
-        explanation: 'paid_amount matches verified payments, while posted finance adjustment_records are not reflected in paid_amount. This is expected under the current collection recalculation policy, but the old finance adjustment record remains in history.',
-      });
-    }
-
-    if (verifiedExceedsEffective) {
-      counters.verifiedPaymentsExceedEffectiveReceivable += 1;
-      const quarantineCandidate = hasAuditEvidenceMarker(row);
-      if (quarantineCandidate) counters.quarantinedAuditEvidenceRisk += 1;
-      addSample(samples, 'verifiedPaymentsExceedEffectiveReceivable', {
-        ...row,
-        quarantineCandidate,
-        explanation: quarantineCandidate
-          ? 'Verified payment_records exceed effective receivable, but the row carries audit/concurrency markers. Quarantine from long-soak business conclusions unless explicitly whitelisted.'
-          : 'Verified payment_records exceed effective receivable. This is a true historical consistency risk and should not be hidden by capping paid_amount.',
-      });
-    }
-
-    if (
-      !matchesCurrentPolicy
-      && !matchesLegacyPolicy
-      && Math.abs(verifiedPaymentAmount) <= EPSILON
-      && Math.abs(financeAdjustmentAmount) <= EPSILON
-      && paidAmount > EPSILON
-    ) {
-      counters.paidAmountWithoutEvidence += 1;
-      addSample(samples, 'paidAmountWithoutEvidence', {
-        ...row,
-        explanation: 'paid_amount exists but no verified payment_records or posted finance adjustments explain it.',
-      });
-    }
-
-    if (hasFinanceAdjustment && verifiedPaymentAmount + financeAdjustmentAmount < -EPSILON) {
-      counters.negativeLegacyFinanceWouldBelowZero += 1;
-      addSample(samples, 'negativeLegacyFinanceWouldBelowZero', {
-        ...row,
-        explanation: 'Legacy verified payments plus finance adjustments would push paid_amount below zero. Current service rejects this, so this is likely legacy or test data.',
-      });
-    }
-
-    if (statusDrift) {
-      counters.paymentStatusDrift += 1;
-      addSample(samples, 'paymentStatusDrift', {
-        ...row,
-        explanation: `payment_status is ${raw.paymentStatus || 'null'}, but paid/final/receivable-adjustment imply ${expectedStatus}.`,
-      });
-    }
-
-    if (
-      !matchesCurrentPolicy
-      && !matchesLegacyPolicy
-      && !verifiedExceedsEffective
-      && !(Math.abs(verifiedPaymentAmount) <= EPSILON && Math.abs(financeAdjustmentAmount) <= EPSILON && paidAmount > EPSILON)
-    ) {
-      counters.unresolvedDataDrift += 1;
-      addSample(samples, 'unresolvedDataDrift', {
-        ...row,
-        explanation: 'The row does not match either current verified-payment policy or legacy finance-adjusted policy.',
-      });
-    }
-  }
-
-  return { counters, samples };
+  return require('./lib/payment-reconcile-policy.cjs').classifyPaymentLedgerRows(rows.map(normalizeRow), { epsilon: EPSILON, sampleLimit: SAMPLE_LIMIT });
 }
 
 (async () => {
@@ -248,22 +96,24 @@ function classifyRows(rows) {
         _count: { id: true },
       }),
       prisma.adjustmentRecord.groupBy({
-        by: ['orderId'],
+        by: ['orderId', 'targetId'],
         where: {
-          orderId: { not: null },
+          OR: [{ orderId: { not: null } }, { targetId: { not: null } }],
           domain: 'finance',
-          status: 'posted',
+          status: { in: ['posted', 'reversed'] },
+          appliedAt: { not: null },
           amountDelta: { not: null },
         },
         _sum: { amountDelta: true },
         _count: { id: true },
       }),
       prisma.adjustmentRecord.groupBy({
-        by: ['orderId', 'reasonCategory'],
+        by: ['orderId', 'targetId', 'reasonCategory'],
         where: {
-          orderId: { not: null },
+          OR: [{ orderId: { not: null } }, { targetId: { not: null } }],
           domain: 'finance',
-          status: 'posted',
+          status: { in: ['posted', 'reversed'] },
+          appliedAt: { not: null },
           amountDelta: { not: null },
         },
         _sum: { amountDelta: true },
@@ -308,17 +158,17 @@ function classifyRows(rows) {
       group.orderId,
       Number(group._count.id || 0),
     ]));
-    const financeByOrderId = new Map(financeAdjustmentGroups.map(group => [
-      group.orderId,
-      {
-        amount: toNumber(group._sum.amountDelta),
-        count: Number(group._count.id || 0),
-      },
-    ]));
+    const financeByOrderId = new Map();
+    for (const group of financeAdjustmentGroups) {
+      const orderId = group.orderId ?? group.targetId;
+      const previous = financeByOrderId.get(orderId) || { amount: 0, count: 0 };
+      financeByOrderId.set(orderId, { amount: roundMoney(previous.amount + toNumber(group._sum.amountDelta)),
+        count: previous.count + Number(group._count.id || 0) });
+    }
     const negativeFinanceCountByOrderId = new Map();
     const financeReasonByOrderId = new Map();
     for (const group of financeReasonGroups) {
-      const orderId = group.orderId;
+      const orderId = group.orderId ?? group.targetId;
       const reason = group.reasonCategory || 'uncategorized';
       const amount = toNumber(group._sum.amountDelta);
       const existingReasons = financeReasonByOrderId.get(orderId) || [];
@@ -411,13 +261,14 @@ function classifyRows(rows) {
         GROUP BY order_id
       ),
       finance_adjustments AS (
-        SELECT order_id, SUM(amount_delta) AS finance_adjustment_amount
+        SELECT COALESCE(order_id, target_id) AS order_id, SUM(amount_delta) AS finance_adjustment_amount
         FROM adjustment_records
-        WHERE order_id IS NOT NULL
+        WHERE (order_id IS NOT NULL OR target_id IS NOT NULL)
           AND domain = 'finance'
-          AND status = 'posted'
+          AND status IN ('posted', 'reversed')
+          AND applied_at IS NOT NULL
           AND amount_delta IS NOT NULL
-        GROUP BY order_id
+        GROUP BY COALESCE(order_id, target_id)
       )
       SELECT
         o.id,
@@ -445,13 +296,14 @@ function classifyRows(rows) {
         GROUP BY order_id
       ),
       finance_adjustments AS (
-        SELECT order_id, SUM(amount_delta) AS finance_adjustment_amount
+        SELECT COALESCE(order_id, target_id) AS order_id, SUM(amount_delta) AS finance_adjustment_amount
         FROM adjustment_records
-        WHERE order_id IS NOT NULL
+        WHERE (order_id IS NOT NULL OR target_id IS NOT NULL)
           AND domain = 'finance'
-          AND status = 'posted'
+          AND status IN ('posted', 'reversed')
+          AND applied_at IS NOT NULL
           AND amount_delta IS NOT NULL
-        GROUP BY order_id
+        GROUP BY COALESCE(order_id, target_id)
       )
       SELECT COUNT(*) AS unexplainedMismatchCount
       FROM orders o
@@ -484,7 +336,8 @@ function classifyRows(rows) {
     const rawPotentialRiskCount = classification.counters.verifiedPaymentsExceedEffectiveReceivable
       + classification.counters.paidAmountWithoutEvidence
       + classification.counters.paymentStatusDrift
-      + classification.counters.unresolvedDataDrift;
+      + classification.counters.unresolvedDataDrift
+      + classification.counters.negativeLegacyFinanceWouldBelowZero;
     const quarantinedAuditEvidenceRiskCount = classification.counters.quarantinedAuditEvidenceRisk;
     const actionableTrueRiskCount = Math.max(0, rawPotentialRiskCount - quarantinedAuditEvidenceRiskCount);
     report.summary = {
@@ -505,7 +358,7 @@ function classifyRows(rows) {
       trueRiskCount: actionableTrueRiskCount,
       deprecatedTrueRiskCountBeforeQuarantine: rawPotentialRiskCount,
       epsilon: EPSILON,
-      accountingPolicy: 'current policy: orders.paid_amount equals verified payment_records; receivable reductions use orders.receivable_adjustment_amount. Legacy finance adjustment_records may exist and are classified separately.',
+      accountingPolicy: 'canonical policy: orders.paid_amount equals verified payment_records plus net finance adjustment_records with applied_at and posted/reversed status; original and inverse effects both count, unapplied cancelled requests do not. AR reductions remain separate. Legacy-named report fields are compatibility aliases, not permission to ignore applied effects.',
       verdict: actionableTrueRiskCount > 0 || overpaidRows.length > 0
         ? 'classified_historical_risk_requires_review'
         : quarantinedAuditEvidenceRiskCount > 0

@@ -1,9 +1,11 @@
-import type { Dispatch, SetStateAction } from 'react';
+import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 import { orderService } from '../../src/services/order.service';
 import type { CurrentUser, PaymentRecord, SalesOrder } from '../../types';
 import { getOutstandingAmount, type PaymentForm } from './salesOrderFormHelpers';
 import { getSalesOrderCustomerLabelFromOrder } from './salesOrderLabels';
 import { invalidateSalesOrderWorkspaceState, type NotifyFn } from './useSalesOrderWorkspaceData';
+import { clearPaymentIntent, isDefinitivePaymentRejection, preparePaymentIntent, readPaymentIntent } from './paymentSubmissionIntent';
+import type { ApiClientError } from '../../utils/api';
 
 type UseSalesOrderPaymentsOptions = {
     selectedOrder: SalesOrder | null;
@@ -32,10 +34,18 @@ export const useSalesOrderPayments = ({
     hydrateOrderDetail,
     upsertOrder,
 }: UseSalesOrderPaymentsOptions) => {
+    const inFlight = useRef(false);
+    const [isRecordingPayment, setIsRecordingPayment] = useState(false);
+    const [hasUnconfirmedPayment, setHasUnconfirmedPayment] = useState(false);
     const openPaymentModal = async (order: SalesOrder) => {
+        if (inFlight.current) return;
         const detailedOrder = await hydrateOrderDetail(order);
+        let pending;
+        try { pending = readPaymentIntent(window.localStorage, String(currentUser.id), String(detailedOrder.id)); }
+        catch (error) { notify('error', (error as Error).message || '无法读取原回款请求身份，未开启新登记。'); return; }
         setSelectedOrder(detailedOrder);
-        setPaymentForm({
+        setHasUnconfirmedPayment(Boolean(pending));
+        setPaymentForm(pending?.facts || {
             amount: getOutstandingAmount(detailedOrder),
             date: new Date().toISOString().split('T')[0],
             method: 'bank_transfer',
@@ -60,26 +70,35 @@ export const useSalesOrderPayments = ({
     };
 
     const handleRecordPayment = async () => {
-        if (!selectedOrder) return;
+        if (!selectedOrder || inFlight.current) return;
         if (paymentForm.amount <= 0) {
             notify('error', '金额无效。');
             return;
         }
 
         const outstanding = getOutstandingAmount(selectedOrder);
-        if (paymentForm.amount > outstanding + 0.009) {
+        if (!hasUnconfirmedPayment && paymentForm.amount > outstanding + 0.009) {
             notify('error', `收款金额不能超过有效未收金额：${formatPrice(outstanding)}。`);
             return;
         }
 
+        inFlight.current = true;
+        setIsRecordingPayment(true);
+        let intent;
+        try {
+            intent = preparePaymentIntent(window.localStorage, String(currentUser.id), String(selectedOrder.id), {
+                ...paymentForm, amount: Number(paymentForm.amount),
+                payerName: hasUnconfirmedPayment || paymentForm.isProxy ? paymentForm.payerName : getSalesOrderCustomerLabelFromOrder(selectedOrder),
+            }, () => crypto.randomUUID());
+            setHasUnconfirmedPayment(true);
+        } catch (error) {
+            inFlight.current = false; setIsRecordingPayment(false);
+            notify('error', (error as Error).message || '无法保存回款请求身份，未发送登记。'); return;
+        }
         const payment: PaymentRecord = {
             id: 'PAY-' + Date.now(),
-            date: paymentForm.date,
-            amount: Number(paymentForm.amount),
-            method: paymentForm.method,
-            isProxy: paymentForm.isProxy,
-            payerName: paymentForm.isProxy ? paymentForm.payerName : getSalesOrderCustomerLabelFromOrder(selectedOrder),
-            note: paymentForm.note,
+            submissionKey: intent.key,
+            ...intent.facts,
             recordedBy: currentUser.name,
             status: 'pending',
             createdByRole: currentUser.role,
@@ -87,6 +106,8 @@ export const useSalesOrderPayments = ({
 
         try {
             const updatedOrder = await orderService.recordPayment(selectedOrder.id, payment);
+            clearPaymentIntent(window.localStorage, String(currentUser.id), String(selectedOrder.id), intent.key);
+            setHasUnconfirmedPayment(false);
             invalidateSalesOrderWorkspaceState();
             upsertOrder(updatedOrder);
             setSelectedOrder(updatedOrder);
@@ -96,8 +117,16 @@ export const useSalesOrderPayments = ({
             } else {
                 notify('success', '收款已提交审核。');
             }
-        } catch {
-            notify('error', '收款登记失败。');
+        } catch (error) {
+            if (isDefinitivePaymentRejection((error as ApiClientError).errorCode)) {
+                try { clearPaymentIntent(window.localStorage, String(currentUser.id), String(selectedOrder.id), intent.key); setHasUnconfirmedPayment(false); }
+                catch { /* Do not discard the original identity on storage failure. */ }
+                notify('error', (error as Error).message);
+            } else {
+                notify('error', '提交结果未确认。原请求身份已保留；请重试确认，不会另建一笔回款。');
+            }
+        } finally {
+            inFlight.current = false; setIsRecordingPayment(false);
         }
     };
 
@@ -105,5 +134,7 @@ export const useSalesOrderPayments = ({
         openPaymentModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
     };
 };

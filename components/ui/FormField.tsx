@@ -19,6 +19,7 @@ type Props = {
   error?: React.ReactNode;
   disabled?: boolean;
   readOnly?: boolean;
+  autoFocus?: boolean;
   list?: string;
   maxLength?: number;
   dataTestId?: string;
@@ -41,6 +42,7 @@ export const FormField: React.FC<Props> = ({
   error,
   disabled = false,
   readOnly = false,
+  autoFocus = false,
   list,
   maxLength,
   dataTestId,
@@ -82,6 +84,7 @@ export const FormField: React.FC<Props> = ({
         <textarea
           id={controlId}
           data-testid={dataTestId}
+          data-autofocus={autoFocus || undefined}
           value={value}
           title={valueTitle}
           onChange={(event) => handleChange(event.target.value)}
@@ -89,6 +92,7 @@ export const FormField: React.FC<Props> = ({
           rows={rows}
           disabled={disabled}
           readOnly={readOnly}
+          autoFocus={autoFocus}
           maxLength={maxLength}
           required={required}
           aria-invalid={Boolean(error)}
@@ -99,10 +103,12 @@ export const FormField: React.FC<Props> = ({
         <select
           id={controlId}
           data-testid={dataTestId}
+          data-autofocus={autoFocus || undefined}
           value={value}
           title={valueTitle}
           onChange={(event) => handleChange(event.target.value)}
           disabled={disabled}
+          autoFocus={autoFocus}
           required={required}
           aria-invalid={Boolean(error)}
           aria-describedby={describedBy}
@@ -118,6 +124,7 @@ export const FormField: React.FC<Props> = ({
         <input
           id={controlId}
           data-testid={dataTestId}
+          data-autofocus={autoFocus || undefined}
           type={type}
           value={value}
           title={valueTitle}
@@ -125,6 +132,7 @@ export const FormField: React.FC<Props> = ({
           placeholder={placeholder}
           disabled={disabled}
           readOnly={readOnly}
+          autoFocus={autoFocus}
           list={list}
           maxLength={maxLength}
           required={required}

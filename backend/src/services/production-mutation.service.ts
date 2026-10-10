@@ -1,3 +1,9 @@
+import { PACKAGING_PERCENTAGE_V1, assertWholePackages, assertPackagingQuality } from '../domain/production-packaging-basis';
+import { packagingPercentageQuantityV1, densityPercentageQuantityV1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
+import { DENSITY_PERCENTAGE_V1, assertDensityBasisCurrent, parseDensityBasis, parseWorkOrderDensityBases, type DensityBasis, type WorkOrderDensityBasis } from '../domain/production-density-basis';
+import { approvedPackagingBasis } from './material-packaging.service';
+import { approvedDensityBasis } from './material-density.service';
+import { MASS_PERCENTAGE_V1, massPercentageQuantityV1 } from '../domain/production-mass-basis';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
@@ -5,13 +11,20 @@ import { ProductionCostLedgerService } from './production-cost-ledger.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
 import {
   ProductionBomInput,
-  ProductionQualityCheckInput,
-  ProductionQualityResult,
   ProductionWorkOrderInput,
   ProductionWorkOrderStatus,
   ProductionWorkOrderStepInput,
 } from './production-query.service';
 import { assertBomConsumptionCoverage } from './production-completion.validation';
+import { persistBatchGenealogyEdges } from './batch-genealogy-write.service';
+import { assertLatestQualityRelease } from './production-quality.service';
+import { lockBomRevisions } from './production-bom-freeze.service';
+import { withDbRetry } from '../utils/dbRetry';
+import { assertBomOutputUnit, assertBomPercentageUnits } from './production-unit-safety.service';
+import { lockQualityWorkOrder } from './production-quality-lock.service';
+import { StockMovementConflictError } from './stock-movement.errors';
+
+export type ProductionStatusActor = { userId: number; ipAddress?: string; userAgent?: string };
 
 export { ProductionCompletionValidationError } from './production-completion.validation';
 
@@ -33,7 +46,56 @@ const roundQuantity = (value: number, precision = 6) => {
   return Math.round(value * factor) / factor;
 };
 
-const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number]) => {
+const FINISHED_GOODS_CATEGORIES = new Set(['finished_good', 'semi_finished']);
+
+export const resolveFinishedGoodsMaterial = async (
+  tx: TransactionClient,
+  materialId: number | null | undefined,
+  controlled: boolean,
+) => {
+  if (!materialId) {
+    if (controlled) throw new Error('BOM_OUTPUT_MATERIAL_MASTER_REQUIRED');
+    return null;
+  }
+  const material = await tx.material.findUnique({
+    where: { id: Number(materialId) },
+    select: {
+      id: true,
+      code: true,
+      nameZh: true,
+      category: true,
+      baseUnit: true,
+      shelfLifeDays: true,
+      status: true,
+      isTemporary: true,
+    },
+  });
+  if (!material) throw new Error('BOM_OUTPUT_MATERIAL_NOT_FOUND');
+  if (!FINISHED_GOODS_CATEGORIES.has(material.category)) {
+    throw new Error(`BOM_OUTPUT_MATERIAL_CATEGORY_INVALID:${material.code}:${material.category}`);
+  }
+  if (material.status === 'blocked' || material.status === 'retired') {
+    throw new Error(`BOM_OUTPUT_MATERIAL_UNAVAILABLE:${material.code}`);
+  }
+  if (controlled && (material.status !== 'active' || material.isTemporary)) {
+    throw new Error(`BOM_OUTPUT_MATERIAL_NOT_RELEASED:${material.code}`);
+  }
+  if (controlled && !material.shelfLifeDays) {
+    throw new Error(`BOM_OUTPUT_SHELF_LIFE_REQUIRED:${material.code}`);
+  }
+  return material;
+};
+
+export const calculateBatchExpiryDate = (productionDate: Date, shelfLifeDays: unknown) => {
+  const days = Number(shelfLifeDays);
+  if (!Number.isInteger(days) || days < 1 || days > 3650) {
+    throw new Error('BOM 缺少有效的保质期天数，禁止自动创建成品批次。');
+  }
+  return new Date(productionDate.getTime() + days * 24 * 60 * 60 * 1000);
+};
+
+const normalizeBomQuantityPerUnit = (item: NonNullable<ProductionBomInput['items']>[number], outputUnit: string) => {
+  if (item.dosageMode === MASS_PERCENTAGE_V1) return massPercentageQuantityV1(item.percentage, item.unit, outputUnit);
   const dosageMode = String(item.dosageMode || '').trim();
   const percentage = Number(item.percentage || 0);
   const rawQuantity = toPositiveNumber(item.quantityPerUnit);
@@ -74,8 +136,21 @@ const WORK_ORDER_STATUS_RANK: Record<ProductionWorkOrderStatus, number> = {
 const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.productionWorkOrder.findUnique({
   where: { id },
   include: {
-    bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-    productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+    bom: {
+      include: { qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+    },
+    productBatch: {
+      select: {
+        id: true,
+        materialId: true,
+        batchNo: true,
+        productName: true,
+        productionDate: true,
+        expiryDate: true,
+        stockQuantity: true,
+        unit: true,
+      },
+    },
     steps: { orderBy: { stepNo: 'asc' } },
     qualityChecks: { orderBy: { createdAt: 'desc' } },
   },
@@ -84,25 +159,95 @@ const readWorkOrderDetail = (tx: TransactionClient, id: number) => tx.production
 export class ProductionMutationService {
   static async createBom(input: ProductionBomInput, createdBy: number) {
     const bomNo = buildNo('BOM');
-    const items = (input.items || [])
-      .map(item => ({
-        ...item,
-        materialName: String(item.materialName || item.materialCode || '').trim(),
-        materialCode: item.materialCode ? String(item.materialCode).trim() : null,
-        quantityPerUnit: normalizeBomQuantityPerUnit(item),
-      }))
-      .filter(item => item.materialName && Number(item.quantityPerUnit || 0) > 0);
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      const packagingBasis = input.packagingRevisionId ? await approvedPackagingBasis(tx,input.packagingRevisionId,input.materialId || 0,input.outputUnit) : null;
+      if (packagingBasis) assertPackagingQuality(packagingBasis, input.qualityCharacteristics);
+      const densityBases = new Map<number, DensityBasis>();
+      for (const [index, item] of (input.items || []).entries()) {
+        if (item.dosageMode !== DENSITY_PERCENTAGE_V1) continue;
+        if (!item.materialId || !item.densityRevisionId) throw new Error('BOM_UNIT_DENSITY_BASIS_REQUIRED:密度换算必须选择物料和已批准批次依据');
+        densityBases.set(index, await approvedDensityBasis(tx, Number(item.densityRevisionId), Number(item.materialId), item.unit));
+      }
+      const draftItems = (input.items || []).map((item,index) => {
+        const densityBasis=densityBases.get(index);
+        return { ...item,
+          materialName: String(item.materialName || item.materialCode || '').trim(),
+          materialCode: item.materialCode ? String(item.materialCode).trim() : null,
+          densityRevisionId: densityBasis?.revisionId ?? null,
+          densitySnapshotJson: densityBasis ? JSON.stringify(densityBasis) : null,
+          quantityPerUnit: item.dosageMode === PACKAGING_PERCENTAGE_V1 && packagingBasis
+            ? packagingPercentageQuantityV1(item.percentage,item.unit,packagingBasis.netMass,packagingBasis.massUnit)
+            : item.dosageMode === DENSITY_PERCENTAGE_V1 && densityBasis
+              ? densityPercentageQuantityV1(item.percentage,item.unit,input.outputUnit,densityBasis.densityKgPerL)
+              : normalizeBomQuantityPerUnit(item,input.outputUnit),
+          ...(item.dosageMode === PACKAGING_PERCENTAGE_V1 || item.dosageMode === DENSITY_PERCENTAGE_V1 ? { allowedVarianceRate: item.allowedVarianceRate ?? 0 } : {}),
+        };
+      }).filter(item => (item.materialId || item.materialName) && Number(item.quantityPerUnit || 0) > 0);
+      const packagingSnapshotJson = packagingBasis ? JSON.stringify(packagingBasis) : null;
+      const controlledBom = Boolean(packagingBasis) || (input.status || 'draft') !== 'draft';
+      const outputMaterial = await resolveFinishedGoodsMaterial(tx, input.materialId, controlledBom);
+      if (outputMaterial) assertBomOutputUnit(input.outputUnit, outputMaterial.baseUnit);
+      assertBomPercentageUnits({ materialId: input.materialId, packagingRevisionId: input.packagingRevisionId, packagingSnapshotJson, outputUnit: input.outputUnit, items: draftItems });
+      const materialIds = Array.from(new Set(
+        draftItems
+          .map(item => Number(item.materialId || 0))
+          .filter(id => Number.isInteger(id) && id > 0),
+      ));
+      const materials = materialIds.length > 0
+        ? await tx.material.findMany({
+          where: { id: { in: materialIds } },
+          select: {
+            id: true,
+            code: true,
+            nameZh: true,
+            baseUnit: true,
+            status: true,
+            isTemporary: true,
+          },
+        })
+        : [];
+      if (materials.length !== materialIds.length) {
+        throw new Error('BOM_MATERIAL_NOT_FOUND');
+      }
+      const materialById = new Map(materials.map(material => [material.id, material]));
+      const items = draftItems.map((item, index) => {
+        const materialId = item.materialId ? Number(item.materialId) : null;
+        if (!materialId) {
+          if (controlledBom) throw new Error(`BOM_MATERIAL_MASTER_REQUIRED:${index + 1}`);
+          return { ...item, materialId: null };
+        }
+        const material = materialById.get(materialId);
+        if (!material) throw new Error('BOM_MATERIAL_NOT_FOUND');
+        if (material.status === 'blocked' || material.status === 'retired') {
+          throw new Error(`BOM_MATERIAL_UNAVAILABLE:${material.code}`);
+        }
+        if (controlledBom && (material.status !== 'active' || material.isTemporary)) {
+          throw new Error(`BOM_MATERIAL_NOT_RELEASED:${material.code}`);
+        }
+        if (item.unit.trim().toLocaleLowerCase() !== material.baseUnit.trim().toLocaleLowerCase()) {
+          throw new Error(`BOM_MATERIAL_UNIT_MISMATCH:${material.code}:${item.unit}:${material.baseUnit}`);
+        }
+        return {
+          ...item,
+          materialId,
+          materialCode: material.code,
+          materialName: material.nameZh,
+        };
+      });
 
-    return prisma.$transaction(async tx => {
       const created = await tx.productionBom.create({
         data: {
           bomNo,
-          productName: input.productName,
+          packagingRevisionId: input.packagingRevisionId ?? null,
+          packagingSnapshotJson,
+          materialId: outputMaterial?.id ?? null,
+          productName: outputMaterial?.nameZh ?? input.productName,
           version: input.version || 'v1',
           bomType: input.bomType || 'standard',
           status: input.status || 'draft',
           formulationMode: input.formulationMode || null,
-          outputUnit: input.outputUnit,
+          outputUnit: outputMaterial?.baseUnit ?? input.outputUnit,
+          shelfLifeDays: outputMaterial?.shelfLifeDays ?? input.shelfLifeDays,
           standardBatchSize: input.standardBatchSize ?? null,
           batchSizeUnit: input.batchSizeUnit || null,
           density: input.density ?? null,
@@ -115,6 +260,9 @@ export class ProductionMutationService {
           createdBy,
           items: {
             create: items.map(item => ({
+              materialId: item.materialId,
+              densityRevisionId: item.densityRevisionId,
+              densitySnapshotJson: item.densitySnapshotJson,
               materialName: item.materialName,
               materialCode: item.materialCode || null,
               ingredientRole: item.ingredientRole || null,
@@ -130,10 +278,29 @@ export class ProductionMutationService {
               notes: item.notes || null,
             })),
           },
+          qualityCharacteristics: {
+            create: (input.qualityCharacteristics || []).map((characteristic, index) => ({
+              code: characteristic.code.trim().toUpperCase(),
+              name: characteristic.name.trim(),
+              valueType: characteristic.valueType || 'numeric',
+              unit: characteristic.unit?.trim() || null,
+              lowerLimit: characteristic.lowerLimit === null || characteristic.lowerLimit === undefined || characteristic.lowerLimit === ''
+                ? null
+                : String(characteristic.lowerLimit),
+              upperLimit: characteristic.upperLimit === null || characteristic.upperLimit === undefined || characteristic.upperLimit === ''
+                ? null
+                : String(characteristic.upperLimit),
+              targetText: characteristic.targetText?.trim() || null,
+              testMethod: characteristic.testMethod?.trim() || null,
+              required: characteristic.required !== false,
+              sortOrder: characteristic.sortOrder ?? index,
+            })),
+          },
         },
         include: {
           creator: { select: { id: true, username: true, role: true } },
           items: { orderBy: { id: 'asc' } },
+          qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       });
 
@@ -142,6 +309,7 @@ export class ProductionMutationService {
         include: {
           creator: { select: { id: true, username: true, role: true } },
           items: { orderBy: { id: 'asc' } },
+          qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         },
       });
 
@@ -150,11 +318,58 @@ export class ProductionMutationService {
       }
 
       return refreshed;
-    });
+    }, { isolationLevel: 'Serializable' }));
   }
 
   static async createWorkOrder(input: ProductionWorkOrderInput, createdBy: number) {
-    return prisma.$transaction(async tx => {
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      // A process loss cannot be silently netted from finished output.  Once
+      // the work order is completed it must be evidenced by a governed
+      // physical scrap/rework disposition, with stock, cost and audit facts.
+      if (Number(input.lossQuantity || 0) !== 0) {
+        throw new Error('PRODUCTION_LOSS_DISPOSITION_REQUIRED:工单损耗必须在完工后通过批次处置登记');
+      }
+      if (input.bomId) await lockBomRevisions(tx, [input.bomId]);
+      const bom = input.bomId
+        ? await tx.productionBom.findUnique({
+          where: { id: input.bomId },
+          select: { id: true, materialId: true, productName: true, outputUnit: true, shelfLifeDays: true, items: true, packagingRevisionId: true, packagingSnapshotJson: true },
+        })
+        : null;
+      if (input.bomId && !bom) throw new Error(`Production BOM not found: ${input.bomId}`);
+      if (bom) assertBomPercentageUnits(bom);
+      const densityWorkOrderBases: WorkOrderDensityBasis[] = [];
+      for (const item of bom?.items || []) {
+        if (item.dosageMode !== DENSITY_PERCENTAGE_V1) continue;
+        const snapshot = parseDensityBasis(item.densitySnapshotJson);
+        if (!item.densityRevisionId || item.densityRevisionId !== snapshot.revisionId || !item.materialId || item.materialId !== snapshot.materialId) {
+          throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:密度 BOM 行缺少匹配快照');
+        }
+        const current = await approvedDensityBasis(tx, snapshot.revisionId, snapshot.materialId, item.unit);
+        assertDensityBasisCurrent(snapshot, current);
+        densityWorkOrderBases.push({ ...snapshot, bomItemId: item.id, quantityPerUnit: Number(item.quantityPerUnit), inputUnit: item.unit });
+      }
+      if (bom?.packagingRevisionId) {
+        await approvedPackagingBasis(tx,bom.packagingRevisionId,bom.materialId || 0,bom.outputUnit);
+        assertWholePackages(input.targetQuantity);
+        if (Number(input.lossQuantity || 0) !== 0 || Number(input.producedQuantity) !== input.targetQuantity) throw new Error('BOM_UNIT_PACKAGING_OUTPUT_SCOPE:包装 v1 要求计划与实际整包装数量一致、零损耗');
+      }
+      const batch = input.batchId
+        ? await tx.productBatch.findUnique({
+          where: { id: input.batchId },
+          select: { id: true, materialId: true, productName: true, unit: true },
+        })
+        : null;
+      if (input.batchId && !batch) throw new Error(`Product batch not found: ${input.batchId}`);
+      if (bom && batch) assertBomOutputUnit(batch.unit, bom.outputUnit);
+      const outputMaterialId = bom?.materialId ?? batch?.materialId ?? null;
+      const outputProductName = bom?.productName ?? batch?.productName ?? input.productName;
+      if (bom?.materialId && batch && batch.materialId !== bom.materialId) {
+        throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
+      }
+      if (!bom?.materialId && batch?.materialId && bom && batch.productName !== bom.productName) {
+        throw new Error('WORK_ORDER_OUTPUT_BATCH_NAME_MISMATCH');
+      }
       const stepInputs: ProductionWorkOrderStepInput[] = input.steps && input.steps.length > 0
         ? input.steps
         : DEFAULT_STEPS.map((title, index) => ({ stepNo: index + 1, title }));
@@ -164,7 +379,8 @@ export class ProductionMutationService {
           workOrderNo: buildNo('WO'),
           bomId: input.bomId ?? null,
           batchId: input.batchId ?? null,
-          productName: input.productName,
+          materialId: outputMaterialId,
+          productName: outputProductName,
           targetQuantity: Number(input.targetQuantity || 0),
           producedQuantity: Number(input.producedQuantity || 0),
           lossQuantity: Number(input.lossQuantity || 0),
@@ -172,6 +388,7 @@ export class ProductionMutationService {
           plannedStartAt: toDateOrNull(input.plannedStartAt),
           plannedEndAt: toDateOrNull(input.plannedEndAt),
           note: input.note || null,
+          densitySnapshotJson: densityWorkOrderBases.length ? JSON.stringify(densityWorkOrderBases) : null,
           createdBy,
           steps: {
             create: stepInputs.map((step, index) => ({
@@ -187,21 +404,34 @@ export class ProductionMutationService {
       return tx.productionWorkOrder.findUnique({
         where: { id: workOrder.id },
         include: {
-          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-          productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+          bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true, shelfLifeDays: true } },
+          productBatch: {
+            select: {
+              id: true,
+              materialId: true,
+              batchNo: true,
+              productName: true,
+              productionDate: true,
+              expiryDate: true,
+              stockQuantity: true,
+              unit: true,
+            },
+          },
           steps: { orderBy: { stepNo: 'asc' } },
           qualityChecks: true,
         },
       });
-    });
+    }), { label: 'create-work-order-freeze-bom' });
   }
 
-  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: { stockBalanceId: number; quantity: number; }[]) {
-    return prisma.$transaction(async tx => {
+  static async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords: { stockBalanceId: number; quantity: number; densityUse?: { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; }; }[] | undefined, actor: ProductionStatusActor) {
+    if (!Number.isSafeInteger(actor.userId) || actor.userId <= 0) throw new Error('WORK_ORDER_ACTOR_REQUIRED');
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      await lockQualityWorkOrder(tx, id);
       const workOrder = await tx.productionWorkOrder.findUnique({
         where: { id },
         include: {
-          bom: { include: { items: true } },
+          bom: { include: { items: true, qualityCharacteristics: true } },
           productBatch: true,
         },
       });
@@ -235,20 +465,47 @@ export class ProductionMutationService {
         stockBalanceId: number;
         quantity: number;
         stock: Awaited<ReturnType<typeof tx.stockBalance.findUnique>>;
+        densityUse?: { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; };
       }> = [];
 
       if (status === 'completed') {
+        if (Number(workOrder.lossQuantity || 0) !== 0) {
+          throw new Error('PRODUCTION_LOSS_DISPOSITION_REQUIRED:历史工单含损耗数量，需先完成受治理的损耗处置迁移');
+        }
+        if (workOrder.bom?.packagingRevisionId) {
+          assertWholePackages(workOrder.producedQuantity);
+          if (workOrder.producedQuantity !== workOrder.targetQuantity || workOrder.lossQuantity !== 0) throw new Error('BOM_UNIT_PACKAGING_OUTPUT_SCOPE');
+        }
+        if (workOrder.bom) assertBomPercentageUnits(workOrder.bom);
+        if (workOrder.bom && workOrder.productBatch) assertBomOutputUnit(workOrder.productBatch.unit, workOrder.bom.outputUnit);
+        await assertLatestQualityRelease(tx, workOrder.id, Math.max(workOrder.bom?.qualityCharacteristics.length || 0, workOrder.bom?.packagingRevisionId ? 1 : 0));
+        const netOutput = Math.max(0, Number(workOrder.producedQuantity || 0) - Number(workOrder.lossQuantity || 0));
+        if (netOutput > 0 && !workOrder.batchId) {
+          calculateBatchExpiryDate(new Date(), workOrder.bom?.shelfLifeDays);
+        }
         const requiredMaterialCount = workOrder.bom?.items?.length || 0;
+        const densityBases = parseWorkOrderDensityBases(workOrder.densitySnapshotJson);
+        const densityItems = (workOrder.bom?.items || []).filter(item => item.dosageMode === DENSITY_PERCENTAGE_V1);
+        if (densityBases.length !== densityItems.length || densityItems.some(item => !densityBases.some(basis => basis.bomItemId === item.id && basis.revisionId === item.densityRevisionId && basis.quantityPerUnit === item.quantityPerUnit))) {
+          throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:工单与冻结 BOM 的密度依据不一致');
+        }
+        if (densityBases.length && consumptionRecords?.length !== 1) throw new Error('BOM_UNIT_DENSITY_BATCH_REQUIRED:密度换算 v1 必须仅提交一条冻结批次领料记录');
         const aggregatedRecords = new Map<number, number>();
+        const densityUses = new Map<number, { densityRevisionId: number; temperatureC: string; pressureKpaAbs: string; compositionReference: string; }>();
 
         for (const record of consumptionRecords || []) {
           const stockBalanceId = Number(record.stockBalanceId);
-          const quantity = roundQuantity(Number(record.quantity));
+          const quantity = densityBases.length ? massRequiredQuantityV1(record.quantity, 1) : roundQuantity(Number(record.quantity));
           if (!Number.isFinite(stockBalanceId) || stockBalanceId <= 0 || !Number.isInteger(stockBalanceId)) {
             throw new Error('Invalid stock balance id in consumption records');
           }
           if (!Number.isFinite(quantity) || quantity <= 0) {
             throw new Error('Invalid material consumption quantity');
+          }
+          if (record.densityUse && !densityBases.length) throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:非密度工单不能提交密度条件');
+          if (record.densityUse) {
+            if (densityUses.has(stockBalanceId)) throw new Error('BOM_UNIT_DENSITY_CONSUMPTION_DUPLICATE:密度换算批次只能提交一条实际条件记录');
+            densityUses.set(stockBalanceId, record.densityUse);
           }
           aggregatedRecords.set(stockBalanceId, roundQuantity((aggregatedRecords.get(stockBalanceId) || 0) + quantity));
         }
@@ -268,12 +525,20 @@ export class ProductionMutationService {
           }
 
           if (roundQuantity(Number(currentStock.quantity || 0)) + 0.000001 < quantity) {
-            throw new Error(`库存不足：${currentStock.productName} / ${currentStock.batchNo}，请先核对库存余额。`);
+            throw new StockMovementConflictError(`库存不足：${currentStock.productName} / ${currentStock.batchNo}，请先核对库存余额。`);
           }
 
-          validatedConsumptionRecords.push({ stockBalanceId, quantity, stock: currentStock });
+          validatedConsumptionRecords.push({ stockBalanceId, quantity, stock: currentStock, densityUse: densityUses.get(stockBalanceId) });
         }
 
+        for (const basis of densityBases) {
+          const matches = validatedConsumptionRecords.filter(record => record.stock?.materialId === basis.materialId && record.stock?.batchNo === basis.batchNo && record.stock?.unit === basis.inputUnit);
+          if (matches.length !== 1) throw new Error('BOM_UNIT_DENSITY_BATCH_REQUIRED:密度换算必须且只能使用冻结的真实批次');
+          const actual = matches[0].densityUse;
+          if (!actual || actual.densityRevisionId !== basis.revisionId || actual.temperatureC !== basis.temperatureC || actual.pressureKpaAbs !== basis.pressureKpaAbs || actual.compositionReference !== basis.compositionReference) {
+            throw new Error('BOM_UNIT_DENSITY_CONDITIONS_MISMATCH:实际领料条件必须逐项匹配冻结密度依据');
+          }
+        }
         if (requiredMaterialCount > 0) {
           const outputQuantity = Math.max(
             toPositiveNumber(workOrder.producedQuantity),
@@ -315,22 +580,33 @@ export class ProductionMutationService {
           quantityDelta: number;
           note: string;
         } | null = null;
+        let lineageOutputBatch: {
+          id: number;
+          materialId: number | null;
+          batchNo: string;
+          productName: string;
+        } | null = null;
 
         if (netOutput > 0) {
           const outputLocationId = await resolveFinishedGoodsLocationId(tx);
           if (workOrder.batchId) {
             const currentBatch = await tx.productBatch.findUnique({
               where: { id: workOrder.batchId },
-              select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true },
+              select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, qualityStatus: true, unit: true },
             });
             if (!currentBatch) {
               throw new Error(`Product batch not found: ${workOrder.batchId}`);
+            }
+            if (workOrder.bom) assertBomOutputUnit(currentBatch.unit, workOrder.bom.outputUnit);
+            if (workOrder.materialId && currentBatch.materialId !== workOrder.materialId) {
+              throw new Error('WORK_ORDER_OUTPUT_BATCH_MATERIAL_MISMATCH');
             }
             const quantityBefore = Number(currentBatch?.stockQuantity || 0);
             await tx.productBatch.update({
               where: { id: workOrder.batchId },
               data: {
                 stockQuantity: { increment: netOutput },
+                qualityStatus: (workOrder.bom?.qualityCharacteristics.length || 0) > 0 ? 'released' : currentBatch.qualityStatus,
               },
             });
             await StockMovementService.postStockEntry({
@@ -338,9 +614,10 @@ export class ProductionMutationService {
               sourceRef: workOrder.workOrderNo,
               reason: 'work_order_finished_goods_output',
               note: `Finished goods output from work order ${workOrder.workOrderNo}`,
-              createdBy: workOrder.createdBy,
+              createdBy: actor.userId,
               lines: [{
                 locationId: outputLocationId,
+                materialId: currentBatch.materialId,
                 productName: currentBatch.productName,
                 batchNo: currentBatch.batchNo,
                 quantityDelta: netOutput,
@@ -353,14 +630,18 @@ export class ProductionMutationService {
               quantityDelta: netOutput,
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
+            lineageOutputBatch = currentBatch;
           } else {
+            const productionDate = new Date();
             const createdBatch = await tx.productBatch.create({
               data: {
-        batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
+                materialId: workOrder.materialId,
+                batchNo: buildNo(`WO-${workOrder.id}-BATCH`),
                 productName: workOrder.productName,
-                productionDate: new Date(),
-                expiryDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
+                productionDate,
+                expiryDate: calculateBatchExpiryDate(productionDate, workOrder.bom?.shelfLifeDays),
                 stockQuantity: netOutput,
+                qualityStatus: (workOrder.bom?.qualityCharacteristics.length || 0) > 0 ? 'released' : 'not_required',
                 unit: workOrder.bom?.outputUnit || 'kg',
                 isColdChain: false,
                 notes: `Generated from work order ${workOrder.workOrderNo}`,
@@ -376,9 +657,10 @@ export class ProductionMutationService {
               sourceRef: workOrder.workOrderNo,
               reason: 'work_order_finished_goods_output',
               note: `Finished goods output from work order ${workOrder.workOrderNo}`,
-              createdBy: workOrder.createdBy,
+              createdBy: actor.userId,
               lines: [{
                 locationId: outputLocationId,
+                materialId: createdBatch.materialId,
                 productName: createdBatch.productName,
                 batchNo: createdBatch.batchNo,
                 quantityDelta: netOutput,
@@ -391,6 +673,7 @@ export class ProductionMutationService {
               quantityDelta: netOutput,
               note: `Generated from work order ${workOrder.workOrderNo}`,
             };
+            lineageOutputBatch = createdBatch;
           }
         }
 
@@ -402,15 +685,26 @@ export class ProductionMutationService {
             sourceRef: workOrder.workOrderNo,
             reason: 'work_order_material_consumption',
             note: `Material consumption from work order ${workOrder.workOrderNo}`,
-            createdBy: workOrder.createdBy,
+            createdBy: actor.userId,
             lines: validatedConsumptionRecords.map(record => ({
               locationId: record.stock?.locationId || 0,
+              materialId: record.stock?.materialId || null,
               productName: record.stock?.productName || '',
               batchNo: record.stock?.batchNo || '',
               quantityDelta: -record.quantity,
               unit: record.stock?.unit || 'kg',
             })),
           }, tx);
+
+          if (!lineageOutputBatch) {
+            throw new Error(`Output batch is missing for genealogy: ${workOrder.workOrderNo}`);
+          }
+          await persistBatchGenealogyEdges(tx, {
+            workOrderId: workOrder.id,
+            outputQuantity: netOutput,
+            outputBatch: lineageOutputBatch,
+            consumptions: validatedConsumptionRecords,
+          });
 
           for (const record of validatedConsumptionRecords) {
             const currentStock = record.stock;
@@ -422,10 +716,9 @@ export class ProductionMutationService {
               // exist as StockBalance rows. ProductBatch is optional here; the
               // stock voucher above is the authoritative inventory deduction.
               const matchBatch = await tx.productBatch.findFirst({
-                where: {
-                  productName: currentStock.productName,
-                  batchNo: currentStock.batchNo,
-                },
+                where: currentStock.materialId
+                  ? { materialId: currentStock.materialId, batchNo: currentStock.batchNo }
+                  : { productName: currentStock.productName, batchNo: currentStock.batchNo },
                 select: { id: true, stockQuantity: true },
               });
 
@@ -433,11 +726,15 @@ export class ProductionMutationService {
                 continue;
               }
 
-              const batchQtyBefore = Number(matchBatch.stockQuantity || 0);
-              await tx.productBatch.update({
-                where: { id: matchBatch.id },
+              // StockBalance locks are per location. Two locations can share
+              // one ProductBatch, so its pre-update read is not a ledger boundary.
+              const changed = await tx.productBatch.updateMany({
+                where: { id: matchBatch.id, stockQuantity: { gte: record.quantity } },
                 data: { stockQuantity: { decrement: record.quantity } },
               });
+              if (changed.count !== 1) throw new StockMovementConflictError(`原料批次库存不足：${currentStock.batchNo}`);
+              const persistedBatch = await tx.productBatch.findUniqueOrThrow({ where: { id: matchBatch.id }, select: { stockQuantity: true } });
+              const batchQtyBefore = roundQuantity(Number(persistedBatch.stockQuantity) + record.quantity);
               const materialLedger = await ProductionCostLedgerService.recordWorkOrderCompletion(tx, {
                 batchId: matchBatch.id,
                 workOrderId: workOrder.id,
@@ -445,7 +742,8 @@ export class ProductionMutationService {
                 quantityBefore: batchQtyBefore,
                 quantityDelta: -record.quantity,
                 note: `原料扣减: ${currentStock.productName} * ${record.quantity} (from WO ${workOrder.workOrderNo})`,
-                createdBy: workOrder.createdBy,
+                createdBy: actor.userId,
+                requireReconciledQuantity: true,
               });
               materialCostAmount += Math.abs(Number(materialLedger.costAmountDelta || 0));
           }
@@ -460,13 +758,28 @@ export class ProductionMutationService {
             quantityDelta: pendingOutputLedgerInput.quantityDelta,
             costAmountDelta: materialCostAmount > 0 ? materialCostAmount : null,
             note: pendingOutputLedgerInput.note,
-            createdBy: workOrder.createdBy,
+            createdBy: actor.userId,
           });
         }
       }
 
+      // Only the successful state claimant records the transition. Replays
+      // returned above must not manufacture another successful business event.
+      await tx.auditLog.create({ data: {
+        userId: actor.userId, action: 'UPDATE_PRODUCTION_WORK_ORDER_STATUS', resource: 'production', resourceId: id,
+        details: JSON.stringify({
+          workOrderId: id, fromStatus: workOrder.status, status,
+          ...(status === 'completed' && validatedConsumptionRecords.some(record => Boolean(record.densityUse)) ? { densityActualConditions: validatedConsumptionRecords
+            .filter(record => Boolean(record.densityUse))
+            .map(record => ({
+              stockBalanceId: record.stockBalanceId, materialId: record.stock?.materialId || null, batchNo: record.stock?.batchNo || '',
+              quantity: record.quantity, ...record.densityUse,
+            })) } : {}),
+        }),
+        ipAddress: actor.ipAddress || null, userAgent: actor.userAgent || null,
+      } });
       return readWorkOrderDetail(tx, id);
-    });
+    }), { label: 'production-work-order-status' });
   }
 
   static async updateWorkOrderStep(workOrderId: number, stepId: number, input: { status?: string; operatorName?: string | null; note?: string | null }) {
@@ -490,19 +803,6 @@ export class ProductionMutationService {
     });
   }
 
-  static async createQualityCheck(workOrderId: number, input: ProductionQualityCheckInput) {
-    return prisma.productionQualityCheck.create({
-      data: {
-        workOrderId,
-        checkNo: buildNo('QC'),
-        result: input.result,
-        defectRate: input.defectRate ?? null,
-        note: input.note || null,
-        checkedBy: input.checkedBy || null,
-        checkedAt: new Date(),
-      },
-    });
-  }
 }
 
 

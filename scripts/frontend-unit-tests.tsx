@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import Skeleton, { TableSkeleton } from '../components/Skeleton';
 import { RootErrorFallback } from '../components/ErrorBoundary';
-import { PageErrorFallback } from '../components/PageErrorBoundary';
+import PageErrorBoundary, { PageErrorFallback } from '../components/PageErrorBoundary';
 import {
   getBadgeText,
   getStatusBorderBadgeClassName,
@@ -39,6 +41,25 @@ import {
 } from '../pages/production/productionWorkspaceSave';
 import { createInitialWorkOrderSteps } from '../pages/production/productionWorkspaceConfig';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from '../src/services/order.mapping';
+import { enqueueNotification, MAX_VISIBLE_NOTIFICATIONS } from '../app/clientState';
+import { MENU_PERMISSION_BY_MODULE, can } from '../app/permissions';
+import { AppContext } from '../app/AppContext';
+import { OrderActionButtons } from '../pages/production/ProductionWorkspacePrimitives';
+import { ProductionWorkspaceHeader } from '../pages/production/ProductionWorkspaceHeader';
+import { MODULE_ORDER, moduleRegistry } from '../components/navigation/moduleRegistry';
+import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '../utils/materialReadiness';
+import { readStringArrayPreference } from '../components/ui/tablePreferences';
+import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
+import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
+import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
+import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData';
+import { BarterAgreementList } from '../pages/barter/BarterAgreementList';
+import { BarterLedgerPanel } from '../pages/barter/BarterLedgerPanel';
+import { ProductionGenealogyReadback } from '../pages/production/ProductionGenealogyReadback';
+import { buildBatchTrace, buildEffectiveBomItemsPayload } from '../pages/production/ProductionWorkspaceDerived';
+import { readProductionBatchTrace } from '../services/productionBatchTrace';
+import { PurchaseReceiptDrawer } from '../pages/procurement/PurchaseReceiptDrawer';
+import { createEmptyReceiptForm } from '../pages/procurement/procurementForms';
 
 type FrontendUnitTest = {
   name: string;
@@ -46,6 +67,301 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'receipt inputs and save stay disabled until loaded, including failed reads and in-flight saves',
+    run: () => {
+      for (const state of ['loading', 'failed', 'saving', 'read-only', 'received', 'ready']) {
+        const order = { id: '1', quantity: 12, status: state === 'received' ? 'received' : 'in_transit' } as any;
+        const bundle = ['loading', 'failed'].includes(state) ? null : { purchaseOrder: order, receipts: [], receiptSummary: { orderedQuantity: 12, processedQuantity: 0, acceptedQuantity: 0, remainingQuantity: 12 } } as any;
+        const markup = renderToStaticMarkup(<AppContext.Provider value={{} as any}>
+          <PurchaseReceiptDrawer receiptDrawerOrder={order} receiptBundle={bundle} receiptForm={createEmptyReceiptForm()}
+            setReceiptForm={() => {}} receiptErrors={{}} clearReceiptError={() => {}} isReceiptLoading={state === 'loading'}
+            isReceiptSubmitting={state === 'saving'} submitReceipt={() => {}} onClose={() => {}} canWrite={state !== 'read-only'} />
+        </AppContext.Provider>);
+        const dom = new JSDOM(markup);
+        const controls = dom.window.document.querySelectorAll('input, textarea, [data-testid="purchase-receipt-save-button"]');
+        assert.equal(controls.length, 7);
+        for (const control of controls) assert.equal(control.hasAttribute('disabled'), state !== 'ready', state);
+        dom.window.close();
+      }
+    },
+  },
+  {
+    name: 'production UI uses exact responsibilities without umbrella or role-name fallback',
+    run: () => {
+      const permissions = ['production.bom.write', 'production.plan.write', 'production.execute'] as const;
+      for (const permission of permissions) {
+        const user = { role: 'custom_production', permissions: [permission] } as any;
+        for (const candidate of permissions) assert.equal(can(user, candidate), candidate === permission);
+        for (const status of ['planned', 'in_progress', 'qc_pending'] as const) {
+          const markup = renderToStaticMarkup(<AppContext.Provider value={{ currentUser: user } as any}>
+            <OrderActionButtons workOrderId={1} status={status} onAction={async () => {}} />
+          </AppContext.Provider>);
+          const buttons = [...new JSDOM(markup).window.document.querySelectorAll('button')].map(b => b.textContent?.trim());
+          assert.deepEqual(buttons, permission === 'production.plan.write' ? ['取消'] : permission === 'production.execute'
+            ? [status === 'planned' ? '开工' : status === 'in_progress' ? '送检' : '完工'] : []);
+        }
+      }
+      for (const permissions of [[], ['production.write']]) {
+        const user = { role: 'warehouse', permissions } as any;
+        assert.equal(can(user, 'production.execute'), false); assert.equal(can(user, 'production.bom.write'), false);
+      }
+      for (const permitted of [false, true]) {
+        const markup = renderToStaticMarkup(<AppContext.Provider value={{ currentUser: { role: 'custom_production', permissions: permitted ? ['assets.read'] : ['production.read'] } } as any}>
+          <ProductionWorkspaceHeader title="生产" description="权限读取" isInitialLoading={false} onRefresh={() => {}}
+            stats={{ totalBoms: 0, totalWorkOrders: 0, activeWorkOrders: 0, qcPendingCount: 0, batchCount: 0, totalStock: 543 }} />
+        </AppContext.Provider>);
+        const text = new JSDOM(markup).window.document.body.textContent || '';
+        assert.equal(text.includes('未授权'), !permitted); assert.equal(text.includes('543'), permitted);
+      }
+    },
+  },
+  {
+    name: 'genealogy readback preserves actual lots, work orders and per-line units without invented totals',
+    run: () => {
+      const trace: any = { scope: 'direct-one-hop', batch: { id: 1, batchNo: 'OUTPUT' }, downstreamOutputs: [], upstreamInputs: [
+        { id: 1, inputBatchNo: 'RAW-A', inputProductName: 'A', quantityConsumed: 60, inputUnit: 'kg', workOrder: { workOrderNo: 'WO-A' } },
+        { id: 2, inputBatchNo: 'RAW-B', inputProductName: 'B', quantityConsumed: 2, inputUnit: '桶', workOrder: { workOrderNo: 'WO-B' } },
+      ] };
+      const text = renderToStaticMarkup(<ProductionGenealogyReadback trace={trace} />);
+      for (const value of ['RAW-A', 'RAW-B', 'WO-A', 'WO-B', '耗用 60 kg', '耗用 2 桶', '暂无已记录的直接关联']) assert.ok(text.includes(value));
+      assert.ok(!text.includes('62')); assert.ok(!text.includes('生产完成'));
+    },
+  },
+  {
+    name: 'a raw batch date without a linked work order is never fabricated as production completion',
+    run: () => {
+      const nodes = buildBatchTrace({ id: 1, productionDate: '2026-01-01', expiryDate: '2027-01-01', status: 'healthy' } as any, []);
+      assert.ok(nodes.some(node => node.label === '批次日期（非工单完工凭证）'));
+      assert.ok(nodes.every(node => node.label !== '生产完成'));
+    },
+  },
+  {
+    name: 'genealogy service rejects wrong batch, missing edges, and unverified scope instead of rendering empty success',
+    run: () => {
+      for (const data of [{ batch: { id: 2 }, scope: 'direct-one-hop', upstreamInputs: [], downstreamOutputs: [] },
+        { batch: { id: 1 }, scope: 'direct-one-hop' }, { batch: { id: 1 }, scope: 'inferred', upstreamInputs: [], downstreamOutputs: [] },
+        { batch: { id: 1 }, scope: 'direct-one-hop', upstreamInputs: [null], downstreamOutputs: [] }]) {
+        assert.throws(() => readProductionBatchTrace(1, { success: true, data } as any), /回读不完整/);
+      }
+    },
+  },
+  {
+    name: 'barter refund liability remains visible independently of completed offset and role write permission',
+    run: () => {
+      const settlement: any = { id: 1, settlementNo: 'BT-1', status: 'posted', cashDifference: -50, currency: 'USD',
+        cashObligation: { amount: 50, currency: 'USD', status: 'open', ownerId: 4 }, offsetPostings: [] };
+      const agreement: any = { id: 1, agreementNo: 'BA-1', status: 'completed', hasPendingRefund: true,
+        executedOffsetAmount: 200, remainingOffsetAmount: 0, settlements: [settlement] };
+      const formatPrice = (value: number) => `display-converted-${value}`;
+      assert.match(renderToStaticMarkup(<BarterAgreementList agreements={[agreement]} formatPrice={formatPrice} onSelect={() => {}} />), /差额待处理/);
+      const render = (canPost: boolean) => renderToStaticMarkup(<BarterLedgerPanel agreement={agreement} canApprove={false} canPost={canPost}
+        formatPrice={formatPrice} onApprove={() => {}} onPost={() => {}} onReverse={() => {}} onRefund={() => {}} />);
+      assert.match(render(true), /USD 50.00/); assert.match(render(true), /登记已完成退款/);
+      assert.doesNotMatch(render(false), /<button[^>]*>登记已完成退款/);
+      settlement.cashObligation.status = 'settled'; settlement.cashObligation.paymentReference = 'BANK-REF';
+      assert.match(render(true), /BANK-REF/); assert.doesNotMatch(render(true), /<button[^>]*>冲销<\/button>/);
+    },
+  },
+  {
+    name: 'barter reference loading respects finance and explicit custom-role permissions',
+    run: async () => {
+      const called: string[] = [];
+      const loaders = Object.fromEntries(['customers', 'suppliers', 'orders'].map(key => [key, async () => {
+        called.push(key); return [key];
+      }])) as any;
+      assert.deepEqual(await loadBarterReferenceData({ role: 'finance' } as any, loaders), [[], ['suppliers'], ['orders']]);
+      assert.deepEqual(called, ['suppliers', 'orders']);
+      called.length = 0;
+      assert.deepEqual(await loadBarterReferenceData({ role: 'admin', permissions: ['barter.read'] } as any, loaders), [[], [], []]);
+      assert.deepEqual(called, []);
+      assert.deepEqual(await loadBarterReferenceData({ role: 'sales' } as any, loaders), [['customers'], [], ['orders']]);
+      assert.deepEqual(await loadBarterReferenceData({ role: 'admin' } as any, loaders), [['customers'], ['suppliers'], ['orders']]);
+      await assert.rejects(loadBarterReferenceData({ role: 'finance' } as any, {
+        ...loaders, orders: async () => { throw new Error('read outage'); },
+      }), /read outage/);
+    },
+  },
+  {
+    name: 'shipment drafts bind a persisted order line and never sum mixed units',
+    run: () => {
+      const order: any = { id: '9', customerId: '4', status: 'shipped', items: [
+        { id: 11, materialId: 21, productName: 'Resin', unit: 'kg', quantity: 100 },
+        { id: 12, materialId: 22, productName: 'Catalyst', unit: 'drum', quantity: 2 },
+      ], fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 11, unit: 'kg', orderedQuantity: 100, acceptedQuantity: 40, unallocatedQuantity: 60 },
+        { orderItemId: 12, unit: 'drum', orderedQuantity: 2, acceptedQuantity: 0, unallocatedQuantity: 2 },
+      ] } };
+      assert.equal(getEligibleShipmentLines(order).length, 2);
+      const draft = { orderItemId: '12', quantity: '2', batchNo: ' CAT-02 ' };
+      const payload = buildSalesOrderShipmentPayload(order, draft);
+      assert.equal(payload.orderItemId, '12'); assert.equal(payload.materialId, '22');
+      assert.equal(payload.quantity, 2); assert.equal(payload.unit, 'drum'); assert.equal(payload.batchNo, 'CAT-02');
+      for (const quantity of ['0', '-1', '3', 'NaN', 'Infinity', '']) {
+        assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, quantity }));
+      }
+      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, batchNo: '' }));
+      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, orderItemId: '99' }));
+      order.fulfillment.lines[1].unallocatedQuantity = 0;
+      assert.deepEqual(getEligibleShipmentLines(order).map(line => line.orderItemId), [11]);
+      order.fulfillment.lines[0].unit = 'drum'; assert.equal(getEligibleShipmentLines(order).length, 0);
+    },
+  },
+  {
+    name: 'shipment eligibility fails closed on stale status, missing identity and unproven fulfillment',
+    run: () => {
+      const valid: any = { id: '9', customerId: '4', status: 'delivered', items: [
+        { id: 11, materialId: 21, productName: 'Micro', unit: 'kg', quantity: 1e-7 },
+      ], fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 11, unit: 'kg', orderedQuantity: 1e-7, acceptedQuantity: 0, unallocatedQuantity: 1e-7 },
+      ] } };
+      assert.equal(buildSalesOrderShipmentPayload(valid, { orderItemId: '11', quantity: '0.0000001', batchNo: 'B' }).quantity, 1e-7);
+      for (const status of ['pending', 'cancelled', 'completed']) assert.equal(getEligibleShipmentLines({ ...valid, status }).length, 0);
+      for (const mutate of [
+        (o: any) => { delete o.fulfillment; },
+        (o: any) => { o.fulfillment.needsReview = true; },
+        (o: any) => { o.fulfillment.fullyDelivered = true; },
+        (o: any) => { delete o.items[0].id; },
+        (o: any) => { o.items[0].materialId = null; },
+        (o: any) => { o.items.push({ ...o.items[0] }); },
+        (o: any) => { o.fulfillment.lines.push({ ...o.fulfillment.lines[0] }); },
+        (o: any) => { o.fulfillment.lines[0].unallocatedQuantity = NaN; },
+      ]) { const altered = structuredClone(valid); mutate(altered); assert.equal(getEligibleShipmentLines(altered).length, 0); }
+    },
+  },
+  {
+    name: 'active sales operating table renders separate line quantities and owed amounts',
+    run: () => {
+      const labels = JSON.parse(fs.readFileSync(path.resolve('i18n/operatingTable/zh-CN.json'), 'utf8'));
+      const columns = createSalesOrderOperatingColumns(labels);
+      const row = { id: 1, fulfillmentStatus: 'partially_delivered', fulfillment: { fullyDelivered: false, needsReview: false, lines: [
+        { orderItemId: 1, productName: 'Resin', unit: 'kg', orderedQuantity: 100, allocatedQuantity: 40, dispatchedQuantity: 40, acceptedQuantity: 40, outstandingQuantity: 60, unallocatedQuantity: 60 },
+        { orderItemId: 2, productName: 'Catalyst', unit: 'drum', orderedQuantity: 2, allocatedQuantity: 0, dispatchedQuantity: 0, acceptedQuantity: 0, outstandingQuantity: 2, unallocatedQuantity: 2 },
+      ] } };
+      const status = renderToStaticMarkup(<>{columns.find(column => column.key === 'status')!.render!(row)}</>);
+      assert.match(status, /部分交付/); assert.match(status, /待交 60 kg/); assert.match(status, /待交 2 drum/);
+      const quantities = renderToStaticMarkup(<>{columns.find(column => column.key === 'quantityProgress')!.render!(row)}</>);
+      assert.match(quantities, /Resin/); assert.match(quantities, /Catalyst/); assert.doesNotMatch(quantities, />102</);
+      assert(fs.readFileSync(path.resolve('pages/SalesOrders.tsx'), 'utf8').includes('fulfillment: order.fulfillment'));
+    },
+  },
+  {
+    name: 'sales fulfillment preserves quantity-based API axis and never trusts delivered shipment counts',
+    run: () => {
+      const partial = { status: 'delivered', fulfillmentStatus: 'partially_delivered', shipments: [{ status: 'delivered' }] };
+      assert.equal(deriveOrderFulfillmentStatus(partial as never), 'partially_delivered');
+      assert.notEqual(deriveOrderFulfillmentStatus({ status: 'shipped', shipments: [{ status: 'delivered' }] } as never), 'delivered');
+      assert.notEqual(deriveOrderFulfillmentStatus({ status: 'delivered' } as never), 'delivered');
+    },
+  },
+  {
+    name: 'fresh and invalid table preferences keep default columns; saved nonempty choices remain intact',
+    run: () => {
+      const original = Object.getOwnPropertyDescriptor(globalThis, 'window');
+      let stored: string | null = null;
+      Object.defineProperty(globalThis, 'window', { configurable: true, value: { localStorage: { getItem: () => stored } } });
+      const defaults = ['supplier', 'category', 'riskLevel'];
+      try {
+        for (const value of [null, '', '[]', '{}', 'invalid', '[null]', '[""]', '[1]']) {
+          stored = value;
+          assert.deepEqual(readStringArrayPreference('columns', defaults), defaults);
+        }
+        stored = '["riskLevel","advanced"]';
+        assert.deepEqual(readStringArrayPreference('columns', defaults), ['riskLevel', 'advanced']);
+      } finally {
+        if (original) Object.defineProperty(globalThis, 'window', original);
+        else Reflect.deleteProperty(globalThis, 'window');
+      }
+    },
+  },
+  {
+    name: 'authenticated shell keeps repair tools but removes decorative click effects',
+    run: () => {
+      const appSource = fs.readFileSync(path.join(process.cwd(), 'App.tsx'), 'utf8');
+      const panelSource = fs.readFileSync(
+        path.join(process.cwd(), 'components/materials/MaterialReadinessRepairPanel.tsx'),
+        'utf8',
+      );
+      assert.match(
+        appSource,
+        /<MaterialReadinessRepairPanel\s*\/>[\s\S]*?<CommandPalette/,
+      );
+      assert.doesNotMatch(appSource, /ClickSpark|animate-in[\s\S]*duration-500/);
+      assert.ok(panelSource.includes("window.location.hash = '#materials'"));
+      assert.ok(!panelSource.includes("window.location.hash = '#/materials'"));
+      assert.ok(panelSource.includes('duration-150'));
+      assert.ok(panelSource.includes('motion-reduce:animate-none'));
+    },
+  },
+  {
+    name: 'shipping OCR requires explicit canonical material confirmation before creation',
+    run: () => {
+      const hookSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/useShippingOcr.ts'), 'utf8');
+      const panelSource = fs.readFileSync(path.join(process.cwd(), 'pages/shipping/ShippingOcrPanel.tsx'), 'utf8');
+      const auditSource = fs.readFileSync(path.join(process.cwd(), 'scripts/shipping-browser-audit-v1.cjs'), 'utf8');
+      assert.ok(hookSource.includes('if (!ocrMaterial)'));
+      assert.ok(hookSource.includes('materialId: String(ocrMaterial.id)'));
+      assert.ok(panelSource.includes('dataTestId="shipping-ocr-material-input"'));
+      assert.ok(panelSource.includes('disabled={!ocrMaterial}'));
+      assert.ok(auditSource.includes("selectMaterialCombobox(page, 'shipping-ocr-material-input'"));
+    },
+  },
+  {
+    name: 'material readiness errors preserve row identity and human repair guidance',
+    run: () => {
+      const parsed = parseMaterialReadinessDetails({
+        contract: 'material-release-readiness/v1',
+        entityType: 'sales_order',
+        entityId: '42',
+        action: 'confirm',
+        issueCount: 1,
+        issues: [{
+          lineKey: '9',
+          rowNumber: 2,
+          materialId: 7,
+          materialCode: 'RM-0007',
+          displayName: '丙烯酸',
+          reason: 'unit_mismatch',
+          requestedUnit: 'L',
+          baseUnit: 'kg',
+        }],
+        repairRoute: '/materials',
+        retryableAfterRepair: true,
+      });
+      assert.ok(parsed);
+      assert.equal(parsed.issues[0].rowNumber, 2);
+      assert.equal(getMaterialReadinessIssueLabel(parsed.issues[0]), '单位不一致：当前 L，主数据 kg');
+      assert.equal(parseMaterialReadinessDetails({ contract: 'unknown', issues: [] }), null);
+    },
+  },
+  {
+    name: 'canonical material master is a lazy, permission-scoped production module',
+    run: () => {
+      assert.ok(MODULE_ORDER.includes('materials'));
+      assert.equal(moduleRegistry.materials.group, 'production');
+      assert.equal(MENU_PERMISSION_BY_MODULE.materials, 'materials.read');
+      assert.deepEqual(moduleRegistry.materials.roles, ['admin', 'manager']);
+    },
+  },
+  {
+    name: 'notification queue deduplicates messages and limits viewport obstruction',
+    run: () => {
+      const first = enqueueNotification([], { id: '1', type: 'success', message: '已保存' });
+      const replaced = enqueueNotification(first, { id: '2', type: 'success', message: '已保存' });
+      assert.deepEqual(replaced.map((item) => item.id), ['2']);
+
+      const bounded = ['A', 'B', 'C', 'D'].reduce(
+        (state, message, index) => enqueueNotification(state, {
+          id: String(index),
+          type: 'info',
+          message,
+        }),
+        [] as ReturnType<typeof enqueueNotification>,
+      );
+      assert.equal(bounded.length, MAX_VISIBLE_NOTIFICATIONS);
+      assert.deepEqual(bounded.map((item) => item.message), ['B', 'C', 'D']);
+    },
+  },
   {
     name: 'sales order update payload maps payment terms to the backend contract',
     run: () => {
@@ -91,26 +407,32 @@ const tests: FrontendUnitTest[] = [
         productName: '',
         outputUnit: '',
         formulationMode: 'percentage',
+        shelfLifeDaysInput: '0',
         standardBatchSizeInput: '0',
         percentageSummary: 99,
         effectiveItemCount: 2,
         bomType: 'chemical_formula',
       });
+      assert.equal(bom.shelfLifeDays, 0);
       assert.equal(bom.standardBatchSize, 0);
       assert.equal(bom.errors.productName, '请填写产品名称');
       assert.equal(bom.errors.outputUnit, '请填写输出单位');
+      assert.ok(bom.errors.shelfLifeDays);
       assert.ok(bom.errors.standardBatchSize);
       assert.ok(bom.errors.percentage);
       assert.ok(bom.errors.items);
 
-      const workOrder = validateWorkOrderForm({ productName: '树脂', targetQuantityInput: '0' });
+      const workOrder = validateWorkOrderForm({ productName: '树脂', targetQuantityInput: '0', lossQuantityInput: '0' });
       assert.equal(workOrder.targetQuantity, 0);
       assert.ok(workOrder.errors.targetQuantity);
 
-      const quality = validateQualityForm({ result: 'fail', defectRateInput: '101', checkedBy: '' });
-      assert.equal(quality.defectRateValue, 101);
-      assert.ok(quality.errors.defectRate);
-      assert.ok(quality.errors.checkedBy);
+      const quality = validateQualityForm({
+        sampleNo: '',
+        characteristics: [{ id: 1, code: 'SOLIDS', name: '固含量', valueType: 'numeric', required: true }],
+        measurementValues: { 1: 'not-a-number' },
+      });
+      assert.ok(quality.errors.sampleNo);
+      assert.ok(quality.errors.measurements);
 
       const adjustment = validateAdjustmentForm({ hasBatch: false, quantityInput: '-1', reason: '' });
       assert.equal(adjustment.quantity, -1);
@@ -137,6 +459,32 @@ const tests: FrontendUnitTest[] = [
       assert.equal(getEffectiveBomQuantityPerUnit(parsed.importedItems[0]!), 0.2);
       assert.equal(isEffectiveBomItemDraft(parsed.importedItems[0]!), true);
       assert.equal(isEffectiveBomItemDraft({ ...parsed.importedItems[0]!, materialName: '', materialCode: '' }), false);
+    },
+  },
+  {
+    name: 'explicit mass v1 draft uses output unit, preserves old mode and refuses unsupported conversions',
+    run: () => {
+      const parsed = parseBomPasteText('原料\tRAW-G\t主树脂\tmass_percentage_v1\t100\t1\tg', 10, 'kg');
+      const row = parsed.importedItems[0]!;
+      assert.equal(normalizeDosageValue('质量百分比换算 v1'), 'mass_percentage_v1');
+      assert.equal(normalizeDosageValue('按百分比（同单位）'), 'percentage');
+      for (const mode of ['mass_percentage_v2', '质量百分比换算 v2', 'MASS_PERCENTAGE_V1', 'packaging_percentage_v1', 'packaging_percentage_v2', '受控包装']) {
+        const unknown = parseBomPasteText(`原料\tRAW-G\t主树脂\t${mode}\t100\t1\tg`, 10, 'kg').importedItems[0]!;
+        assert.equal(unknown.dosageMode, mode);
+        assert.equal(getEffectiveBomQuantityPerUnit(unknown, 'kg'), 0);
+        assert.equal(isEffectiveBomItemDraft(unknown, 'kg'), false);
+      }
+      assert.equal(row.quantityPerUnit, '1000');
+      for (const [outputUnit, expected] of [['g', 1], ['kg', 1000], ['t', 1000000]] as const) {
+        const payload = buildEffectiveBomItemsPayload([row], outputUnit);
+        assert.equal(payload.rejectedRows.length, 0);
+        assert.equal(payload.items[0]?.quantityPerUnit, expected);
+      }
+      assert.equal(getEffectiveBomQuantityPerUnit(row, 'kg'), 1000);
+      assert.equal(getEffectiveBomQuantityPerUnit(row, 't'), 1000000);
+      assert.equal(getEffectiveBomQuantityPerUnit({ ...row, dosageMode: 'percentage' }, 'kg'), 1);
+      assert.equal(getEffectiveBomQuantityPerUnit(row, 'L'), 0);
+      assert.equal(getEffectiveBomQuantityPerUnit({ ...row, percentage: '0.00000001' }, 'kg'), 0);
     },
   },
   {
@@ -227,6 +575,19 @@ const tests: FrontendUnitTest[] = [
       assert.match(pageMarkup, /orders/);
       assert.match(pageMarkup, /收起错误详情/);
       assert.match(pageMarkup, /page failure/);
+    },
+  },
+  {
+    name: 'optional error fallback preserves healthy children and existing page fallback behavior',
+    run: () => {
+      const child = <button>Business operation</button>;
+      for (const fallback of [undefined, null, <p>AI unavailable</p>]) {
+        const boundary = new PageErrorBoundary({ children: child, pageId: 'ai-tools', fallback });
+        assert.equal(boundary.render(), child);
+        boundary.state = { ...boundary.state, ...PageErrorBoundary.getDerivedStateFromError(new Error('chunk failed')) };
+        if (fallback !== undefined) assert.equal(boundary.render(), fallback);
+        else assert.match(renderToStaticMarkup(boundary.render()), /当前页面加载失败/);
+      }
     },
   },
   {

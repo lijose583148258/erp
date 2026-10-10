@@ -2,7 +2,7 @@ import type { OrderFinancialStatus, OrderFulfillmentStatus, SalesOrder } from '.
 
 type OrderSnapshot = Pick<
   SalesOrder,
-  'status' | 'paymentStatus' | 'paidAmount' | 'finalAmount' | 'dueDate' | 'orderDate' | 'paymentRecords'
+  'status' | 'paymentStatus' | 'paidAmount' | 'finalAmount' | 'dueDate' | 'orderDate' | 'paymentRecords' | 'fulfillmentStatus'
 > & {
   createdAt?: string | Date;
   paymentTermsDays?: number;
@@ -52,16 +52,18 @@ export const deriveOrderFinancialStatus = (order: OrderSnapshot): OrderFinancial
 
 export const deriveOrderFulfillmentStatus = (order: OrderSnapshot): OrderFulfillmentStatus => {
   if (String(order.status).toLowerCase() === 'cancelled') return 'cancelled';
+  // API computes fulfillment from per-line signed quantities. Do not overwrite
+  // that result with the legacy all-existing-shipments-delivered shortcut.
+  if (order.fulfillmentStatus && ['pending_release', 'ready_to_ship', 'in_transit', 'partially_delivered', 'delivered', 'cancelled'].includes(order.fulfillmentStatus)) return order.fulfillmentStatus;
 
   const shipments = Array.isArray(order.shipments) ? order.shipments : [];
-  const hasShipments = shipments.length > 0;
-  const allDelivered = hasShipments && shipments.every(shipment => String(shipment.status || '').toLowerCase() === 'delivered');
   const anyInTransit = shipments.some(shipment => {
     const status = String(shipment.status || '').toLowerCase();
     return status === 'in_transit' || status === 'shipped' || Boolean(shipment.shippedAt);
   });
 
-  if (String(order.status).toLowerCase() === 'delivered' || allDelivered) return 'delivered';
+  // Old/offline responses without a quantity-based axis cannot prove closure.
+  if (String(order.status).toLowerCase() === 'delivered') return 'in_transit';
   if (String(order.status).toLowerCase() === 'shipped' || anyInTransit) return 'in_transit';
   if (String(order.status).toLowerCase() === 'confirmed') return 'ready_to_ship';
   return 'pending_release';

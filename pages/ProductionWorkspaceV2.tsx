@@ -1,7 +1,12 @@
-import { useEffect, useMemo, useState } from 'react';
+import { DensityWorkbench } from './production/DensityWorkbench';
+import { DensityConversionWorkbench } from './production/DensityConversionWorkbench';
+import { PackagingWorkbench } from './production/PackagingWorkbench';
+import { getBomMassConversionError } from './production/productionBomLineModel';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
-import { productionService, ProductionBom, ProductionSummary, ProductionWorkOrder, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
+import { productionService, ProductionBom, ProductionConsumptionRecord, ProductionDisposition, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
+import { warehouseService, StockBalanceRecord, WarehouseLocation } from '../services/warehouse.service';
 import { ProductionBomSection } from './production/ProductionBomSection';
 import { ProductionWorkOrderSection } from './production/ProductionWorkOrderSection';
 import { ProductionBatchAdjustmentSection } from './production/ProductionBatchAdjustmentSection';
@@ -69,19 +74,30 @@ const ProductionWorkspaceV2 = () => {
   const [workOrderSaving, setWorkOrderSaving] = useState(false);
   const [qualitySaving, setQualitySaving] = useState(false);
   const [adjustmentSaving, setAdjustmentSaving] = useState(false);
+  const [dispositionStockBalances, setDispositionStockBalances] = useState<StockBalanceRecord[]>([]);
+  const [dispositions, setDispositions] = useState<ProductionDisposition[]>([]);
+  const [destinationLocations, setDestinationLocations] = useState<WarehouseLocation[]>([]);
+  const [selectedStockBalanceId, setSelectedStockBalanceId] = useState<number | null>(null);
+  const [sourceDispositionId, setSourceDispositionId] = useState<number | null>(null);
+  const [destinationLocationId, setDestinationLocationId] = useState<number | null>(null);
+  const dispositionIdempotencyKeyRef = useRef<string | null>(null);
 
   const bomForm = useProductionBomForm();
   const workOrderForm = useProductionWorkOrderForm(createInitialWorkOrderSteps);
   const qualityForm = useProductionQualityForm();
   const adjustmentForm = useProductionAdjustmentForm();
-  const { bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, resetBomForm } = bomForm;
+  const { bomMaterialId, setBomMaterialId, bomProductName, setBomProductName, bomVersion, setBomVersion, bomType, setBomType, bomStatus, setBomStatus, bomFormulationMode, setBomFormulationMode, bomOutputUnit, setBomOutputUnit, bomShelfLifeDays, setBomShelfLifeDays, bomStandardBatchSize, setBomStandardBatchSize, bomBatchSizeUnit, setBomBatchSizeUnit, bomDensity, setBomDensity, bomSolidContent, setBomSolidContent, bomEffectiveFrom, setBomEffectiveFrom, bomEffectiveTo, setBomEffectiveTo, bomProcessText, setBomProcessText, bomQualitySpecText, setBomQualitySpecText, bomNotes, setBomNotes, bomItems, setBomItems, bomQualityCharacteristics, setBomQualityCharacteristics, resetBomForm } = bomForm;
   const { woProductName, setWoProductName, setWoProductNameSilently, woTargetQuantity, setWoTargetQuantity, woProducedQuantity, setWoProducedQuantity, woLossQuantity, setWoLossQuantity, woPlannedStartAt, setWoPlannedStartAt, woPlannedEndAt, setWoPlannedEndAt, woNote, setWoNote, woSteps, setWoSteps, resetWoForm } = workOrderForm;
-  const { qcResult, setQcResult, qcDefectRate, setQcDefectRate, qcNote, setQcNote, qcCheckedBy, setQcCheckedBy, resetQualityForm } = qualityForm;
+  const { qcSampleNo, setQcSampleNo, qcMeasurementValues, setQcMeasurementValue, qcInstrumentNumbers, setQcInstrumentNumber, qcNote, setQcNote, qcReviewNote, setQcReviewNote, resetQualityForm } = qualityForm;
   const { selectedTemplate, templateId, setTemplateId, adjustmentQuantity, setAdjustmentQuantity, adjustmentReason, setAdjustmentReason, adjustmentNote, setAdjustmentNote } = adjustmentForm;
   const completingWorkOrder = useMemo(
     () => workOrders.find(item => item.id === completingWorkOrderId) || null,
     [workOrders, completingWorkOrderId],
   );
+  const completedBatchWorkOrder = useMemo(() => {
+    if (!selectedBatch) return null;
+    return workOrders.find(item => item.batchId === selectedBatch.id && item.status === 'completed') || null;
+  }, [selectedBatch, workOrders]);
   const autoFilledWorkOrderProduct = selectedBom?.productName || selectedBatch?.productName || '';
   useProductionUnsavedFormGuards({
     bomForm,
@@ -99,6 +115,36 @@ const ProductionWorkspaceV2 = () => {
 
   useEffect(() => { if (selectedBom && !woProductName.trim()) setWoProductNameSilently(selectedBom.productName); }, [selectedBom, setWoProductNameSilently, woProductName]);
   useEffect(() => { if (selectedBatch && !woProductName.trim()) setWoProductNameSilently(selectedBatch.productName); }, [selectedBatch, setWoProductNameSilently, woProductName]);
+  useEffect(() => {
+    let disposed = false;
+    const loadDispositionContext = async () => {
+      setDispositionStockBalances([]);
+      setDispositions([]);
+      setSelectedStockBalanceId(null);
+      setSourceDispositionId(null);
+      setDestinationLocationId(null);
+      if (!selectedBatch || !completedBatchWorkOrder) return;
+      try {
+        const [stockResult, warehouses, posted] = await Promise.all([
+          warehouseService.listStockBalances({ batchNo: selectedBatch.batchNo, pageSize: 100 }),
+          warehouseService.listWarehouses(),
+          productionService.getWorkOrderDispositions(completedBatchWorkOrder.id),
+        ]);
+        if (disposed) return;
+        const stockBalances = stockResult.data.filter(stock => stock.batchNo === selectedBatch.batchNo && stock.productName === selectedBatch.productName && stock.quantity > 0);
+        setDispositionStockBalances(stockBalances);
+        setSelectedStockBalanceId(stockBalances[0]?.id ?? null);
+        setDispositions(posted);
+        const locations = warehouses.flatMap(warehouse => warehouse.locations).filter(location => location.status === 'active');
+        setDestinationLocations(locations);
+        setDestinationLocationId(locations[0]?.id ?? null);
+      } catch (error) {
+        if (!disposed) notify('error', error instanceof Error ? error.message : '加载生产处置上下文失败');
+      }
+    };
+    void loadDispositionContext();
+    return () => { disposed = true; };
+  }, [completedBatchWorkOrder, notify, selectedBatch]);
 
   const derived = useProductionWorkspaceDerivedState({
     summary,
@@ -112,21 +158,52 @@ const ProductionWorkspaceV2 = () => {
     bomKeyword,
     bomItems,
     bomStandardBatchSize,
+    bomOutputUnit,
   });
 
   const handleCreateBom = async () => {
     if (bomSaving) return;
-    const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems);
+    const massError = bomItems.map(item => getBomMassConversionError(item, bomOutputUnit)).find(Boolean);
+    if (massError) { notify('error', massError); return; }
+    const { items, rejectedRows } = buildEffectiveBomItemsPayload(bomItems, bomOutputUnit);
     const expectedDraftSummary = buildExpectedBomDraftSummary(items);
-    const { errors: nextErrors, standardBatchSize } = validateBomForm({
+    const qualityCharacteristics = bomQualityCharacteristics
+      .filter(row => row.code.trim() || row.name.trim())
+      .map((row, index) => ({
+        code: row.code.trim().toUpperCase(),
+        name: row.name.trim(),
+        valueType: row.valueType,
+        unit: row.unit.trim() || null,
+        lowerLimit: row.lowerLimit.trim() || null,
+        upperLimit: row.upperLimit.trim() || null,
+        targetText: row.targetText.trim() || null,
+        testMethod: row.testMethod.trim() || null,
+        required: row.required,
+        sortOrder: index,
+      }));
+    const { errors: nextErrors, shelfLifeDays, standardBatchSize } = validateBomForm({
       productName: bomProductName,
       outputUnit: bomOutputUnit,
       formulationMode: bomFormulationMode,
+      shelfLifeDaysInput: bomShelfLifeDays,
       standardBatchSizeInput: bomStandardBatchSize,
       percentageSummary: derived.bomPercentageSummary,
       effectiveItemCount: items.length,
       bomType,
     });
+    if (bomStatus !== 'draft' && !bomMaterialId) {
+      nextErrors.productName = '受控配方必须选择已启用的成品或半成品物料，不能只填自由文本名称。';
+    }
+    if (bomType === 'chemical_formula' && bomStatus !== 'draft' && qualityCharacteristics.length === 0) {
+      nextErrors.items = '受控化工配方必须配置结构化放行标准；请展开“高级字段”添加检验项目。';
+    }
+    const invalidQuality = qualityCharacteristics.find(item => (
+      !item.code || !item.name
+      || (item.valueType === 'numeric' && item.lowerLimit === null && item.upperLimit === null)
+      || (item.valueType === 'text' && !item.targetText)
+      || (item.lowerLimit !== null && item.upperLimit !== null && Number(item.lowerLimit) > Number(item.upperLimit))
+    ));
+    if (invalidQuality) nextErrors.items = `检验项目 ${invalidQuality.code || invalidQuality.name || '未命名'} 的编码、名称或判定范围不完整。`;
     if (Object.keys(nextErrors).length) {
       setBomFormErrors(nextErrors);
       notify('warning', Object.values(nextErrors)[0] || '请补齐配方信息');
@@ -140,12 +217,14 @@ const ProductionWorkspaceV2 = () => {
     setBomSaving(true);
     try {
       const createdBom = await withSaveTimeout(() => productionService.createBom({
+        materialId: bomMaterialId,
         productName: bomProductName.trim(),
         version: bomVersion.trim() || 'v1',
         bomType,
         status: bomStatus,
         formulationMode: bomFormulationMode,
         outputUnit: bomOutputUnit.trim(),
+        shelfLifeDays,
         standardBatchSize: standardBatchSize > 0 ? standardBatchSize : null,
         batchSizeUnit: bomBatchSizeUnit.trim() || null,
         density: bomDensity.trim() ? Number(bomDensity || 0) : null,
@@ -154,6 +233,7 @@ const ProductionWorkspaceV2 = () => {
         effectiveTo: bomEffectiveTo || null,
         processJson: bomProcessText.trim() ? JSON.stringify({ summary: bomProcessText.trim() }) : null,
         qualitySpecJson: bomQualitySpecText.trim() ? JSON.stringify({ summary: bomQualitySpecText.trim() }) : null,
+        qualityCharacteristics,
         notes: bomNotes.trim() || null,
         items,
       }));
@@ -167,6 +247,18 @@ const ProductionWorkspaceV2 = () => {
 
       if (!readbackBom) {
         notify('error', '保存后回读不一致，请不要继续使用该 BOM');
+        return;
+      }
+      if (readbackBom.shelfLifeDays !== shelfLifeDays) {
+        notify('error', `保存后保质期回读不一致：期望 ${shelfLifeDays} 天，实际 ${readbackBom.shelfLifeDays ?? '未配置'}`);
+        return;
+      }
+      if ((readbackBom.materialId ?? null) !== (bomMaterialId ?? null)) {
+        notify('error', `保存后成品身份回读不一致：期望 #${bomMaterialId ?? '未关联'}，实际 #${readbackBom.materialId ?? '未关联'}`);
+        return;
+      }
+      if ((readbackBom.qualityCharacteristics?.length || 0) !== qualityCharacteristics.length) {
+        notify('error', `保存后质检标准回读不一致：期望 ${qualityCharacteristics.length} 项，实际 ${readbackBom.qualityCharacteristics?.length || 0} 项`);
         return;
       }
 
@@ -195,6 +287,7 @@ const ProductionWorkspaceV2 = () => {
     const { errors: nextErrors, targetQuantity } = validateWorkOrderForm({
       productName: woProductName,
       targetQuantityInput: woTargetQuantity,
+      lossQuantityInput: woLossQuantity,
     });
     if (Object.keys(nextErrors).length) {
       setWorkOrderFormErrors(nextErrors);
@@ -216,7 +309,7 @@ const ProductionWorkspaceV2 = () => {
         productName: resolvedProductName,
         targetQuantity,
         producedQuantity: Number(woProducedQuantity || 0),
-        lossQuantity: Number(woLossQuantity || 0),
+        lossQuantity: 0,
         plannedStartAt: woPlannedStartAt || null,
         plannedEndAt: woPlannedEndAt || null,
         note: woNote.trim() || null,
@@ -270,28 +363,26 @@ const ProductionWorkspaceV2 = () => {
     }
   };
 
-  const handleCompleteWorkOrder = async (consumptionRecords: { stockBalanceId: number; quantity: number }[]) => {
+  const handleCompleteWorkOrder = async (consumptionRecords: ProductionConsumptionRecord[]) => {
     if (!completingWorkOrderId) return;
-    try {
-      setSelectedWorkOrderId(completingWorkOrderId);
-      await productionService.updateWorkOrderStatus(completingWorkOrderId, 'completed', consumptionRecords);
-      notify('success', '工单已完成并完成扣料');
-      setShowCompleteModal(false);
-      setCompletingWorkOrderId(null);
-      await loadData();
-    } catch (error) {
-      notify('error', error instanceof Error ? error.message : '工单完工失败');
-      throw error;
-    }
+    setSelectedWorkOrderId(completingWorkOrderId);
+    // Validation errors intentionally propagate to CompleteWorkOrderModal,
+    // which renders structured material issues beside the fields to correct.
+    await productionService.updateWorkOrderStatus(completingWorkOrderId, 'completed', consumptionRecords);
+    notify('success', '工单已完成并完成扣料');
+    setShowCompleteModal(false);
+    setCompletingWorkOrderId(null);
+    await loadData();
   };
 
   const handleCreateQc = async () => {
     if (qualitySaving) return;
     if (!selectedWorkOrder) return notify('warning', '请先选择工单');
-    const { errors: nextErrors, defectRateValue } = validateQualityForm({
-      result: qcResult,
-      defectRateInput: qcDefectRate,
-      checkedBy: qcCheckedBy,
+    const characteristics = selectedWorkOrder.bom?.qualityCharacteristics || [];
+    const { errors: nextErrors } = validateQualityForm({
+      sampleNo: qcSampleNo,
+      characteristics,
+      measurementValues: qcMeasurementValues,
     });
     if (Object.keys(nextErrors).length) {
       setQualityFormErrors(nextErrors);
@@ -303,18 +394,46 @@ const ProductionWorkspaceV2 = () => {
     setQualitySaving(true);
     try {
       await withSaveTimeout(() => productionService.createQualityCheck(selectedWorkOrder.id, {
-        result: qcResult,
-        defectRate: defectRateValue,
+        sampleNo: qcSampleNo.trim(),
         note: qcNote.trim() || null,
-        checkedBy: qcCheckedBy.trim() || null,
+        measurements: characteristics
+          .filter(item => String(qcMeasurementValues[item.id] || '').trim())
+          .map(item => ({
+            characteristicId: item.id,
+            ...(item.valueType === 'numeric'
+              ? { measuredNumeric: qcMeasurementValues[item.id].trim() }
+              : { measuredText: qcMeasurementValues[item.id].trim() }),
+            instrumentNo: qcInstrumentNumbers[item.id]?.trim() || null,
+          })),
       }));
-      notify('success', '质检记录已保存');
+      notify('success', '检验记录已提交，等待独立放行审核');
       resetQualityForm();
       setQualitySaveVersion(version => version + 1);
       qualityForm.clearTouched();
       await loadData();
     } catch (error) {
       notify('error', error instanceof Error ? error.message : '保存质检记录失败');
+    } finally {
+      setQualitySaving(false);
+    }
+  };
+
+  const handleReviewQc = async (checkId: number, decision: 'release' | 'reject') => {
+    if (qualitySaving || !selectedWorkOrder) return;
+    if (!qcReviewNote.trim()) return notify('warning', '请填写审核依据或隔离原因');
+    setQualitySaving(true);
+    try {
+      await withSaveTimeout(() => productionService.reviewQualityCheck(selectedWorkOrder.id, checkId, {
+        decision,
+        reviewNote: qcReviewNote.trim(),
+      }));
+      notify('success', decision === 'release' ? '质检已独立审核并放行' : '质检已拒绝，批次保持隔离');
+      setQcReviewNote('');
+      setQualitySaveVersion(version => version + 1);
+      qualityForm.clearTouched();
+      await loadData();
+    } catch (error) {
+      notify('error', error instanceof Error ? error.message : '质检审核失败');
     } finally {
       setQualitySaving(false);
     }
@@ -334,23 +453,35 @@ const ProductionWorkspaceV2 = () => {
       return;
     }
 
+    if (!completedBatchWorkOrder) {
+      notify('warning', '只有已完工工单的输出批次可以登记受控损耗或返工回收');
+      return;
+    }
+    if (selectedTemplate.id === 'production_loss' && !selectedStockBalanceId) {
+      notify('warning', '请选择实际扣减的库存库位');
+      return;
+    }
+    if (selectedTemplate.id === 'production_rework' && (!sourceDispositionId || !destinationLocationId)) {
+      notify('warning', '返工回收必须选择来源报废凭证和实际入库库位');
+      return;
+    }
     setAdjustmentFormErrors({});
     setAdjustmentSaving(true);
+    const idempotencyKey = dispositionIdempotencyKeyRef.current || (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `production-disposition-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    dispositionIdempotencyKeyRef.current = idempotencyKey;
     try {
-      await withSaveTimeout(() => adjustmentService.create({
-        domain: 'production',
-        targetType: 'productBatch',
-        batchId: batch?.id ?? 0,
-        targetId: batch?.id ?? 0,
-        targetRef: batch?.batchNo ?? '',
-        quantityDelta: value * selectedTemplate.sign,
+      await withSaveTimeout(() => productionService.createWorkOrderDisposition(completedBatchWorkOrder.id, {
+        type: selectedTemplate.id === 'production_loss' ? 'scrap' : 'rework_return',
+        quantity: value,
         reason: adjustmentReason.trim(),
-        reasonCategory: selectedTemplate.reasonCategory,
-        lossType: selectedTemplate.lossType,
         note: adjustmentNote.trim() || null,
-        status: 'posted',
+        idempotencyKey,
+        stockBalanceId: selectedTemplate.id === 'production_loss' ? selectedStockBalanceId : null,
+        sourceDispositionId: selectedTemplate.id === 'production_rework' ? sourceDispositionId : null,
+        destinationLocationId: selectedTemplate.id === 'production_rework' ? destinationLocationId : null,
       }));
-        notify('success', '生产调账已登记');
+      dispositionIdempotencyKeyRef.current = null;
+      notify('success', selectedTemplate.id === 'production_loss' ? '生产报废损耗已过账' : '返工回收已创建待 QA 放行批次');
       setAdjustmentQuantity('');
       setAdjustmentNote('');
       setAdjustmentSaveVersion(version => version + 1);
@@ -383,7 +514,7 @@ const ProductionWorkspaceV2 = () => {
   };
 
   return (
-    <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+    <div className="space-y-10 pb-16 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
       <ProductionWorkspaceShellHeader
         language={language}
         stats={derived.stats}
@@ -394,12 +525,15 @@ const ProductionWorkspaceV2 = () => {
         onTabChange={setActiveDeskTab}
       />
 
+      {activeDeskTab === 'bom' && <><DensityWorkbench /><DensityConversionWorkbench onCreated={loadData} /><PackagingWorkbench onCreated={loadData} /></>}
       <div className="space-y-8">
         {activeDeskTab === 'bom' ? (
           <ProductionBomSection
             bomKeyword={bomKeyword}
             setBomKeyword={setBomKeyword}
             bomProductName={bomProductName}
+            bomMaterialId={bomMaterialId}
+            setBomMaterialId={setBomMaterialId}
             setBomProductName={setBomProductName}
             bomVersion={bomVersion}
             setBomVersion={setBomVersion}
@@ -411,6 +545,8 @@ const ProductionWorkspaceV2 = () => {
             setBomFormulationMode={setBomFormulationMode}
             bomOutputUnit={bomOutputUnit}
             setBomOutputUnit={setBomOutputUnit}
+            bomShelfLifeDays={bomShelfLifeDays}
+            setBomShelfLifeDays={setBomShelfLifeDays}
             bomStandardBatchSize={bomStandardBatchSize}
             setBomStandardBatchSize={setBomStandardBatchSize}
             bomBatchSizeUnit={bomBatchSizeUnit}
@@ -433,6 +569,8 @@ const ProductionWorkspaceV2 = () => {
             numericStandardBatchSize={derived.numericStandardBatchSize}
             bomItems={bomItems}
             setBomItems={setBomItems}
+            bomQualityCharacteristics={bomQualityCharacteristics}
+            setBomQualityCharacteristics={setBomQualityCharacteristics}
             loading={loading}
             bomSaving={bomSaving}
             bomFormErrors={bomFormErrors}
@@ -486,18 +624,21 @@ const ProductionWorkspaceV2 = () => {
             selectedWorkOrder={selectedWorkOrder}
             selectedChecks={derived.selectedChecks}
             handleStepAction={handleStepAction}
-            qcResult={qcResult}
-            setQcResult={setQcResult}
-            qcDefectRate={qcDefectRate}
-            setQcDefectRate={setQcDefectRate}
-            qcCheckedBy={qcCheckedBy}
-            setQcCheckedBy={setQcCheckedBy}
+            qcSampleNo={qcSampleNo}
+            setQcSampleNo={setQcSampleNo}
+            qcMeasurementValues={qcMeasurementValues}
+            setQcMeasurementValue={setQcMeasurementValue}
+            qcInstrumentNumbers={qcInstrumentNumbers}
+            setQcInstrumentNumber={setQcInstrumentNumber}
             qcNote={qcNote}
             setQcNote={setQcNote}
+            qcReviewNote={qcReviewNote}
+            setQcReviewNote={setQcReviewNote}
             qualitySaving={qualitySaving}
             qualityFormErrors={qualityFormErrors}
             clearQualityFormError={field => setQualityFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateQc={handleCreateQc}
+            handleReviewQc={handleReviewQc}
           />
         ) : null}
 
@@ -522,6 +663,16 @@ const ProductionWorkspaceV2 = () => {
             adjustmentNote={adjustmentNote}
             setAdjustmentNote={setAdjustmentNote}
             adjustmentSaving={adjustmentSaving}
+            completedWorkOrderNo={completedBatchWorkOrder?.workOrderNo ?? null}
+            stockBalances={dispositionStockBalances}
+            selectedStockBalanceId={selectedStockBalanceId}
+            setSelectedStockBalanceId={setSelectedStockBalanceId}
+            dispositions={dispositions}
+            sourceDispositionId={sourceDispositionId}
+            setSourceDispositionId={setSourceDispositionId}
+            destinationLocations={destinationLocations}
+            destinationLocationId={destinationLocationId}
+            setDestinationLocationId={setDestinationLocationId}
             adjustmentFormErrors={adjustmentFormErrors}
             clearAdjustmentFormError={field => setAdjustmentFormErrors(errors => ({ ...errors, [field]: undefined }))}
             handleCreateAdjustment={handleCreateAdjustment}

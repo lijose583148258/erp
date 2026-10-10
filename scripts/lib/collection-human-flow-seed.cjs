@@ -113,7 +113,7 @@ async function seedBusinessChain(runtime, {
 
     const paymentResponse = await runtime.apiFetch(`/orders/${order.id}/payment`, {
       method: 'POST',
-      data: {
+      data: { idempotencyKey: require('node:crypto').randomUUID(),
         amount: 100,
         method: 'cash',
         payerName: `HF payer ${runId}`,

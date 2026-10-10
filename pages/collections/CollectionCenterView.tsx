@@ -7,10 +7,13 @@ import CollectionActionModal from '../../components/collections/CollectionAction
 import CollectionActionWorkspace from './CollectionActionWorkspace';
 import CollectionCurrentOrderDetail from './CollectionCurrentOrderDetail';
 import CollectionPrimaryGrid from './CollectionPrimaryGrid';
+import CollectionPaymentReversalDialog from './CollectionPaymentReversalDialog';
+import { useAppContext } from '../../app/AppContext';
 import {
   CollectionDisputeRecord,
   CollectionHoldRecord,
   CollectionPromiseRecord,
+  CollectionLedgerRecord,
 } from '../../src/services/collections.service';
 import useCollectionCenterState, {
   DisputeFilter,
@@ -21,8 +24,8 @@ import useCollectionCenterState, {
 } from './useCollectionCenter';
 import { useCollectionCenterTables } from './useCollectionCenterTables';
 
-const filterChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
-const sortChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-all';
+const filterChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none';
+const sortChipClass = 'rounded-full border px-3 py-2 text-xs font-bold tracking-[0.12em] transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none';
 type CollectionDeskTab = 'receivable' | 'promise' | 'risk' | 'principle';
 
 const Metric = ({ label, value, hint }: { label: string; value: string; hint?: string }) => (
@@ -38,6 +41,8 @@ const CollectionCenterView: React.FC = () => {
   const tables = useCollectionCenterTables(state);
   const metricsLoading = state.loading && !state.summary;
   const [activeCollectionDesk, setActiveCollectionDesk] = useState<CollectionDeskTab>('receivable');
+  const [reversalPayment, setReversalPayment] = useState<CollectionLedgerRecord | null>(null);
+  const { currentUser } = useAppContext();
   const riskCount = state.filteredDisputes.length + state.filteredHolds.length;
   const collectionDeskItems = [
     {
@@ -158,6 +163,7 @@ const CollectionCenterView: React.FC = () => {
               onBatchReminder={state.handleBatchReminder}
               onReminder={state.handleReminder}
               onVerifyPayment={state.handleVerifyPayment}
+              onOpenPaymentReversal={setReversalPayment}
               onPromiseStatus={state.handlePromiseStatus}
               onDisputeStatus={state.handleDisputeStatus}
               onReleaseHold={state.handleReleaseHold}
@@ -196,6 +202,7 @@ const CollectionCenterView: React.FC = () => {
               }}
               onFocusOrder={state.focusOrderById}
               onVerifyPayment={state.handleVerifyPayment}
+              onOpenPaymentReversal={setReversalPayment}
               onReminder={state.handleReminder}
               onOpenPromise={(record) => state.openActionModal('promise', record)}
               onOpenDispute={(record) => state.openActionModal('dispute', record)}
@@ -213,6 +220,7 @@ const CollectionCenterView: React.FC = () => {
             milestones={state.milestones}
             formatPrice={state.formatPrice}
             onVerifyPayment={state.handleVerifyPayment}
+            onOpenPaymentReversal={setReversalPayment}
             onPromiseStatus={state.handlePromiseStatus}
             onDisputeStatus={state.handleDisputeStatus}
             onReleaseHold={state.handleReleaseHold}
@@ -481,6 +489,8 @@ const CollectionCenterView: React.FC = () => {
         </div>
       </div>
 
+      {reversalPayment ? <CollectionPaymentReversalDialog key={`${currentUser.id}:${reversalPayment.id}`} payment={reversalPayment}
+        onClose={() => setReversalPayment(null)} onChanged={() => state.loadData({ force: true })} /> : null}
       <CollectionActionModal
         open={Boolean(state.actionMode && state.actionTarget)}
         mode={state.actionMode}

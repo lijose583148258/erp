@@ -55,6 +55,8 @@ const expectedBusinessErrorPatterns = [
   /Please refresh/i,
   /\b[A-Z][A-Z0-9_]*(?:BELOW_ZERO|TRANSITION|STATE)[A-Z0-9_]*\b/,
   /\bBACKUP_OPERATION_IN_PROGRESS\b/,
+  /重复提交货抵批次/,
+  /货抵批次已过账/,
   /\b(?:Promise|Dispute|Order|Payment|Adjustment|Barter|Shipment|Purchase|Production) status cannot transition\b/i,
   /工作流节点 .* 必须配置 assigneeRole 或 assigneeUserId/,
 ];
@@ -92,7 +94,8 @@ const originalLoggerWarn = logger.warn.bind(logger) as (...args: unknown[]) => u
 
 logger.error = ((...args: unknown[]) => {
   if (isExpectedBusinessRejection(...args)) {
-    return originalLoggerWarn('[business-rejection]', ...args);
+    const reason = args.map(stringifyLogArg).filter(Boolean).join(' | ');
+    return originalLoggerWarn(`[business-rejection] ${reason || 'request rejected by business rule'}`);
   }
   return originalLoggerError(...args);
 }) as typeof logger.error;

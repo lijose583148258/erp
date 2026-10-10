@@ -94,6 +94,9 @@ export const useSalesOrders = () => {
         handleCommissionAudit,
         handleStatusUpdate,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft,
+        handleShipmentCreated,
         handleManualComplete,
     } = useSalesOrderActions({
         canAuditCommission,
@@ -105,6 +108,8 @@ export const useSalesOrders = () => {
         openPaymentModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
     } = useSalesOrderPayments({
         selectedOrder,
         paymentForm,
@@ -434,10 +439,15 @@ export const useSalesOrders = () => {
         openHistoryModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
         openCollectionAction,
         refreshSelectedOrder,
         updateDimensionalItem,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft,
+        handleShipmentCreated,
         handleManualComplete,
     };
 };

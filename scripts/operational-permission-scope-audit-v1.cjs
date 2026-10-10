@@ -152,7 +152,7 @@ async function makeUsers(adminToken) {
       dataScopes: [],
       permissions: [
         'production.read',
-        'production.write',
+        'production.bom.write',
         'discrepancies.read',
         'discrepancies.write',
         'discrepancies.rules.manage',
@@ -167,7 +167,7 @@ async function makeUsers(adminToken) {
       dataScopes: ['warehouse_visible'],
       permissions: [
         'production.read',
-        'production.write',
+        'production.bom.write',
         'discrepancies.read',
         'discrepancies.write',
         'adjustments.read',
@@ -213,6 +213,7 @@ function bomPayload() {
     bomType: 'chemical_formula',
     formulationMode: 'percentage',
     outputUnit: 'kg',
+    shelfLifeDays: 365,
     standardBatchSize: 100,
     batchSizeUnit: 'kg',
     items: [
@@ -239,7 +240,7 @@ async function verifyProduction(users) {
   expectStatus(financeSummary, [200], 'finance production summary');
 
   const noneCreate = await apiFetch('/production/boms', { method: 'POST', data: bomPayload() }, users.none.token);
-  expectStatus(noneCreate, [403], 'production.write without warehouse scope denied');
+  expectStatus(noneCreate, [403], 'production.bom.write without warehouse scope denied');
 
   const warehouseCreate = await apiFetch('/production/boms', { method: 'POST', data: bomPayload() }, users.warehouse.token);
   expectStatus(warehouseCreate, [201], 'warehouse production bom create');

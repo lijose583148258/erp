@@ -160,13 +160,13 @@ const Samples: React.FC = () => {
   }, [samples]);
 
   return (
-    <div className="space-y-10 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-1000">
+    <div className="space-y-10 pb-16 ">
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-8">
         <div>
           <h1 className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic bg-gradient-to-br from-slate-900 to-slate-500 dark:from-white dark:to-slate-400 bg-clip-text text-transparent">{t.samples}</h1>
           <p className="text-emerald-600 dark:text-emerald-400 font-black text-xs tracking-wide mt-3 opacity-70 px-1">{t.sampleTitle}</p>
         </div>
-        <button data-testid="samples-open-create" onClick={() => setShowCreateForm(current => !current)} className="flex items-center px-8 py-4 bg-blue-600 text-white rounded-[26px] font-black text-xs tracking-wide shadow-2xl shadow-blue-500/30 hover:scale-105 transition-all active-shrink">
+        <button data-testid="samples-open-create" onClick={() => setShowCreateForm(current => !current)} className="flex items-center px-8 py-4 bg-blue-600 text-white rounded-[26px] font-black text-xs tracking-wide shadow-2xl shadow-blue-500/30 transition-colors ">
           <Plus size={18} className="mr-3" />
           {t.newSampleRequest}
         </button>
@@ -233,11 +233,11 @@ const Samples: React.FC = () => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-        <div className="md:col-span-2 bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[44px] p-10 text-white relative overflow-hidden shadow-2xl shadow-indigo-900/10 group transition-all duration-700">
-          <div className="absolute top-0 right-0 w-80 h-80 bg-blue-400/10 rounded-full -mr-40 -mt-40 blur-3xl group-hover:scale-150 transition-transform duration-1000"></div>
+        <div className="md:col-span-2 bg-gradient-to-br from-indigo-900 to-slate-900 rounded-[44px] p-10 text-white relative overflow-hidden shadow-2xl shadow-indigo-900/10 group transition-colors ">
+          <div className="absolute top-0 right-0 w-80 h-80 bg-blue-400/10 rounded-full -mr-40 -mt-40 blur-3xl "></div>
           <div className="relative z-10 flex flex-col h-full justify-between">
             <div className="flex items-start space-x-6">
-              <div className="p-5 bg-white/10 rounded-[28px] backdrop-blur-md border border-white/20 shadow-inner group-hover:rotate-6 transition-transform">
+              <div className="p-5 bg-white/10 rounded-[28px] backdrop-blur-md border border-white/20 shadow-inner ">
                 <FlaskConical size={32} className="text-white animate-pulse" />
               </div>
               <div>
@@ -248,10 +248,10 @@ const Samples: React.FC = () => {
               </div>
             </div>
             <div className="mt-10 flex flex-wrap gap-4">
-              <button onClick={() => notify('info', t.sampleSprintInfo)} className="px-8 py-4 bg-white text-indigo-900 rounded-[22px] font-black text-xs tracking-wide shadow-xl hover:scale-105 transition-all active-shrink">
+              <button onClick={() => notify('info', t.sampleSprintInfo)} className="px-8 py-4 bg-white text-indigo-900 rounded-[22px] font-black text-xs tracking-wide shadow-xl transition-colors ">
                 {t.sampleSprint}
               </button>
-              <button onClick={() => notify('info', t.sampleAnalyticsInfo)} className="px-8 py-4 bg-white/10 text-white border border-white/20 rounded-[22px] font-black text-xs tracking-wide hover:bg-white/20 transition-all backdrop-blur-sm">
+              <button onClick={() => notify('info', t.sampleAnalyticsInfo)} className="px-8 py-4 bg-white/10 text-white border border-white/20 rounded-[22px] font-black text-xs tracking-wide hover:bg-white/20 transition-colors backdrop-blur-sm">
                 {t.viewAnalytics}
               </button>
             </div>
@@ -259,9 +259,9 @@ const Samples: React.FC = () => {
         </div>
 
         <div className="bg-white/80 dark:bg-slate-900/80 backdrop-blur-xl p-10 rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_15px_50px_rgba(0,0,0,0.03)] flex flex-col justify-center relative overflow-hidden group">
-          <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-emerald-50 dark:bg-emerald-900/10 rounded-full group-hover:scale-150 transition-all duration-1000"></div>
+          <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-emerald-50 dark:bg-emerald-900/10 rounded-full transition-colors "></div>
           <div className="relative z-10">
-            <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-[22px] w-fit mb-8 shadow-sm group-hover:scale-110 transition-transform"><ArrowUpRight size={28} /></div>
+            <div className="p-4 bg-emerald-100 dark:bg-emerald-900/30 text-emerald-600 dark:text-emerald-400 rounded-[22px] w-fit mb-8 shadow-sm "><ArrowUpRight size={28} /></div>
             <p className="text-xs font-black text-slate-400 tracking-wide mb-2">反馈完成率</p>
             <p className="text-4xl font-black text-slate-900 dark:text-white tracking-tighter italic">
               {sampleStats.feedbackRate === null ? '暂无' : `${sampleStats.feedbackRate}%`}

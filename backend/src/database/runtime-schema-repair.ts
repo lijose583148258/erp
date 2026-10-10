@@ -1,3 +1,8 @@
+import { repairDensitySchema } from './runtime-schema-density-repair';
+import { repairDensityConversionSchema } from './runtime-schema-density-conversion-repair';
+import { repairProductionDispositionSchema } from './runtime-schema-production-disposition-repair';
+import { repairSalesFulfillmentPlanSchema } from './runtime-schema-sales-fulfillment-repair';
+import { repairPackagingSchema } from './runtime-schema-packaging-repair';
 import prisma from '../config/database';
 import { SchemaRepairReport } from './runtime-schema-repair-utils';
 import { repairAuthSchema } from './runtime-schema-auth-repair';
@@ -8,6 +13,11 @@ import { repairReceiptSchema } from './runtime-schema-receipt-repair';
 import { repairReceivableSchema } from './runtime-schema-receivable-repair';
 import { repairStockSchema } from './runtime-schema-stock-repair';
 import { repairCommercialPlatformSchema } from './runtime-schema-commercial-repair';
+import { repairPaymentEventSchema } from './runtime-schema-payment-event-repair';
+import { repairPaymentSubmissionSchema } from './runtime-schema-payment-submission-repair';
+import { repairPaymentReversalSchema } from './runtime-schema-payment-reversal-repair';
+import { repairMaterialSchema } from './runtime-schema-material-repair';
+import { repairDecimalShadowSchema } from './runtime-schema-decimal-repair';
 
 export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
   const report: SchemaRepairReport = { entries: [] };
@@ -20,6 +30,14 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
 
   await repairProductionSchema(report);
 
+  await repairMaterialSchema(report);
+
+  await repairPackagingSchema(report);
+  await repairDensitySchema(report);
+  await repairDensityConversionSchema(report);
+  await repairProductionDispositionSchema(report);
+  await repairSalesFulfillmentPlanSchema(report);
+
   await repairStockSchema(report);
 
   await repairAuthSchema(report);
@@ -28,7 +46,12 @@ export const repairRuntimeSchema = async (): Promise<SchemaRepairReport> => {
 
   await repairReceivableSchema(report);
 
+  await repairDecimalShadowSchema(report);
+
   await repairCommercialPlatformSchema(report);
+  await repairPaymentEventSchema(report);
+  await repairPaymentSubmissionSchema(report);
+  await repairPaymentReversalSchema(report);
 
   return report;
 };

@@ -28,12 +28,15 @@ import { barterInputBoundaries, barterInputEvidence, barterInputGuideSteps } fro
 import { BarterAgreementList } from './barter/BarterAgreementList';
 import { BarterInputRoadmap } from './barter/BarterInputRoadmap';
 import { BarterLedgerPanel } from './barter/BarterLedgerPanel';
+import { BarterRefundDialog } from './barter/BarterRefundDialog';
+import { loadBarterReferenceData } from './barter/loadBarterReferenceData';
 
 const BarterWorkspaceClean: React.FC = () => {
   const { formatPrice, notify, language, currentUser } = useAppContext();
   const canWriteBarter = can(currentUser, 'barter.write');
   const canApproveBarter = can(currentUser, 'barter.approve');
   const canPostBarter = can(currentUser, 'barter.post');
+  const canReadCustomers = can(currentUser, 'customers.read');
   const [summary, setSummary] = useState<BarterSummary | null>(null);
   const [agreements, setAgreements] = useState<BarterAgreement[]>([]);
   const [selectedAgreement, setSelectedAgreement] = useState<BarterAgreement | null>(null);
@@ -46,6 +49,7 @@ const BarterWorkspaceClean: React.FC = () => {
   const [activeBarterTab, setActiveBarterTab] = useState<BarterDeskTab>('agreement');
   const [reverseSettlement, setReverseSettlement] = useState<BarterSettlement | null>(null);
   const [reverseSubmitting, setReverseSubmitting] = useState(false);
+  const [refundSettlement, setRefundSettlement] = useState<BarterSettlement | null>(null);
 
   const [agreementForm, setAgreementForm] = useState({
     customerId: '',
@@ -105,12 +109,14 @@ const BarterWorkspaceClean: React.FC = () => {
   const loadBase = useCallback(async (agreementId?: number | null, signal?: AbortSignal) => {
     setLoading(true);
     try {
-      const [summaryData, agreementData, customerData, supplierData, orderData] = await Promise.all([
+      const [summaryData, agreementData, [customerData, supplierData, orderData]] = await Promise.all([
         barterService.getSummary({ signal }),
         barterService.listAgreements({ pageSize: 30 }, { signal }),
-        customerService.getAll({ signal }),
-        procurementService.getAllSuppliers('', { signal }),
-        orderService.getAll({ signal }),
+        loadBarterReferenceData(currentUser, {
+          customers: () => customerService.getAll({ signal }),
+          suppliers: () => procurementService.getAllSuppliers('', { signal }),
+          orders: () => orderService.getAll({ signal }),
+        }),
       ]);
 
       setSummary(summaryData ?? null);
@@ -138,7 +144,7 @@ const BarterWorkspaceClean: React.FC = () => {
         setLoading(false);
       }
     }
-  }, [notify]);
+  }, [notify, currentUser]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -156,8 +162,8 @@ const BarterWorkspaceClean: React.FC = () => {
   };
 
   const handleCreateAgreement = async () => {
-    if (!canWriteBarter) {
-      notify('warning', '当前角色只能查看货抵协议，不能创建协议');
+    if (!canWriteBarter || !canReadCustomers) {
+      notify('warning', '创建协议需要货抵写入和客户目录查看权限');
       return;
     }
     if (!agreementForm.customerId || !agreementForm.counterpartyName.trim() || !ensureValidItems(agreementForm.items)) {
@@ -306,7 +312,7 @@ const BarterWorkspaceClean: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-700">
+ <div className="space-y-8 pb-16 motion-safe:animate-in fade-in slide-in-from-bottom-4 duration-150">
       <div className="rounded-[40px] bg-[#0B1020] p-8 text-white shadow-[0_30px_60px_rgba(15,23,42,0.24)]">
         <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs font-black uppercase tracking-[0.16em] text-slate-200">
           <ArrowRightLeft size={14} />
@@ -368,8 +374,13 @@ const BarterWorkspaceClean: React.FC = () => {
             </div>
           )}
 
+          {canWriteBarter && !canReadCustomers && (
+            <div className="mb-4 rounded-[20px] border border-amber-200 bg-amber-50 px-4 py-3 text-xs font-bold text-amber-700">
+              当前角色无客户目录权限，不能新建协议；可选择已有协议，继续执行批次和审批过账。
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
-            <select aria-label="货抵协议客户" title="货抵协议客户" value={agreementForm.customerId} onChange={(e) => setAgreementForm({ ...agreementForm, customerId: e.target.value })} className={barterFieldClass}>
+            <select disabled={!canReadCustomers} aria-label="货抵协议客户" title="货抵协议客户" value={agreementForm.customerId} onChange={(e) => setAgreementForm({ ...agreementForm, customerId: e.target.value })} className={barterFieldClass}>
               <option value="">选择客户</option>
               {customerOptions.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}
             </select>
@@ -417,7 +428,7 @@ const BarterWorkspaceClean: React.FC = () => {
               <div>协议可抵总额：{formatPrice(agreementPreview.offsetAmount)}</div>
               <div>协议差额（我方 - 对方）：{formatPrice(agreementPreview.difference)}</div>
             </div>
-            <button onClick={() => void handleCreateAgreement()} disabled={agreementSubmitting || !canWriteBarter} className="rounded-[20px] bg-gradient-to-br from-blue-600 to-blue-700 px-6 py-3 text-sm font-black text-white shadow-xl shadow-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60">
+            <button onClick={() => void handleCreateAgreement()} disabled={agreementSubmitting || !canWriteBarter || !canReadCustomers} className="rounded-[20px] bg-gradient-to-br from-blue-600 to-blue-700 px-6 py-3 text-sm font-black text-white shadow-xl shadow-blue-500/25 disabled:cursor-not-allowed disabled:opacity-60">
               {agreementSubmitting ? '提交中...' : '创建协议'}
             </button>
           </div>
@@ -530,9 +541,12 @@ const BarterWorkspaceClean: React.FC = () => {
           onApprove={(settlement) => void handleApprove(settlement)}
           onPost={(settlement) => void handlePost(settlement)}
           onReverse={(settlement) => void handleReverse(settlement)}
+          onRefund={setRefundSettlement}
         />
       </div>
 
+      {refundSettlement?.cashObligation && <BarterRefundDialog key={refundSettlement.id} settlement={refundSettlement}
+        onClose={() => setRefundSettlement(null)} onRecorded={() => { void loadBase(selectedAgreement?.id); }} />}
       <ReasonDialog
         open={Boolean(reverseSettlement)}
         title={reverseSettlement ? `冲销批次 ${reverseSettlement.settlementNo}` : '冲销批次'}

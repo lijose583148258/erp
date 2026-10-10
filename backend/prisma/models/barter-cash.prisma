@@ -1,0 +1,25 @@
+// A refund obligation is independent from the sales-order receipt and inventory valuation.
+model BarterCashObligation {
+  id               Int       @id @default(autoincrement())
+  settlementId     Int       @unique @map("settlement_id")
+  settlement       BarterSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  amount           Float
+  currency         String
+  counterpartyName String    @map("counterparty_name")
+  ownerId          Int       @map("owner_id")
+  status           String    @default("open") // open | settled | void | review (legacy)
+  requestKey       String?   @unique @map("request_key")
+  paymentReference String?   @map("payment_reference")
+  paymentDate      String?   @map("payment_date")
+  resolutionNote   String?   @map("resolution_note")
+  resolvedBy       Int?      @map("resolved_by")
+  resolvedAt       DateTime? @map("resolved_at")
+  voidedBy         Int?      @map("voided_by")
+  voidedAt         DateTime? @map("voided_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@unique([currency, paymentReference])
+  @@index([status])
+  @@map("barter_cash_obligations")
+}

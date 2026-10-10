@@ -34,6 +34,39 @@ requireTokens('backend/prisma/postgres-migrations/202607220002_order-import-rete
   'order_import_batches_status_completed_at_idx',
   'order_import_batches_status_created_at_idx',
 ]);
+requireTokens('backend/prisma/postgres-migrations/202607260001_production-bom-shelf-life/migration.sql', [
+  'ADD COLUMN IF NOT EXISTS "shelf_life_days"',
+  'production_boms_shelf_life_days_check',
+  'BETWEEN 1 AND 3650',
+]);
+requireTokens('backend/prisma/postgres-migrations/202607290001_material-master-foundation/migration.sql', [
+  'CREATE TABLE IF NOT EXISTS "materials"',
+  'CREATE TABLE IF NOT EXISTS "material_aliases"',
+  'materials_code_key',
+  'material_aliases_material_id_normalized_alias_language_key',
+  'material_aliases_normalized_alias_language_idx',
+  'ALTER TABLE "production_bom_items" ADD COLUMN IF NOT EXISTS "material_id"',
+  'production_bom_items_material_id_fkey',
+  'ON DELETE SET NULL',
+]);
+requireTokens('backend/prisma/postgres-migrations/202608010004_receivables-decimal-shadow/migration.sql', [
+  '"final_amount_decimal" NUMERIC(18,2)',
+  '"paid_amount_decimal" NUMERIC(18,2)',
+  '"receivable_adjustment_amount_decimal" NUMERIC(18,2)',
+  '"amount_decimal" NUMERIC(18,2)',
+  '"exchange_rate_decimal" NUMERIC(18,8)',
+  '"base_amount_decimal" NUMERIC(18,2)',
+  'BEFORE INSERT OR UPDATE OF',
+  'IS DISTINCT FROM',
+  'SET NOT NULL',
+]);
+requireTokens('backend/prisma/postgres-migrations/202608010005_barter-material-identity/migration.sql', [
+  'ALTER TABLE "barter_agreement_items" ADD COLUMN IF NOT EXISTS "material_id"',
+  'ALTER TABLE "barter_items" ADD COLUMN IF NOT EXISTS "material_id"',
+  'barter_agreement_items_material_id_fkey',
+  'barter_items_material_id_fkey',
+  'ON DELETE SET NULL',
+]);
 requireTokens('scripts/run-postgres-import-rehearsal-v1.cjs', [
   'apply-versioned-postgres-migrations',
   'verify-versioned-postgres-migrations',

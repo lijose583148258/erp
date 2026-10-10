@@ -191,7 +191,7 @@ export function WarehouseLedgerPanel({
             data-testid="warehouse-ledger-query-button"
             type="button"
             onClick={queryLedger}
-            className="flex items-center justify-center gap-2 rounded-2xl bg-blue-50 px-5 py-3 text-sm font-black text-blue-600 transition-all hover:bg-blue-100 active:scale-95 dark:bg-blue-900/30"
+ className="flex items-center justify-center gap-2 rounded-2xl bg-blue-50 px-5 py-3 text-sm font-black text-blue-600 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none hover:bg-blue-100 dark:bg-blue-900/30"
           >
             <Filter size={16} />
             查询

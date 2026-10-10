@@ -38,6 +38,7 @@ export const statusUpdateSchema = z.object({
 }).passthrough();
 
 export const purchaseStatusUpdateSchema = z.object({
+  expectedRevision: z.number().int().nonnegative().optional(),
   status: purchaseStatusSchema,
 }).passthrough();
 

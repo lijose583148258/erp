@@ -4,6 +4,7 @@ import { adaptDataTableColumns, EnterpriseDataGrid } from '../../components/ui';
 import type { CollectionLedgerRecord, CollectionListMeta, CollectionMilestoneRecord, CollectionOverdueRecord } from '../../src/services/collections.service';
 import type { CollectionActionPermissions, WorkTab } from './useCollectionCenter';
 import { getCollectionCustomerLabel } from './collectionCenter.helpers';
+import CollectionPaymentReversalButton from './CollectionPaymentReversalButton';
 
 type Props = {
   activeTab: WorkTab;
@@ -25,6 +26,7 @@ type Props = {
   onSelectOverdue: (row: CollectionOverdueRecord) => void;
   onFocusOrder: (orderId: number) => void;
   onVerifyPayment: (paymentId: number) => Promise<void>;
+  onOpenPaymentReversal: (payment: CollectionLedgerRecord) => void;
   onReminder: (orderId: number) => Promise<void>;
   onOpenPromise: (row: CollectionOverdueRecord) => void;
   onOpenDispute: (row: CollectionOverdueRecord) => void;
@@ -57,6 +59,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
   onSelectOverdue,
   onFocusOrder,
   onVerifyPayment,
+  onOpenPaymentReversal,
   onReminder,
   onOpenPromise,
   onOpenDispute,
@@ -80,8 +83,9 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
           emptyTitle="暂无收款流水"
           emptyDescription="当订单产生回款记录后，会在这里进行核销和对账。"
           searchInputTestId="collection-ledger-search"
-          rowActions={(row) =>
-            row.status !== 'verified' && permissions.canVerifyPayment ? (
+          rowActions={(row) => <div className="flex flex-wrap justify-end gap-2">
+            <CollectionPaymentReversalButton payment={row} permissions={permissions} onOpen={onOpenPaymentReversal} location="ledger" />
+            {row.status === 'pending' && permissions.canVerifyPayment ? (
               <button
                 type="button"
                 data-testid={`collection-ledger-verify-${row.id}`}
@@ -93,8 +97,8 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
               >
                 核销
               </button>
-            ) : null
-          }
+            ) : null}
+          </div>}
           defaultPageSize={10}
         />
       );

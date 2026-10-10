@@ -8,6 +8,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package-lock.json ./backend/
+COPY backend/packages ./backend/packages
 COPY backend/prisma ./backend/prisma
 RUN npm ci
 RUN cd backend && npm ci
@@ -37,6 +38,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/output/postgres-server-artifact/backend/dist ./backend/dist
 COPY --from=build --chown=node:node /app/output/postgres-server-artifact/backend/prisma ./backend/prisma
 COPY --chown=node:node backend/package.json backend/package-lock.json ./backend/
+COPY --chown=node:node backend/packages ./backend/packages
 
 RUN cd backend && npm ci --omit=dev --ignore-scripts \
   && mkdir -p /data/backups /data/logs /data/uploads \

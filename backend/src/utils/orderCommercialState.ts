@@ -1,7 +1,10 @@
+import { getOrderFulfillment, type FulfillmentSnapshot, type FulfillmentShipment } from './orderFulfillment';
+
 export type CommercialFulfillmentStatus =
   | 'pending_release'
   | 'ready_to_ship'
   | 'in_transit'
+  | 'partially_delivered'
   | 'delivered'
   | 'cancelled';
 
@@ -13,10 +16,10 @@ export type CommercialFinancialStatus =
   | 'overdue'
   | 'cancelled';
 
-type ShipmentSnapshot = { status?: string | null; shippedAt?: Date | string | null; deliveredAt?: Date | string | null };
+type ShipmentSnapshot = FulfillmentShipment;
 type PaymentSnapshot = { status?: string | null };
 
-type OrderCommercialSnapshot = {
+type OrderCommercialSnapshot = FulfillmentSnapshot & {
   status?: string | null;
   paymentStatus?: string | null;
   paidAmount?: number | string | null;
@@ -70,14 +73,14 @@ export const getCommercialFulfillmentStatus = (order: OrderCommercialSnapshot): 
   if (String(order.status || '').toLowerCase() === 'cancelled') return 'cancelled';
 
   const shipments = Array.isArray(order.shipments) ? order.shipments : [];
-  const hasShipments = shipments.length > 0;
-  const allDelivered = hasShipments && shipments.every(shipment => String(shipment.status || '').toLowerCase() === 'delivered');
+  const fulfillment = getOrderFulfillment(order);
   const anyInTransit = shipments.some(shipment => {
     const status = String(shipment.status || '').toLowerCase();
     return status === 'in_transit' || status === 'shipped' || Boolean(shipment.shippedAt);
   });
 
-  if (String(order.status || '').toLowerCase() === 'delivered' || allDelivered) return 'delivered';
+  if (fulfillment.fullyDelivered) return 'delivered';
+  if (fulfillment.hasAccepted) return 'partially_delivered';
   if (String(order.status || '').toLowerCase() === 'shipped' || anyInTransit) return 'in_transit';
   if (String(order.status || '').toLowerCase() === 'confirmed') return 'ready_to_ship';
   return 'pending_release';
@@ -88,6 +91,7 @@ export const decorateCommercialOrderState = <T extends OrderCommercialSnapshot>(
   return {
     ...order,
     dueDate,
+    fulfillment: getOrderFulfillment(order),
     fulfillmentStatus: getCommercialFulfillmentStatus({ ...order, dueDate }),
     financialStatus: getCommercialFinancialStatus({ ...order, dueDate }),
   };

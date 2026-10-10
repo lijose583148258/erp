@@ -10,6 +10,8 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -18,10 +20,11 @@ const REQUEST_TIMEOUT_MS = 10_000;
 const SCRIPT_TIMEOUT_MS = 290_000;
 const RUN_ID = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 
-const ADMIN = { username: 'admin', password: 'admin123' };
+let ADMIN;
 const ROLE_CODE = `audit_role_${RUN_ID}`;
 const USERNAME = `dyn_role_user_${RUN_ID}`;
-const PASSWORD = 'Audit12345';
+const PASSWORD = `${crypto.randomBytes(24).toString('base64url')}!aA1`;
+const READY_PASSWORD = `${crypto.randomBytes(24).toString('base64url')}!bB2`;
 
 const report = {
   appUrl: APP_URL,
@@ -163,6 +166,8 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
+    const accounts = await ensureUiAuditAccounts('dynamic_role_rbac', ['admin']);
+    ADMIN = accounts.admin;
     const admin = await login(ADMIN.username, ADMIN.password);
     recordStep({ step: 'admin-login', result: 'passed' });
 
@@ -212,11 +217,24 @@ async function main() {
     expect(teamMembers.some((item) => item.username === USERNAME && item.role === ROLE_CODE), 'custom-role user missing from team list', teamMembers);
     recordStep({ step: 'team-list-custom-role-readback', result: 'passed' });
 
-    const customLogin = await login(USERNAME, PASSWORD);
-    expect(customLogin.user.role === ROLE_CODE, 'custom user login role mismatch', customLogin.user);
+    const initialCustomLogin = await login(USERNAME, PASSWORD);
+    expect(initialCustomLogin.user.role === ROLE_CODE, 'custom user login role mismatch', initialCustomLogin.user);
+    expect(initialCustomLogin.user.mustChangePassword === true, 'new custom user must require an initial password change', initialCustomLogin.user);
+    const passwordChangeResponse = await apiFetch('/auth/password', {
+      method: 'PUT',
+      data: { oldPassword: PASSWORD, newPassword: READY_PASSWORD },
+    }, initialCustomLogin.token);
+    expectStatus(passwordChangeResponse, [200], 'change initial custom-role password');
+    const customLogin = await login(USERNAME, READY_PASSWORD);
+    expect(customLogin.user.mustChangePassword === false, 'custom user password-change state was not cleared', customLogin.user);
     expect(customLogin.user.permissions.includes('customers.read'), 'login response missing dynamic permissions', customLogin.user);
     expect(!customLogin.user.permissions.includes('procurement.read'), 'login response unexpectedly includes procurement.read before grant', customLogin.user);
-    recordStep({ step: 'custom-role-login-permissions', permissions: customLogin.user.permissions, result: 'passed' });
+    recordStep({
+      step: 'custom-role-login-permissions',
+      permissions: customLogin.user.permissions,
+      passwordChangeRequired: initialCustomLogin.user.mustChangePassword,
+      result: 'passed',
+    });
 
     await assertEndpoint('custom-dashboard-before-update', '/dashboard', customLogin.token, [200]);
     await assertEndpoint('custom-customers-before-update', '/customers?pageSize=1', customLogin.token, [200]);
@@ -239,7 +257,7 @@ async function main() {
     expectStatus(updateRoleResponse, [200], 'grant procurement supplier read to custom role');
     recordStep({ step: 'update-custom-role-permissions', permissions: dataOf(updateRoleResponse).permissions, result: 'passed' });
 
-    const customRelogin = await login(USERNAME, PASSWORD);
+    const customRelogin = await login(USERNAME, READY_PASSWORD);
     expect(customRelogin.user.permissions.includes('procurement.read'), 'updated login response missing procurement.read', customRelogin.user);
     expect(customRelogin.user.permissions.includes('procurement.suppliers.read'), 'updated login response missing procurement.suppliers.read', customRelogin.user);
     await assertEndpoint('custom-procurement-allowed-after-update', '/procurement/suppliers?pageSize=1', customRelogin.token, [200]);
@@ -257,7 +275,7 @@ async function main() {
     expectStatus(disableRoleResponse, [200], 'disable custom role');
     recordStep({ step: 'disable-custom-role', result: 'passed' });
 
-    await login(USERNAME, PASSWORD, [403]);
+    await login(USERNAME, READY_PASSWORD, [403]);
     recordStep({ step: 'disabled-role-login-denied', result: 'passed' });
 
     await assertEndpoint('disabled-role-old-token-dashboard-denied', '/dashboard', customRelogin.token, [403]);

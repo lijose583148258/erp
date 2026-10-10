@@ -264,7 +264,7 @@ function createBackendBusinessChainContext({
   async function recordPayment(sales, orderId, amount) {
     const response = await expectOk('record payment', () => apiFetch(`/orders/${orderId}/payment`, {
       method: 'POST',
-      data: {
+      data: { idempotencyKey: require('node:crypto').randomUUID(),
         amount,
         method: data.paymentMethod,
         payerName: data.customerName,

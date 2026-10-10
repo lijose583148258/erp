@@ -1,4 +1,4 @@
-﻿import ExcelJS from 'exceljs';
+import SpreadsheetWorkbook from '../infrastructure/spreadsheet-workbook';
 import prisma from '../config/database';
 import type { Prisma } from '@prisma/client';
 import { AuthRequest } from '../middleware/auth';
@@ -292,7 +292,7 @@ export async function buildCustomerExportWorkbook(
     orderBy: { createdAt: 'desc' },
   });
 
-  const workbook = new ExcelJS.Workbook();
+  const workbook = new SpreadsheetWorkbook();
   const worksheet = workbook.addWorksheet('客户列表');
   worksheet.columns = [
     { header: 'ID', key: 'id', width: 10 },

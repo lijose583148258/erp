@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright', 'receivable-adjustment-browser-audit-v1');
@@ -9,9 +10,9 @@ const SCRIPT_TIMEOUT_MS = 290_000;
 const STEP_TIMEOUT_MS = 20_000;
 const FLOW_TIMEOUT_MS = 60_000;
 const REVERSE_DIALOG_TEST_ID = 'receivable-adjustment-reverse-dialog';
-const ADMIN = { username: 'admin', password: 'admin123' };
-const SALES = { username: 'sales', password: 'sales123' };
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}`;
+let ADMIN;
+let SALES;
 
 const copy = {
   panelTitle: '\u5e94\u6536\u8c03\u6574\u5de5\u4f5c\u53f0',
@@ -272,7 +273,8 @@ async function verifySalesOrderPaymentModal(page, order) {
     const row = page.getByTestId(`sales-order-row-${makeTestId(order.id)}`);
     await row.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS });
     await row.getByTestId('sales-order-payment-button').click();
-    await page.waitForSelector('[data-testid="sales-order-payment-modal"]', { timeout: STEP_TIMEOUT_MS });
+    const paymentModal = page.getByTestId('sales-order-payment-modal');
+    await paymentModal.waitFor({ state: 'visible', timeout: STEP_TIMEOUT_MS });
     const amountValue = Number(await page.getByTestId('sales-order-payment-amount').inputValue());
     assert(Math.abs(amountValue - 87.66) < 0.01, 'payment modal default amount did not use effective outstanding amount', {
       amountValue,
@@ -281,7 +283,10 @@ async function verifySalesOrderPaymentModal(page, order) {
     const summaryText = await page.getByTestId('sales-order-payment-effective-summary').innerText({ timeout: STEP_TIMEOUT_MS });
     assert(summaryText.includes('\u5e94\u6536\u8c03\u6574'), 'payment modal effective receivable summary missing adjustment label', { summaryText });
     await page.keyboard.press('Escape').catch(() => {});
-    await page.locator('[data-testid="sales-order-payment-modal"] button').first().click();
+    if (await paymentModal.isVisible().catch(() => false)) {
+      await paymentModal.getByRole('button', { name: /关闭|close|đóng/i }).click();
+    }
+    await paymentModal.waitFor({ state: 'hidden', timeout: STEP_TIMEOUT_MS });
   });
 }
 
@@ -326,6 +331,11 @@ async function main() {
   }, SCRIPT_TIMEOUT_MS);
 
   try {
+    const accounts = await ensureUiAuditAccounts('receivable_browser', ['admin', 'sales'], {
+      password: process.env.RECEIVABLE_BROWSER_AUDIT_PASSWORD,
+    });
+    ADMIN = accounts.admin;
+    SALES = accounts.sales;
     const launched = await launchBrowserWithGuard({ recordStep, retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     report.launcher = launched.launcher;

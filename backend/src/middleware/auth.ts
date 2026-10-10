@@ -7,6 +7,7 @@ import { casbinAllowsAllPermissions } from '../permissions/casbinAuthorization';
 import { getDataScopesForRole, roleExistsAndActive } from '../services/authorization-policy.service';
 import { resolveUserSegment } from '../services/role-assignment-policy.service';
 import prisma from '../config/database';
+import { isClosedDbConnectionError, withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
 
 export interface AuthRequest extends Request {
   user?: {
@@ -75,7 +76,7 @@ export const authenticate = async (
     }
 
     const payload = verifyToken(token);
-    const currentUser = await prisma.user.findUnique({
+    const currentUser = await withReadOnlyDbRetry(() => prisma.user.findUnique({
       where: { id: payload.userId },
       select: {
         id: true,
@@ -86,7 +87,7 @@ export const authenticate = async (
         updatedAt: true,
         mustChangePassword: true,
       },
-    });
+    }));
 
     if (!currentUser?.isActive) {
       return res.status(401).json({
@@ -135,6 +136,10 @@ export const authenticate = async (
 
     next();
   } catch (error) {
+    if (isClosedDbConnectionError(error)) {
+      logger.error('认证数据库暂时不可用:', error);
+      return res.status(503).json({ success: false, message: '认证服务暂时不可用，请稍后重试', errorCode: 'AUTH_DATABASE_UNAVAILABLE' });
+    }
     if (error instanceof AuthTokenStoreUnavailableError) {
       logger.error('认证令牌仓库不可用:', error);
       return res.status(503).json({
@@ -194,6 +199,9 @@ export const authorizePermission = (...permissions: Permission[]) => {
       }
     } catch (error) {
       logger.error('权限判定失败:', error);
+      if (isClosedDbConnectionError(error)) {
+        return res.status(503).json({ success: false, message: '认证服务暂时不可用，请稍后重试', errorCode: 'AUTH_DATABASE_UNAVAILABLE' });
+      }
       return res.status(500).json({
         success: false,
         message: '权限判定失败',

@@ -26,6 +26,8 @@ type Props = {
     setPaymentForm: React.Dispatch<React.SetStateAction<any>>;
     onClose: () => void;
     onConfirm: () => void;
+    isSubmitting?: boolean;
+    unconfirmed?: boolean;
 };
 
 const parseFiniteAmountInput = (value: string) => {
@@ -34,9 +36,10 @@ const parseFiniteAmountInput = (value: string) => {
     return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, language, t, formatPrice, paymentForm, setPaymentForm, onClose, onConfirm }) => {
+const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, language, t, formatPrice, paymentForm, setPaymentForm, onClose, onConfirm, isSubmitting = false, unconfirmed = false }) => {
     const dialogRef = React.useRef<HTMLDivElement>(null);
-    useDialogFocus(isOpen && Boolean(selectedOrder), dialogRef, onClose);
+    const close = () => { if (!isSubmitting) onClose(); };
+    useDialogFocus(isOpen && Boolean(selectedOrder), dialogRef, close);
 
     if (!isOpen || !selectedOrder) return null;
     const finalAmount = Number(selectedOrder.finalAmount || selectedOrder.totalAmount || 0);
@@ -46,30 +49,31 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
     const currentPaymentAmount = Number.isFinite(paymentForm.amount) ? paymentForm.amount : 0;
 
     return (
-        <div data-testid="sales-order-payment-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm animate-in fade-in">
+ <div data-testid="sales-order-payment-modal" className="fixed inset-0 z-[130] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm motion-safe:animate-in fade-in">
             <div
                 ref={dialogRef}
                 role="dialog"
                 aria-modal="true"
                 aria-labelledby="sales-order-payment-title"
                 tabIndex={-1}
-                className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] p-8 shadow-2xl animate-in zoom-in-95"
+ className="bg-white dark:bg-slate-900 w-full max-w-md rounded-[32px] p-8 shadow-2xl motion-safe:animate-in zoom-in-95"
             >
                 <div className="flex justify-between items-center mb-6">
                     <div>
-                        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-emerald-500">回款登记</p>
+                        <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-500">回款登记</p>
                         <h3 id="sales-order-payment-title" className="text-xl font-black italic text-slate-900 dark:text-white">登记回款</h3>
                     </div>
-                    <button aria-label={t.close || '关闭'} onClick={onClose} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><X size={20} /></button>
+                    <button aria-label={t.close || '关闭'} disabled={isSubmitting} onClick={close} className="p-2 bg-slate-100 dark:bg-slate-800 rounded-full"><X size={20} /></button>
                 </div>
+                {unconfirmed && <p data-testid="payment-submission-unconfirmed" role="status" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-800">原提交结果尚未确认，内容与请求身份已保留。请确认原提交，不要另建重复回款。</p>}
                 <div className="space-y-4">
-                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-[10px] font-bold text-indigo-600 dark:text-indigo-300 flex items-center">
+                    <div className="p-3 bg-indigo-50 dark:bg-indigo-900/20 rounded-xl text-xs font-bold text-indigo-600 dark:text-indigo-300 flex items-center">
                         <Info size={14} className="mr-2 shrink-0" />
                         本窗口只登记本次回款，财务仍需在回款中心核验/核销后才计入正式已收。
                     </div>
 
                     <div className="p-4 bg-slate-50 dark:bg-slate-800/50 rounded-2xl mb-4">
-                        <p className="text-[10px] font-black uppercase text-slate-400">回款对象</p>
+                        <p className="text-xs font-black uppercase text-slate-400">回款对象</p>
                         <p className="font-bold text-slate-800 dark:text-white">{getCustomerDisplayName({
                             name: selectedOrder.customerName,
                             nameZh: selectedOrder.customerNameZh,
@@ -91,17 +95,17 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                         ) : null}
                     </div>
                     <div>
-                        <label className="text-[10px] font-black uppercase text-slate-400 ml-2">本次登记金额（部分或全额）</label>
-                        <input data-autofocus data-testid="sales-order-payment-amount" type="number" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-blue-100" value={Number.isFinite(paymentForm.amount) ? paymentForm.amount : ''} onChange={e => setPaymentForm({ ...paymentForm, amount: parseFiniteAmountInput(e.target.value) })} />
+                        <label className="text-xs font-black uppercase text-slate-400 ml-2">本次登记金额（部分或全额）</label>
+                        <input disabled={isSubmitting || unconfirmed} data-autofocus data-testid="sales-order-payment-amount" type="number" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-black text-lg outline-none focus:ring-2 focus:ring-blue-100" value={Number.isFinite(paymentForm.amount) ? paymentForm.amount : ''} onChange={e => setPaymentForm({ ...paymentForm, amount: parseFiniteAmountInput(e.target.value) })} />
                     </div>
                     <div className="grid grid-cols-2 gap-4">
                         <div>
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">回款日期</label>
-                            <input type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none" value={paymentForm.date} onChange={e => setPaymentForm({ ...paymentForm, date: e.target.value })} />
+                            <label className="text-xs font-black uppercase text-slate-400 ml-2">回款日期</label>
+                            <input disabled={isSubmitting || unconfirmed} type="date" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none" value={paymentForm.date} onChange={e => setPaymentForm({ ...paymentForm, date: e.target.value })} />
                         </div>
                         <div>
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">回款方式</label>
-                            <select className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none appearance-none" value={paymentForm.method} onChange={e => setPaymentForm({ ...paymentForm, method: e.target.value })}>
+                            <label className="text-xs font-black uppercase text-slate-400 ml-2">回款方式</label>
+                            <select disabled={isSubmitting || unconfirmed} className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold outline-none appearance-none" value={paymentForm.method} onChange={e => setPaymentForm({ ...paymentForm, method: e.target.value })}>
                                 <option value="bank_transfer">银行转账</option>
                                 <option value="cash">现金</option>
                                 <option value="check">支票</option>
@@ -110,19 +114,19 @@ const SalesOrderPaymentModal: React.FC<Props> = ({ isOpen, selectedOrder, langua
                         </div>
                     </div>
                     <div className="flex items-center gap-2 p-2">
-                        <input type="checkbox" id="proxy" className="w-5 h-5 rounded-lg accent-blue-600" checked={paymentForm.isProxy} onChange={e => setPaymentForm({ ...paymentForm, isProxy: e.target.checked })} />
+                        <input disabled={isSubmitting || unconfirmed} type="checkbox" id="proxy" className="w-5 h-5 rounded-lg accent-blue-600" checked={paymentForm.isProxy} onChange={e => setPaymentForm({ ...paymentForm, isProxy: e.target.checked })} />
                         <label htmlFor="proxy" className="font-bold text-sm text-slate-700 dark:text-slate-300">{t.proxyPaymentLabel}</label>
                     </div>
                     {paymentForm.isProxy && (
-                        <div className="animate-in slide-in-from-top-2">
-                            <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t.proxyPayerName}</label>
-                            <input type="text" className="w-full p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl font-bold outline-none text-amber-900 dark:text-amber-100" placeholder={t.phActualPayer} value={paymentForm.payerName} onChange={e => setPaymentForm({ ...paymentForm, payerName: e.target.value })} />
+ <div className="motion-safe:animate-in slide-in-from-top-2">
+                            <label className="text-xs font-black uppercase text-slate-400 ml-2">{t.proxyPayerName}</label>
+                            <input disabled={isSubmitting || unconfirmed} type="text" className="w-full p-4 bg-amber-50 dark:bg-amber-900/20 rounded-2xl font-bold outline-none text-amber-900 dark:text-amber-100" placeholder={t.phActualPayer} value={paymentForm.payerName} onChange={e => setPaymentForm({ ...paymentForm, payerName: e.target.value })} />
                         </div>
                     )}
                     <div>
-                        <input type="text" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none" placeholder={t.phNote} value={paymentForm.note} onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })} />
+                        <input disabled={isSubmitting || unconfirmed} type="text" className="w-full p-4 bg-slate-50 dark:bg-slate-800 rounded-2xl font-bold text-sm outline-none" placeholder={t.phNote} value={paymentForm.note} onChange={e => setPaymentForm({ ...paymentForm, note: e.target.value })} />
                     </div>
-                    <button data-testid="sales-order-payment-confirm" onClick={onConfirm} className="w-full py-4 bg-emerald-500 text-white rounded-[24px] font-black shadow-xl hover:bg-emerald-600 active:scale-95 transition-all mt-4">提交登记，待财务核验</button>
+ <button data-testid="sales-order-payment-confirm" disabled={isSubmitting} onClick={onConfirm} className="w-full py-4 bg-emerald-500 text-white rounded-[24px] font-black shadow-xl hover:bg-emerald-600 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none mt-4">{isSubmitting ? '正在确认登记…' : unconfirmed ? '确认原提交（不重复登记）' : '提交登记，待财务核验'}</button>
                 </div>
             </div>
         </div>

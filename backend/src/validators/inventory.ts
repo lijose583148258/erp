@@ -16,6 +16,7 @@ export const createAssetTransactionSchema = z.object({
 
 export const createProductBatchSchema = z.object({
   batchNo: z.string().trim().min(1).optional(),
+  materialId: z.coerce.number().int().positive(),
   productName: z.string().trim().min(1),
   productionDate: z.string().trim().min(1),
   expiryDate: z.string().trim().min(1),

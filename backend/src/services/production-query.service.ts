@@ -1,13 +1,33 @@
+import { PACKAGING_PERCENTAGE_V1, assertWholePackages } from '../domain/production-packaging-basis';
+import { DENSITY_PERCENTAGE_V1, parseWorkOrderDensityBases } from '../domain/production-density-basis';
+import { MASS_PERCENTAGE_V1, massRequiredQuantityV1 } from '../domain/production-mass-basis';
 import prisma from '../config/database';
+import { assertBomPercentageUnits } from './production-unit-safety.service';
 
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
 
+export interface ProductionQualityCharacteristicInput {
+  code: string;
+  name: string;
+  valueType?: 'numeric' | 'text';
+  unit?: string | null;
+  lowerLimit?: string | number | null;
+  upperLimit?: string | number | null;
+  targetText?: string | null;
+  testMethod?: string | null;
+  required?: boolean;
+  sortOrder?: number;
+}
+
 export interface ProductionBomItemInput {
+  materialId?: number | null;
   materialName?: string | null;
   materialCode?: string | null;
   ingredientRole?: string | null;
   dosageMode?: string | null;
+  densityRevisionId?: number | null;
+  densitySnapshotJson?: string | null;
   percentage?: number | null;
   quantityPerUnit: number;
   unit: string;
@@ -20,12 +40,15 @@ export interface ProductionBomItemInput {
 }
 
 export interface ProductionBomInput {
+  packagingRevisionId?: number | null;
+  materialId?: number | null;
   productName: string;
   version?: string | null;
   bomType?: string | null;
   status?: string | null;
   formulationMode?: string | null;
   outputUnit: string;
+  shelfLifeDays: number;
   standardBatchSize?: number | null;
   batchSizeUnit?: string | null;
   density?: number | null;
@@ -34,6 +57,7 @@ export interface ProductionBomInput {
   effectiveTo?: string | null;
   processJson?: string | null;
   qualitySpecJson?: string | null;
+  qualityCharacteristics?: ProductionQualityCharacteristicInput[];
   notes?: string | null;
   items?: ProductionBomItemInput[];
 }
@@ -59,10 +83,16 @@ export interface ProductionWorkOrderInput {
 }
 
 export interface ProductionQualityCheckInput {
-  result: ProductionQualityResult;
+  sampleNo: string;
   defectRate?: number | null;
   note?: string | null;
-  checkedBy?: string | null;
+  measurements: Array<{
+    characteristicId: number;
+    measuredNumeric?: string | number | null;
+    measuredText?: string | null;
+    instrumentNo?: string | null;
+    note?: string | null;
+  }>;
 }
 
 const serializeDate = (value: Date | null | undefined) => value ? value.toISOString() : null;
@@ -93,45 +123,57 @@ const resolveEffectiveQuantityPerUnit = (item: {
 
 export class ProductionQueryService {
   static async getSummary() {
-    const [bomCount, workOrders, batches] = await Promise.all([
+    const [
+      bomCount,
+      workOrders,
+      batches,
+      workOrderStatusCounts,
+      workOrderTotals,
+      qualityResultCounts,
+    ] = await Promise.all([
       prisma.productionBom.count(),
       prisma.productionWorkOrder.findMany({
         orderBy: { createdAt: 'desc' },
         take: 20,
         include: {
           bom: { select: { id: true, bomNo: true, productName: true, version: true } },
-          productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+          productBatch: { select: { id: true, materialId: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
         },
       }),
       prisma.productBatch.count(),
+      prisma.productionWorkOrder.groupBy({
+        by: ['status'],
+        _count: { _all: true },
+      }),
+      prisma.productionWorkOrder.aggregate({
+        _sum: {
+          targetQuantity: true,
+          producedQuantity: true,
+          lossQuantity: true,
+        },
+      }),
+      prisma.productionQualityCheck.groupBy({
+        by: ['result'],
+        _count: { _all: true },
+      }),
     ]);
 
-    const allOrders = await prisma.productionWorkOrder.findMany({
-      select: {
-        targetQuantity: true,
-        producedQuantity: true,
-        lossQuantity: true,
-        status: true,
-      },
-    });
-
-    const completed = allOrders.filter(item => item.status === 'completed').length;
-    const active = allOrders.filter(item => ['planned', 'in_progress', 'qc_pending'].includes(item.status)).length;
-    const qcPending = allOrders.filter(item => item.status === 'qc_pending').length;
-    const totalTarget = allOrders.reduce((sum, item) => sum + Number(item.targetQuantity || 0), 0);
-    const totalProduced = allOrders.reduce((sum, item) => sum + Number(item.producedQuantity || 0), 0);
-    const totalLoss = allOrders.reduce((sum, item) => sum + Number(item.lossQuantity || 0), 0);
-
-    const qcChecks = await prisma.productionQualityCheck.findMany({
-      select: { result: true },
-    });
-
-    const passCount = qcChecks.filter(item => item.result === 'pass').length;
-    const failCount = qcChecks.filter(item => item.result === 'fail').length;
+    const statusCount = new Map(workOrderStatusCounts.map(item => [item.status, item._count._all]));
+    const qualityCount = new Map(qualityResultCounts.map(item => [item.result, item._count._all]));
+    const workOrderCount = workOrderStatusCounts.reduce((sum, item) => sum + item._count._all, 0);
+    const completed = statusCount.get('completed') || 0;
+    const active = ['planned', 'in_progress', 'qc_pending']
+      .reduce((sum, status) => sum + (statusCount.get(status) || 0), 0);
+    const qcPending = statusCount.get('qc_pending') || 0;
+    const totalTarget = Number(workOrderTotals._sum.targetQuantity || 0);
+    const totalProduced = Number(workOrderTotals._sum.producedQuantity || 0);
+    const totalLoss = Number(workOrderTotals._sum.lossQuantity || 0);
+    const passCount = qualityCount.get('pass') || 0;
+    const failCount = qualityCount.get('fail') || 0;
 
     return {
       bomCount,
-      workOrderCount: allOrders.length,
+      workOrderCount,
       batchCount: batches,
       activeWorkOrders: active,
       completedWorkOrders: completed,
@@ -159,6 +201,7 @@ export class ProductionQueryService {
       include: {
         creator: { select: { id: true, username: true, role: true } },
         items: { orderBy: { id: 'asc' } },
+        qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] },
         workOrders: {
           select: { id: true, workOrderNo: true, status: true, targetQuantity: true, producedQuantity: true, lossQuantity: true },
           orderBy: { createdAt: 'desc' },
@@ -173,6 +216,11 @@ export class ProductionQueryService {
       effectiveTo: serializeDate(item.effectiveTo),
       createdAt: serializeDate(item.createdAt),
       updatedAt: serializeDate(item.updatedAt),
+      qualityCharacteristics: item.qualityCharacteristics.map(characteristic => ({
+        ...characteristic,
+        lowerLimit: characteristic.lowerLimit?.toString() ?? null,
+        upperLimit: characteristic.upperLimit?.toString() ?? null,
+      })),
     }));
   }
 
@@ -192,10 +240,27 @@ export class ProductionQueryService {
       where,
       orderBy: { createdAt: 'desc' },
       include: {
-        bom: { select: { id: true, bomNo: true, productName: true, version: true, outputUnit: true } },
-        productBatch: { select: { id: true, batchNo: true, productName: true, stockQuantity: true, unit: true } },
+        bom: {
+          include: { qualityCharacteristics: { orderBy: [{ sortOrder: 'asc' }, { id: 'asc' }] } },
+        },
+        productBatch: {
+          select: {
+            id: true,
+            materialId: true,
+            batchNo: true,
+            productName: true,
+            productionDate: true,
+            expiryDate: true,
+            stockQuantity: true,
+            qualityStatus: true,
+            unit: true,
+          },
+        },
         steps: { orderBy: { stepNo: 'asc' } },
-        qualityChecks: { orderBy: { createdAt: 'desc' } },
+        qualityChecks: {
+          orderBy: { revision: 'desc' },
+          include: { measurements: { orderBy: { id: 'asc' } } },
+        },
       },
     });
 
@@ -217,8 +282,15 @@ export class ProductionQueryService {
       qualityChecks: item.qualityChecks.map(check => ({
         ...check,
         checkedAt: serializeDate(check.checkedAt),
+        reviewedAt: serializeDate(check.reviewedAt),
         createdAt: serializeDate(check.createdAt),
         updatedAt: serializeDate(check.updatedAt),
+        measurements: check.measurements.map(measurement => ({
+          ...measurement,
+          lowerLimit: measurement.lowerLimit?.toString() ?? null,
+          upperLimit: measurement.upperLimit?.toString() ?? null,
+          measuredNumeric: measurement.measuredNumeric?.toString() ?? null,
+        })),
       })),
     }));
   }
@@ -235,25 +307,35 @@ export class ProductionQueryService {
       throw new Error(`Work order or BOM not found for ID: ${workOrderId}`);
     }
 
+    assertBomPercentageUnits(workOrder.bom);
     const targetQuantity = Number(workOrder.targetQuantity || 0);
+    if (workOrder.bom.packagingRevisionId) assertWholePackages(targetQuantity);
     const suggestions = [];
 
     for (const item of workOrder.bom.items) {
-      const requiredQty = resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
+      const densityBasis = item.dosageMode === DENSITY_PERCENTAGE_V1
+        ? parseWorkOrderDensityBases(workOrder.densitySnapshotJson).find(basis => basis.bomItemId === item.id)
+        : undefined;
+      if (item.dosageMode === DENSITY_PERCENTAGE_V1 && !densityBasis) throw new Error('BOM_UNIT_DENSITY_SNAPSHOT_INVALID:工单缺少冻结批次依据');
+      const requiredQty = [MASS_PERCENTAGE_V1, PACKAGING_PERCENTAGE_V1, DENSITY_PERCENTAGE_V1].includes(item.dosageMode || '')
+        ? massRequiredQuantityV1(item.quantityPerUnit, targetQuantity, item.lossRate)
+        : resolveEffectiveQuantityPerUnit(item) * targetQuantity * (1 + Number(item.lossRate || 0) / 100);
       if (requiredQty <= 0) continue;
       const lookupTokens = normalizeMaterialLookupTokens((item as any).materialCode, item.materialName);
-      const lookupWhere = lookupTokens.length > 0
-        ? {
+      const lookupWhere = item.materialId
+        ? { materialId: item.materialId, quantity: { gt: 0 } }
+        : lookupTokens.length > 0
+          ? {
             OR: lookupTokens.flatMap(token => [
               { productName: { contains: token } },
               { batchNo: { contains: token } },
             ]),
             quantity: { gt: 0 },
           }
-        : { productName: item.materialName, quantity: { gt: 0 } };
+          : { productName: item.materialName, quantity: { gt: 0 } };
 
       const stocks = await prisma.stockBalance.findMany({
-        where: lookupWhere,
+        where: { ...lookupWhere, ...(densityBasis ? { batchNo: densityBasis.batchNo, unit: densityBasis.inputUnit } : {}) },
         orderBy: { createdAt: 'asc' }, // FIFO: 先进先出
         include: { location: { include: { warehouse: true } } },
       });

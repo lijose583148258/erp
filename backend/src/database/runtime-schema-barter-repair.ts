@@ -1,3 +1,4 @@
+import { repairBarterCashSchema } from './runtime-schema-barter-cash-repair';
 import {
   addColumnIfMissing,
   createIndexIfMissing,
@@ -141,4 +142,5 @@ export const repairBarterSchema = async (report: SchemaRepairReport) => {
   await createIndexIfMissing(report, 'barter_offset_postings_settlement_id_idx', 'CREATE INDEX "barter_offset_postings_settlement_id_idx" ON "barter_offset_postings"("settlement_id")');
   await createIndexIfMissing(report, 'barter_offset_postings_payment_record_id_idx', 'CREATE INDEX "barter_offset_postings_payment_record_id_idx" ON "barter_offset_postings"("payment_record_id")');
   await createIndexIfMissing(report, 'barter_reversal_logs_settlement_id_idx', 'CREATE INDEX "barter_reversal_logs_settlement_id_idx" ON "barter_reversal_logs"("settlement_id")');
+  await repairBarterCashSchema(report);
 };

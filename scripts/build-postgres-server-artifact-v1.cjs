@@ -30,6 +30,7 @@ const SOURCE_POSTGRES_PRISMA = path.join(ROOT, 'output', 'postgres-prisma-artifa
 const SOURCE_POSTGRES_MIGRATIONS = path.join(ROOT, 'backend', 'prisma', 'postgres-migrations');
 const SOURCE_BACKEND_PACKAGE_JSON = path.join(ROOT, 'backend', 'package.json');
 const SOURCE_BACKEND_PACKAGE_LOCK_JSON = path.join(ROOT, 'backend', 'package-lock.json');
+const SOURCE_BACKEND_PACKAGES = path.join(ROOT, 'backend', 'packages');
 const SOURCE_FRONTEND_DIST = path.join(ROOT, 'dist');
 const REPORT_PATH = path.join(ROOT, 'output', 'audit', 'postgres-server-artifact-v1.json');
 const TIMEOUT_MS = Number(process.env.POSTGRES_SERVER_ARTIFACT_TIMEOUT_MS || 180000);
@@ -128,6 +129,13 @@ function patchFile(relativePath, patcher) {
   return path.relative(ROOT, filePath).replace(/\\/g, '/');
 }
 
+function listFilesRecursive(rootDir) {
+  return fs.readdirSync(rootDir, { withFileTypes: true }).flatMap((entry) => {
+    const filePath = path.join(rootDir, entry.name);
+    return entry.isDirectory() ? listFilesRecursive(filePath) : [filePath];
+  });
+}
+
 function patchRuntime() {
   const runtimeFile = patchFile('dist/config/runtime.js', (original) => {
     const needle = `if (exports.runtime.databaseEngine === 'postgresql') {\n        throw new Error('PostgreSQL DATABASE_URL is configured, but this runtime package is built with the SQLite Prisma provider. Build a PostgreSQL-specific server artifact before SaaS deployment.');\n    }`;
@@ -139,16 +147,48 @@ function patchRuntime() {
 }
 
 function patchDatabase() {
-  const databaseFile = patchFile('dist/config/database.js', (original) => {
-    const next = original
-      .replace('const client_1 = require("@prisma/client");', 'const client_1 = require("../../prisma/generated-client");')
-      .replace('if (sqliteDbPath) {', "if (runtime_1.runtime.databaseEngine === 'sqlite' && sqliteDbPath) {");
-    if (!next.includes('require("../../prisma/generated-client")')) {
-      throw new Error('PostgreSQL generated client require patch failed');
+  const runtimeFiles = listFilesRecursive(ARTIFACT_DIST).filter(filePath => filePath.endsWith('.js'));
+  const patchedClientImports = [];
+
+  for (const filePath of runtimeFiles) {
+    const original = fs.readFileSync(filePath, 'utf8');
+    let generatedClientPath = path.relative(path.dirname(filePath), ARTIFACT_CLIENT).replace(/\\/g, '/');
+    if (!generatedClientPath.startsWith('.')) generatedClientPath = `./${generatedClientPath}`;
+    const next = original.replace(
+      /require\((["'])@prisma\/client\1\)/g,
+      `require("${generatedClientPath}")`,
+    );
+    if (next !== original) {
+      fs.writeFileSync(filePath, next, 'utf8');
+      patchedClientImports.push(path.relative(ARTIFACT_BACKEND, filePath).replace(/\\/g, '/'));
     }
-    return next;
+  }
+
+  const databasePath = path.join(ARTIFACT_DIST, 'config', 'database.js');
+  const databaseOriginal = fs.readFileSync(databasePath, 'utf8');
+  const databaseNext = databaseOriginal.replace(
+    'if (sqliteDbPath) {',
+    "if (runtime_1.runtime.databaseEngine === 'sqlite' && sqliteDbPath) {",
+  );
+  if (databaseNext === databaseOriginal) {
+    throw new Error('PostgreSQL database runtime condition patch failed');
+  }
+  fs.writeFileSync(databasePath, databaseNext, 'utf8');
+
+  const residualDefaultClientImports = runtimeFiles.filter(filePath => (
+    /require\((["'])@prisma\/client\1\)/.test(fs.readFileSync(filePath, 'utf8'))
+  ));
+  if (!patchedClientImports.includes('dist/config/database.js') || residualDefaultClientImports.length) {
+    throw new Error(
+      `PostgreSQL generated client require patch incomplete: patched=${patchedClientImports.length}, residual=${residualDefaultClientImports.length}`,
+    );
+  }
+
+  step('patch-postgres-database-client', 'passed', {
+    databaseFile: path.relative(ROOT, databasePath).replace(/\\/g, '/'),
+    patchedRuntimeImportCount: patchedClientImports.length,
+    patchedRuntimeImports: patchedClientImports,
   });
-  step('patch-postgres-database-client', 'passed', { databaseFile });
 }
 
 function writeArtifactPackageMetadata() {
@@ -233,13 +273,24 @@ function verifyArtifact() {
   const schema = fs.readFileSync(path.join(ARTIFACT_PRISMA, 'schema.prisma'), 'utf8');
   const packageMetadata = JSON.parse(fs.readFileSync(ARTIFACT_PACKAGE_JSON, 'utf8'));
   if (!database.includes('require("../../prisma/generated-client")')) throw new Error('Artifact database.js does not use generated PostgreSQL client.');
+  const residualDefaultClientImports = listFilesRecursive(ARTIFACT_DIST)
+    .filter(filePath => filePath.endsWith('.js'))
+    .filter(filePath => /require\((["'])@prisma\/client\1\)/.test(fs.readFileSync(filePath, 'utf8')));
+  if (residualDefaultClientImports.length) {
+    throw new Error(`Artifact runtime still imports the default Prisma client: ${residualDefaultClientImports.join(', ')}`);
+  }
   if (!runtime.includes("AILAODA_PRISMA_PROVIDER !== 'postgresql'")) throw new Error('Artifact runtime.js is missing PostgreSQL provider marker guard.');
   if (!schema.includes('provider = "postgresql"')) throw new Error('Artifact Prisma schema is not PostgreSQL.');
   if (packageMetadata.type !== 'commonjs') throw new Error('Artifact backend package metadata must declare CommonJS.');
   if (!packageMetadata.dependencies?.express) throw new Error('Artifact backend package metadata is missing the Express production dependency.');
+  const artifactMoney = require(path.join(ARTIFACT_DIST, 'utils', 'money.js'));
+  if (artifactMoney.addMoney('0.10', '0.20') !== 0.3) {
+    throw new Error('Artifact generated Prisma client Decimal runtime smoke failed.');
+  }
 
   step('verify-postgres-server-artifact', 'passed', {
     files: required.map(filePath => path.relative(ROOT, filePath).replace(/\\/g, '/')),
+    generatedClientDecimalRuntimeSmoke: 'passed',
   });
 }
 
@@ -266,6 +317,7 @@ function main() {
       path.join(ARTIFACT_PRISMA, 'postgres-migrations'),
     );
     copyStep('copy-postgres-generated-client', SOURCE_POSTGRES_CLIENT, ARTIFACT_CLIENT);
+    copyStep('copy-backend-local-packages', SOURCE_BACKEND_PACKAGES, path.join(ARTIFACT_BACKEND, 'packages'));
     copyStep(
       'copy-postgres-versioned-migrator',
       path.join(ROOT, 'scripts', 'postgres-schema-migrate-v1.cjs'),

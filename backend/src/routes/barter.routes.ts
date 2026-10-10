@@ -11,6 +11,7 @@ import {
   barterPostSchema,
   barterPreviewSchema,
   barterReverseSchema,
+  barterRefundSchema,
   createBarterAgreementSchema,
   createBarterBatchSchema,
   createBarterSettlementSchema,
@@ -20,6 +21,7 @@ const router = Router();
 const controller = new BarterController();
 
 router.use(authenticate);
+router.post('/settlements/:id/refund', authorizePermission('barter.post'), [param('id').isInt({ min: 1 })], validateRequest, validateZod(barterRefundSchema), authRoute((req, res) => controller.recordRefund(req, res)));
 
 router.get('/summary', authorizePermission('barter.read'), authRoute((req, res) => controller.getSummary(req, res)));
 router.get('/agreements', authorizePermission('barter.read'), validateZod(barterAgreementListQuerySchema, 'query'), authRoute((req, res) => controller.getAgreements(req, res)));

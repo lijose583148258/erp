@@ -103,7 +103,7 @@ function createCollectionUiPermissionSeeder({
   async function recordPayment(token, orderId, label) {
     const response = await apiFetch(`/orders/${orderId}/payment`, {
       method: 'POST',
-      data: {
+      data: { idempotencyKey: require('node:crypto').randomUUID(),
         amount: 100,
         method: 'cash',
         payerName: `${label} payer`,

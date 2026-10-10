@@ -1,0 +1,33 @@
+// Approved source evidence only. It does not authorize issue, QC release or conversion.
+model MaterialDensityRevision {
+  id Int @id @default(autoincrement())
+  materialId Int @map("material_id")
+  material Material @relation(fields: [materialId], references: [id], onDelete: Restrict)
+  batchId Int @map("batch_id")
+  batch ProductBatch @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  batchNo String @map("batch_no")
+  baseUnit String @map("base_unit")
+  specCode String @map("spec_code")
+  version String
+  densityKgPerL String @map("density_kg_per_l")
+  temperatureC String @map("temperature_c")
+  pressureKpaAbs String @map("pressure_kpa_abs")
+  compositionReference String @map("composition_reference")
+  methodReference String @map("method_reference")
+  sourceReference String @map("source_reference")
+  measuredAt DateTime @map("measured_at")
+  status String @default("draft")
+  createdBy Int @map("created_by")
+  approvedBy Int? @map("approved_by")
+  approvedAt DateTime? @map("approved_at")
+  reviewReason String? @map("review_reason")
+  retiredBy Int? @map("retired_by")
+  retiredAt DateTime? @map("retired_at")
+  retireReason String? @map("retire_reason")
+  bomItems ProductionBomItem[]
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+  @@unique([materialId, batchId, specCode, version], map: "material_density_revisions_identity_key")
+  @@index([materialId, status])
+  @@map("material_density_revisions")
+}

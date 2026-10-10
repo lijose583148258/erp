@@ -33,8 +33,10 @@ const GOVERNED_RUNTIME_SCRIPT_FILES = new Set([
   'scripts/package-clean-runtime-zip-v1.ps1',
   'scripts/package-stable.ps1',
   'scripts/start-enterprise-sandbox-v1.ps1',
+  'scripts/start-bom-grid-lab-runtime.ps1',
   'scripts/start-cdp-browser.ps1',
   'scripts/start-stable-v2.ps1',
+  'scripts/stop-bom-grid-lab-runtime.ps1',
   'scripts/stop-runtime.ps1',
   'scripts/verify-phase3-package-browser.ps1',
   '启动系统.bat',
@@ -46,6 +48,17 @@ const RUNTIME_SCRIPT_OWNERSHIP_CONTRACTS = new Map([
     'otel-app-$Port.owner.json',
     'PID record does not match',
     'belongs to another artifact root',
+  ]],
+  ['scripts/start-bom-grid-lab-runtime.ps1', [
+    'Assert-PortAvailable',
+    'Get-ProcessIdentity',
+    'creationDate',
+    'identities = $ownedIdentities',
+  ]],
+  ['scripts/stop-bom-grid-lab-runtime.ps1', [
+    'Assert-ProcessIdentity',
+    'ownership ledger',
+    'creation time no longer matches',
   ]],
 ]);
 
