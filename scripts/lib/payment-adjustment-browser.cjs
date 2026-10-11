@@ -50,6 +50,42 @@ async function paymentAdjustmentBrowser(ctx, order, originalPaymentId, evidence,
       const file = path.join(folder, `finance-${instance + 1}-paid-450.png`); await page.screenshot({ path: file });
       evidence.browserReadbacks.push({ actorId: actor.id, instance, role: actor.role, orderId: order.id, paidAmount: 450,
         amountVisible, text: await metric.innerText(), path: file, font: await verifyRenderedCjk(page, '[data-testid="collection-order-summary"]') });
+      for (const width of [1440, 390]) {
+        await page.setViewportSize({ width, height: 1000 });
+        for (const [label, expected] of [['订单总额', '1,000.00'], ['累计已收', '450.00'], ['剩余未收', '550.00']]) {
+          const card = summary.getByText(label, { exact: true }).locator('..');
+          const amount = card.getByText(expected, { exact: false });
+          await expect(amount).toBeVisible(); await card.scrollIntoViewIfNeeded();
+          const geometry = await amount.evaluate(el => {
+            const card = el.parentElement.getBoundingClientRect();
+            const range = document.createRange(); range.selectNodeContents(el);
+            const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+            return { text: el.textContent, clientWidth: el.clientWidth, scrollWidth: el.scrollWidth,
+              insideCard: rects.length > 0 && rects.every(r => r.left >= card.left && r.right <= card.right && r.top >= card.top && r.bottom <= card.bottom),
+              unobscured: rects.length > 0 && rects.every(r => [r.left + 1, r.right - 1].every(x => {
+                const top = document.elementFromPoint(x, r.top + r.height / 2); return !!top && (top === el || el.contains(top));
+              })) };
+          });
+          (evidence.metricGeometry ||= []).push({ actorId: actor.id, instance, width, label, expected, ...geometry });
+          if (!geometry.insideCard || !geometry.unobscured || geometry.scrollWidth > geometry.clientWidth + 1) {
+            evidence.metricFailureLayout = await amount.evaluate(el => {
+              const ancestors = [];
+              for (let node = el; node; node = node.parentElement) {
+                const rect = node.getBoundingClientRect(), style = getComputedStyle(node);
+                ancestors.push({ tag: node.tagName, class: node.className, left: rect.left, width: rect.width,
+                  scrollWidth: node.scrollWidth, minWidth: style.minWidth, columns: style.gridTemplateColumns, overflowX: style.overflowX });
+              }
+              return ancestors;
+            });
+            evidence.metricFailureScreenshot = path.join(folder, `finance-${instance + 1}-metric-${width}-failure.png`);
+            await page.screenshot({ path: evidence.metricFailureScreenshot });
+            const error = new Error(`Finance amount clipped or obscured: ${label} at ${width}px: ${JSON.stringify(geometry)}`);
+            error.evidence = evidence; throw error;
+          }
+        }
+        const screenshot = path.join(folder, `finance-${instance + 1}-metrics-${width}.png`);
+        await page.screenshot({ path: screenshot }); (evidence.metricScreenshots ||= []).push({ actorId: actor.id, instance, width, path: screenshot });
+      }
       await page.close();
     }
     assert.deepEqual(evidence.browserErrors, []);

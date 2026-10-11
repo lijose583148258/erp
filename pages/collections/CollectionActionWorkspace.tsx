@@ -51,9 +51,9 @@ const QuickMetric = ({ label, value, tone }: { label: string; value: string; ton
         : 'border-blue-100 bg-blue-50 text-blue-600';
 
   return (
-    <div className={`rounded-[22px] border px-4 py-4 ${toneClass}`}>
+    <div className={`flex min-w-0 flex-wrap items-baseline justify-between gap-x-3 gap-y-1 rounded-[22px] border px-4 py-3 ${toneClass}`}>
       <div className="text-xs font-black uppercase tracking-[0.18em] opacity-70">{label}</div>
-      <div className="mt-2 text-lg font-black">{value}</div>
+      <div className="min-w-0 text-right text-lg font-black tabular-nums [overflow-wrap:anywhere]">{value}</div>
     </div>
   );
 };
@@ -101,7 +101,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
   const currentPaymentStatus = selectedOverdue?.paymentStatus || orderSnapshot?.paymentStatus || 'unpaid';
 
   return (
-    <div className="rounded-[36px] border border-slate-100 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+    <div className="min-w-0 rounded-[36px] border border-slate-100 bg-white p-6 shadow-sm [overflow-wrap:anywhere] dark:border-slate-800 dark:bg-slate-900">
       <div className="flex items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2">
@@ -165,7 +165,7 @@ const CollectionActionWorkspace: React.FC<Props> = ({
               </div>
             </div>
 
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-3">
               <QuickMetric label="订单总额" value={formatPrice(finalAmount)} tone="blue" />
               <QuickMetric label="累计已收" value={formatPrice(paidAmount)} tone="amber" />
               <QuickMetric label="剩余未收" value={formatPrice(outstandingAmount)} tone="rose" />

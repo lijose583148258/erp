@@ -201,7 +201,7 @@ const CollectionPrimaryGrid: React.FC<Props> = ({
   };
 
   return (
-    <div className="app-card p-6">
+    <div className="app-card min-w-0 p-6">
       <div className="flex flex-wrap gap-3">
         {tabs.map((item) => (
           <button

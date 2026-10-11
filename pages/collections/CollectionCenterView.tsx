@@ -150,7 +150,7 @@ const CollectionCenterView: React.FC = () => {
 
       {activeCollectionDesk === 'receivable' ? (
         <>
-          <div className="grid gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px,minmax(0,1fr)]">
             <CollectionActionWorkspace
               selectedOrderId={state.selectedOrderId}
               selectedOverdue={state.selectedOverdue}
