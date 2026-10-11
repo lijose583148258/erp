@@ -87,11 +87,13 @@ async function prepareAuditPage(page) {
 }
 
 async function answerNextDialog(page, accept) {
+  report.pendingDialog = { module: report.activeModule, accept, startedAt: new Date().toISOString() };
   return new Promise((resolve, reject) => {
     const onDialog = async (dialog) => {
       clearTimeout(timeout);
       page.off('dialog', onDialog);
       const message = dialog.message();
+      (report.dialogs ||= []).push({ ...report.pendingDialog, type: dialog.type(), message, observedAt: new Date().toISOString() });
       if (accept) await dialog.accept();
       else await dialog.dismiss();
       resolve(message);
@@ -112,6 +114,10 @@ async function verifySalesOrder(page) {
   await modal.waitFor({ state: 'visible', timeout: 10000 });
   await modal.locator('[data-testid="sales-order-notes"]').fill('UNSAVED-AUDIT');
   await page.waitForTimeout(1000);
+  report.salesBeforeClose = await page.evaluate(() => ({
+    dirtyState: window.__AILAODA_UNSAVED_STATE__ || null,
+    notesPreserved: document.querySelector('[data-testid="sales-order-notes"]')?.value === 'UNSAVED-AUDIT',
+  }));
 
   const dismissDialog = answerNextDialog(page, false);
   await modal.locator('[data-testid="sales-order-editor-close"]').click();
@@ -179,6 +185,7 @@ async function verifyCrmCreate(page) {
 }
 
 async function openModule(page, moduleId, readyTestId) {
+  report.activeModule = moduleId;
   await page.goto(`${APP_URL}#${moduleId}`, { waitUntil: 'domcontentloaded' });
   await page.evaluate((nextModuleId) => localStorage.setItem('ailao.activeTab', nextModuleId), moduleId);
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -402,6 +409,9 @@ async function main() {
 
     const newAuditPage = async () => {
       const page = await context.newPage();
+      page.on('pageerror', error => {
+        if ((report.pageErrors ||= []).length < 20) report.pageErrors.push({ module: report.activeModule, message: error.message });
+      });
       await prepareAuditPage(page);
       return page;
     };
@@ -448,6 +458,19 @@ async function main() {
     report.status = 'passed';
   } catch (error) {
     report.error = String(error?.message || error);
+    const page = context?.pages().at(-1);
+    if (page && !page.isClosed()) {
+      report.failureState = await page.evaluate(() => ({
+        route: window.location.hash,
+        dirtyState: window.__AILAODA_UNSAVED_STATE__ || null,
+        salesEditorPresent: Boolean(document.querySelector('[data-testid="sales-order-editor-modal"]')),
+        notesPreserved: document.querySelector('[data-testid="sales-order-notes"]')?.value === 'UNSAVED-AUDIT',
+      })).catch(diagnosticError => ({ error: diagnosticError.message }));
+      const screenshot = path.join(path.dirname(REPORT_PATH), 'unsaved-changes-failure.png');
+      await page.screenshot({ path: screenshot, timeout: 5000 })
+        .then(() => { report.failureScreenshot = screenshot; })
+        .catch(diagnosticError => { report.screenshotError = diagnosticError.message; });
+    }
     markReportFromLaunchError(report, error);
     console.error(`Unsaved changes browser audit failed: ${report.error}`);
     if (report.status !== 'blocked_env') process.exitCode = 1;
