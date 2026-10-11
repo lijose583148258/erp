@@ -22,6 +22,9 @@ function fixture(profile = 'cloud') {
     round2.checks.find(c => c.id === browserId).evidence = proof;
     round2.checks.find(c => c.id === sourceId).evidence = source;
   }
+  const barter = require('./fixtures/barter-browser-proof-fixture.cjs').browserFixture();
+  round2.checks.find(c => c.id === 'barter-partial-fulfillment').evidence = barter;
+  round2.checks.find(c => c.id === 'barter-browser-readback').evidence = require('./lib/enterprise-round2-barter-partial.cjs').assertBarterBrowserChain(barter);
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture({ ...stamp, runId: 'current-presale-source' });
@@ -67,6 +70,16 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+for (const [label, mutate] of [
+  ['missing source chain', d => { d.reports.round2.checks.find(c => c.id === 'barter-partial-fulfillment').status = 'not_run'; }],
+  ['summary instead of browser operations', d => { d.reports.round2.checks.find(c => c.id === 'barter-browser-readback').evidence = { passed: true }; }],
+  ['foreign agreement', d => { d.reports.round2.checks.find(c => c.id === 'barter-browser-readback').evidence.agreementId++; }],
+  ['source lost original batch', d => { d.reports.round2.checks.find(c => c.id === 'barter-partial-fulfillment').evidence.stages.at(-1).persisted.settlements[0].status = 'reversed'; }],
+]) test(`fixed barter UI obligation rejects ${label}`, () => {
+  const d = fixture(); mutate(d); const result = evaluateRegression(d);
+  assert.equal(result.checks.find(c => c.id === 'round2:barter-browser-readback').status, 'failed');
 });
 
 for (const [label, mutate] of [

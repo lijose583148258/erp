@@ -169,6 +169,11 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
     if (id === 'purchase-browser-readback') require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(check.evidence);
+    if (id === 'barter-browser-readback') {
+      const source = round2.checks.find(c => c.id === 'barter-partial-fulfillment');
+      assert.equal(source?.status, 'passed', 'Barter UI proof requires the same-run reconciled partial chain');
+      assert.deepEqual(check.evidence, require('./enterprise-round2-barter-partial.cjs').assertBarterBrowserChain(source.evidence));
+    }
     if (id === 'presale-with-fulfillment-plan') {
       const source = reports.salesPlan; verifyFresh(source, context, provider, now); assert.equal(source.status, 'passed');
       const proof = require('./sales-fulfillment-plan-proof.cjs').verifyPresaleProof(source);

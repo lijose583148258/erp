@@ -7,7 +7,7 @@ const { createRound2Runner, synchronizedBurst } = require('./lib/enterprise-roun
 const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
 const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-user.cjs');
 const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
-const { barterPartialFulfillmentProbe } = require('./lib/enterprise-round2-barter-partial.cjs');
+const { barterPartialFulfillmentProbe, assertBarterBrowserChain } = require('./lib/enterprise-round2-barter-partial.cjs');
 const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
 const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
 const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
@@ -29,6 +29,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback', 'stock-contention-browser', 'transfer-shipping-browser');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('barter-browser-readback');
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
@@ -477,9 +478,13 @@ async function main() {
   await runner.run('barter-offset-cash-difference', barterDifference);
   await runner.run('barter-reversal-conservation', barterReversal);
   await runner.run('barter-consumed-receipt-reversal-blocked', barterConsumedReversal);
-  await runner.run('barter-partial-fulfillment', signal => barterPartialFulfillmentProbe({
+  const barterPartial = await runner.run('barter-partial-fulfillment', signal => barterPartialFulfillmentProbe({
     request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial, urls, reportPath,
   }, signal), { timeoutMs: 120000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    if (barterPartial) await runner.run('barter-browser-readback', () => assertBarterBrowserChain(barterPartial));
+    else runner.block('barter-browser-readback', 'Sales/finance UI chain or inventory/payment reconciliation did not complete');
+  }
   await runner.run('barter-negative-cash-adjustment', signal => barterNegativeCashProbe({
     request, dataOf, actors, prisma, barterFixture, readBarter, runId, urls, reportPath,
   }, signal), { timeoutMs: 120000 });
