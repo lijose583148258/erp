@@ -75,9 +75,10 @@ type BarterItemEditorProps = {
   title: string;
   item: BarterItem;
   onChange: (key: keyof BarterItem, value: string | number) => void;
+  executionBatch?: boolean;
 };
 
-export function BarterItemEditor({ title, item, onChange }: BarterItemEditorProps) {
+export function BarterItemEditor({ title, item, onChange, executionBatch = false }: BarterItemEditorProps) {
   const label = (name: string) => `${title} ${name}`;
 
   return (
@@ -89,10 +90,12 @@ export function BarterItemEditor({ title, item, onChange }: BarterItemEditorProp
           selectedMaterialId={item.materialId || null}
           onTextChange={(value) => {
             onChange('materialId', 0);
+            onChange('sourceDocument', '');
             onChange('itemName', value);
           }}
           onClearSelection={() => onChange('materialId', 0)}
           onSelect={(material) => {
+            onChange('sourceDocument', '');
             onChange('materialId', material.id);
             onChange('itemName', material.nameZh);
             onChange('unit', material.baseUnit);
@@ -103,6 +106,13 @@ export function BarterItemEditor({ title, item, onChange }: BarterItemEditorProp
           协议草稿可先录名称；审批过账前必须选择已发布的统一物料。
         </p>
         <input aria-label={label('规格')} title={label('规格')} value={item.specification || ''} onChange={(e) => onChange('specification', e.target.value)} placeholder="规格" className={barterFieldClass} />
+        {executionBatch && (
+          <label className="grid gap-1 text-xs font-bold text-slate-700">
+            {item.side === 'our' ? '我方实际出库批号' : '对方实际来料批号'}
+            <input aria-label={label('实际批号')} required value={item.sourceDocument || ''} onChange={(e) => onChange('sourceDocument', e.target.value)} placeholder="填写实际批号，不是货抵执行批次编号" className={barterFieldClass} />
+            <span className="font-normal text-slate-500">{item.side === 'our' ? '按此批号核验现有库存并扣库；不会自动新建库存。' : '用于来料入库和后续批次追溯。'}</span>
+          </label>
+        )}
         <div className="grid grid-cols-3 gap-3">
           <input aria-label={label('数量')} title={label('数量')} type="number" value={item.quantity} onChange={(e) => onChange('quantity', Number(e.target.value || 0))} placeholder="数量" className={barterFieldClass} />
           <input aria-label={label('单位')} title={label('单位')} value={item.unit} onChange={(e) => onChange('unit', e.target.value)} readOnly={Boolean(item.materialId)} placeholder="单位" className={barterFieldClass} />

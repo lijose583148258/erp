@@ -66,6 +66,11 @@ export function BarterLedgerPanel({
                   )}
                 </div>
               </div>
+              <ul className="mt-3 space-y-1 break-words text-xs text-slate-600" aria-label="实际出入库批号">
+                {(settlement.items || []).map((item, index) => (
+                  <li key={item.id ?? index}>{item.side === 'our' ? '我方出库' : '对方来料'}：{item.itemName} · 批号 {item.sourceDocument || '历史记录未提供'}</li>
+                ))}
+              </ul>
               {settlement.cashDifference < 0 && settlement.status !== 'quoted' && (
                 <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-slate-800" data-testid={`barter-cash-${settlement.id}`}>
                   <div className="font-bold">退款责任：{settlement.cashObligation?.currency || settlement.currency} {Number(settlement.cashObligation?.amount ?? -settlement.cashDifference).toFixed(2)}（原币，不作汇率换算）</div>

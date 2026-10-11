@@ -68,6 +68,17 @@ type FrontendUnitTest = {
 
 const tests: FrontendUnitTest[] = [
   {
+    name: 'barter ledger exposes persisted batch identity even to read-only roles',
+    run: () => {
+      const our = { side: 'our', itemName: 'Existing finished goods', sourceDocument: 'FG-ACTUAL-001' };
+      const incoming = { side: 'counterparty', itemName: 'Actual incoming lot', sourceDocument: 'SUPPLIER-ACTUAL-002' };
+      const agreement: any = { id: 1, agreementNo: 'BA-1', settlements: [{ id: 1, status: 'approved', items: [our, incoming], offsetPostings: [] }] };
+      const markup = renderToStaticMarkup(<BarterLedgerPanel agreement={agreement} canApprove={false} canPost={false} formatPrice={String} onApprove={() => {}} onPost={() => {}} onReverse={() => {}} onRefund={() => {}} />);
+      assert.match(markup, /FG-ACTUAL-001/); assert.match(markup, /SUPPLIER-ACTUAL-002/);
+      assert.doesNotMatch(markup, /<button[^>]*>过账/);
+    },
+  },
+  {
     name: 'receipt inputs and save stay disabled until loaded, including failed reads and in-flight saves',
     run: () => {
       for (const state of ['loading', 'failed', 'saving', 'read-only', 'received', 'ready']) {

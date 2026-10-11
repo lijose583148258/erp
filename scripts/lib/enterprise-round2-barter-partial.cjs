@@ -56,7 +56,7 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     counterpartyType: 'customer', counterpartyName: buyer.name, settlementMode: 'barter', currency: 'CNY',
     items: items(100), note: `${runId}-partial-agreement` });
   const batches = [];
-  const evidence = { scope: 'Actual API agreement execution in 40/60 batches, reversal and replacement; browser writes and negative cash adjustment are separate obligations',
+  const evidence = { scope: '40/60 batches, reversal and replacement; browser mode creates first batch from existing stock through sales UI, other writes use API; not full barter browser acceptance',
     agreementId: agreement.id, orderId: order.id, stages: [], replays: [] };
   let browser;
   let page;
@@ -109,7 +109,10 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     const screenshot = path.join(folder, `${evidence.stages.length}-${status}.png`);
     const fonts = await verifyRenderedCjk(page, `button:has-text("${agreement.agreementNo}")`);
     await page.screenshot({ path: screenshot });
-    (evidence.browser ||= []).push({ label, text, screenshot, fonts, scope: 'Real finance-role UI readback; mutations used API' });
+    await card.click(); await page.getByRole('tab',{name:/审批过账/}).click();
+    const sourceReadback=page.getByRole('list',{name:'实际出入库批号'}).first();
+    await expect(sourceReadback).toContainText(our.batchNo); await expect(sourceReadback).toContainText(incomingBatch);
+    (evidence.browser ||= []).push({ label, text, screenshot, fonts, sourceReadback:await sourceReadback.innerText(), scope: 'Finance UI agreement and actual-lot readback; first batch created via sales UI in browser mode' });
   }
   async function snapshot(label, executed, remaining, outgoingStock, incomingStock, verifiedPayments, status) {
     const [readbacks, persisted, paid, ourStock, received] = await Promise.all([
@@ -127,7 +130,45 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     return stage;
   }
   async function postBatch(quantity, label) {
-    const batch = await call(`/barter/agreements/${agreement.id}/batches`, 'POST', { items: items(quantity), note: `${runId}-${label}` });
+    let batch;
+    if (batches.length === 0 && process.env.ROUND2_BROWSER === 'true') {
+      // Existing stock is seeded before the UI write. Never manufacture stock for an auto-generated barter batch.
+      const { expect } = require('playwright/test');
+      const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
+      browser = (await launchBrowserWithGuard({ launchTimeoutMs:15000,totalTimeoutMs:30000,maxAttemptsPerStrategy:1 })).browser;
+      page = await browser.newPage({ viewport:{width:1440,height:1000},serviceWorkers:'block' });
+      page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(20000);
+      await page.addInitScript(({token,user})=>{
+        for(const key of ['token','auth_token','erp_auth_token']) localStorage.setItem(key,token);
+        for(const key of ['user','currentUser','erp_current_user']) localStorage.setItem(key,JSON.stringify(user));
+      },{token:actors.sales.token,user:{...actors.sales.loginUser,id:String(actors.sales.id),name:actors.sales.job,segment:'mixed'}});
+      const auth=page.waitForResponse(r=>new URL(r.url()).pathname==='/api/auth/me'&&r.request().method()==='GET');
+      await page.goto(`${ctx.urls[0]}/#barter`); const authenticated=await auth;
+      assert.equal(authenticated.status(),200); const profile=(await authenticated.json()).data;
+      assert.equal(profile.id,actors.sales.id); assert.equal(profile.role,'sales');
+      await page.getByRole('button').filter({hasText:agreement.agreementNo}).click();
+      await page.getByRole('tab',{name:/执行批次/}).click();
+      for(const [title,material,amount,price] of [['本次对方交付',incoming,quantity*2,10],['本次我方抵扣',our.material,quantity,20]]) {
+        await page.getByText(title,{exact:true}).locator('..').getByRole('combobox').fill(material.nameZh);
+        await page.getByRole('option').filter({hasText:material.nameZh}).click();
+        await page.getByLabel(`${title} 数量`,{exact:true}).fill(String(amount));
+        await page.getByLabel(`${title} 单价`,{exact:true}).fill(String(price));
+      }
+      await expect(page.getByRole('button',{name:'创建批次',exact:true})).toBeDisabled();
+      await page.getByLabel('本次对方交付 实际批号',{exact:true}).fill(incomingBatch);
+      await page.getByLabel('本次我方抵扣 实际批号',{exact:true}).fill('   ');
+      await expect(page.getByRole('button',{name:'创建批次',exact:true})).toBeDisabled();
+      await page.getByLabel('本次我方抵扣 实际批号',{exact:true}).fill(our.batchNo);
+      const response=page.waitForResponse(r=>new URL(r.url()).pathname===`/api/barter/agreements/${agreement.id}/batches`&&r.request().method()==='POST');
+      await page.getByRole('button',{name:'创建批次',exact:true}).click(); const created=await response;
+      assert.equal(created.status(),201); batch=(await created.json()).data;
+      const body=created.request().postDataJSON();
+      assert.deepEqual(body.items.map(v=>({side:v.side,materialId:v.materialId,sourceDocument:v.sourceDocument})),
+        [{side:'counterparty',materialId:incoming.id,sourceDocument:incomingBatch},{side:'our',materialId:our.material.id,sourceDocument:our.batchNo}]);
+      for(const item of body.items) assert.equal(batch.items.find(v=>v.side===item.side).sourceDocument,item.sourceDocument);
+      evidence.firstBatchBrowser={actorId:profile.id,role:profile.role,instance:0,httpStatus:created.status(),batchId:batch.id,body};
+      await browser.close(); browser=undefined; page=undefined;
+    } else batch = await call(`/barter/agreements/${agreement.id}/batches`, 'POST', { items: items(quantity), note: `${runId}-${label}` });
     batches.push(batch);
     await call(`/barter/settlements/${batch.id}/approve`, 'PATCH', { note: label }, actors.admin);
     await call(`/barter/settlements/${batch.id}/post`, 'POST', { postingAmount: quantity * 20, note: label }, actors.finance1);

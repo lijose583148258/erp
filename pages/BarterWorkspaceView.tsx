@@ -31,6 +31,9 @@ import { BarterLedgerPanel } from './barter/BarterLedgerPanel';
 import { BarterRefundDialog } from './barter/BarterRefundDialog';
 import { loadBarterReferenceData } from './barter/loadBarterReferenceData';
 
+const hasBarterBatchSources = (items: BarterItem[]) =>
+  items.length > 0 && items.every(item => Boolean(item.sourceDocument?.trim()));
+
 const BarterWorkspaceClean: React.FC = () => {
   const { formatPrice, notify, language, currentUser } = useAppContext();
   const canWriteBarter = can(currentUser, 'barter.write');
@@ -153,7 +156,7 @@ const BarterWorkspaceClean: React.FC = () => {
   }, [loadBase]);
 
   const ensureValidItems = (items: BarterItem[]) => items.every((item) => item.itemName.trim() && Number(item.quantity) > 0 && Number(item.unitPrice) > 0);
-  const canSubmitBatch = Boolean(selectedAgreement) && canWriteBarter && ensureValidItems(batchForm.items) && selectedAgreementRemaining > 0 && !batchExceedsAgreementRemaining;
+  const canSubmitBatch = Boolean(selectedAgreement) && canWriteBarter && ensureValidItems(batchForm.items) && hasBarterBatchSources(batchForm.items) && selectedAgreementRemaining > 0 && !batchExceedsAgreementRemaining;
 
   const handleSelectAgreement = async (agreementId: number) => {
     const detail = await barterService.getAgreementById(agreementId);
@@ -218,6 +221,10 @@ const BarterWorkspaceClean: React.FC = () => {
     }
     if (!selectedAgreement || !ensureValidItems(batchForm.items)) {
       notify('warning', '请先选择协议并完整填写批次标的');
+      return;
+    }
+    if (!hasBarterBatchSources(batchForm.items)) {
+      notify('warning', '请填写双方实际批号；我方批号必须对应现有库存');
       return;
     }
     if (selectedAgreementRemaining <= 0) {
@@ -507,8 +514,8 @@ const BarterWorkspaceClean: React.FC = () => {
                 </div>
 
                 <div className="grid gap-4 md:grid-cols-2">
-                  <BarterItemEditor title="本次对方交付" item={batchForm.items[0]} onChange={(key, value) => updateBatchItem(0, key, value)} />
-                  <BarterItemEditor title="本次我方抵扣" item={batchForm.items[1]} onChange={(key, value) => updateBatchItem(1, key, value)} />
+                  <BarterItemEditor executionBatch title="本次对方交付" item={batchForm.items[0]} onChange={(key, value) => updateBatchItem(0, key, value)} />
+                  <BarterItemEditor executionBatch title="本次我方抵扣" item={batchForm.items[1]} onChange={(key, value) => updateBatchItem(1, key, value)} />
                 </div>
 
                 <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[28px] bg-slate-50 px-5 py-4">
