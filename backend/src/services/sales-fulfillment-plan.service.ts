@@ -7,7 +7,7 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { buildOrderDataScopeWhere, canUseOrderForBusinessWrite, mergeWhereAnd } from '../utils/recordAccess';
 import { readOrderFulfillment } from './order-fulfillment.service';
-import { createSalesFulfillmentPlanSchema, approveSalesFulfillmentPlanSchema, closeSalesFulfillmentPlanSchema } from '../validators/sales-fulfillment';
+import { createSalesFulfillmentPlanSchema, approveSalesFulfillmentPlanSchema, closeSalesFulfillmentPlanSchema, cancelSalesFulfillmentPlanSchema } from '../validators/sales-fulfillment';
 
 type Tx = Prisma.TransactionClient;
 type CreateInput = z.infer<typeof createSalesFulfillmentPlanSchema>;
@@ -130,6 +130,34 @@ export const SalesFulfillmentPlanService = {
       const approved = await tx.salesFulfillmentPlan.update({ where: { id: plan.id }, data: { status: 'approved', approvedBy: actorId(req), approvedAt: new Date(), acceptedQuantityAtApproval: line.acceptedQuantity } });
       await audit(tx, req, 'APPROVE_SALES_FULFILLMENT_PLAN', plan.id, { planNo: plan.planNo, reason: input.reason, sourceSnapshot: sourceFacts(po), line, stockChanged: false });
       return view(approved);
+    });
+  },
+
+  async cancel(orderId: number, planId: number, raw: z.infer<typeof cancelSalesFulfillmentPlanSchema>, req: AuthRequest) {
+    const input = cancelSalesFulfillmentPlanSchema.parse(raw);
+    return run('cancelSalesFulfillmentPlan', async tx => {
+      const order = await claimOrder(tx, orderId, req);
+      const plan = await tx.salesFulfillmentPlan.findFirst({ where: { id: planId, orderId } });
+      if (!plan) return fail('FULFILLMENT_PLAN_NOT_FOUND', '供给计划不存在', 404);
+      if (plan.status === 'cancelled') {
+        const previous = parseSnapshot(plan.closeoutSnapshot);
+        if (plan.closeoutIdempotencyKey !== input.idempotencyKey || plan.closedBy !== actorId(req)
+          || previous?.kind !== 'cancellation' || previous.reason !== input.reason || previous.expectedUpdatedAt !== input.expectedUpdatedAt || previous.previousStatus !== input.expectedStatus) {
+          return fail('FULFILLMENT_IDEMPOTENCY_CONFLICT', '取消请求与原记录不一致，请回读原计划');
+        }
+        return view(plan);
+      }
+      if (!['draft', 'approved'].includes(plan.status)) return fail('FULFILLMENT_PLAN_NOT_CANCELLABLE', '已结案计划不能取消，历史履约证据必须保留');
+      if (plan.status !== input.expectedStatus || plan.updatedAt.toISOString() !== new Date(input.expectedUpdatedAt).toISOString()) return fail('FULFILLMENT_PLAN_CHANGED', '计划已变化，请刷新后再决定是否取消');
+      // Cancel only this supply commitment, never customer demand, payments, PO
+      // receipts or stock. The shared order lock also serializes replacement approval.
+      const snapshot = { kind: 'cancellation', reason: input.reason, expectedUpdatedAt: input.expectedUpdatedAt,
+        previousStatus: plan.status, orderStatus: order.status, sourceSnapshot: parseSnapshot(plan.sourceSnapshot),
+        fulfillment: await readOrderFulfillment(tx, orderId), stockChanged: false, moneyChanged: false };
+      const cancelled = await tx.salesFulfillmentPlan.update({ where: { id: plan.id }, data: { status: 'cancelled',
+        closeoutIdempotencyKey: input.idempotencyKey, closeoutSnapshot: JSON.stringify(snapshot), closedBy: actorId(req), closedAt: new Date() } });
+      await audit(tx, req, 'CANCEL_SALES_FULFILLMENT_PLAN', plan.id, snapshot);
+      return view(cancelled);
     });
   },
 

@@ -7,8 +7,9 @@ function salesPlanFixture(stamp = {}) {
   const business = { balances: [{ quantity: 0 }], ledger: [{ quantityDelta: 100, costAmountDelta: 1000 }, { quantityDelta: -100, costAmountDelta: -1000 }], payments: [], order: { paidAmount: 0 } };
   return { ...stamp, status: 'passed', checks: Object.fromEntries(requiredChecks.map(id => [id, true])),
     screenshots: ['sales-plan-mobile-draft.png', 'sales-plan-independent-approval.png', 'sales-plan-closed-readback.png',
-      'sales-presale-partial-100-of-150.png', 'sales-presale-complete-150-of-150.png'].map(name => ({ name, loadingHidden: true, unobscured: true })),
+      'sales-presale-partial-100-of-150.png', 'sales-presale-complete-150-of-150.png', 'sales-plan-cancelled-history.png', 'sales-plan-replacement-approved.png'].map(name => ({ name, loadingHidden: true, unobscured: true })),
     presale: presaleFixture(),
+    planCancellation: cancellationFixture(),
     rejections: requiredRejections.map(name => ({ name, status: 409, unchanged: true })),
     browserCreate: { httpStatus: 201, planId: 1, injectedReadbacks: 1, getOnlyRecovery: true },
     browserApproval: { planId: 1, status: 200, actor: 2 }, browserClose: { planId: 1, status: 200 },
@@ -43,4 +44,20 @@ function presaleFixture() {
     planAudits: ['CREATE', 'APPROVE', 'CLOSE'].map(a => ({ resourceId: 6, action: `${a}_SALES_FULFILLMENT_PLAN` })),
   };
 }
-module.exports = { salesPlanFixture };
+function cancellationFixture() {
+  const original = { id: 21, status: 'approved', createdBy: 1, approvedBy: 2, sourceSnapshot: '{"revision":0}', plannedQuantity: 100 };
+  const replacement = { id: 22, status: 'draft', createdBy: 1, sourceSnapshot: '{"revision":1}' };
+  const business = { order: { id: 20, paidAmount: 0, finalAmount: 1000 }, purchase: { revision: 1 }, balances: [], cost: [] };
+  const cancelled = { ...original, status: 'cancelled', closedBy: 2, closeoutSnapshot: JSON.stringify({ kind: 'cancellation', reason: 'Revised supply', stockChanged: false, moneyChanged: false, fulfillment: { lines: [{ outstandingQuantity: 100 }] } }) };
+  const approved = { ...replacement, status: 'approved', approvedBy: 2 };
+  const final = { ...business, plans: [cancelled, approved], audits: [{ resourceId: 21, action: 'CANCEL_SALES_FULFILLMENT_PLAN' }, { resourceId: 22, action: 'APPROVE_SALES_FULFILLMENT_PLAN' }] };
+  return JSON.parse(JSON.stringify({ orderId: 20, original, replacement, before: { ...business, plans: [original, replacement] }, afterCancel: { ...business, plans: [cancelled, replacement] }, final,
+    browser: { actorId: 2, instance: 1, cancelStatus: 200, approveStatus: 200, cancelled: { ...cancelled, closeoutSnapshot: JSON.parse(cancelled.closeoutSnapshot) } },
+    replays: [0, 1].map(() => ({ status: 200, json: { data: { id: 21 } } })),
+    rejections: Array.from({ length: 6 }, () => ({ status: 409, unchanged: true })),
+    race: { planId: 30, results: [{ status: 200 }, { status: 409 }], plan: { id: 30, status: 'approved' },
+      audits: ['CREATE_SALES_FULFILLMENT_PLAN', 'APPROVE_SALES_FULFILLMENT_PLAN'].map(action => ({ action })),
+      readbacks: [0, 1].map(() => ({ plans: [{ id: 30, status: 'approved' }], fulfillment: { lines: [{ outstandingQuantity: 100 }] } })) },
+    readbacks: [0, 1].map(() => ({ fulfillment: { lines: [{ outstandingQuantity: 100 }], fullyDelivered: false }, plans: [cancelled, approved] })) }));
+}
+module.exports = { salesPlanFixture, cancellationFixture };

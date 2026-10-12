@@ -59,7 +59,7 @@ function validateBaseline(baseline) {
     }
     assert(revision.round2Checks.every(id => known.includes(id)), 'Unknown baseline check');
     assert(['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'].every(id => revision.independentChecks.includes(id)), 'Core independent checks cannot be removed');
-    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'authorization-dual-node', 'production-responsibilities'].includes(id)), 'Independent adapters must be implemented explicitly');
+    assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'sales-plan-cancellation', 'authorization-dual-node', 'production-responsibilities'].includes(id)), 'Independent adapters must be implemented explicitly');
     previous = revision;
   }
   return previous;
@@ -217,6 +217,14 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     const r = reports.salesPlan; verifyFresh(r, context, provider, now);
     const proof = require('./sales-fulfillment-plan-proof.cjs').verifySalesPlanProof(r);
     return { ...proof, evidenceSha256: sha256(JSON.stringify(r)) };
+  });
+  if (revision?.independentChecks.includes('sales-plan-cancellation')) record('sales-plan-cancellation', () => {
+    const r = reports.salesPlan; verifyFresh(r, context, provider, now); assert.equal(r.status, 'passed');
+    const proof = require('./sales-plan-cancellation.cjs').verifySalesPlanCancellation(r.planCancellation);
+    for (const name of ['sales-plan-cancelled-history.png', 'sales-plan-replacement-approved.png']) {
+      const shot = r.screenshots?.find(s => s.name === name); assert(shot?.loadingHidden && shot.unobscured);
+    }
+    return { ...proof, evidenceSha256: sha256(JSON.stringify(r.planCancellation)) };
   });
   if (revision?.independentChecks.includes('authorization-dual-node')) record('authorization-dual-node', () => {
     const r = reports.authorization; verifyFresh(r, context, provider, now);

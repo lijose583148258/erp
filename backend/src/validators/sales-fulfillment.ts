@@ -22,3 +22,8 @@ export const closeSalesFulfillmentPlanSchema = z.object({
   idempotencyKey: requestKey,
   reason: z.string().trim().min(3).max(1000),
 }).strict();
+
+export const cancelSalesFulfillmentPlanSchema = closeSalesFulfillmentPlanSchema.extend({
+  expectedUpdatedAt: z.iso.datetime({ offset: true }),
+  expectedStatus: z.enum(['draft', 'approved']),
+});

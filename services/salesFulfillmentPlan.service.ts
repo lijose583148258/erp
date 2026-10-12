@@ -9,7 +9,8 @@ export type SalesFulfillmentPlan = SalesFulfillmentPlanInput & {
   id: number; orderId: number; planNo: string; status: string; unit: string; createdBy: number;
   approvedBy: number | null; closedBy: number | null; updatedAt: string;
   sourceSnapshot: { id: number; revision: number; quantity: number; unit: string; eta: string };
-  closeoutSnapshot: null | { receivedQuantity: number; deliveredFromSource: number; committedQuantity: number };
+  closeoutSnapshot: null | { receivedQuantity: number; deliveredFromSource: number; committedQuantity: number }
+    | { kind: 'cancellation'; reason: string; previousStatus: 'draft' | 'approved' };
 };
 export type SalesFulfillmentPlans = {
   plans: SalesFulfillmentPlan[]; fulfillment: NonNullable<SalesOrder['fulfillment']>;
@@ -31,5 +32,9 @@ export const salesFulfillmentPlanService = {
   async close(plan: SalesFulfillmentPlan, reason: string, idempotencyKey: string) {
     const input = { reason, idempotencyKey };
     return (await api.post<typeof input, Response<SalesFulfillmentPlan>>(`${base(plan.orderId)}/${plan.id}/close`, input)).data;
+  },
+  async cancel(plan: SalesFulfillmentPlan, reason: string, idempotencyKey: string) {
+    const input = { reason, idempotencyKey, expectedUpdatedAt: plan.updatedAt, expectedStatus: plan.status };
+    return (await api.post<typeof input, Response<SalesFulfillmentPlan>>(`${base(plan.orderId)}/${plan.id}/cancel`, input)).data;
   },
 };

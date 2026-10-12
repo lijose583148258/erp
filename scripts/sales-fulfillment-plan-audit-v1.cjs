@@ -290,6 +290,8 @@ async function main() {
   assert.equal(p.final.ledger.reduce((n, l) => n + l.quantityDelta, 0), 0); assert.equal(p.final.ledger.reduce((n, l) => n + l.costAmountDelta, 0), 0);
   assert(p.finalReadbacks.every(o => o.fulfillment.fullyDelivered && o.fulfillment.lines[0].outstandingQuantity === 0));
   check('presaleExistingThenPurchased150', true);
+  report.planCancellation = await require('./lib/sales-plan-cancellation.cjs').salesPlanCancellation({ request, dataOf, prisma, actors,
+    browser, urls, runId, customer, material, supplier, eta, delivery, capture });
   report.status = 'passed'; report.summary = { passedChecks: Object.keys(report.checks).length, failedChecks: 0, remainingChecks: 0 };
 }
 main().catch(e => { report.error = e.stack || String(e); console.error(report.error); process.exitCode = 1; }).finally(async () => {

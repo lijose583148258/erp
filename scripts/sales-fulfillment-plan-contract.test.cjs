@@ -4,6 +4,21 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { verifySalesPlanProof } = require('./lib/sales-fulfillment-plan-proof.cjs');
 const { salesPlanFixture } = require('./lib/sales-fulfillment-plan-test-fixture.cjs');
+const { verifySalesPlanCancellation } = require('./lib/sales-plan-cancellation.cjs');
+test('cancellation verifier accepts only preserved demand with replaceable supply', () => { verifySalesPlanCancellation(salesPlanFixture().planCancellation); });
+for (const [label, mutate] of [
+  ['missing cancellation', r => { delete r.afterCancel; }],
+  ['cancelled customer demand', r => { r.final.order.finalAmount = 0; }],
+  ['rewrote purchase', r => { r.final.purchase.revision = 2; }],
+  ['lost frozen source', r => { r.final.plans[0].sourceSnapshot = '{}'; }],
+  ['duplicate cancellation audit', r => { r.final.audits.push(r.final.audits[0]); }],
+  ['API-only cancellation', r => { r.browser.cancelStatus = 0; }],
+  ['stale other node', r => { r.readbacks[1].plans[0].status = 'approved'; }],
+  ['denial changed business', r => { r.rejections[0].unchanged = false; }],
+  ['both approval and cancellation succeeded', r => { r.race.results[1].status = 200; }],
+  ['race audit duplicated', r => { r.race.audits.push(r.race.audits[0]); }],
+  ['race readback split', r => { r.race.readbacks[1].plans[0].status = 'cancelled'; }],
+]) test(`cancellation verifier rejects ${label}`, () => { const r = salesPlanFixture().planCancellation; mutate(r); assert.throws(() => verifySalesPlanCancellation(r)); });
 const read = file => fs.readFileSync(path.resolve(__dirname, '..', file), 'utf8');
 test('independent supply-plan verifier accepts its synthetic contract fixture', () => { verifySalesPlanProof(salesPlanFixture()); });
 for (const [name, mutate] of [

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { authorizePermission, authRoute } from '../middleware/auth';
 import { validateZod } from '../middleware/validateZod';
 import { SalesFulfillmentPlanError, SalesFulfillmentPlanService } from '../services/sales-fulfillment-plan.service';
-import { createSalesFulfillmentPlanSchema, approveSalesFulfillmentPlanSchema, closeSalesFulfillmentPlanSchema } from '../validators/sales-fulfillment';
+import { createSalesFulfillmentPlanSchema, approveSalesFulfillmentPlanSchema, closeSalesFulfillmentPlanSchema, cancelSalesFulfillmentPlanSchema } from '../validators/sales-fulfillment';
 import { logger } from '../utils/logger';
 
 const router = Router({ mergeParams: true });
@@ -27,5 +27,8 @@ router.post('/:planId/approve', authorizePermission('orders.status.manage'), val
 }));
 router.post('/:planId/close', authorizePermission('orders.status.manage'), validateZod(params, 'params'), validateZod(closeSalesFulfillmentPlanSchema), handle(async (req, res) => {
   res.json({ success: true, data: await SalesFulfillmentPlanService.close(Number(req.params.id), Number(req.params.planId), req.body, req) });
+}));
+router.post('/:planId/cancel', authorizePermission('orders.status.manage'), validateZod(params, 'params'), validateZod(cancelSalesFulfillmentPlanSchema), handle(async (req, res) => {
+  res.json({ success: true, data: await SalesFulfillmentPlanService.cancel(Number(req.params.id), Number(req.params.planId), req.body, req) });
 }));
 export default router;
