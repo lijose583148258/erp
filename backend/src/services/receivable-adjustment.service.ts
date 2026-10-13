@@ -306,6 +306,12 @@ export class ReceivableAdjustmentService {
         data: { status: 'posting' },
       });
       if (claim.count !== 1) {
+        // Another node may have committed after our pending read. Replay only
+        // the durable posted cancellation; an uncommitted/conflicting state is not success.
+        if (quantityCancellation) {
+          const committed = await tx.receivableAdjustment.findUnique({ where: { id: adjustment.id } });
+          if (committed?.status === 'posted') return { changed: false, adjustment: committed, customerId: committed.customerId };
+        }
         throw new Error(RECEIVABLE_ADJUSTMENT_ORDER_STATE_CHANGED);
       }
 

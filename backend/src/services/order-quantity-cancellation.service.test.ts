@@ -109,6 +109,36 @@ describe('typed order quantity cancellation', () => {
     await expect(service.postAdjustment(7, 20)).resolves.toMatchObject({ changed: false });
     expect(tx.order.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
   });
+  it('returns a committed cancellation when a stale pending read loses the posting claim', async () => {
+    const { record, tx } = fixture(); const posted = { ...record, status: 'posted', postedBy: 20 };
+    tx.receivableAdjustment.findUnique.mockResolvedValueOnce({ ...record }).mockResolvedValueOnce(posted);
+    tx.receivableAdjustment.updateMany.mockResolvedValue({ count: 0 });
+    (prisma.receivableAdjustment.findUnique as jest.Mock).mockResolvedValue(posted);
+    await expect(service.postAdjustment(7, 20)).resolves.toMatchObject({ changed: false, effects: null,
+      adjustment: { id: 7, status: 'posted', amount: 600, cancelledQuantity: 60 } });
+    expect(tx.receivableAdjustment.findUnique).toHaveBeenCalledTimes(2);
+    expect(tx.receivableAdjustment.findUnique).toHaveBeenLastCalledWith({ where: { id: 7 } });
+    expect(tx.receivableAdjustment.updateMany.mock.invocationCallOrder[0]).toBeLessThan(tx.receivableAdjustment.findUnique.mock.invocationCallOrder[1]);
+    expect(tx.order.update).not.toHaveBeenCalled(); expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.receivableAdjustment.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(CollectionStateService.syncCustomerOverdueAmountTx).not.toHaveBeenCalled();
+  });
+  it.each(['pending', 'posting', 'reversed', null])('keeps a lost cancellation claim conflicting when persisted state is %s', async status => {
+    const { record, tx } = fixture();
+    tx.receivableAdjustment.findUnique.mockResolvedValueOnce({ ...record }).mockResolvedValueOnce(status ? { ...record, status } : null);
+    tx.receivableAdjustment.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.postAdjustment(7, 20)).rejects.toThrow('RECEIVABLE_ADJUSTMENT_ORDER_STATE_CHANGED');
+    expect(tx.order.update).not.toHaveBeenCalled(); expect(tx.order.updateMany).not.toHaveBeenCalled();
+    expect(tx.receivableAdjustment.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
+    expect(CollectionStateService.syncCustomerOverdueAmountTx).not.toHaveBeenCalled();
+  });
+  it('does not change ordinary financial-only adjustment claim conflicts', async () => {
+    const { record, tx } = fixture(); record.adjustmentType = 'credit_memo';
+    tx.receivableAdjustment.updateMany.mockResolvedValue({ count: 0 });
+    await expect(service.postAdjustment(7, 20)).rejects.toThrow('RECEIVABLE_ADJUSTMENT_ORDER_STATE_CHANGED');
+    expect(tx.receivableAdjustment.findUnique).toHaveBeenCalledTimes(1);
+    expect(tx.order.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
   it('restores AR and demand with the original cancellation kept as reversed history', async () => {
     const { record, order, tx } = fixture(); record.status = 'posted'; order.receivableAdjustmentAmount = 600;
     await expect(service.reverseAdjustment(7, 20, 'Customer changed instruction')).resolves.toMatchObject({ changed: true });
