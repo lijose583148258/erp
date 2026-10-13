@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { readOrderFulfillment } from './order-fulfillment.service';
+import { ORDER_QUANTITY_CANCELLATION } from '../utils/orderFulfillment';
 
 type ShipmentOrderClient = Pick<Prisma.TransactionClient, 'order'>;
 
@@ -31,7 +32,8 @@ export async function claimShipmentOrder(db: ShipmentOrderClient, input: Shipmen
 
   const order = await db.order.findUnique({
     where: { id: input.orderId },
-    select: { status: true, customerId: true, shipmentHold: true },
+    select: { status: true, customerId: true, shipmentHold: true,
+      receivableAdjustments: { where: { adjustmentType: ORDER_QUANTITY_CANCELLATION, status: 'posted' }, select: { id: true } } },
   });
   if (!order) throw new Error('SHIPMENT_ORDER_NOT_FOUND');
   if (!['confirmed', 'shipped', 'delivered'].includes(order.status)) {
@@ -39,10 +41,12 @@ export async function claimShipmentOrder(db: ShipmentOrderClient, input: Shipmen
   }
   if (order.customerId !== input.customerId) throw new Error('SHIPMENT_ORDER_CUSTOMER_MISMATCH');
   if (order.shipmentHold) throw new Error('SHIPMENT_ORDER_ON_HOLD');
-  if (order.status !== 'delivered') return;
+  if (order.status !== 'delivered' && !order.receivableAdjustments?.length) return;
 
   // Old versions could label a 40/100 delivery as fully delivered. Permit only
   // a quantity-evidenced remainder; never reopen or overwrite historical status.
+  // Posted quantity cancellations also constrain confirmed/shipped orders. An
+  // unbound shipment cannot bypass a cancelled line by supplying only orderId.
   const fulfillment = await readOrderFulfillment(db, input.orderId);
   const line = fulfillment.lines.find(item => item.orderItemId === input.orderItemId);
   if (fulfillment.needsReview || !line) throw new Error('SHIPMENT_ORDER_FULFILLMENT_REVIEW_REQUIRED');

@@ -21,7 +21,7 @@ type AdjustmentDeskTab = 'voucher' | 'ledger' | 'principle';
 
 type FormState = {
   orderLookup: string;
-  adjustmentType: ReceivableAdjustmentType;
+  adjustmentType: Exclude<ReceivableAdjustmentType, 'order_quantity_cancellation'>;
   amount: string;
   currency: string;
   exchangeRate: string;
@@ -45,6 +45,7 @@ const adjustmentTypeLabels: Record<ReceivableAdjustmentType, string> = {
   bad_debt_writeoff: '坏账核销',
   short_payment_writeoff: '短款核销',
   fx_difference: '汇差调整',
+  order_quantity_cancellation: '取消待交数量 / 冲减应收',
 };
 
 const statusLabels: Record<string, string> = {
@@ -54,6 +55,9 @@ const statusLabels: Record<string, string> = {
   reversing: '冲回中',
   reversed: '已冲回',
 };
+
+const voucherMoney = (record: ReceivableAdjustmentRecord, amount: number, formatPrice: (value: number) => string) =>
+  record.adjustmentType === 'order_quantity_cancellation' ? `${amount.toFixed(2)} ${record.currency}` : formatPrice(amount);
 
 const orderCustomerName = (order: SalesOrder, language: string) => getCustomerDisplayName({
   name: order.customerName,
@@ -238,7 +242,8 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
       key: 'type',
       header: '类型',
       width: '130px',
-      render: (record) => adjustmentTypeLabels[record.adjustmentType] || record.adjustmentType,
+      render: (record) => <span>{adjustmentTypeLabels[record.adjustmentType] || record.adjustmentType}
+        {record.adjustmentType === 'order_quantity_cancellation' && <small className="block">订单行 #{record.orderItemId} · {record.productName} · 取消 {record.cancelledQuantity} {record.unit}；申请人 #{record.createdBy}</small>}</span>,
       searchText: (record) => adjustmentTypeLabels[record.adjustmentType] || record.adjustmentType,
     },
     {
@@ -258,7 +263,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
       header: '调整金额',
       isNumeric: true,
       width: '140px',
-      render: (record) => <span className="font-black text-rose-600">{formatPrice(record.amount as number)}</span>,
+      render: (record) => <span className="font-black text-rose-600">{voucherMoney(record, record.amount, formatPrice)}</span>,
       searchText: (record) => String(record.amount),
     },
     {
@@ -267,8 +272,8 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
       width: '180px',
       render: (record) => record.orderSnapshot ? (
         <div className="text-xs font-bold leading-5 text-slate-500">
-          <div>有效 {formatPrice(record.orderSnapshot.effectiveReceivableAmount)}</div>
-          <div>未收 {formatPrice(record.orderSnapshot.outstandingAmount)}</div>
+          <div>有效 {voucherMoney(record, record.orderSnapshot.effectiveReceivableAmount, formatPrice)}</div>
+          <div>未收 {voucherMoney(record, record.orderSnapshot.outstandingAmount, formatPrice)}</div>
         </div>
       ) : '-',
       searchText: (record) => `${record.orderSnapshot?.effectiveReceivableAmount || ''} ${record.orderSnapshot?.outstandingAmount || ''}`,
@@ -350,7 +355,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
         <WorkspaceTaskNavigator
           eyebrow="应收调整职责导航"
           title="先建调整凭证，再过账回读"
-          description="应收调整不是回款。它只处理贷项、折让、坏账、短款和汇差，必须过账后才改变有效应收，冲回会恢复订单口径。"
+          description="应收调整不是回款。财务调整仅改变有效应收；销售提交的数量取消凭证须由另一名财务过账，才同时减少待交量和应收，原单和实收款保持不变。"
           items={adjustmentDeskItems}
           activeId={activeAdjustmentDesk}
           onChange={(id) => {
@@ -362,7 +367,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
         />
       </div>
 
-      <div className={`${activeAdjustmentDesk === 'principle' ? 'hidden' : 'grid'} mt-6 gap-5 ${activeAdjustmentDesk === 'voucher' ? 'xl:grid-cols-[420px,minmax(0,1fr)]' : ''}`}>
+      <div className={`${activeAdjustmentDesk === 'principle' ? 'hidden' : 'grid'} mt-6 grid-cols-1 gap-5 ${activeAdjustmentDesk === 'voucher' ? 'xl:grid-cols-[420px,minmax(0,1fr)]' : ''}`}>
         <div className={`${activeAdjustmentDesk === 'voucher' ? '' : 'hidden'} rounded-[32px] border border-slate-100 bg-slate-50/70 p-5 dark:border-slate-800 dark:bg-slate-950/30`}>
           <div className="mb-4 flex items-center justify-between">
             <div>
@@ -395,8 +400,8 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
                 label="调整类型"
                 as="select"
                 value={form.adjustmentType}
-                onChange={(value) => updateForm('adjustmentType', value as ReceivableAdjustmentType)}
-                options={Object.entries(adjustmentTypeLabels).map(([value, label]) => ({ value, label }))}
+                  onChange={(value) => updateForm('adjustmentType', value as FormState['adjustmentType'])}
+                  options={Object.entries(adjustmentTypeLabels).filter(([value]) => value !== 'order_quantity_cancellation').map(([value, label]) => ({ value, label }))}
                 dataTestId="receivable-adjustment-type"
               />
               <FormField
@@ -483,8 +488,9 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
                 <button
                   type="button"
                   data-testid={`receivable-adjustment-post-${record.id}`}
+                    title={record.adjustmentType === 'order_quantity_cancellation' ? '另一名财务审核后，数量取消与应收冲减同时生效' : '过账应收调整'}
                   onClick={(event) => { event.stopPropagation(); void handlePost(record); }}
-                  disabled={submitting || !canPost}
+                    disabled={submitting || !canPost || (record.adjustmentType === 'order_quantity_cancellation' && record.createdBy === Number(currentUser?.id))}
                   className="rounded-full bg-emerald-50 px-3 py-2 text-xs font-black tracking-[0.12em] text-emerald-700 disabled:opacity-50"
                 >
                   过账

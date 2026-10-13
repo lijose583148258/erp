@@ -8,6 +8,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
+if (process.argv.includes('--customer-cancellation')) process.env.ROUND2_BROWSER = 'true';
 if (cumulative || process.argv.includes('--inventory-browser') || process.argv.includes('--purchase-roles') || process.argv.includes('--authorization-freshness') || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
@@ -151,12 +152,15 @@ async function main() {
   if (cumulative) {
     const salesPath = path.join(sandbox, 'sales-partial', 'report.json');
     const salesPlanPath = path.join(sandbox, 'sales-plan', 'report.json');
+    const cancellationPath = path.join(sandbox, 'customer-cancellation', 'report.json');
     env.ROUND2_SALES_PLAN_REPORT = salesPlanPath;
+    env.ROUND2_CUSTOMER_CANCELLATION_REPORT = cancellationPath;
     const authorizationPath = path.join(sandbox, 'authorization-dual-node-v1.json');
     const executions = [];
     for (const [label, script, target, args, allowed] of [
       ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
+      ['customer-cancellation', 'scripts/customer-quantity-cancellation-audit-v1.cjs', cancellationPath, [], [0]],
       ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
       ['authorization', 'scripts/authorization-dual-node-audit-v1.cjs', authorizationPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
@@ -173,7 +177,7 @@ async function main() {
     const read = file => { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; } };
     const result = evaluateRegression({ baseline: require('./config/enterprise-regression-baseline-v1.json'),
       context: read(env.REGRESSION_CONTEXT_PATH), currentCommit: headCommit(root), currentSourceHash: sourceFingerprint(root),
-      reports: { round2: read(reportPath), sales: read(salesPath), salesPlan: read(salesPlanPath), authorization: read(authorizationPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
+      reports: { round2: read(reportPath), sales: read(salesPath), salesPlan: read(salesPlanPath), cancellation: read(cancellationPath), authorization: read(authorizationPath), legacy: read(env.REGRESSION_LEGACY_PATH) },
       executionErrors: executions.filter(e => !e.acceptable) });
     result.executions = executions;
     const file = path.join(sandbox, 'cumulative-regression.json'); fs.writeFileSync(file, JSON.stringify(result, null, 2));
@@ -183,7 +187,7 @@ async function main() {
   }
   const reconciliation = process.argv.includes('--payment-reconciliation') || process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser');
   const authorization = process.argv.includes('--authorization-freshness');
-  const auditScript = authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const auditScript = process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);

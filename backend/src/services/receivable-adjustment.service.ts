@@ -1,4 +1,12 @@
 import type { ReceivableAdjustment } from '@prisma/client';
+import { createHash } from 'node:crypto';
+import type { z } from 'zod';
+import type { AuthRequest } from '../middleware/auth';
+import { buildOrderDataScopeWhere, canUseOrderForBusinessWrite, mergeWhereAnd } from '../utils/recordAccess';
+import { createOrderQuantityCancellationSchema } from '../validators/receivable-adjustment';
+import { quoteOrderQuantityCancellation } from '../utils/orderCancellation';
+import { ORDER_QUANTITY_CANCELLATION } from '../utils/orderFulfillment';
+import { readOrderFulfillment } from './order-fulfillment.service';
 import prisma from '../config/database';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
@@ -52,6 +60,20 @@ const RECEIVABLE_ADJUSTMENT_TYPE_SET = new Set<string>(RECEIVABLE_ADJUSTMENT_TYP
 
 export const getReceivableAdjustmentConflictMessage = (error: unknown) => {
   if (!(error instanceof Error)) return null;
+  const cancellationMessages: Record<string, string> = {
+    ORDER_CANCELLATION_NOT_FOUND: '订单不存在或无权申请取消。',
+    ORDER_CANCELLATION_STATE_CHANGED: '订单已变化或当前状态不允许取消，请刷新核对。',
+    ORDER_CANCELLATION_IDEMPOTENCY_CONFLICT: '请求身份与原取消申请不同，请先回读原申请。',
+    ORDER_CANCELLATION_FULFILLMENT_REVIEW_REQUIRED: '订单行或履约证据待核对，不能取消。',
+    ORDER_CANCELLATION_QUANTITY_EXCEEDED: '取消数量超过未分配待交量；已出库、已签收或已安排发货的数量不能直接取消。',
+    ORDER_CANCELLATION_PRICING_REVIEW_REQUIRED: '原订单计价或取消金额已变化，不能按旧申请冲减应收。',
+    ORDER_CANCELLATION_REFUND_REQUIRED: '取消后将产生应退或结转金额；须先完成相应财务处理，不能修改已收款来抹平。',
+    ORDER_CANCELLATION_INDEPENDENT_REVIEW_REQUIRED: '取消申请必须由另一名财务审核。',
+    ORDER_CANCELLATION_CLOSED: '已结案或取消的订单不能直接冲销数量取消凭证。',
+    ORDER_CANCELLATION_REVERSAL_ORDER_REQUIRED: '冲回会破坏原订单的分摊尾差，请先冲回该订单行后续的数量取消凭证。',
+    ORDER_CANCELLATION_REVERSAL_REASON_REQUIRED: '请填写数量取消凭证的冲回依据（至少 3 个字符）。',
+  };
+  if (cancellationMessages[error.message]) return cancellationMessages[error.message];
   if (error.message === RECEIVABLE_ADJUSTMENT_EXCEEDS_AVAILABLE) {
     return '应收调整金额不能超过订单剩余可调整应收。';
   }
@@ -89,6 +111,7 @@ const normalizeBaseAmount = (amount: number, exchangeRate?: number | null, baseA
 };
 
 const formatAdjustment = (record: ReceivableAdjustment & {
+  orderItem?: { productName: string; unit: string } | null;
   order?: { orderNo: string; finalAmount: number; paidAmount: number; receivableAdjustmentAmount: number; paymentStatus: string } | null;
   customer?: { id: number; name: string; nameZh: string | null; nameEn: string | null; nameVi: string | null } | null;
   creator?: { id: number; username: string; role: string } | null;
@@ -98,6 +121,10 @@ const formatAdjustment = (record: ReceivableAdjustment & {
   id: record.id,
   adjustmentNo: record.adjustmentNo,
   adjustmentType: record.adjustmentType,
+  orderItemId: record.orderItemId,
+  cancelledQuantity: record.cancelledQuantity,
+  unit: record.orderItem?.unit || null,
+  productName: record.orderItem?.productName || null,
   customerId: record.customerId,
   customerName: record.customer?.nameZh || record.customer?.nameEn || record.customer?.nameVi || record.customer?.name || null,
   customerNameZh: record.customer?.nameZh || null,
@@ -147,6 +174,39 @@ const formatAdjustment = (record: ReceivableAdjustment & {
 export class ReceivableAdjustmentService {
   private static buildAdjustmentNo() {
     return buildBusinessNo('RAR');
+  }
+
+  static async createOrderQuantityCancellation(orderId: number, raw: z.infer<typeof createOrderQuantityCancellationSchema>, req: AuthRequest) {
+    const input = createOrderQuantityCancellationSchema.parse(raw), actorId = req.user!.userId;
+    const fingerprint = createHash('sha256').update(JSON.stringify({ orderId, actorId, ...input })).digest('hex');
+    return withDbRetry(() => prisma.$transaction(async tx => {
+      const where = mergeWhereAnd({ id: orderId }, buildOrderDataScopeWhere(req, { includeFinanceAll: false }));
+      const visible = await tx.order.findFirst({ where, include: { customer: { select: { salespersonId: true, poolState: true, segment: true } } } });
+      if (!visible || !canUseOrderForBusinessWrite(req, visible)) throw new Error('ORDER_CANCELLATION_NOT_FOUND');
+      await tx.$executeRaw`UPDATE "orders" SET "status" = "status" WHERE "id" = ${orderId}`;
+      const order = await tx.order.findFirst({ where, include: { items: true, shipments: { include: { receipts: true } }, receivableAdjustments: true,
+        customer: { select: { salespersonId: true, poolState: true, segment: true } } } });
+      if (!order || !canUseOrderForBusinessWrite(req, order)) throw new Error('ORDER_CANCELLATION_NOT_FOUND');
+      const replay = await tx.receivableAdjustment.findUnique({ where: { requestKey: input.idempotencyKey } });
+      if (replay) {
+        if (replay.orderId !== orderId || replay.createdBy !== actorId || replay.requestFingerprint !== fingerprint) throw new Error('ORDER_CANCELLATION_IDEMPOTENCY_CONFLICT');
+        return formatAdjustment(replay);
+      }
+      if (!['confirmed', 'shipped', 'delivered'].includes(order.status) || order.updatedAt.toISOString() !== new Date(input.expectedUpdatedAt).toISOString()) throw new Error('ORDER_CANCELLATION_STATE_CHANGED');
+      const quote = quoteOrderQuantityCancellation(order, input.orderItemId, input.quantity);
+      const exchangeRate = quote.exchangeRate;
+      const evidence = { kind: 'order_quantity_cancellation/v1', request: input, quote, currency: order.currency, exchangeRate,
+        original: { totalAmount: order.totalAmount, discountAmount: order.discountAmount, finalAmount: order.finalAmount, items: order.items } };
+      const record = await tx.receivableAdjustment.create({ data: {
+        adjustmentNo: this.buildAdjustmentNo(), adjustmentType: ORDER_QUANTITY_CANCELLATION, orderId, customerId: order.customerId,
+        orderItemId: input.orderItemId, cancelledQuantity: quote.quantity, amount: quote.amount,
+        currency: order.currency, exchangeRate, baseAmount: quote.baseAmount,
+        reason: input.reason, evidenceJson: JSON.stringify(evidence), requestKey: input.idempotencyKey, requestFingerprint: fingerprint,
+        status: 'pending', createdBy: actorId,
+      } });
+      await tx.auditLog.create({ data: { userId: actorId, action: 'REQUEST_ORDER_QUANTITY_CANCELLATION', resource: 'receivable_adjustment', resourceId: record.id, details: JSON.stringify(evidence) } });
+      return formatAdjustment(record);
+    }), { label: 'createOrderQuantityCancellation' });
   }
 
   static async createAdjustment(input: CreateReceivableAdjustmentInput, createdBy: number) {
@@ -236,6 +296,8 @@ export class ReceivableAdjustmentService {
     const result = await withDbRetry(() => prisma.$transaction(async (tx) => {
       const adjustment = await tx.receivableAdjustment.findUnique({ where: { id: adjustmentId } });
       if (!adjustment) throw new Error(`Receivable adjustment not found: ${adjustmentId}`);
+      const quantityCancellation = adjustment.adjustmentType === ORDER_QUANTITY_CANCELLATION;
+      if (quantityCancellation && adjustment.createdBy === postedBy) throw new Error('ORDER_CANCELLATION_INDEPENDENT_REVIEW_REQUIRED');
       if (adjustment.status === 'posted') return { changed: false, adjustment, customerId: adjustment.customerId };
       if (adjustment.status !== 'pending') throw new Error(RECEIVABLE_ADJUSTMENT_INVALID_STATUS);
 
@@ -260,7 +322,16 @@ export class ReceivableAdjustmentService {
           paymentStatus: true,
         },
       });
-      if (order.status === 'cancelled') throw new Error('Cancelled orders cannot receive receivable adjustments.');
+      if (order.status === 'cancelled' && !quantityCancellation) throw new Error('Cancelled orders cannot receive receivable adjustments.');
+
+      if (quantityCancellation) {
+        if (!['confirmed', 'shipped', 'delivered'].includes(order.status)) throw new Error('ORDER_CANCELLATION_STATE_CHANGED');
+        const snapshot = await tx.order.findUniqueOrThrow({ where: { id: order.id }, include: { items: true, shipments: { include: { receipts: true } },
+          receivableAdjustments: { where: { id: { not: adjustment.id } } } } });
+        const quote = quoteOrderQuantityCancellation(snapshot, adjustment.orderItemId!, adjustment.cancelledQuantity!);
+        if (compareMoney(quote.amount, adjustment.amount) !== 0 || compareMoney(quote.baseAmount, adjustment.baseAmount) !== 0
+          || quote.exchangeRate !== adjustment.exchangeRate || snapshot.currency !== adjustment.currency) throw new Error('ORDER_CANCELLATION_PRICING_REVIEW_REQUIRED');
+      }
 
       const currentAdjustment = Number(order.receivableAdjustmentAmount || 0);
       const nextAdjustment = addMoney(currentAdjustment, adjustment.amount);
@@ -317,6 +388,10 @@ export class ReceivableAdjustmentService {
 
       await CollectionStateService.syncCustomerOverdueAmountTx(tx, order.customerId);
 
+      if (quantityCancellation) await tx.auditLog.create({ data: { userId: postedBy, action: 'POST_ORDER_QUANTITY_CANCELLATION', resource: 'receivable_adjustment', resourceId: posted.id,
+        details: JSON.stringify({ orderId: order.id, orderItemId: adjustment.orderItemId, cancelledQuantity: adjustment.cancelledQuantity,
+          before: beforeSnapshot, after: afterSnapshot, fulfillment: await readOrderFulfillment(tx, order.id) }) } });
+
       return {
         changed: true,
         adjustment: posted,
@@ -339,6 +414,7 @@ export class ReceivableAdjustmentService {
       if (!adjustment) throw new Error(`Receivable adjustment not found: ${adjustmentId}`);
       if (adjustment.status === 'reversed') return { changed: false, adjustment, customerId: adjustment.customerId };
       if (adjustment.status !== 'posted') throw new Error(RECEIVABLE_ADJUSTMENT_INVALID_STATUS);
+      if (adjustment.adjustmentType === ORDER_QUANTITY_CANCELLATION && String(note || '').trim().length < 3) throw new Error('ORDER_CANCELLATION_REVERSAL_REASON_REQUIRED');
 
       const claim = await tx.receivableAdjustment.updateMany({
         where: { id: adjustment.id, status: 'posted' },
@@ -352,12 +428,30 @@ export class ReceivableAdjustmentService {
         select: {
           id: true,
           customerId: true,
+          status: true,
           finalAmount: true,
           paidAmount: true,
           receivableAdjustmentAmount: true,
           paymentStatus: true,
         },
       });
+
+      if (adjustment.adjustmentType === ORDER_QUANTITY_CANCELLATION && ['completed', 'cancelled'].includes(order.status)) throw new Error('ORDER_CANCELLATION_CLOSED');
+
+      if (adjustment.adjustmentType === ORDER_QUANTITY_CANCELLATION) {
+        const snapshot = await tx.order.findUniqueOrThrow({ where: { id: order.id }, include: { items: true,
+          shipments: { include: { receipts: true } }, receivableAdjustments: { where: { id: { not: adjustment.id } } } } });
+        // Remaining immutable credits must still conserve the line's cumulative
+        // cents. Never rewrite another voucher to hide a rounding discrepancy.
+        try {
+          const restored = { ...snapshot, receivableAdjustmentAmount: subtractMoney(order.receivableAdjustmentAmount, adjustment.amount) };
+          const quote = quoteOrderQuantityCancellation(restored, adjustment.orderItemId!, adjustment.cancelledQuantity!);
+          if (compareMoney(quote.amount, adjustment.amount) !== 0 || compareMoney(quote.baseAmount, adjustment.baseAmount) !== 0) throw new Error('ORDER_CANCELLATION_PRICING_REVIEW_REQUIRED');
+        } catch (error) {
+          if (error instanceof Error && error.message === 'ORDER_CANCELLATION_PRICING_REVIEW_REQUIRED') throw new Error('ORDER_CANCELLATION_REVERSAL_ORDER_REQUIRED');
+          throw error;
+        }
+      }
 
       const currentAdjustment = Number(order.receivableAdjustmentAmount || 0);
       const nextAdjustment = maxMoney(0, subtractMoney(currentAdjustment, adjustment.amount));
@@ -411,6 +505,10 @@ export class ReceivableAdjustmentService {
 
       await CollectionStateService.syncCustomerOverdueAmountTx(tx, order.customerId);
 
+      if (adjustment.adjustmentType === ORDER_QUANTITY_CANCELLATION) await tx.auditLog.create({ data: { userId: reversedBy, action: 'REVERSE_ORDER_QUANTITY_CANCELLATION', resource: 'receivable_adjustment', resourceId: adjustment.id,
+        details: JSON.stringify({ orderId: order.id, orderItemId: adjustment.orderItemId, cancelledQuantity: adjustment.cancelledQuantity,
+          before: beforeSnapshot, after: afterSnapshot, fulfillment: await readOrderFulfillment(tx, order.id), note: note || null }) } });
+
       return {
         changed: true,
         adjustment: reversed,
@@ -429,6 +527,7 @@ export class ReceivableAdjustmentService {
 
   private static includeView() {
     return {
+      orderItem: { select: { productName: true, unit: true } },
       order: {
         select: {
           orderNo: true,

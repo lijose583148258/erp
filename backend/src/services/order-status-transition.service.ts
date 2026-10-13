@@ -30,7 +30,8 @@ export async function compareAndSetOrderStatus(
   // row claim back, including both manual status and dedicated completion APIs.
   if (['delivered', 'completed'].includes(input.targetStatus)) {
     const fulfillment = await readOrderFulfillment(db, input.orderId);
-    if (!fulfillment.fullyDelivered) throw new OrderFulfillmentIncompleteError(fulfillment);
+    const satisfied = input.targetStatus === 'completed' ? fulfillment.fullyResolved : fulfillment.fullyDelivered;
+    if (!satisfied) throw new OrderFulfillmentIncompleteError(fulfillment);
   }
 
   // Claim the order row first. Any readiness failure then rolls the surrounding

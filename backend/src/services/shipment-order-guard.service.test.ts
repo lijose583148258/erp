@@ -38,12 +38,34 @@ const makeDb = (status = 'delivered', extra = {}) => {
 };
 
 describe('claimShipmentOrder', () => {
+  it.each(['confirmed', 'shipped', 'delivered'])('prevents cancelled demand from being allocated on %s', async status => {
+    const db = makeDb(status, { receivableAdjustments: [{ id: 1 }] });
+    db.order.findUnique.mockResolvedValue({ ...partialSnapshot(), receivableAdjustments: [
+      { id: 1, adjustmentType: 'order_quantity_cancellation', status: 'posted', orderItemId: 11, cancelledQuantity: 60 },
+    ] });
+    await expect(claimShipmentOrder(db as never, { ...input, quantity: 1 })).rejects.toThrow('SHIPMENT_ORDER_ITEM_QUANTITY_EXCEEDED');
+  });
+
+  it('rejects omitting the line to bypass posted quantity cancellation', async () => {
+    const db = makeDb('confirmed', { receivableAdjustments: [{ id: 1 }] });
+    await expect(claimShipmentOrder(db as never, { ...input, orderItemId: undefined })).rejects.toThrow('SHIPMENT_ORDER_FULFILLMENT_REVIEW_REQUIRED');
+  });
+
+  it('allows only the remaining unallocated quantity after a partial cancellation', async () => {
+    const db = makeDb('shipped', { receivableAdjustments: [{ id: 1 }] });
+    db.order.findUnique.mockResolvedValue({ ...partialSnapshot(), receivableAdjustments: [
+      { id: 1, adjustmentType: 'order_quantity_cancellation', status: 'posted', orderItemId: 11, cancelledQuantity: 20 },
+    ] });
+    await expect(claimShipmentOrder(db as never, { ...input, quantity: 40 })).resolves.toBeUndefined();
+  });
+
   it.each(['confirmed', 'shipped'])('locks and validates a %s order without rewriting its status', async status => {
     const db = makeDb(status);
     await expect(claimShipmentOrder(db as never, input)).resolves.toBeUndefined();
     expect(db.order.updateMany).toHaveBeenCalledWith({ where: { id: 7 }, data: { updatedAt: expect.any(Date) } });
     expect(db.order.findUnique).toHaveBeenCalledTimes(1);
-    expect(db.order.findUnique).toHaveBeenCalledWith({ where: { id: 7 }, select: { status: true, customerId: true, shipmentHold: true } });
+    expect(db.order.findUnique).toHaveBeenCalledWith({ where: { id: 7 }, select: { status: true, customerId: true, shipmentHold: true,
+      receivableAdjustments: { where: { adjustmentType: 'order_quantity_cancellation', status: 'posted' }, select: { id: true } } } });
     expect(db.order.updateMany.mock.invocationCallOrder[0]).toBeLessThan(db.order.findUnique.mock.invocationCallOrder[0]);
   });
 

@@ -356,6 +356,7 @@ export const useSalesOrders = () => {
     };
 
     return {
+        upsertOrder,
         t,
         language,
         formatPrice,

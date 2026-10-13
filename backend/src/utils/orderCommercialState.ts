@@ -6,6 +6,7 @@ export type CommercialFulfillmentStatus =
   | 'in_transit'
   | 'partially_delivered'
   | 'delivered'
+  | 'resolved_with_cancellation'
   | 'cancelled';
 
 export type CommercialFinancialStatus =
@@ -80,6 +81,7 @@ export const getCommercialFulfillmentStatus = (order: OrderCommercialSnapshot): 
   });
 
   if (fulfillment.fullyDelivered) return 'delivered';
+  if (fulfillment.fullyResolved && fulfillment.hasCancelledQuantity) return 'resolved_with_cancellation';
   if (fulfillment.hasAccepted) return 'partially_delivered';
   if (String(order.status || '').toLowerCase() === 'shipped' || anyInTransit) return 'in_transit';
   if (String(order.status || '').toLowerCase() === 'confirmed') return 'ready_to_ship';

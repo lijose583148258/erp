@@ -38,6 +38,7 @@ implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay', 'payment-reversal-browser');
 if (process.env.ROUND2_SALES_PLAN_REPORT) implemented.push('presale-with-fulfillment-plan');
+if (process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT) implemented.push('backorder-adjustment-closeout');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -450,6 +451,13 @@ async function main() {
     verifyFresh(source, runner.report.regression, runner.report.metadata.provider, Date.now());
     assert.equal(source.status, 'passed');
     const proof = require('./lib/sales-fulfillment-plan-proof.cjs').verifyPresaleProof(source);
+    return { ...proof, sourceRunId: source.runId, sourceReportSha256: crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex') };
+  });
+  if (process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT) await runner.run('backorder-adjustment-closeout', () => {
+    const source = JSON.parse(fs.readFileSync(process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT, 'utf8'));
+    assert(runner.report.regression, 'Cancellation proof must belong to the current cumulative run');
+    verifyFresh(source, runner.report.regression, runner.report.metadata.provider, Date.now());
+    const proof = require('./lib/customer-quantity-cancellation-proof.cjs').verifyCustomerCancellation(source);
     return { ...proof, sourceRunId: source.runId, sourceReportSha256: crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex') };
   });
   await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));

@@ -141,6 +141,10 @@ on:
       - 'pages/procurement/**'
       - 'components/ui/tablePreferences.ts'
       - 'scripts/sales-partial-fulfillment-audit-v1.cjs'
+      - 'scripts/customer-quantity-cancellation-audit-v1.cjs'
+      - 'scripts/customer-quantity-cancellation-contract.test.cjs'
+      - 'scripts/lib/customer-quantity-cancellation-proof.cjs'
+      - 'scripts/fixtures/customer-quantity-cancellation-fixture.cjs'
       - 'backend/src/utils/orderFulfillment*.ts'
       - 'backend/src/utils/orderCommercialState.ts'
       - 'backend/src/services/order-fulfillment.service.ts'
@@ -838,6 +842,15 @@ jobs:
           ROUND2_ALLOW_MUTATIONS: "true"
         run: node ./scripts/sales-partial-fulfillment-audit-v1.cjs
 
+      - name: Verify customer remainder cancellation and independent finance
+        id: customer_quantity_cancellation
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 4
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+        run: node ./scripts/customer-quantity-cancellation-audit-v1.cjs
+
       - name: Verify purchase-linked replenishment plans against real deliveries
         id: sales_fulfillment_plan
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}
@@ -866,6 +879,7 @@ jobs:
           ROUND2_ALLOW_MUTATIONS: "true"
           ROUND2_BROWSER: "true"
           ROUND2_SALES_PLAN_REPORT: output/audit/sales-fulfillment-plan/report.json
+          ROUND2_CUSTOMER_CANCELLATION_REPORT: output/audit/customer-quantity-cancellation/report.json
         run: npm run audit:enterprise:round2
 
       - name: Exercise PostgreSQL logical backup restore

@@ -6,10 +6,15 @@ export const ORDER_FULFILLMENT_SHIPMENT_SELECT = {
   receipts: { select: { acceptedQuantity: true, rejectedQuantity: true, unit: true } },
 } as const satisfies Prisma.ShipmentSelect;
 
+export const ORDER_FULFILLMENT_CANCELLATION_SELECT = {
+  id: true, adjustmentType: true, status: true, orderItemId: true, cancelledQuantity: true,
+} as const satisfies Prisma.ReceivableAdjustmentSelect;
+
 export async function readOrderFulfillment(db: Pick<Prisma.TransactionClient, 'order'>, orderId: number) {
   const snapshot = await db.order.findUnique({ where: { id: orderId }, select: {
     items: { select: { id: true, productName: true, quantity: true, unit: true } },
     shipments: { select: ORDER_FULFILLMENT_SHIPMENT_SELECT },
+    receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
   } });
   return getOrderFulfillment(snapshot || {});
 }

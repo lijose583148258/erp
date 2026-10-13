@@ -10,7 +10,7 @@ import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
 import { buildOrderSearchWhereAsync } from './search.service';
-import { ORDER_FULFILLMENT_SHIPMENT_SELECT } from './order-fulfillment.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT } from './order-fulfillment.service';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
@@ -98,8 +98,10 @@ const ORDER_DETAIL_INCLUDE = {
     receivableAdjustments: {
         orderBy: { createdAt: 'desc' as const },
         select: {
+            ...ORDER_FULFILLMENT_CANCELLATION_SELECT,
             id: true,
             adjustmentNo: true,
+              requestKey: true,
             adjustmentType: true,
             amount: true,
             status: true,
@@ -230,6 +232,7 @@ export const OrderWorkspaceService = {
                     createdAt: true,
                     updatedAt: true,
                     items: true,
+                    receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
                     shipments: {
                         select: {
                             ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
@@ -356,6 +359,7 @@ export const OrderWorkspaceService = {
                 contract: { select: { contractNo: true } },
                 _count: { select: { items: true } },
                 items: true,
+                receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
                 shipments: {
                     select: {
                         ...ORDER_FULFILLMENT_SHIPMENT_SELECT,

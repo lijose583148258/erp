@@ -179,6 +179,11 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
       const proof = require('./sales-fulfillment-plan-proof.cjs').verifyPresaleProof(source);
       assert.deepEqual(check.evidence, { ...proof, sourceRunId: source.runId, sourceReportSha256: sha256(JSON.stringify(source)) });
     }
+    if (id === 'backorder-adjustment-closeout') {
+      const source = reports.cancellation; verifyFresh(source, context, provider, now);
+      const proof = require('./customer-quantity-cancellation-proof.cjs').verifyCustomerCancellation(source);
+      assert.deepEqual(check.evidence, { ...proof, sourceRunId: source.runId, sourceReportSha256: sha256(JSON.stringify(source)) });
+    }
     if (id === 'stock-contention-browser' || id === 'transfer-shipping-browser') {
       const sourceId = id === 'stock-contention-browser' ? 'stock-20-contention' : 'transfer-shipping-contention';
       const source = round2.checks.find(c => c.id === sourceId);

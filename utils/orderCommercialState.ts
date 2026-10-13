@@ -54,7 +54,7 @@ export const deriveOrderFulfillmentStatus = (order: OrderSnapshot): OrderFulfill
   if (String(order.status).toLowerCase() === 'cancelled') return 'cancelled';
   // API computes fulfillment from per-line signed quantities. Do not overwrite
   // that result with the legacy all-existing-shipments-delivered shortcut.
-  if (order.fulfillmentStatus && ['pending_release', 'ready_to_ship', 'in_transit', 'partially_delivered', 'delivered', 'cancelled'].includes(order.fulfillmentStatus)) return order.fulfillmentStatus;
+  if (order.fulfillmentStatus && ['pending_release', 'ready_to_ship', 'in_transit', 'partially_delivered', 'delivered', 'resolved_with_cancellation', 'cancelled'].includes(order.fulfillmentStatus)) return order.fulfillmentStatus;
 
   const shipments = Array.isArray(order.shipments) ? order.shipments : [];
   const anyInTransit = shipments.some(shipment => {

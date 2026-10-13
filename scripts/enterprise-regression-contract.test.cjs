@@ -28,6 +28,11 @@ function fixture(profile = 'cloud') {
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture({ ...stamp, runId: 'current-presale-source' });
+  const cancellation = require('./fixtures/customer-quantity-cancellation-fixture.cjs').cancellationFixture(stamp);
+  round2.checks.find(c => c.id === 'backorder-adjustment-closeout').evidence = {
+    ...require('./lib/customer-quantity-cancellation-proof.cjs').verifyCustomerCancellation(cancellation), sourceRunId: cancellation.runId,
+    sourceReportSha256: require('node:crypto').createHash('sha256').update(JSON.stringify(cancellation)).digest('hex'),
+  };
   round2.checks.find(c => c.id === 'presale-with-fulfillment-plan').evidence = {
     ...require('./lib/sales-fulfillment-plan-proof.cjs').verifyPresaleProof(salesPlan), sourceRunId: salesPlan.runId,
     sourceReportSha256: require('node:crypto').createHash('sha256').update(JSON.stringify(salesPlan)).digest('hex'),
@@ -60,8 +65,30 @@ function fixture(profile = 'cloud') {
   steps.round2_business = { outcome: 'failure', conclusion: 'success' }; steps.cash_legacy_upgrade = { outcome: 'success' };
   // Disk reports are separately serialized; do not retain aliases to the expected context.
   return JSON.parse(JSON.stringify({ baseline, context, currentCommit: context.commit, currentSourceHash: context.sourceHash,
-    reports: { round2, sales, salesPlan, authorization, legacy }, steps, now: Date.parse('2026-01-01T00:00:04.000Z') }));
+    reports: { round2, sales, salesPlan, cancellation, authorization, legacy }, steps, now: Date.parse('2026-01-01T00:00:04.000Z') }));
 }
+
+for (const [label, mutate] of [
+  ['valid candidate', () => {}],
+  ['stale report', d => { d.reports.cancellation.regression.key = 'old'; }],
+  ['missing report', d => { d.reports.cancellation = null; }],
+  ['wrong database', d => { d.reports.cancellation.provider = 'sqlite'; }],
+  ['wrong source digest', d => { d.reports.round2.checks.find(c => c.id === 'backorder-adjustment-closeout').evidence.sourceReportSha256 = '0'.repeat(64); }],
+  ['forged summary', d => { d.reports.cancellation.cancellation = { passed: true }; }],
+  ['unexecuted cloud step', d => { d.steps.customer_quantity_cancellation = { outcome: 'skipped', conclusion: 'success' }; }],
+]) test(`cancellation candidate promotion enforces same-run raw proof: ${label}`, () => {
+  const d = fixture(), id = 'backorder-adjustment-closeout';
+  // Test the next baseline without claiming that unexecuted runtime evidence is accepted.
+  const next = structuredClone(d.baseline.revisions.at(-1)); next.id = 'synthetic-cancellation-candidate';
+  if (!next.round2Checks.includes(id)) next.round2Checks.push(id);
+  if (!next.cloudSteps.includes('customer_quantity_cancellation')) next.cloudSteps.push('customer_quantity_cancellation');
+  d.baseline.revisions.push(next); d.steps.customer_quantity_cancellation = { outcome: 'success' };
+  d.reports.round2.checks.find(c => c.id === id).status = 'passed';
+  d.reports.round2.summary = summarize(d.reports.round2, catalog); d.reports.round2.status = d.reports.round2.summary.status;
+  mutate(d); const result = evaluateRegression(d);
+  assert.equal(result.status, label === 'valid candidate' ? 'passed' : 'failed', JSON.stringify(result.checks.filter(c => c.status !== 'passed')));
+  assert.equal(result.checks.find(c => c.id === 'barter-cash-legacy-upgrade').status, 'passed', 'New failures cannot truncate prior packages');
+});
 
 test('baseline replay may pass while full 37-check acceptance remains incomplete', () => {
   for (const profile of ['cloud', 'local']) {

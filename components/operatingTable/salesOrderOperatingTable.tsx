@@ -133,9 +133,12 @@ export const createSalesOrderOperatingColumns = (
       <span className="flex flex-wrap gap-1" data-testid={`order-fulfillment-${row.id}`}>
         <Pill tone={statusTone(row.orderStatus)}>{text(labels, `status.${row.orderStatus || 'unknown'}`, row.orderStatus || 'Unknown')}</Pill>
         <Pill tone={statusTone(row.fulfillmentStatus)}>{text(labels, `status.${row.fulfillmentStatus || 'unknown'}`, row.fulfillmentStatus || 'Unknown')}</Pill>
-        <Pill tone={statusTone(row.paymentStatus)}>{text(labels, `status.${row.paymentStatus || 'unknown'}`, row.paymentStatus || 'Unknown')}</Pill>
+        <Pill tone={statusTone(row.paymentStatus)}>{row.paymentStatus === 'paid' ? text(labels, 'order.financial.settled', 'Settled') : text(labels, `status.${row.paymentStatus || 'unknown'}`, row.paymentStatus || 'Unknown')}</Pill>
         {row.fulfillment?.lines.filter(line => line.outstandingQuantity > 0).map(line => <span key={line.orderItemId} className="block w-full text-xs text-amber-800 dark:text-amber-200">
           {line.productName} · {text(labels, 'order.fulfillment.outstanding', 'Still owed')} {Number(line.outstandingQuantity.toPrecision(12))} {line.unit}
+        </span>)}
+        {row.fulfillment?.lines.filter(line => Number(line.cancelledQuantity) > 0).map(line => <span key={`cancel-${line.orderItemId}`} className="block w-full text-xs text-slate-600 dark:text-slate-300">
+          {line.productName} · {text(labels, 'order.fulfillment.cancelled', 'Cancelled obligation')} {line.cancelledQuantity} {line.unit}
         </span>)}
         {row.fulfillment?.needsReview && <span className="block w-full text-xs text-rose-600">{text(labels, 'order.fulfillment.review', 'Fulfillment evidence needs review')}</span>}
       </span>

@@ -14,6 +14,7 @@ import SalesOrderPaymentModal from './sales-orders/SalesOrderPaymentModal';
 import SalesOrderEditorModal from './sales-orders/SalesOrderEditorModal';
 import SalesOrderShipmentModal from './sales-orders/SalesOrderShipmentModal';
 import SalesFulfillmentPlanModal from './sales-orders/SalesFulfillmentPlanModal';
+import SalesOrderCancellationModal from './sales-orders/SalesOrderCancellationModal';
 import { getEligibleShipmentLines } from './sales-orders/salesOrderShipmentHelpers';
 import CollectionActionModal from '../components/collections/CollectionActionModal';
 import { OrderStatus, CommissionStatus, type SalesOrder } from '../types';
@@ -64,6 +65,7 @@ const SalesOrders = () => {
     const { formatPrice } = state;
     const [activeDesk, setActiveDesk] = useState<SalesOrderDesk>('orders');
     const [planOrderId, setPlanOrderId] = useState<string | null>(null);
+    const [cancellationOrderId, setCancellationOrderId] = useState<string | null>(null);
 
     const operatingLabels = useMemo(() => getOperatingTableLabels(state.language), [state.language]);
     const operatingRows = useMemo(
@@ -321,6 +323,7 @@ const SalesOrders = () => {
                     const showCommissionActions = activeDesk === 'commission';
                     return (
                     <div className="flex flex-wrap justify-end gap-2">
+                        {showFulfillmentActions && can(currentUser, 'orders.update') && ['confirmed', 'shipped', 'delivered'].includes(order.status) && <button data-testid={`sales-order-cancellation-${order.id}`} className="min-h-11 rounded-xl border border-slate-300 px-3 text-sm" onClick={e => { e.stopPropagation(); setCancellationOrderId(String(order.id)); }}>{state.language === 'en' ? 'Cancel remaining quantity' : state.language === 'vi' ? 'Hủy số lượng chưa giao' : '取消待交数量'}</button>}
                         {showFulfillmentActions && can(currentUser, 'orders.read') && <button data-testid={`sales-order-plan-${order.id}`} className="min-h-11 rounded-xl border border-blue-200 px-3 text-sm text-blue-700 dark:text-blue-300" onClick={e => { e.stopPropagation(); setPlanOrderId(String(order.id)); }}>{state.language === 'en' ? 'Replenishment plan' : state.language === 'vi' ? 'Kế hoạch mua bù' : '采购补货计划'}</button>}
                         {showOrderActions && state.canEditOrder(order) && (
                             <button data-testid="sales-order-edit-button" aria-label={t.editOrder} onClick={(e) => { e.stopPropagation(); state.openEditModal(order); }} className="min-h-11 min-w-11 p-2 bg-amber-50 text-amber-600 rounded-xl hover:bg-amber-100 border border-amber-200" title={t.editOrder}>
@@ -344,7 +347,7 @@ const SalesOrders = () => {
                         {showFulfillmentActions && !state.isManagerView && state.canCreateOrder && (
                             <>
                                 {order.status === OrderStatus.PENDING && <button aria-label={t.confirmOrder || '确认订单'} onClick={(e) => { e.stopPropagation(); state.handleStatusUpdate(order.id, OrderStatus.CONFIRMED); }} className="min-h-11 min-w-11 p-2 bg-blue-50 text-blue-600 rounded-xl hover:bg-blue-100" title={t.confirmOrder || '确认订单'}><Check size={16} /></button>}
-                                {order.fulfillmentStatus === 'delivered' && order.financialStatus === 'paid' && (currentUser?.role === 'admin' || currentUser?.role === 'manager') && (
+                                {order.fulfillment?.fullyResolved && String(order.status) !== 'completed' && order.financialStatus === 'paid' && can(currentUser, 'orders.complete') && (
                                     <button aria-label={t.completeOrder || '完成订单'} onClick={(e) => { e.stopPropagation(); state.handleManualComplete(order.id); }} className="min-h-11 min-w-11 p-2 bg-emerald-600 text-white rounded-xl hover:bg-emerald-700 hover:ring-2 hover:ring-emerald-300 shadow-lg" title={t.completeOrder || '完成订单'}>
                                         <CheckCircle2 size={16} />
                                     </button>
@@ -374,6 +377,7 @@ const SalesOrders = () => {
             )}
 
             {planOrderId && <SalesFulfillmentPlanModal key={planOrderId} orderId={planOrderId} actorId={Number(currentUser?.id)} canCreate={can(currentUser, 'orders.update')} canReview={can(currentUser, 'orders.status.manage')} language={state.language} onClose={() => setPlanOrderId(null)} />}
+            {cancellationOrderId && <SalesOrderCancellationModal key={cancellationOrderId} orderId={cancellationOrderId} actorId={Number(currentUser?.id)} language={state.language} onReadback={state.upsertOrder} onClose={() => setCancellationOrderId(null)} />}
             <SalesOrderHistoryModal
                 isOpen={state.isHistoryOpen}
                 selectedOrder={state.selectedOrder}

@@ -175,6 +175,8 @@ model OrderItem {
   shipments       Shipment[]
   fulfillmentPlans SalesFulfillmentPlan[]
 
+  quantityCancellations ReceivableAdjustment[]
+
   @@index([orderId])
   @@index([materialId])
   @@map("order_items")

@@ -56,6 +56,7 @@ export type OrderFulfillmentStatus =
   | 'ready_to_ship'
   | 'in_transit'
   | 'partially_delivered'
+  | 'resolved_with_cancellation'
   | 'delivered'
   | 'cancelled';
 
@@ -294,11 +295,15 @@ export interface SalesOrder {
   fulfillmentStatus?: OrderFulfillmentStatus;
   fulfillment?: {
     fullyDelivered: boolean;
+    fullyResolved?: boolean;
+    hasCancelledQuantity?: boolean;
     needsReview: boolean;
     lines: Array<{ orderItemId: number; productName: string; unit: string; orderedQuantity: number;
-      allocatedQuantity: number; dispatchedQuantity: number; acceptedQuantity: number;
+      allocatedQuantity: number; dispatchedQuantity: number; acceptedQuantity: number; cancelledQuantity?: number;
       outstandingQuantity: number; unallocatedQuantity: number }>;
   };
+  receivableAdjustments?: Array<{ id: number; adjustmentNo: string; adjustmentType: string; status: string;
+    orderItemId?: number | null; cancelledQuantity?: number | null; amount: number; reason: string; requestKey?: string | null }>;
   financialStatus?: OrderFinancialStatus;
   commissionAmount?: number;
   commissionRateSubmitted?: number;

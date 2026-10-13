@@ -7,7 +7,8 @@ const {ensureUiAuditUser,createAuditPrismaClient,loginUiAuditUser}=require('./li
 const {ensureReleasedMaterial}=require('./lib/material-audit-fixture.cjs');
 const {launchBrowserWithGuard}=require('./lib/browser-launch-guard.cjs');
 const {expect}=require('playwright/test');
-process.env.ROUND2_REPORT_PATH ||= path.resolve('output/audit/sales-partial-fulfillment/report.json');
+const cancellationAudit = process.env.ROUND2_QUANTITY_CANCELLATION === 'true';
+process.env.ROUND2_REPORT_PATH ||= path.resolve(cancellationAudit ? 'output/audit/customer-quantity-cancellation/report.json' : 'output/audit/sales-partial-fulfillment/report.json');
 fs.mkdirSync(path.dirname(process.env.ROUND2_REPORT_PATH),{recursive:true});
 const urls=[process.env.APP_URL,process.env.SECONDARY_APP_URL].map(url=>String(url||'').replace(/\/$/,''));
 const runId=`partial-${Date.now()}`;
@@ -29,8 +30,149 @@ async function captureFulfillment(axis, name) {
     return{rect:box.toJSON(),notCovered:!!top&&(top===element||element.contains(top))};
   });
   assert(bounds.notCovered,'Fulfillment readback is covered by sticky columns or overlays');
-  (report.browserBounds ||= []).push({name,...bounds});
+  (report.browserBounds ||= []).push({name,text:await axis.innerText(),...bounds});
   await page.screenshot({path:path.join(path.dirname(process.env.ROUND2_REPORT_PATH),name)});
+}
+async function auditQuantityCancellation({order,original,batch,batchNo,password,sales,salesLogin,adminToken,material,customer}){
+  report.name='Customer quantity cancellation audit';report.scope='Explicit unallocated-demand cancellation with independent finance, immutable originals and exact AR; excludes refunds and physical stock reservation';
+  await ensureUiAuditUser({username:`${runId}-finance`,password,role:'finance',segment:'mixed'});
+  await ensureUiAuditUser({username:`${runId}-outsider`,password,role:'sales',segment:'direct'});
+  const financeLogin=dataOf(await request('/auth/login',{method:'POST',data:{username:`${runId}-finance`,password}}));
+  const outsider=dataOf(await request('/auth/login',{method:'POST',data:{username:`${runId}-outsider`,password}}));
+  const state=async()=>({order:await prisma.order.findUnique({where:{id:Number(order.id)},include:{items:true,shipments:{include:{receipts:true}},paymentRecords:true}}),
+    adjustments:await prisma.receivableAdjustment.findMany({where:{orderId:Number(order.id)},orderBy:{id:'asc'}}),
+    balances:await prisma.stockBalance.findMany({where:{materialId:material.id,batchNo},orderBy:{id:'asc'}}),
+    cost:await prisma.inventoryCostLedger.findMany({where:{batchId:batch.id},orderBy:{id:'asc'}})});
+  const before=await state();report.cancellation={before,rejections:[],actors:{sales:sales.id,finance:financeLogin.user.id}};
+  const input={orderItemId:original.items[0].id,quantity:60,expectedUpdatedAt:dataOf(await request('/orders/'+order.id)).updatedAt,idempotencyKey:crypto.randomUUID(),reason:'Customer written cancellation of the remaining 60 kg'};
+  const endpoint='/orders/'+order.id+'/quantity-cancellations';
+  const reject=async(name,promise,status,code)=>{const result=await promise;report.cancellation.rejections.push({name,...result});assert.equal(result.status,status,JSON.stringify(result));if(code)assert.equal(result.json.errorCode,code);};
+  token=outsider.token;await reject('foreign customer',request(endpoint,{method:'POST',data:input}),404,'ORDER_CANCELLATION_NOT_FOUND');
+  token=salesLogin.token;
+  await reject('exceeds unallocated',request(endpoint,{method:'POST',data:{...input,quantity:61}}),409,'ORDER_CANCELLATION_QUANTITY_EXCEEDED');
+  await reject('stale order version',request(endpoint,{method:'POST',data:{...input,expectedUpdatedAt:'2020-01-01T00:00:00.000Z'}}),409,'ORDER_CANCELLATION_STATE_CHANGED');
+  await reject('client-chosen price',request(endpoint,{method:'POST',data:{...input,amount:1}}),400);
+  assert.deepEqual(await state(),before);
+
+  const launched=await launchBrowserWithGuard({launchTimeoutMs:15000,totalTimeoutMs:45000,maxAttemptsPerStrategy:1});browser=launched.browser;
+  page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(15000);
+  salesLogin.token=(await loginUiAuditUser(page,urls[0]+'/',{account:{username:`${runId}-sales`,password,role:'sales',segment:'direct'},storage:{'ailao.language':'zh','language':'zh-CN'}})).token;token=salesLogin.token;
+  await page.goto(urls[0]+'/#orders');await page.getByTestId('sales-desk-fulfillment').click();
+  await page.getByTestId('sales-order-cancellation-'+order.id).click();
+  await page.getByTestId('sales-cancellation-line').selectOption(String(input.orderItemId));
+  await page.getByTestId('sales-cancellation-quantity').fill('60');await page.getByTestId('sales-cancellation-reason').fill(input.reason);
+  let captured;let release;const intercepted=new Promise(resolve=>{release=resolve});
+  const lostAck={endpoint,instance:0};
+  const failedRequest=page.waitForEvent('requestfailed',{predicate:r=>r.url().endsWith(endpoint)&&r.method()==='POST'});
+  await page.route('**/api'+endpoint,async route=>{try{const response=await route.fetch();captured={status:response.status(),json:await response.json(),sent:route.request().postDataJSON()};lostAck.receivedAt=performance.now();await route.abort('failed');}finally{release();}});
+  await page.getByTestId('sales-cancellation-submit').click();await intercepted;
+  lostAck.failure=(await failedRequest).failure();lostAck.failedAt=performance.now();
+  assert.equal(captured.status,201,JSON.stringify(captured));const created=captured.json.data,sent=captured.sent;
+  await expect(page.getByTestId('sales-cancellation-dialog')).toContainText('结果未确认');
+  await expect(page.getByTestId('sales-cancellation-submit')).toBeDisabled();
+  lostAck.failureText=await page.getByTestId('sales-cancellation-dialog').innerText();lostAck.submitDisabled=true;
+  await page.screenshot({path:path.join(path.dirname(process.env.ROUND2_REPORT_PATH),'sales-cancellation-lost-ack.png')});
+  await page.unroute('**/api'+endpoint);await page.getByRole('button',{name:'关闭',exact:true}).click();
+  await page.getByTestId('sales-order-cancellation-'+order.id).click();
+  await expect(page.getByTestId('sales-cancellation-history')).toContainText(created.adjustmentNo);
+  await expect(page.getByTestId('sales-cancellation-history')).toContainText('待财务过账');
+  lostAck.recoveryText=await page.getByTestId('sales-cancellation-history').innerText();lostAck.recoveredAt=performance.now();
+  await page.screenshot({path:path.join(path.dirname(process.env.ROUND2_REPORT_PATH),'sales-cancellation-pending.png')});
+  const pending=await state();assert.equal(pending.order.receivableAdjustmentAmount,0);assert.equal(pending.order.paidAmount,400);
+  assert.equal(dataOf(await request('/orders/'+order.id)).fulfillment.lines[0].outstandingQuantity,60);
+  const replay=await request(endpoint,{method:'POST',data:sent,instance:1});assert.equal(dataOf(replay).id,created.id);
+  await reject('same key altered reason',request(endpoint,{method:'POST',data:{...sent,reason:'different reason'}}),409,'ORDER_CANCELLATION_IDEMPOTENCY_CONFLICT');
+  await reject('sales cannot post',request('/finance/receivable-adjustments/'+created.id+'/post',{method:'POST'}),403);
+  report.cancellation.pending={created,sent,replay,persisted:pending};
+  report.cancellation.lostAck={...lostAck,upstreamStatus:captured.status,upstreamId:created.id};
+
+  const financePage=await browser.newPage({viewport:{width:1440,height:1000}});financePage.setDefaultTimeout(15000);
+  financeLogin.token=(await loginUiAuditUser(financePage,urls[1]+'/',{account:{username:`${runId}-finance`,password,role:'finance',segment:'mixed'},storage:{'ailao.language':'zh','language':'zh-CN'}})).token;
+  await financePage.goto(urls[1]+'/#financeAnalytics');
+  await financePage.getByRole('tab',{name:/台账回读/}).click();
+  const postResponse=financePage.waitForResponse(r=>r.url().endsWith('/finance/receivable-adjustments/'+created.id+'/post'));
+  await financePage.getByTestId('receivable-adjustment-post-'+created.id).click();const postedResponse=await postResponse;
+  assert.equal(postedResponse.status(),200,await postedResponse.text());report.cancellation.financePost=await postedResponse.json();
+  await expect(financePage.getByTestId('receivable-adjustment-reverse-'+created.id)).toBeVisible();
+  const effective=financePage.getByText('有效 400.00 CNY',{exact:true});await expect(effective).toBeVisible();
+  const salesPage=page;page=financePage;try{await captureFulfillment(effective,'finance-cancellation-posted.png');}finally{page=salesPage;}
+  token=financeLogin.token;const posted=await state();report.cancellation.posted=posted;
+  assert.equal(posted.order.receivableAdjustmentAmount,600);assert.equal(posted.order.paidAmount,400);assert.equal(posted.order.finalAmount,1000);assert.equal(posted.order.paymentStatus,'paid');
+  for(const key of ['items','shipments','paymentRecords'])assert.deepEqual(posted.order[key],before.order[key]);
+  for(const key of ['balances','cost'])assert.deepEqual(posted[key],before[key]);
+  token=salesLogin.token;
+  report.cancellation.readbacks=await Promise.all([0,1].map(instance=>request('/orders/'+order.id,{instance}).then(dataOf)));
+  for(const detail of report.cancellation.readbacks){assert.equal(detail.fulfillmentStatus,'resolved_with_cancellation');assert.equal(detail.fulfillment.fullyDelivered,false);assert.equal(detail.fulfillment.fullyResolved,true);assert.equal(detail.fulfillment.lines[0].cancelledQuantity,60);assert.equal(detail.fulfillment.lines[0].acceptedQuantity,40);assert.equal(detail.fulfillment.lines[0].outstandingQuantity,0);}
+  await page.getByRole('button',{name:'刷新回读',exact:true}).click();await expect(page.getByTestId('sales-cancellation-history')).toContainText('已过账');
+  await page.getByRole('button',{name:'关闭',exact:true}).click();const axis=page.getByTestId('order-fulfillment-'+order.id);
+  await expect(axis).toContainText('履约已解决（含取消）');await expect(axis).toContainText('已取消待交量 60 kg');
+  await captureFulfillment(axis,'sales-cancellation-resolved.png');
+  token=adminToken;
+  const shipmentData={customerId:Number(customer.id),orderId:Number(order.id),orderItemId:Number(input.orderItemId),materialId:material.id,productName:material.nameZh,quantity:1,unit:'kg',batchNo,carrier:'Synthetic'};
+  await reject('cannot ship cancelled quantity',request('/shipping',{method:'POST',data:shipmentData}),409);
+  await reject('cannot omit line binding',request('/shipping',{method:'POST',data:{...shipmentData,orderItemId:undefined}}),409);
+  await reject('not a physical delivery',request('/orders/'+order.id+'/status',{method:'PATCH',data:{status:'delivered'}}),409,'ORDER_FULFILLMENT_INCOMPLETE');
+  token=financeLogin.token;
+  const replayPost=dataOf(await request('/finance/receivable-adjustments/'+created.id+'/post',{method:'POST',instance:0}));assert.equal(replayPost.changed,false);
+  const reversed=dataOf(await request('/finance/receivable-adjustments/'+created.id+'/reverse',{method:'POST',data:{note:'Restore obligation before renewed customer confirmation'}}));assert.equal(reversed.changed,true);
+  token=salesLogin.token;const restored=dataOf(await request('/orders/'+order.id));assert.equal(restored.fulfillment.lines[0].outstandingQuantity,60);assert.equal(restored.receivableAdjustmentAmount,0);
+  const replacement=dataOf(await request(endpoint,{method:'POST',data:{...input,expectedUpdatedAt:restored.updatedAt,idempotencyKey:crypto.randomUUID(),reason:'Renewed customer written cancellation of remaining 60 kg'}}));
+  token=financeLogin.token;dataOf(await request('/finance/receivable-adjustments/'+replacement.id+'/post',{method:'POST'}));
+  token=adminToken;const completed=dataOf(await request('/orders/'+order.id+'/complete',{method:'PUT',data:{}}));assert.equal(completed.status,'completed');assert.equal(completed.fulfillment.fullyDelivered,false);
+  token=financeLogin.token;await reject('cannot reopen closed order',request('/finance/receivable-adjustments/'+replacement.id+'/reverse',{method:'POST',data:{note:'Forbidden reversal after closure'}}),409);
+  const final=await state();for(const key of ['items','shipments','paymentRecords'])assert.deepEqual(final.order[key],before.order[key]);for(const key of ['balances','cost'])assert.deepEqual(final[key],before[key]);
+  const audit=await prisma.auditLog.findMany({where:{resource:'receivable_adjustment',resourceId:{in:[created.id,replacement.id]}},orderBy:{id:'asc'}});
+  assert.equal(audit.filter(r=>r.action==='REQUEST_ORDER_QUANTITY_CANCELLATION').length,2);assert.equal(audit.filter(r=>r.action==='POST_ORDER_QUANTITY_CANCELLATION').length,2);assert.equal(audit.filter(r=>r.action==='REVERSE_ORDER_QUANTITY_CANCELLATION').length,1);
+  Object.assign(report.cancellation,{replayPost,reversed,restored,replacement,completed,final,audit});
+  report.cancellation.races=[];
+  for(const kind of ['double-post','post-vs-shipment']){
+    token=salesLogin.token;const fresh=dataOf(await request('/orders',{method:'POST',data:{customerId:Number(customer.id),items:[{materialId:material.id,productName:material.nameZh,quantity:100,unit:'kg',unitPrice:10}],paymentTerms:30}}));
+    token=adminToken;dataOf(await request('/orders/'+fresh.id+'/status',{method:'PATCH',data:{status:'confirmed'}}));
+    const originalRace=dataOf(await request('/orders/'+fresh.id));
+    token=salesLogin.token;const intent={orderItemId:originalRace.items[0].id,quantity:70,expectedUpdatedAt:originalRace.updatedAt,idempotencyKey:crypto.randomUUID(),reason:'Race fixture customer quantity cancellation'};
+    const duplicates=await Promise.all([0,1].map(instance=>request('/orders/'+fresh.id+'/quantity-cancellations',{method:'POST',data:intent,instance})));
+    const credit=dataOf(duplicates[0]);assert.equal(dataOf(duplicates[1]).id,credit.id);
+    token=financeLogin.token;const postOp=request('/finance/receivable-adjustments/'+credit.id+'/post',{method:'POST',instance:0});
+    token=kind==='double-post'?financeLogin.token:adminToken;
+    const competing=kind==='double-post'?request('/finance/receivable-adjustments/'+credit.id+'/post',{method:'POST',instance:1}):request('/shipping',{method:'POST',instance:1,data:{...shipmentData,orderId:Number(fresh.id),orderItemId:Number(originalRace.items[0].id),quantity:40}});
+    const outcomes=await Promise.all([postOp,competing]);assert(outcomes.every(r=>[200,201,409].includes(r.status)),JSON.stringify(outcomes));
+    const afterRace=await prisma.order.findUnique({where:{id:Number(fresh.id)},include:{items:true,receivableAdjustments:true,shipments:true}});
+    const postedCredits=afterRace.receivableAdjustments.filter(r=>r.status==='posted');const cancelled=postedCredits.reduce((s,r)=>s+r.cancelledQuantity,0),allocated=afterRace.shipments.reduce((s,r)=>s+r.quantity,0);
+    assert.equal(afterRace.receivableAdjustmentAmount,cancelled*10);assert.equal(afterRace.paidAmount,0);assert.equal(afterRace.items[0].quantity,100);assert.equal(afterRace.finalAmount,1000);assert(cancelled+allocated<=100);
+    if(kind==='double-post'){assert.equal(cancelled,70);assert.equal(outcomes.filter(r=>r.json.data?.changed===true).length,1)}
+    else{assert.equal(outcomes.filter(r=>r.ok).length,1);assert((cancelled===70&&allocated===0)||(cancelled===0&&allocated===40));}
+    const audits=await prisma.auditLog.findMany({where:{resource:'receivable_adjustment',resourceId:credit.id},orderBy:{id:'asc'}});
+    assert.equal(audits.filter(r=>r.action==='REQUEST_ORDER_QUANTITY_CANCELLATION').length,1);assert.equal(audits.filter(r=>r.action==='POST_ORDER_QUANTITY_CANCELLATION').length,postedCredits.length);
+    report.cancellation.races.push({kind,original:originalRace,duplicates,outcomes,after:afterRace,audits});
+  }
+  // Financial-only credits must not erase demand; unsupported refunds fail without writes.
+  token=salesLogin.token;
+  const boundaryOrder=dataOf(await request('/orders',{method:'POST',data:{customerId:Number(customer.id),items:[{materialId:material.id,productName:material.nameZh,quantity:100,unit:'kg',unitPrice:10}],paymentTerms:30}}));
+  token=adminToken;dataOf(await request('/orders/'+boundaryOrder.id+'/status',{method:'PATCH',data:{status:'confirmed'}}));
+  dataOf(await request('/orders/'+boundaryOrder.id+'/payment',{method:'POST',data:{idempotencyKey:crypto.randomUUID(),amount:800,method:'bank_transfer',payerName:runId}}));
+  const boundaryPayment=dataOf(await request('/orders/'+boundaryOrder.id)).paymentRecords.find(row=>row.status==='pending');
+  assert(boundaryPayment);dataOf(await request(`/orders/${boundaryOrder.id}/payment/${boundaryPayment.id}/verify`,{method:'POST'}));
+  const boundaryState=()=>prisma.order.findUnique({where:{id:Number(boundaryOrder.id)},include:{items:true,receivableAdjustments:true,paymentRecords:true,shipments:true}});
+  const boundaryBefore=await boundaryState();const boundaryDetail=dataOf(await request('/orders/'+boundaryOrder.id));
+  assert.equal(boundaryBefore.paidAmount,800);
+  const boundaryInput={orderItemId:boundaryDetail.items[0].id,quantity:60,expectedUpdatedAt:boundaryDetail.updatedAt,idempotencyKey:crypto.randomUUID(),reason:'Unsupported refund must not silently change cash'};
+  token=salesLogin.token;
+  const refund=await request('/orders/'+boundaryOrder.id+'/quantity-cancellations',{method:'POST',data:boundaryInput});
+  assert.equal(refund.status,409);assert.equal(refund.json.errorCode,'ORDER_CANCELLATION_REFUND_REQUIRED');
+  const afterRefund=await boundaryState();assert.deepEqual(afterRefund,boundaryBefore);
+  token=financeLogin.token;
+  const financialCredit=dataOf(await request('/finance/receivable-adjustments',{method:'POST',data:{orderId:Number(boundaryOrder.id),adjustmentType:'credit_memo',amount:100,currency:'CNY',reason:'Money-only commercial concession'}}));
+  dataOf(await request('/finance/receivable-adjustments/'+financialCredit.id+'/post',{method:'POST'}));
+  const financialReadback=dataOf(await request('/orders/'+boundaryOrder.id));
+  assert.equal(financialReadback.fulfillment.lines[0].outstandingQuantity,100);assert.equal(financialReadback.fulfillment.lines[0].cancelledQuantity,0);
+  token=adminToken;
+  const ownRequest=dataOf(await request('/orders/'+boundaryOrder.id+'/quantity-cancellations',{method:'POST',data:{...boundaryInput,quantity:10,expectedUpdatedAt:financialReadback.updatedAt,idempotencyKey:crypto.randomUUID()}}));
+  const beforeSelfPost=await boundaryState();
+  const selfPost=await request('/finance/receivable-adjustments/'+ownRequest.id+'/post',{method:'POST'});
+  assert.equal(selfPost.status,409);assert.equal(selfPost.json.message,'取消申请必须由另一名财务审核。');
+  const afterSelfPost=await boundaryState();assert.deepEqual(afterSelfPost,beforeSelfPost);
+  report.cancellation.boundaries={before:boundaryBefore,refund,afterRefund,financialCredit,financialReadback,beforeSelfPost,selfPost,afterSelfPost};
+  await financePage.close();
 }
 async function main(){
   assert.equal(process.env.ROUND2_ALLOW_MUTATIONS,'true');
@@ -51,7 +193,7 @@ async function main(){
   token=adminToken;
   dataOf(await request(`/orders/${order.id}/status`,{method:'PATCH',data:{status:'confirmed'}}));
   token=salesLogin.token;
-  dataOf(await request(`/orders/${order.id}/payment`,{method:'POST',data:{ idempotencyKey: require('node:crypto').randomUUID(),amount:1000,method:'bank_transfer',payerName:runId}}));
+  dataOf(await request(`/orders/${order.id}/payment`,{method:'POST',data:{ idempotencyKey: require('node:crypto').randomUUID(),amount:cancellationAudit?400:1000,method:'bank_transfer',payerName:runId}}));
   token=adminToken;
   const payment=dataOf(await request(`/orders/${order.id}`)).paymentRecords.find(row=>row.status==='pending');
   assert(payment);dataOf(await request(`/orders/${order.id}/payment/${payment.id}/verify`,{method:'POST'}));
@@ -77,6 +219,10 @@ async function main(){
   assert(readbacks.every(o=>o.fulfillmentStatus==='partially_delivered'&&o.fulfillment.lines[0].outstandingQuantity===60));
   const ready=dataOf(await request('/orders/shipping-ready',{instance:1}));
   assert(ready.some(o=>o.id===order.id&&o.fulfillment.lines[0].unallocatedQuantity===60));
+  if(cancellationAudit){
+    await auditQuantityCancellation({order,original,batch,batchNo,password,sales,salesLogin,adminToken,material,customer});
+    report.status='passed';report.summary={passedChecks:1,failedChecks:0,remainingChecks:0};return;
+  }
   report.earlyClose=[];
   for(const target of ['complete','completed','delivered']){
     const response=await request(`/orders/${order.id}/${target==='complete'?'complete':'status'}`,{method:target==='complete'?'PUT':'PATCH',data:target==='complete'?{}:{status:target},instance:1});

@@ -1,6 +1,17 @@
 import { compareAndSetOrderStatus } from './order-status-transition.service';
 
 describe('compareAndSetOrderStatus', () => {
+  it.each(['confirmed', 'shipped'])('completes resolved %s obligations without inventing a delivery', async expectedStatus => {
+    const accepted = expectedStatus === 'confirmed' ? 0 : 40;
+    const snapshot = { items: [{ id: 1, quantity: 100, unit: 'kg' }], shipments: accepted ? [
+      { orderItemId: 1, quantity: accepted, unit: 'kg', status: 'delivered', receipts: [{ acceptedQuantity: accepted, rejectedQuantity: 0, unit: 'kg' }] },
+    ] : [], receivableAdjustments: [{ id: 2, adjustmentType: 'order_quantity_cancellation', status: 'posted', orderItemId: 1, cancelledQuantity: 100 - accepted }] };
+    const db = { order: { updateMany: jest.fn().mockResolvedValue({ count: 1 }), findUnique: jest.fn().mockResolvedValue(snapshot) } };
+    await expect(compareAndSetOrderStatus(db as never, { orderId: 42, expectedStatus, targetStatus: 'completed' })).resolves.toBe(true);
+    await expect(compareAndSetOrderStatus(db as never, { orderId: 42, expectedStatus, targetStatus: 'delivered' })).rejects.toThrow('ORDER_FULFILLMENT_INCOMPLETE');
+    expect(db.order.updateMany.mock.calls[0][0].where.AND).toContainEqual({ paymentStatus: 'paid' });
+  });
+
   it.each(['delivered', 'completed'])('rejects early %s after claiming the row so the caller rolls back atomically', async targetStatus => {
     const updateMany = jest.fn().mockResolvedValue({ count: 1 });
     const findUnique = jest.fn().mockResolvedValue({ items: [{ id: 1, quantity: 100, unit: 'kg' }],

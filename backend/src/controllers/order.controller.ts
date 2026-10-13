@@ -20,11 +20,12 @@ import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
-import { ORDER_FULFILLMENT_SHIPMENT_SELECT, OrderFulfillmentIncompleteError } from '../services/order-fulfillment.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, OrderFulfillmentIncompleteError } from '../services/order-fulfillment.service';
 import { getOrderFulfillment } from '../utils/orderFulfillment';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
+import { ReceivableAdjustmentService, getReceivableAdjustmentConflictMessage } from '../services/receivable-adjustment.service';
 import {
     buildOrderDataScopeWhere,
     canUseCustomerForBusinessWrite,
@@ -48,6 +49,21 @@ class OrderCreationRejectedError extends Error {
 }
 
 export class OrderController {
+    async createQuantityCancellation(req: AuthRequest, res: Response) {
+        try {
+            const data = await ReceivableAdjustmentService.createOrderQuantityCancellation(Number(req.params.id), req.body, req);
+            return res.status(201).json({ success: true, data });
+        } catch (error) {
+            const message = getReceivableAdjustmentConflictMessage(error);
+            if (message && error instanceof Error) return res.status(error.message === 'ORDER_CANCELLATION_NOT_FOUND' ? 404 : 409)
+                .json({ success: false, errorCode: error.message, message });
+            if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ success: false,
+                errorCode: 'ORDER_CANCELLATION_IDEMPOTENCY_CONFLICT', message: '请求身份已使用，请回读原申请。' });
+            logger.error('Create order quantity cancellation failed:', error);
+            return res.status(500).json({ success: false, message: '取消申请未确认，请回读后重试同一请求。' });
+        }
+    }
+
     async getOrders(req: AuthRequest, res: Response) {
         try {
             const result = await OrderWorkspaceService.getOrders(
@@ -447,6 +463,7 @@ export class OrderController {
                     customer: { select: { id: true, nameZh: true, nameEn: true, nameVi: true } },
                     items: true,
                     shipments: { select: ORDER_FULFILLMENT_SHIPMENT_SELECT },
+                    receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
                 }
             });
 
@@ -485,11 +502,12 @@ export class OrderController {
                 return res.status(403).json({ success: false, message: '无权结案该订单。' });
             }
 
-            // H2修复：业务校验 — 必须全款且物流已发或已签收
-            if (!['shipped', 'delivered'].includes(order.status) || order.paymentStatus !== 'paid') {
+            // An entirely cancelled remainder may have no shipment. The locked
+            // quantity check below still requires every obligation to be resolved.
+            if (!['confirmed', 'shipped', 'delivered'].includes(order.status) || order.paymentStatus !== 'paid') {
                 return res.status(400).json({
                     success: false,
-                    message: '只有已发货或已签收且已全额回款的订单才能结案。',
+                    message: '订单须已确认、应收已结清且交付义务全部解决后才能结案。',
                 });
             }
 
