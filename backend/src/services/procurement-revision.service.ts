@@ -3,6 +3,7 @@ import { AppError, ErrorCode } from '../middleware/errorHandler';
 import { revisePurchaseOrderSchema } from '../validators/procurement';
 import { calculatePurchaseValuation, mapPurchaseOrder, normalizePurchaseStatus } from './procurement-domain.service';
 import type { TransactionClient } from './stock-movement.types';
+import { purchaseGovernanceSnapshots } from '../domain/purchase-governance';
 
 export type PurchaseRevisionInput = z.infer<typeof revisePurchaseOrderSchema>;
 
@@ -26,14 +27,24 @@ export async function revisePurchaseOrder(tx: TransactionClient, id: number, raw
   if (Object.values(valuation).some(value => typeof value === 'number' && !Number.isFinite(value))) {
     throw new AppError('采购金额超出有效范围', 400, ErrorCode.VALIDATION_ERROR);
   }
-  if (Number(before.quantity) === input.quantity && Number(before.price) === input.price
-    && Number(before.taxAmount) === input.taxAmount && before.eta.toISOString().slice(0, 10) === input.eta) {
+  const binding = { revision: before.revision, supplierId: before.supplierId, materialId: before.materialId ?? null,
+    unit: before.unit, quantity: input.quantity, price: input.price, currency: before.currency, exchangeRate: before.exchangeRate };
+  const commercialChange = Number(before.quantity) !== input.quantity || Number(before.price) !== input.price
+    || Number(before.taxAmount) !== input.taxAmount || before.eta.toISOString().slice(0, 10) !== input.eta;
+  const explicitGovernance = input.supplierPayableTerms !== undefined || input.incomingQualityPlan !== undefined;
+  const currentGovernance = purchaseGovernanceSnapshots(binding, input.supplierPayableTerms, input.incomingQualityPlan);
+  if (!commercialChange && (!explicitGovernance || (
+    currentGovernance.supplierPayableBasisJson === (before.supplierPayableBasisJson ?? null)
+    && currentGovernance.incomingQualityPlanJson === (before.incomingQualityPlanJson ?? null)))) {
     throw new AppError('采购条款没有变化，无需生成新版本', 400, ErrorCode.VALIDATION_ERROR);
   }
+  // Every new revision invalidates old confirmation. Only explicitly supplied
+  // terms/specifications are rebound for independent approval of the new PO.
+  const governance = purchaseGovernanceSnapshots({ ...binding, revision: before.revision + 1 }, input.supplierPayableTerms, input.incomingQualityPlan);
   // CAS also claims the PO row against status/receipt writers before checking receipts.
   const claim = await tx.purchaseOrder.updateMany({
     where: { id, revision: input.expectedRevision, updatedAt: before.updatedAt, status: before.status },
-    data: { quantity: input.quantity, price: input.price, eta: new Date(input.eta), ...valuation,
+    data: { quantity: input.quantity, price: input.price, eta: new Date(input.eta), ...valuation, ...governance,
       revision: { increment: 1 }, status: 'pending', updatedAt: new Date(Math.max(Date.now(), before.updatedAt.getTime() + 1)) },
   });
   if (claim.count !== 1) {

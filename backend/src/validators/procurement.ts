@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { incomingQualityPlanSchema, supplierPayableTermsSchema } from '../domain/purchase-governance';
 
 const purchaseStatusSchema = z.enum(['pending', 'approved', 'in_transit', 'received', 'cancelled', 'confirmed', 'shipped', 'delivered']);
 const receiptDiscrepancyTypeSchema = z.enum([
@@ -85,6 +86,8 @@ export const createPurchaseOrderSchema = z.object({
   salesOrderRef: z.string().trim().optional(),
   salesOrderId: z.coerce.number().int().positive().optional().nullable(),
   isB2B: z.coerce.boolean().optional(),
+  supplierPayableTerms: supplierPayableTermsSchema.optional(),
+  incomingQualityPlan: incomingQualityPlanSchema.optional(),
 }).passthrough();
 
 // A complete, explicitly priced amendment; identity/currency/FX are immutable here.
@@ -97,6 +100,8 @@ export const revisePurchaseOrderSchema = z.object({
   eta: z.string().refine(value => /^\d{4}-\d{2}-\d{2}$/.test(value)
     && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, '预计到货日期无效'),
   reason: z.string().trim().min(3).max(1000),
+  supplierPayableTerms: supplierPayableTermsSchema.optional(),
+  incomingQualityPlan: incomingQualityPlanSchema.optional(),
 }).strict();
 
 export const createPurchaseReceiptSchema = z.object({

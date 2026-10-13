@@ -65,4 +65,15 @@ describe('production request validation', () => {
     expect(parsed.success).toBe(false);
     if (!parsed.success) expect(parsed.error.issues.some(issue => issue.message.includes('不能重复'))).toBe(true);
   });
+
+  it.each(['Infinity', 'NaN', '1e309', 'not-a-number', Infinity, NaN])('rejects invalid numeric measurement %s before storage', measuredNumeric => {
+    expect(createProductionQualityCheckSchema.safeParse({ sampleNo: 'INVALID-MEASUREMENT',
+      measurements: [{ characteristicId: 1, measuredNumeric }] }).success).toBe(false);
+  });
+
+  it.each([' | | ', '|||', ''])('does not accept a text standard with no actual passing target (%s)', targetText => {
+    expect(createProductionBomSchema.safeParse({ ...validBom, qualityCharacteristics: [{
+      code: 'APPEARANCE', name: 'Appearance', valueType: 'text', targetText,
+    }] }).success).toBe(false);
+  });
 });

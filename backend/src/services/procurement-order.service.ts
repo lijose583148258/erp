@@ -7,6 +7,7 @@ import {
 import type { TransactionClient } from './stock-movement.service';
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
 import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
+import { purchaseGovernanceSnapshots } from '../domain/purchase-governance';
 
 export interface CreatePurchaseOrderInput {
   supplierId?: unknown;
@@ -28,6 +29,8 @@ export interface CreatePurchaseOrderInput {
   dutyCost?: unknown;
   insuranceCost?: unknown;
   otherCost?: unknown;
+  supplierPayableTerms?: unknown;
+  incomingQualityPlan?: unknown;
 }
 
 const CREATE_ALLOWED_STATUSES = new Set(['pending', 'approved', 'in_transit', 'cancelled']);
@@ -169,6 +172,10 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
     otherCost,
   });
 
+  const governance = purchaseGovernanceSnapshots({ revision: 0, supplierId, materialId: materialIdentity.materialId,
+    unit: materialIdentity.unit, quantity, price, currency: valuation.currency, exchangeRate: valuation.exchangeRate },
+  input.supplierPayableTerms, input.incomingQualityPlan);
+
   return tx.purchaseOrder.create({
     data: {
       supplierId,
@@ -192,6 +199,7 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
       salesOrderRef: toOptionalText(input.salesOrderRef) || salesOrder?.orderNo || null,
       salesOrderId: salesOrder ? salesOrder.id : requestedSalesOrderId,
       isB2B: Boolean(input.isB2B),
+      ...governance,
     },
     include: { supplier: true, salesOrder: true },
   });

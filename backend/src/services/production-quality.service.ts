@@ -21,14 +21,17 @@ const evaluateText = (measured: string, target: string | null) => {
     .split('|')
     .map(normalizeText)
     .filter(Boolean);
-  return accepted.length === 0 || accepted.includes(actual);
+  return accepted.length > 0 && accepted.includes(actual);
 };
 
 const evaluateNumeric = (
   measured: Prisma.Decimal,
   lower: Prisma.Decimal | null,
   upper: Prisma.Decimal | null,
-) => (!lower || measured.greaterThanOrEqualTo(lower)) && (!upper || measured.lessThanOrEqualTo(upper));
+) => measured.isFinite() && Boolean(lower || upper)
+  && (!lower || lower.isFinite()) && (!upper || upper.isFinite())
+  && (!lower || !upper || lower.lessThanOrEqualTo(upper))
+  && (!lower || measured.greaterThanOrEqualTo(lower)) && (!upper || measured.lessThanOrEqualTo(upper));
 
 export async function assertLatestQualityRelease(
   tx: TransactionClient,
@@ -91,6 +94,7 @@ export class ProductionQualityService {
             } catch {
               throw new Error(`QC_NUMERIC_VALUE_INVALID:${characteristic.code}`);
             }
+            if (!measured.isFinite()) throw new Error(`QC_NUMERIC_VALUE_INVALID:${characteristic.code}`);
             const passed = evaluateNumeric(measured, characteristic.lowerLimit, characteristic.upperLimit);
             return {
               characteristicId: characteristic.id,

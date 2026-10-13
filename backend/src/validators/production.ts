@@ -6,7 +6,7 @@ import { z } from 'zod';
 const adjustmentDomainSchema = z.enum(['finance', 'production', 'inventory']);
 const adjustmentTargetTypeSchema = z.enum(['order', 'productBatch', 'manual']);
 const productionWorkOrderStatusSchema = z.enum(['draft', 'planned', 'in_progress', 'qc_pending', 'completed', 'cancelled']);
-const productionQualityCharacteristicSchema = z.object({
+export const productionQualityCharacteristicSchema = z.object({
   code: z.string().trim().min(1).max(40),
   name: z.string().trim().min(1).max(120),
   valueType: z.enum(['numeric', 'text']).default('numeric'),
@@ -25,7 +25,7 @@ const productionQualityCharacteristicSchema = z.object({
     if (upper !== null && !Number.isFinite(upper)) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['upperLimit'], message: '上限必须是有效数字' });
     if (lower !== null && upper !== null && lower > upper) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['upperLimit'], message: '上限不能小于下限' });
     if (lower === null && upper === null) ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['lowerLimit'], message: '数值型检验项至少填写一个上下限' });
-  } else if (!value.targetText) {
+  } else if (!value.targetText?.split('|').some(target => target.trim())) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['targetText'], message: '文本型检验项必须填写合格目标' });
   }
 });
@@ -343,6 +343,11 @@ export const createProductionQualityCheckSchema = z.object({
   if (new Set(ids).size !== ids.length) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['measurements'], message: '同一检验项目不能重复提交' });
   }
+  value.measurements.forEach((item, index) => {
+    if (item.measuredNumeric != null && !Number.isFinite(Number(item.measuredNumeric))) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['measurements', index, 'measuredNumeric'], message: '数值测量必须是有效有限数字' });
+    }
+  });
 });
 
 export const reviewProductionQualityCheckSchema = z.object({

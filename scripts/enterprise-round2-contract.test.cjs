@@ -213,6 +213,20 @@ test('partial receipt valuation uses actual voucher history and replays fraction
   assert.equal(validateCatalog(catalog).length, 37);
 });
 
+test('purchase source freezing is revision-bound, nullable for unconfirmed history, and cannot fake the full QC/AP obligation', () => {
+  const read = file => fs.readFileSync(path.join(__dirname, file), 'utf8');
+  const revision = read('../backend/src/services/procurement-revision.service.ts');
+  assert.match(revision, /purchaseGovernanceSnapshots\(\{ \.\.\.binding, revision: before\.revision \+ 1 \}/);
+  assert.match(revision, /\.\.\.valuation, \.\.\.governance/);
+  const domain = read('../backend/src/domain/purchase-governance.ts');
+  assert.match(domain, /terms === undefined \? null/);
+  assert.match(domain, /plan === undefined \? null/);
+  assert.match(domain, /prorateMoney\(amountNative, 1, bound\.exchangeRate\)/);
+  assert.match(read('lib/enterprise-round2-procurement.cjs'), /await purchaseGovernanceProbe\(/);
+  assert.doesNotMatch(read('enterprise-round2-audit-v1.cjs'), /implemented\.push\('purchase-partial-receipt-qc-payables'\)/);
+  assert.equal(validateCatalog(catalog).length, 37);
+});
+
 const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
 const { createLinkedShipment, seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
 const fixtureOptions = () => ({

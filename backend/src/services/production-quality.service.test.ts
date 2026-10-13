@@ -180,3 +180,45 @@ describe('quality review transaction rollback and terminal work order guard', ()
     expect(tx.productBatch.update).toHaveBeenCalled();
   });
 });
+
+describe('legacy quality criteria and non-finite measurements fail closed', () => {
+  beforeEach(() => jest.clearAllMocks());
+  function fixture(valueType: 'numeric' | 'text', targetText: string | null) {
+    const create = jest.fn().mockImplementation(({ data }) => ({ id: 90, ...data, measurements: data.measurements.create }));
+    const tx: any = { $executeRaw: jest.fn(), auditLog: { create: jest.fn() },
+      productionWorkOrder: { findUnique: jest.fn().mockResolvedValue({
+        id: 5, workOrderNo: 'WO-5', status: 'qc_pending', batchId: 21, qualityChecks: [],
+        bom: { qualityCharacteristics: [{ id: 10, code: 'TEST', name: 'Legacy criterion', valueType, unit: null,
+          lowerLimit: valueType === 'numeric' ? new Prisma.Decimal(0) : null, upperLimit: null,
+          targetText, testMethod: 'Recorded method', required: true }] },
+      }) }, productionQualityCheck: { create }, productBatch: { update: jest.fn() } };
+    transactionMock.mockImplementation((callback: (client: any) => unknown) => callback(tx));
+    return { tx, create };
+  }
+  const actor = { userId: 7, username: 'inspector-a' };
+  function expectFailedSubmission(tx: any, result: any) {
+    expect(result.result).toBe('fail'); expect(result.defectRate).toBe(100);
+    expect(result.measurements[0].result).toBe('fail');
+    expect(tx.productionQualityCheck.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({
+      result: 'fail', status: 'submitted', disposition: 'hold', inspectorUserId: actor.userId,
+    }) }));
+    expect(tx.productBatch.update).toHaveBeenCalledWith({ where: { id: 21 }, data: { qualityStatus: 'hold' } });
+    expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
+  }
+
+  it.each([' | | ', null])('does not pass arbitrary text against an empty legacy target (%s)', async target => {
+    const { tx } = fixture('text', target);
+    const result = await ProductionQualityService.submitInspection(5, { sampleNo: 'S-LEGACY-TEXT', defectRate: 0,
+      measurements: [{ characteristicId: 10, measuredText: 'anything' }] }, actor);
+    expectFailedSubmission(tx, result);
+    expect(result.measurements[0].targetText).toBe(target);
+  });
+  it.each(['Infinity', 'NaN'])('cannot pass a non-finite numeric value with only a lower limit (%s)', async measuredNumeric => {
+    const { tx } = fixture('numeric', null);
+    await expect(ProductionQualityService.submitInspection(5, { sampleNo: 'S-NONFINITE', defectRate: 0,
+      measurements: [{ characteristicId: 10, measuredNumeric }] }, actor)).rejects.toThrow('QC_NUMERIC_VALUE_INVALID');
+    expect(tx.productionQualityCheck.create).not.toHaveBeenCalled();
+    expect(tx.productBatch.update).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
+  });
+  // These calls execute the real service with mocked persistence, not a database/API acceptance run.
+});

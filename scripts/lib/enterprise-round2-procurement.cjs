@@ -1,6 +1,46 @@
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { synchronizedBurst } = require('./enterprise-round2-runner.cjs');
 
+async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
+  const terms = { taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 3, evidenceRef: `${runId}-supplier-quote` };
+  const plan = { specificationRef: `${runId}-incoming-spec`, specificationRevision: 'R1', characteristics: [
+    { code: 'PH', name: 'pH', valueType: 'numeric', lowerLimit: '7.0', upperLimit: '8.0', testMethod: 'Calibrated meter', required: true },
+  ] };
+  const created = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
+    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 1, price: 10, otherCost: 7,
+      unit: 'kg', eta: '2026-10-01', status: 'approved', supplierPayableTerms: terms, incomingQualityPlan: plan } }));
+  const id = Number(created.id), amendedPlan = { ...plan, specificationRevision: 'R2', characteristics: [{ ...plan.characteristics[0], upperLimit: '7.9' }] };
+  const revision = dataOf(await request(`/procurement/orders/${id}`, { actor: actors.buyer1, method: 'PATCH', signal,
+    data: { expectedRevision: created.revision, expectedUpdatedAt: created.updatedAt, quantity: 1, price: 10, taxAmount: 0,
+      eta: '2026-10-01', reason: 'Supplier confirmed incoming standard revision', supplierPayableTerms: terms, incomingQualityPlan: amendedPlan } }));
+  const staleApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 0 } });
+  const apiReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/procurement/orders/${id}/revisions`, { actor: actors.buyer2, instance, signal }))));
+  const approved = dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
+  const receive = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+    data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-governed-source` } });
+  const snapshot = async () => ({ order: await prisma.purchaseOrder.findUnique({ where: { id } }),
+    receipts: await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: id }, orderBy: { id: 'asc' } }),
+    audits: await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: id }, orderBy: { id: 'asc' } }) });
+  const beforeBlocked = await snapshot();
+  const denied = await request(`/procurement/orders/${id}`, { actor: actors.buyer1, instance: 1, method: 'PATCH', signal,
+    data: { expectedRevision: 1, expectedUpdatedAt: beforeBlocked.order.updatedAt.toISOString(), quantity: 1, price: 10, taxAmount: 0,
+      eta: '2026-10-01', reason: 'Cannot replace standards after physical receipt', supplierPayableTerms: terms, incomingQualityPlan: plan } });
+  const afterBlocked = await snapshot();
+  const basis0 = JSON.parse(created.supplierPayableBasisJson), basis1 = JSON.parse(revision.supplierPayableBasisJson);
+  const plan0 = JSON.parse(created.incomingQualityPlanJson), plan1 = JSON.parse(revision.incomingQualityPlanJson);
+  return verify({
+    frozen_server_amount_not_inventory_cost: basis0.amountNative === 13 && basis0.amountBase === 13 && created.landedCostAmount === 17
+      && basis0.binding.revision === 0 && basis0.binding.supplierId === Number(supplier.id) && basis0.binding.materialId === material.id,
+    only_standard_changed_creates_pending_revision: revision.revision === 1 && revision.status === 'pending' && revision.quantity === created.quantity && revision.price === created.price
+      && basis1.binding.revision === 1 && plan1.binding.revision === 1 && plan0.plan.characteristics[0].upperLimit === '8' && plan1.plan.characteristics[0].upperLimit === '7.9',
+    stale_approval_denied_and_both_nodes_agree: staleApproval.status === 409 && apiReadbacks.every(r => r.purchaseOrder.incomingQualityPlanJson === revision.incomingQualityPlanJson
+      && r.purchaseOrder.supplierPayableBasisJson === revision.supplierPayableBasisJson),
+    independent_approval_preserves_sources: approved.revision === 1 && approved.incomingQualityPlanJson === revision.incomingQualityPlanJson && receive.status === 201,
+    received_sources_immutable_without_side_effects: denied.status === 409 && JSON.stringify(beforeBlocked) === JSON.stringify(afterBlocked),
+  }, { version: 'purchase-governance-binding/v1', created, revision, staleApproval, apiReadbacks, approved, receive, denied, beforeBlocked, afterBlocked,
+    scope: 'Frozen PO sources and actual post-receipt no-change guard, not a claim of CAS rollback, live incoming inspection/AP/payment gates or least-privilege workforce proof' });
+}
+
 async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
   const original = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
     data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 3, price: 1 / 3,
@@ -109,7 +149,8 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
     data: { ...terms[0], quantity: 999, expectedRevision: received.order.revision, expectedUpdatedAt: received.order.updatedAt.toISOString() } });
   requirements.received_order_cannot_be_rewritten = receiptEdit.status === 409 && JSON.stringify(await snapshot()) === JSON.stringify(received);
   const receiptCost = await purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
-  return verify(requirements, { ...evidence, apiReadbacks, approved, received, receiptCost, statuses: { replay: replay.status, staleApproval: staleApproval.status,
+  const governance = await purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
+  return verify(requirements, { ...evidence, apiReadbacks, approved, received, receiptCost, governance, statuses: { replay: replay.status, staleApproval: staleApproval.status,
     unversionedApproval: unversionedApproval.status, pendingReceipt: pendingReceipt.status, deniedEdit: deniedEdit.status, receiptEdit: receiptEdit.status } });
 }
 
