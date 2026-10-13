@@ -8,7 +8,7 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
-if (process.argv.includes('--customer-cancellation')) process.env.ROUND2_BROWSER = 'true';
+if (process.argv.includes('--customer-cancellation') || process.argv.includes('--unsaved-focus')) process.env.ROUND2_BROWSER = 'true';
 if (cumulative || process.argv.includes('--inventory-browser') || process.argv.includes('--purchase-roles') || process.argv.includes('--authorization-freshness') || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
@@ -161,6 +161,7 @@ async function main() {
       ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
       ['customer-cancellation', 'scripts/customer-quantity-cancellation-audit-v1.cjs', cancellationPath, [], [0]],
+      ['unsaved-focus', 'scripts/unsaved-changes-browser-audit-v1.cjs', path.join(sandbox, 'unsaved-focus', 'report.json'), [], [0]],
       ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
       ['authorization', 'scripts/authorization-dual-node-audit-v1.cjs', authorizationPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
@@ -169,7 +170,21 @@ async function main() {
       const child = start(label, [path.join(root, script), ...args], root,
         { APP_URL: urls[0], SECONDARY_APP_URL: urls[1], ROUND2_REPORT_PATH: target });
       const timer = setTimeout(() => child.kill(), label === 'legacy-cash' ? 120000 : label === 'round2' ? 420000 : 300000);
-      try { const result = await child.completion; executions.push({ label, ...result, acceptable: allowed.includes(result.code) }); }
+      try {
+        const result = await child.completion;
+        if (label === 'unsaved-focus' && result.code === 0) {
+          const assert = require('node:assert/strict');
+          const proof = JSON.parse(fs.readFileSync(target, 'utf8'));
+          const context = JSON.parse(fs.readFileSync(env.REGRESSION_CONTEXT_PATH, 'utf8'));
+          require('./lib/enterprise-regression.cjs').verifyFresh(proof, context, 'sqlite', Date.now());
+          assert.equal(proof.status, 'passed'); assert.equal(proof.dialogs.length, 16);
+          assert.equal(proof.salesBeforeClose.notesPreserved, true);
+          assert(proof.salesBeforeClose.dirtyState.dirtySourceIds.includes('sales-order-editor'));
+          assert.equal(proof.salesFocusRace.remainingCallbacks, 0);
+          assert(proof.salesFocusRace.events.some(e => e.event === 'after-real-dialog-focus' && e.active === 'sales-order-notes'));
+        }
+        executions.push({ label, ...result, acceptable: allowed.includes(result.code) });
+      }
       catch (error) { executions.push({ label, acceptable: false, error: error.message }); }
       finally { clearTimeout(timer); }
     }
@@ -187,7 +202,8 @@ async function main() {
   }
   const reconciliation = process.argv.includes('--payment-reconciliation') || process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser');
   const authorization = process.argv.includes('--authorization-freshness');
-  const auditScript = process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const unsavedFocus = process.argv.includes('--unsaved-focus');
+  const auditScript = unsavedFocus ? 'scripts/unsaved-changes-browser-audit-v1.cjs' : process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => audit.kill(), 5 * 60_000);
@@ -196,7 +212,7 @@ async function main() {
     process.exitCode = result.code ?? 1;
     if (!fs.existsSync(reportPath)) throw new Error('Audit terminated without a report');
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-    console.log(JSON.stringify(reconciliation || authorization ? { status: report.status, scope: report.scope, reportPath }
+    console.log(JSON.stringify(reconciliation || authorization || unsavedFocus ? { status: report.status, scope: report.scope, reportPath }
       : { status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
     // A terminated child or unfinished report never becomes green.
     if (!report.finishedAt || report.status !== 'passed') process.exitCode ||= 2;

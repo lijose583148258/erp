@@ -2,11 +2,13 @@ const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
 const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
-const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-const REPORT_PATH = path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json');
+const APP_URL = String(process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '') + '/';
+const REPORT_PATH = path.resolve(process.env.ROUND2_REPORT_PATH || path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json'));
 const UNSAVED_TEXT = '\u672a\u4fdd\u5b58';
-const report = { startedAt: new Date().toISOString(), status: 'running', steps: [] };
+const report = { startedAt: new Date().toISOString(), status: 'running', steps: [], regression: readRegressionStamp(),
+  provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite' };
 
 function recordStep(step, details = {}) {
   if (typeof step === 'object' && step !== null) {
@@ -83,6 +85,32 @@ async function prepareAuditPage(page) {
     Object.keys(localStorage)
       .filter((key) => key.startsWith('ailao.salesOrderDraft.'))
       .forEach((key) => localStorage.removeItem(key));
+    // Hold only the real initial-dialog focus callback, then release it between
+    // fill's focus and native input. This deterministically tests the lost-edit race.
+    const state = window.__AILAODA_DIALOG_FOCUS_AUDIT__ = { armed: false, callbacks: [], events: [], nextId: -1 };
+    const record = (event, details = {}) => state.events.push({ event, at: performance.now(),
+      active: document.activeElement?.getAttribute('data-testid') || document.activeElement?.tagName, ...details });
+    const setTimer = window.setTimeout.bind(window), clearTimer = window.clearTimeout.bind(window);
+    window.setTimeout = (callback, delay, ...args) => {
+      if (state.armed && delay === 0 && typeof callback === 'function' && String(callback).includes('data-autofocus')) {
+        const id = state.nextId--; state.callbacks.push({ id, callback, args });
+        record('held-real-dialog-focus', { id, source: String(callback) }); return id;
+      }
+      return setTimer(callback, delay, ...args);
+    };
+    window.clearTimeout = id => {
+      if (id < 0) { state.callbacks = state.callbacks.filter(c => c.id !== id); return; }
+      clearTimer(id);
+    };
+    state.release = () => {
+      if (state.callbacks.length !== 1) throw new Error(`Expected one dialog focus callback, got ${state.callbacks.length}`);
+      const held = state.callbacks.shift(); state.armed = false;
+      record('release-real-dialog-focus'); held.callback(...held.args); record('after-real-dialog-focus');
+    };
+    document.addEventListener('input', event => {
+      const target = event.target?.getAttribute('data-testid');
+      if (['sales-order-notes', 'sales-order-customer-select'].includes(target)) record('input', { target, value: event.target.value });
+    });
   });
 }
 
@@ -109,15 +137,35 @@ async function answerNextDialog(page, accept) {
 
 async function verifySalesOrder(page) {
   await openModule(page, 'orders', 'sales-order-create-button');
+  await page.evaluate(() => { window.__AILAODA_DIALOG_FOCUS_AUDIT__.armed = true; });
   await clickWhenStable(page.locator('[data-testid="sales-order-create-button"]'));
   const modal = page.locator('[data-testid="sales-order-editor-modal"]');
   await modal.waitFor({ state: 'visible', timeout: 10000 });
+  await page.waitForFunction(() => window.__AILAODA_DIALOG_FOCUS_AUDIT__.callbacks.length === 1, null, { timeout: 5000 });
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="sales-order-notes"]').addEventListener('focus', () => {
+      window.__AILAODA_DIALOG_FOCUS_AUDIT__.release();
+    }, { once: true });
+  });
   await modal.locator('[data-testid="sales-order-notes"]').fill('UNSAVED-AUDIT');
   await page.waitForTimeout(1000);
   report.salesBeforeClose = await page.evaluate(() => ({
     dirtyState: window.__AILAODA_UNSAVED_STATE__ || null,
     notesPreserved: document.querySelector('[data-testid="sales-order-notes"]')?.value === 'UNSAVED-AUDIT',
   }));
+  report.salesFocusRace = await page.evaluate(() => ({
+    remainingCallbacks: window.__AILAODA_DIALOG_FOCUS_AUDIT__.callbacks.length,
+    events: window.__AILAODA_DIALOG_FOCUS_AUDIT__.events,
+    customerQuery: document.querySelector('[data-testid="sales-order-customer-select"]')?.value,
+  }));
+  expect(report.salesBeforeClose.notesPreserved, 'delayed dialog focus stole the sales notes input');
+  expect(report.salesBeforeClose.dirtyState?.dirtySourceIds?.includes('sales-order-editor'), 'sales notes edit did not register as dirty');
+  const focusEvents = report.salesFocusRace.events;
+  expect(focusEvents.filter(e => e.event === 'held-real-dialog-focus').length === 1, 'missing real dialog focus scheduling proof');
+  expect(focusEvents.filter(e => e.event === 'release-real-dialog-focus').length === 1, 'dialog focus scheduling was not released once');
+  expect(focusEvents.some(e => e.event === 'after-real-dialog-focus' && e.active === 'sales-order-notes'), 'dialog focus moved away from user input');
+  expect(focusEvents.some(e => e.event === 'input' && e.target === 'sales-order-notes' && e.value === 'UNSAVED-AUDIT'), 'notes native input evidence missing');
+  expect(!focusEvents.some(e => e.event === 'input' && e.target === 'sales-order-customer-select' && e.value === 'UNSAVED-AUDIT'), 'notes input was redirected into customer search');
 
   const dismissDialog = answerNextDialog(page, false);
   await modal.locator('[data-testid="sales-order-editor-close"]').click();

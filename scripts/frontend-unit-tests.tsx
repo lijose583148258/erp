@@ -4,6 +4,7 @@ import path from 'node:path';
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
+import { useDialogFocus } from '../app/useDialogFocus';
 import Skeleton, { TableSkeleton } from '../components/Skeleton';
 import { RootErrorFallback } from '../components/ErrorBoundary';
 import PageErrorBoundary, { PageErrorFallback } from '../components/PageErrorBoundary';
@@ -650,6 +651,55 @@ const tests: FrontendUnitTest[] = [
           assert.equal(refreshed.value, 2);
           assert.equal(calls, 2);
       });
+    },
+  },
+  {
+    name: 'dialog focus preserves active editors, traps Tab, uses the latest Escape handler and restores its opener',
+    run: async () => {
+      const dom = new JSDOM('<!doctype html><button id="opener">Open</button><div id="root"></div>', { url: 'http://localhost/' });
+      const globals = ['window', 'document', 'HTMLElement', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+      const previous = globals.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+      for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document,
+        HTMLElement: dom.window.HTMLElement, IS_REACT_ACT_ENVIRONMENT: true })) Object.defineProperty(globalThis, key, { configurable: true, value });
+      const timers = new Map<number, () => void>(); let nextTimer = 0;
+      Object.defineProperty(dom.window, 'setTimeout', { value: (callback: (...args: unknown[]) => void, delay: number) => {
+        assert.equal(delay, 0); const id = ++nextTimer; timers.set(id, callback); return id;
+      } });
+      Object.defineProperty(dom.window, 'clearTimeout', { value: (id: number) => timers.delete(id) });
+      Object.defineProperty(dom.window.HTMLElement.prototype, 'getClientRects', { value: () => [dom.window.DOMRect.fromRect({ width: 100, height: 30 })] });
+      const { createRoot } = await import('react-dom/client');
+      const root = createRoot(dom.window.document.getElementById('root')!);
+      function Probe({ open, escape, missing = false }: { open: boolean; escape: () => void; missing?: boolean }) {
+        const ref = React.useRef<HTMLDivElement>(null); useDialogFocus(open, ref, escape);
+        return open && !missing ? <div ref={ref} tabIndex={-1}><button id="first">Close</button>
+          <input id="customer" data-autofocus /><textarea id="notes" /><button id="last">Save</button></div> : null;
+      }
+      const render = async (open: boolean, escape = () => {}, missing = false) => {
+        await React.act(async () => root.render(<Probe open={open} escape={escape} missing={missing} />));
+      };
+      const flushFocus = () => { const pending = [...timers.values()]; timers.clear(); pending.forEach(callback => callback()); };
+      const focus = (id: string) => (dom.window.document.getElementById(id) as HTMLElement).focus();
+      const active = () => dom.window.document.activeElement?.id;
+      const key = (value: string, shiftKey = false) => {
+        const event = new dom.window.KeyboardEvent('keydown', { key: value, shiftKey, bubbles: true, cancelable: true });
+        dom.window.document.dispatchEvent(event); return event;
+      };
+      try {
+        focus('opener'); let firstEscape = 0, latestEscape = 0;
+        await render(true, () => { firstEscape++; }); flushFocus(); assert.equal(active(), 'customer');
+        focus('last'); assert.equal(key('Tab').defaultPrevented, true); assert.equal(active(), 'first');
+        assert.equal(key('Tab', true).defaultPrevented, true); assert.equal(active(), 'last');
+        await render(true, () => { latestEscape++; }); assert.equal(key('Escape').defaultPrevented, true);
+        assert.equal(firstEscape, 0); assert.equal(latestEscape, 1);
+        await render(false); assert.equal(active(), 'opener'); key('Escape'); assert.equal(latestEscape, 1);
+        await render(true); focus('notes'); flushFocus(); assert.equal(active(), 'notes', 'Deferred autofocus must not steal a user-focused editor');
+        await render(false); assert.equal(active(), 'opener');
+        await render(true, () => {}, true); flushFocus(); assert.equal(active(), 'opener'); await render(false);
+        await render(true); assert.equal(timers.size, 1); await render(false); assert.equal(timers.size, 0); assert.equal(active(), 'opener');
+      } finally {
+        await React.act(async () => root.unmount()); dom.window.close();
+        for (const [key, descriptor] of previous) { if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key); }
+      }
     },
   },
   {

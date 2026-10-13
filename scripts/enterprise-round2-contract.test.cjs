@@ -185,6 +185,21 @@ test('partial fulfillment audit is independent and fatal at aggregation, without
   assert.equal(validateCatalog(catalog).length, 37);
 });
 
+test('unsaved regression forces the real focus race and preserves all confirmation checks', () => {
+  const read = file => fs.readFileSync(path.join(__dirname, file), 'utf8');
+  const source = read('unsaved-changes-browser-audit-v1.cjs');
+  assert.match(read('../app/useDialogFocus.ts'), /dialog\.contains\(document\.activeElement\)/);
+  assert.match(source, /String\(callback\)\.includes\('data-autofocus'\)/);
+  assert.match(source, /addEventListener\('focus',[\s\S]{0,160}\.release\(\)/);
+  assert.match(source, /notesPreserved, 'delayed dialog focus stole/);
+  assert.match(source, /notes input was redirected into customer search/);
+  assert.match(source, /const dismissDialog = answerNextDialog\(page, false\)/);
+  assert.match(source, /const acceptDialog = answerNextDialog\(page, true\)/);
+  const runner = read('enterprise-round2-local-v1.cjs');
+  assert.match(runner, /\['unsaved-focus', 'scripts\/unsaved-changes-browser-audit-v1.cjs'/);
+  assert.match(runner, /assert\.equal\(proof\.dialogs\.length, 16\)/);
+});
+
 const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
 const { createLinkedShipment, seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
 const fixtureOptions = () => ({
