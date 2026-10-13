@@ -424,7 +424,11 @@ async function main() {
     return;
   }
   if (process.env.ROUND2_ONLY_CHECK) {
-    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'inventory-browser'].includes(process.env.ROUND2_ONLY_CHECK));
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'inventory-browser', 'po-stale-edit-conflict'].includes(process.env.ROUND2_ONLY_CHECK));
+    if (process.env.ROUND2_ONLY_CHECK === 'po-stale-edit-conflict') {
+      await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
+      return;
+    }
     assert.equal(process.env.ROUND2_BROWSER, 'true');
     if (process.env.ROUND2_ONLY_CHECK === 'inventory-browser') {
       await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));

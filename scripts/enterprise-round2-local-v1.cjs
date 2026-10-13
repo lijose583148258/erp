@@ -27,7 +27,7 @@ const env = { ...process.env,
   FRONTEND_DIST_DIR: path.join(sandbox, 'frontend'),
   SEARCH_ENDPOINT: '', SEARCH_ENDPOINTS: '', MEILISEARCH_URL: '', REDIS_URL: '',
   AUDIT_PRISMA_PROVIDER: 'sqlite', ROUND2_ALLOW_MUTATIONS: 'true', ROUND2_REPORT_PATH: reportPath,
-  ROUND2_ONLY_CHECK: cumulative ? '' : process.argv.includes('--inventory-browser') ? 'inventory-browser' : process.argv.includes('--purchase-roles') ? 'purchase-browser-readback' : process.argv.includes('--payment-submit') ? 'payment-submit-durable-replay' : process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
+  ROUND2_ONLY_CHECK: cumulative ? '' : process.argv.includes('--purchase-cost') ? 'po-stale-edit-conflict' : process.argv.includes('--inventory-browser') ? 'inventory-browser' : process.argv.includes('--purchase-roles') ? 'purchase-browser-readback' : process.argv.includes('--payment-submit') ? 'payment-submit-durable-replay' : process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
 };
 try {
   env.ROUND2_COMMIT = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim();

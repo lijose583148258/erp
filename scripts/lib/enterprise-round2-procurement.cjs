@@ -1,6 +1,47 @@
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { synchronizedBurst } = require('./enterprise-round2-runner.cjs');
 
+async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
+  const original = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
+    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 3, price: 1 / 3,
+      unit: 'kg', eta: '2026-10-01', currency: 'CNY', status: 'approved' } }));
+  const id = Number(original.id), batchNo = `${runId}-fractional-receipt`;
+  const receive = async (actor, instance) => {
+    const result = await request(`/procurement/orders/${id}/receipts`, { actor, instance, method: 'POST', signal,
+      data: { quantity: 0.5, acceptedQuantity: 0.5, rejectedQuantity: 0, batchNo } });
+    return { actorId: actor.id, instance, status: result.status, body: result.json };
+  };
+  const responses = [];
+  for (let index = 0; index < 4; index++) responses.push(await receive(actors.buyer1, index % 2));
+  responses.push(...await synchronizedBurst([actors.buyer1, actors.buyer2], actor =>
+    receive(actor, actor.id === actors.buyer1.id ? 0 : 1), signal));
+  const order = await prisma.purchaseOrder.findUnique({ where: { id } });
+  const receipts = await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: id }, orderBy: { id: 'asc' } });
+  const entries = await prisma.stockEntry.findMany({ where: { sourceType: 'procurement_receipt', sourceRef: { startsWith: `PO-${id}-RCV-` } },
+    include: { movements: true }, orderBy: { id: 'asc' } });
+  const ledgers = await prisma.inventoryCostLedger.findMany({ where: { sourceRef: { in: entries.map(e => e.entryNo) } }, orderBy: { id: 'asc' } });
+  const batch = await prisma.productBatch.findUnique({ where: { batchNo } });
+  const audits = await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: id, action: 'CREATE_RECEIPT' }, orderBy: { id: 'asc' } });
+  const apiReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer2, instance, signal }))));
+  const evidence = { version: 'purchase-receipt-cost/v1', original, responses, order, receipts, entries, ledgers, batch, audits, apiReadbacks,
+    scope: 'Actual immutable cost history and concurrent fractional receipts; not incoming QC, supplier AP or durable receipt replay' };
+  return verify({
+    six_real_receipts: responses.length === 6 && responses.every(r => r.status === 201) && receipts.length === 6
+      && receipts.every(r => r.quantity === 0.5 && r.acceptedQuantity === 0.5 && r.rejectedQuantity === 0),
+    one_voucher_and_cost_per_receipt: entries.length === 6 && ledgers.length === 6
+      && entries.every(e => e.status === 'posted' && e.movements.length === 1 && e.movements[0].quantityDelta === 0.5
+        && e.movements[0].materialId === material.id && e.movements[0].batchNo === batchNo && e.movements[0].unit === 'kg'
+        && receipts.filter(r => r.stockEntryRef === e.sourceRef).length === 1
+        && ledgers.filter(l => l.sourceRef === e.entryNo && l.batchId === batch?.id && l.sourceType === 'inventory_adjustment' && l.quantityDelta === 0.5).length === 1),
+    no_split_rounding_drift: JSON.stringify(ledgers.map(l => l.costAmountDelta)) === JSON.stringify([0.17, 0.16, 0.17, 0.17, 0.16, 0.17])
+      && ledgers.reduce((sum, l) => sum + Math.round(l.costAmountDelta * 100), 0) === 100,
+    physical_quantity_and_original_value_unchanged: batch?.stockQuantity === 3 && batch.unit === 'kg'
+      && order.quantity === original.quantity && order.price === original.price && order.landedCostAmount === 1 && order.status === 'received',
+    six_receipt_audits: audits.length === 6,
+    both_nodes_read_same_receipts: apiReadbacks.every(r => r.receipts.length === 6 && r.receiptSummary.acceptedQuantity === 3 && r.receiptSummary.remainingQuantity === 0),
+  }, evidence);
+}
+
 async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal) {
   const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
     code: `${runId}-po-revise`, name: `${runId}-po-revise`, category: 'raw_material', unit: 'kg' });
@@ -67,7 +108,8 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   const receiptEdit = await request(`/procurement/orders/${id}`, { actor: actors.buyer1, instance: 1, method: 'PATCH', signal,
     data: { ...terms[0], quantity: 999, expectedRevision: received.order.revision, expectedUpdatedAt: received.order.updatedAt.toISOString() } });
   requirements.received_order_cannot_be_rewritten = receiptEdit.status === 409 && JSON.stringify(await snapshot()) === JSON.stringify(received);
-  return verify(requirements, { ...evidence, apiReadbacks, approved, received, statuses: { replay: replay.status, staleApproval: staleApproval.status,
+  const receiptCost = await purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
+  return verify(requirements, { ...evidence, apiReadbacks, approved, received, receiptCost, statuses: { replay: replay.status, staleApproval: staleApproval.status,
     unversionedApproval: unversionedApproval.status, pendingReceipt: pendingReceipt.status, deniedEdit: deniedEdit.status, receiptEdit: receiptEdit.status } });
 }
 

@@ -200,6 +200,19 @@ test('unsaved regression forces the real focus race and preserves all confirmati
   assert.match(runner, /assert\.equal\(proof\.dialogs\.length, 16\)/);
 });
 
+test('partial receipt valuation uses actual voucher history and replays fractional-cost evidence without expanding acceptance', () => {
+  const read = file => fs.readFileSync(path.join(__dirname, file), 'utf8');
+  const receipt = read('../backend/src/services/procurement-receipt.service.ts');
+  assert.match(receipt, /l\.source_ref = e\.entry_no/);
+  assert.doesNotMatch(receipt, /LEFT JOIN inventory_cost_ledgers[^`]*l\.batch_id = b\.id/);
+  assert.match(receipt, /readPostedPurchaseReceiptCost\(tx, order, totals\.acceptedQuantity\)/);
+  assert.match(receipt, /resolveReceiptCostAmount\(order, acceptedQuantity, totals\.acceptedQuantity, postedCostBefore\)/);
+  assert.match(read('lib/enterprise-round2-procurement.cjs'), /await purchaseReceiptCostProbe\(/);
+  assert.match(read('lib/enterprise-round2-procurement.cjs'), /\[0\.17, 0\.16, 0\.17, 0\.17, 0\.16, 0\.17\]/);
+  assert.match(read('enterprise-round2-audit-v1.cjs'), /ROUND2_ONLY_CHECK === 'po-stale-edit-conflict'/);
+  assert.equal(validateCatalog(catalog).length, 37);
+});
+
 const { createShippingAuditData } = require('./lib/shipping-browser-audit-fixtures.cjs');
 const { createLinkedShipment, seedShipmentStock, verifyShippingIssue } = require('./lib/shipping-browser-data-helpers.cjs');
 const fixtureOptions = () => ({

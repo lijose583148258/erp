@@ -1,6 +1,7 @@
 import { AppError, ErrorCode } from '../middleware/errorHandler';
 import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import { buildBusinessNo } from '../utils/businessNo';
+import { roundMoney } from '../utils/money';
 import { ReceiptDiscrepancyService } from './receipt-discrepancy.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
 import {
@@ -116,6 +117,12 @@ function toOptionalReceiptText(value: unknown) {
   return String(value);
 }
 
+function requireValuedReceiptActor(createdBy: number | null | undefined) {
+  if (!Number.isSafeInteger(createdBy) || Number(createdBy) <= 0) {
+    throw new AppError('PURCHASE_RECEIPT_ACTOR_REQUIRED', 400, ErrorCode.VALIDATION_ERROR);
+  }
+}
+
 async function claimPurchaseReceiptWrite(tx: TransactionClient, purchaseOrderId: number) {
   const normalizedId = Number(purchaseOrderId);
   if (!Number.isInteger(normalizedId) || normalizedId <= 0) {
@@ -180,6 +187,8 @@ export async function postProcurementReceiptIfMissing(
   if (existingReceipt) {
     return { posted: false, sourceRef };
   }
+
+  requireValuedReceiptActor(createdBy);
 
   const receiptLocationId = await resolveProcurementReceiptLocationId(tx);
   const receiptNo = buildBusinessNo('PRC');
@@ -282,6 +291,89 @@ export async function getPurchaseReceiptTotals(tx: TransactionClient, purchaseOr
   };
 }
 
+export async function readPostedPurchaseReceiptCost(
+  tx: TransactionClient, order: PurchaseOrderForReceipt, acceptedQuantityBefore: number,
+) {
+  const reject = (field: string): never => { throw new AppError(
+    'PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED', 409, ErrorCode.CONFLICT, { purchaseOrderId: order.id, field },
+  ); };
+  const number = (value: unknown, field: string) => {
+    if (value == null || value === '' || typeof value === 'boolean') return reject(field);
+    const parsed = Number(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return reject(field);
+    return parsed;
+  };
+  const money = (value: unknown, field: string) => {
+    const parsed = number(value, field), cents = Math.round(parsed * 100);
+    if (!Number.isSafeInteger(cents) || Math.abs(roundMoney(parsed) - parsed) >= 0.0000001) return reject(field);
+    return cents;
+  };
+  // Legacy full-receipt shortcuts could post stock without a receipt row.
+  // Absence of receipts is not proof that no historical cost was posted.
+  const orphans = await queryRawCompat<Array<{ id: number }>>(tx,
+    `SELECT e.id FROM stock_entries e
+     LEFT JOIN purchase_receipts r ON r.purchase_order_id = ? AND r.stock_entry_ref = e.source_ref
+     WHERE e.source_type = 'procurement_receipt' AND e.status = 'posted'
+       AND (e.source_ref = ? OR e.source_ref LIKE ?) AND r.id IS NULL`,
+    order.id, `PO-${order.id}`, `PO-${order.id}-RCV-%`,
+  );
+  if (orphans.length) reject('orphanPostedEntry');
+  const rows = await queryRawCompat<Array<Record<string, unknown>>>(tx,
+    `SELECT r.id AS "receiptId", r.quantity, r.accepted_quantity AS "accepted", r.rejected_quantity AS "rejected",
+       r.unit, r.batch_no AS "receiptBatch", r.stock_entry_ref AS "receiptRef",
+       (SELECT COUNT(*) FROM purchase_receipts linked WHERE linked.stock_entry_ref = r.stock_entry_ref) AS "receiptRefCount",
+       e.id AS "entryId", e.entry_no AS "entryNo", m.id AS "movementId",
+       m.material_id AS "materialId", m.product_name AS "productName", m.batch_no AS "batchNo", m.unit AS "movementUnit",
+       m.quantity_before AS "movementBefore", m.quantity_delta AS "movementDelta", m.quantity_after AS "movementAfter",
+       b.id AS "batchId", b.material_id AS "batchMaterialId", b.unit AS "batchUnit",
+       l.id AS "ledgerId", l.batch_id AS "ledgerBatchId", l.source_type AS "ledgerSourceType",
+       l.quantity_before AS "ledgerBefore", l.quantity_delta AS "ledgerDelta", l.quantity_after AS "ledgerAfter",
+       l.cost_before AS "costBefore", l.cost_amount_delta AS "costDelta", l.cost_after AS "costAfter"
+     FROM purchase_receipts r
+     LEFT JOIN stock_entries e ON e.source_ref = r.stock_entry_ref AND e.source_type = 'procurement_receipt' AND e.status = 'posted'
+     LEFT JOIN stock_movements m ON m.entry_id = e.id
+     LEFT JOIN product_batches b ON b.batch_no = m.batch_no
+     LEFT JOIN inventory_cost_ledgers l ON l.source_ref = e.entry_no
+     WHERE r.purchase_order_id = ? ORDER BY r.id, m.id, l.id`, order.id,
+  );
+  const seen = new Set<string>(); let accepted = 0, costCents = 0;
+  const claimId = (row: Record<string, unknown>, key: string) => {
+    const id = number(row[key], key);
+    if (!Number.isSafeInteger(id) || id === 0 || seen.has(`${key}:${id}`)) reject(key);
+    seen.add(`${key}:${id}`);
+  };
+  for (const row of rows) {
+    claimId(row, 'receiptId');
+    const quantity = number(row.quantity, 'quantity'), delta = number(row.accepted, 'accepted');
+    if (quantity <= 0 || Math.abs(quantity - delta - number(row.rejected, 'rejected')) > 0.000001
+      || row.unit !== (order.unit || 'kg')) reject('receiptQuantities');
+    accepted += delta;
+    if (delta === 0) {
+      if (row.receiptRef != null || row.entryId != null) reject('rejectedReceiptPosted');
+      continue;
+    }
+    for (const key of ['entryId', 'movementId', 'ledgerId']) claimId(row, key);
+    if (!row.entryNo || !row.receiptRef || !row.receiptBatch || row.receiptBatch !== row.batchNo
+      || (row.receiptRef !== `PO-${order.id}` && !String(row.receiptRef).startsWith(`PO-${order.id}-RCV-`))
+      || number(row.receiptRefCount, 'receiptRefCount') !== 1
+      || row.unit !== row.movementUnit || row.unit !== row.batchUnit
+      || number(row.batchId, 'batchId') !== number(row.ledgerBatchId, 'ledgerBatchId')
+      || row.ledgerSourceType !== 'inventory_adjustment'
+      || (order.materialId ? row.materialId !== order.materialId || row.batchMaterialId !== order.materialId
+        : row.productName !== order.item)) reject('receiptIdentity');
+    for (const prefix of ['movement', 'ledger']) {
+      if (Math.abs(number(row[`${prefix}Delta`], `${prefix}Delta`) - delta) > 0.000001
+        || Math.abs(number(row[`${prefix}After`], `${prefix}After`) - number(row[`${prefix}Before`], `${prefix}Before`) - delta) > 0.000001) reject(`${prefix}Quantity`);
+    }
+    const cents = money(row.costDelta, 'costDelta');
+    if (money(row.costBefore, 'costBefore') + cents !== money(row.costAfter, 'costAfter')) reject('ledgerCost');
+    costCents += cents;
+    if (!Number.isSafeInteger(costCents)) reject('totalCost');
+  }
+  if (!Number.isFinite(acceptedQuantityBefore) || Math.abs(accepted - acceptedQuantityBefore) > 0.000001) reject('totalAcceptedQuantity');
+  return costCents / 100;
+}
+
 export async function buildPurchaseReceiptSummary(
   tx: TransactionClient,
   order: { id: number; quantity: number },
@@ -325,6 +417,7 @@ export async function createPurchaseReceiptBatch(
   input: CreatePurchaseReceiptBatchInput,
 ) {
   const { inputQuantity, acceptedQuantity, rejectedQuantity } = normalizeReceiptQuantities(input);
+  if (acceptedQuantity > 0) requireValuedReceiptActor(input.createdBy);
   const order = await claimPurchaseReceiptWrite(tx, input.purchaseOrderId);
   if (order.status === 'cancelled') {
     throw new AppError('PURCHASE_ORDER_CANCELLED', 409, ErrorCode.CONFLICT);
@@ -346,6 +439,10 @@ export async function createPurchaseReceiptBatch(
       { remainingQuantity, inputQuantity },
     );
   }
+
+  const postedCostBefore = await readPostedPurchaseReceiptCost(tx, order, totals.acceptedQuantity);
+  const costAmountDelta = acceptedQuantity > 0
+    ? resolveReceiptCostAmount(order, acceptedQuantity, totals.acceptedQuantity, postedCostBefore) : 0;
 
   const receiptNo = buildBusinessNo('PRC');
   const sourceRef = `PO-${order.id}-RCV-${receiptNo}`;
@@ -388,7 +485,7 @@ export async function createPurchaseReceiptBatch(
         quantityDelta: acceptedQuantity,
         unit: order.unit || 'kg',
         unitCost: resolveReceiptUnitCost(order),
-        costAmountDelta: resolveReceiptCostAmount(order, acceptedQuantity, totals.acceptedQuantity),
+        costAmountDelta,
       }],
     }, tx);
   }

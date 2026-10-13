@@ -1,4 +1,5 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { AppError, ErrorCode } from '../middleware/errorHandler';
 import {
   addMoney,
   multiplyMoney,
@@ -221,17 +222,35 @@ export function resolveReceiptCostAmount(
   order: { landedCostAmount?: number | null; landedUnitCost?: number | null; price?: number | null; quantity?: number | null },
   quantityDelta: number,
   acceptedQuantityBefore = 0,
+  postedCostBefore?: number,
 ) {
-  const landedCostAmount = toFiniteNumber(order.landedCostAmount, 0);
-  const orderQuantity = toFiniteNumber(order.quantity, 0);
-  const unitCost = resolveReceiptUnitCost(order);
-  if (landedCostAmount > 0 && orderQuantity > 0) {
-    const acceptedQuantityAfter = acceptedQuantityBefore + quantityDelta;
-    if (acceptedQuantityAfter >= orderQuantity - 0.000001) {
-      return subtractMoney(landedCostAmount, multiplyMoney(unitCost, acceptedQuantityBefore));
-    }
+  const landedCostAmount = order.landedCostAmount;
+  const orderQuantity = order.quantity;
+  const isMoney = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+    && value >= 0 && Number.isSafeInteger(Math.round(value * 100)) && Math.abs(roundMoney(value) - value) < 0.0000001;
+  if (!isMoney(landedCostAmount) || !Number.isFinite(orderQuantity) || Number(orderQuantity) <= 0
+    || (landedCostAmount === 0 && order.price !== 0)) {
+    throw new AppError('PURCHASE_RECEIPT_COST_BASIS_REQUIRED', 409, ErrorCode.CONFLICT);
   }
-  return multiplyMoney(unitCost, quantityDelta);
+  const actualCostBefore = postedCostBefore ?? (acceptedQuantityBefore === 0 ? 0 : undefined);
+  if (!isMoney(actualCostBefore) || !Number.isFinite(quantityDelta) || quantityDelta <= 0
+    || !Number.isFinite(acceptedQuantityBefore) || acceptedQuantityBefore < 0
+    || (acceptedQuantityBefore === 0 && actualCostBefore !== 0)) {
+    throw new AppError('PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED', 409, ErrorCode.CONFLICT);
+  }
+  const acceptedQuantityAfter = new Prisma.Decimal(acceptedQuantityBefore).plus(quantityDelta).toNumber();
+  if (acceptedQuantityAfter > Number(orderQuantity) + 0.000001) {
+    throw new AppError('PURCHASE_RECEIPT_EXCEEDS_REMAINING', 409, ErrorCode.CONFLICT);
+  }
+  // Subtract actual immutable receipt costs, not a rounded unit cost or an
+  // ideal historical fraction. This also preserves cents across upgrades.
+  const targetCost = acceptedQuantityAfter >= Number(orderQuantity) - 0.000001
+    ? landedCostAmount : prorateMoney(landedCostAmount, acceptedQuantityAfter, orderQuantity);
+  const costDelta = subtractMoney(targetCost, actualCostBefore);
+  if (costDelta < 0) {
+    throw new AppError('PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED', 409, ErrorCode.CONFLICT);
+  }
+  return costDelta;
 }
 
 export function normalizePurchaseStatus(status: string | null | undefined) {

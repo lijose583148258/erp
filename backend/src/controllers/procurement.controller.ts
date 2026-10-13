@@ -294,6 +294,9 @@ export class ProcurementController {
         PURCHASE_RECEIPT_INVALID_QUANTITY: '收货数量必须大于 0，且合格数量/差异数量不能为负数',
         PURCHASE_RECEIPT_QUANTITY_MISMATCH: '收货数量必须等于合格数量与差异数量之和',
         PURCHASE_RECEIPT_INVALID_DATE: '收货日期格式不正确',
+        PURCHASE_RECEIPT_ACTOR_REQUIRED: '实收入库必须由已登录的授权人员操作',
+        PURCHASE_RECEIPT_COST_BASIS_REQUIRED: '采购落地成本来源不完整，须核对原采购金额后再收货',
+        PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED: '历史收货库存与成本凭证不一致，须核对原凭证，不能自动补零或改写旧账',
         RECEIPT_DISCREPANCY_BLOCKED_BY_TOLERANCE: '收货差异超过容差规则，已阻止处理',
       };
       logger.error('创建采购收货批次失败:', error);
