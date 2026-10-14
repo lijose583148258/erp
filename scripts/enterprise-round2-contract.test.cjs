@@ -7,6 +7,112 @@ const catalog = require('./config/enterprise-round2-v1.json');
 const { validateCatalog, summarize, createRound2Runner, synchronizedBurst } = require('./lib/enterprise-round2-runner.cjs');
 const { verifyInventoryBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
 const { inventoryBrowserFixture } = require('./fixtures/inventory-browser-proof-fixture.cjs');
+const { verifyPurchaseReceiptSubmissionProof, verifyPurchaseReceiptRecoveryProof } = require('./lib/enterprise-round2-purchase-receipt-proof.cjs');
+const { purchaseReceiptSubmissionProofFixture, purchaseReceiptRecoveryProofFixture } = require('./fixtures/purchase-receipt-proof-fixture.cjs');
+
+test('independent purchase receipt verifiers accept explicitly synthetic contracts without business acceptance credit', () => {
+  for (const provider of ['sqlite', 'postgresql']) assert.deepEqual(verifyPurchaseReceiptSubmissionProof(purchaseReceiptSubmissionProofFixture(provider)),
+    { concurrentNodes: 2, originalReceipts: 1, finalReceipts: 2, auditFailureRollback: true, fullReceivedReplay: true });
+  assert.deepEqual(verifyPurchaseReceiptRecoveryProof(purchaseReceiptRecoveryProofFixture()),
+    { lostAcknowledgment: true, refreshRecovery: true, physicalReceiptCount: 1, physicalQuantity: 5, costAmount: 50 });
+});
+for (const [label, mutate] of [
+  ['missing raw stock balance coverage', e => { delete e.committed.balances; }],
+  ['one node represented twice', e => { e.concurrent[1].instance = 0; }],
+  ['two different receivers called one intent', e => { e.concurrent[1].actorId = 20; }],
+  ['second node used another key', e => { e.concurrent[1].requestKey = 'another-key-123'; }],
+  ['second node changed the receipt body', e => { e.concurrent[1].requestBody.quantity = 0.5; }],
+  ['two owners instead of one owner and one acknowledgment', e => { e.concurrent[1].json.data.replayed = false; }],
+  ['no owner acknowledgment', e => { e.concurrent[0].json.data.replayed = true; }],
+  ['response omitted the durable submission', e => { delete e.concurrent[0].json.data.submission; }],
+  ['request targeted an unrelated PO', e => { e.concurrent[0].purchaseOrderId = 99; }],
+  ['recorded response contains an unrecognized receipt field', e => { e.concurrent[0].json.data.submission.receipt.approved = true; }],
+  ['raw receipt durable key changed', e => { e.committed.receipts[0].submissionKey = 'different-key-123'; }],
+  ['raw receipt fingerprint changed', e => { e.committed.receipts[0].submissionFingerprint = 'f'.repeat(64); }],
+  ['raw receipt JSON is invalid', e => { e.committed.receipts[0].submissionJson = '{'; }],
+  ['raw receipt is missing', e => { e.committed.receipts = []; }],
+  ['raw receipt is duplicated', e => { e.committed.receipts.push({ ...e.committed.receipts[0] }); }],
+  ['receipt audit actor changed', e => { e.committed.audits[1].userId = 20; }],
+  ['receipt audit action is not a receipt', e => { e.committed.audits[1].action = 'STATUS_CHANGE'; }],
+  ['receipt audit resource targets a different PO', e => { e.committed.audits[1].resourceId = 99; }],
+  ['receipt audit receipt hash is forged', e => { const d = JSON.parse(e.committed.audits[1].details); d.receiptHash = 'f'.repeat(64); e.committed.audits[1].details = JSON.stringify(d); }],
+  ['receipt audit key hash is forged', e => { const d = JSON.parse(e.committed.audits[1].details); d.submissionKeyHash = 'f'.repeat(64); e.committed.audits[1].details = JSON.stringify(d); }],
+  ['stock movement does not match actual receipt', e => { e.committed.entries[0].movements[0].quantityDelta = 2; }],
+  ['stock balance does not match actual receipt', e => { e.committed.balances[0].quantity = 2; }],
+  ['cost ledger is from another voucher', e => { e.committed.costs[0].sourceRef = 'other-entry'; }],
+  ['cost amount drift', e => { e.committed.costs[0].costAmountDelta = 20; }],
+  ['changed facts request was actually identical', e => { e.changed.requestBody = { ...e.concurrent[0].requestBody }; }],
+  ['different actor rejection actually used the owner', e => { e.differentActor.actorId = e.concurrent[0].actorId; }],
+  ['key conflicts silently changed the PO timestamp', e => { e.afterConflicts.order.updatedAt = '2026-10-14T00:00:03.000Z'; }],
+  ['full received replay is a new posting', e => { e.replay.json.data.replayed = false; }],
+  ['full received replay changed its receipt', e => { e.replay.json.data.submission.receipt.receiptNo = 'new-receipt'; }],
+  ['full received replay reset the remaining quantity', e => { e.replay.json.data.receiptSummary.remainingQuantity = 1; }],
+  ['full received replay advanced the PO timestamp', e => { e.afterReplay.order.updatedAt = '2026-10-14T00:00:03.000Z'; }],
+  ['full received replay rewrote receipt history', e => { e.afterReplay.receipts[0].note = 'rewritten'; }],
+  ['remaining receipt lost its immutable JSON', e => { e.full.receipts[1].submissionJson = null; }],
+  ['remaining receipt reuses the first key', e => { e.full.receipts[1].submissionKey = e.full.receipts[0].submissionKey; }],
+  ['audit fault returned success', e => { e.auditFailure.status = 201; }],
+  ['audit fault readback omits inventory', e => { delete e.faultAfter.balances; }],
+  ['audit fault retained an orphan stock balance', e => { e.faultAfter.balances.push({ id: 99, materialId: 9, batchNo: 'orphan', unit: 'kg', quantity: 1 }); }],
+  ['audit fault retained a receipt', e => { e.faultAfter.receipts.push({ ...e.committed.receipts[0] }); }],
+  ['audit fault orphan batch is absent instead of explicitly null', e => { delete e.orphanFaultBatch; }],
+  ['audit fault did not install a database trigger', e => { e.faultInjection.installed = []; }],
+  ['audit fault trigger targets a different action', e => { e.faultInjection.installed[0].definition = e.faultInjection.installed[0].definition.replace('CREATE_RECEIPT', 'STATUS_CHANGE'); }],
+  ['audit fault trigger targets a different resource', e => { e.faultInjection.installed[0].definition = e.faultInjection.installed[0].definition.replace("'purchase_order'", "'order'"); }],
+  ['audit fault trigger targets a different PO', e => { e.faultInjection.installed[0].definition = e.faultInjection.installed[0].definition.replace('resource_id = 12', 'resource_id = 123'); }],
+  ['audit fault trigger never raises the intended fault', e => { e.faultInjection.installed[0].definition = e.faultInjection.installed[0].definition.replace('Synthetic receipt audit unavailable', 'Other error'); }],
+  ['audit fault trigger was not removed', e => { e.faultInjection.removed = e.faultInjection.installed; }],
+  ['audit fault trigger existed before the test', e => { e.faultInjection.before = e.faultInjection.installed; }],
+]) test(`purchase durable receipt verifier rejects ${label}`, () => {
+  const e = purchaseReceiptSubmissionProofFixture(); mutate(e); assert.throws(() => verifyPurchaseReceiptSubmissionProof(e));
+});
+test('PostgreSQL audit fault proof binds the actual trigger function and its removal', () => {
+  for (const mutate of [
+    e => { e.faultInjection.installedFunctions = []; },
+    e => { e.faultInjection.installedFunctions[0].definition = e.faultInjection.installedFunctions[0].definition.replace('Synthetic receipt audit unavailable', 'Unrelated fault'); },
+    e => { e.faultInjection.removedFunctions = e.faultInjection.installedFunctions; },
+  ]) { const e = purchaseReceiptSubmissionProofFixture('postgresql'); mutate(e); assert.throws(() => verifyPurchaseReceiptSubmissionProof(e)); }
+});
+for (const [label, mutate] of [
+  ['no recovery evidence', e => { delete e.receiptRecovery; }],
+  ['owner response was only a replay', e => { e.receiptRecovery.ownerResponse.body.data.replayed = true; }],
+  ['same-key retry became a new owner', e => { e.receiptRecovery.replayResponse.body.data.replayed = false; }],
+  ['retry header key changed', e => { e.receiptRecovery.replayRequest.requestKey = 'another-key-123'; }],
+  ['retry receipt body changed', e => { e.receiptRecovery.replayRequest.body.acceptedQuantity = 4; }],
+  ['intent storage belongs to another receiver', e => { e.receiptRecovery.storageSlot = 'ailaoda.purchase-receipt-intent/v1.99.1'; }],
+  ['intent storage belongs to another PO', e => { e.receiptRecovery.storageSlot = 'ailaoda.purchase-receipt-intent/v1.12.99'; }],
+  ['restored intent disappeared after reload', e => { e.receiptRecovery.persistedAfterRefresh = null; }],
+  ['restored intent user changed', e => { e.receiptRecovery.intent.userId = '99'; }],
+  ['restored intent PO changed', e => { e.receiptRecovery.intent.orderId = '99'; }],
+  ['no real refresh was recorded', e => { e.receiptRecovery.refreshed = false; }],
+  ['unexpected refresh dialog', e => { e.receiptRecovery.refreshDialogs = [{ type: 'confirm', accepted: true }]; }],
+  ['refresh dialog operation failed', e => { e.receiptRecovery.refreshDialogError = 'Refresh aborted'; }],
+  ['restored form remained editable', e => { e.receiptRecovery.refreshGuard.inputsDisabled = 0; }],
+  ['restored retry was blocked', e => { e.receiptRecovery.refreshGuard.retryEnabled = false; }],
+  ['restored quantity is current remaining not original five', e => { e.receiptRecovery.restoredValues[0] = '7'; }],
+  ['original intent was not cleared after verified acknowledgment', e => { e.receiptRecovery.storageAfterReplay = e.receiptRecovery.persistedBeforeRefresh; }],
+  ['replay changed the raw PO timestamp', e => { e.receiptRecovery.afterReplay.orders[0].updatedAt = 'later'; }],
+  ['replay changed raw cost', e => { e.receiptRecovery.afterReplay.costs[0].costAmountDelta = 100; }],
+  ['replay duplicated raw receipt', e => { e.receiptRecovery.afterReplay.receipts.push({ ...e.receiptRecovery.afterReplay.receipts[0], id: 99 }); }],
+  ['raw original receipt submission JSON is missing', e => { e.receiptRecovery.afterOwner.receipts[0].submissionJson = null; }],
+  ['raw original receipt audit is forged', e => { e.receiptRecovery.afterOwner.audits[4].details = '{}'; }],
+  ['final role proof replaced the original physical receipt', e => { e.final.receipts[0].id = 99; }],
+  ['successful UI retry was recorded with a different key', e => { e.writes[3].requestKey = 'another-key-123'; }],
+  ['successful UI retry did not validate the original response', e => { e.writes[3].response.data.submission.auditId = 99; }],
+  ['another role made the successful receipt retry', e => { e.writes[3].job = 'buyer'; }],
+  ['missing restored screenshot', e => { e.receiptRecovery.refreshedScreenshot = ''; }],
+]) test(`purchase receipt browser recovery verifier rejects ${label}`, () => {
+  const e = purchaseReceiptRecoveryProofFixture(); mutate(e); assert.throws(() => verifyPurchaseReceiptRecoveryProof(e));
+});
+test('purchase recovery producer performs one real owner fetch, lost ACK, and reload without fabricating a second delivery', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'lib/enterprise-round2-procurement-browser.cjs'), 'utf8');
+  assert.match(source, /const response = await route\.fetch\(\{ timeout: 15000 \}\)/);
+  assert.match(source, /await route\.abort\('failed'\); resolveOwner\(\)/);
+  assert.match(source, /if \(page\.url\(\) === url\) await page\.reload\(/);
+  assert.match(source, /recovery\.persistedAfterRefresh = await receiver\.evaluate/);
+  assert.match(source, /assert\.deepEqual\(recovery\.afterReplay, recovery\.beforeReplay/);
+  assert.match(source, /scope: 'Lost HTTP acknowledgment[^\n]*not database restart/);
+});
 
 test('inventory readback verifier accepts stock and both legitimate transfer/shipping outcomes', () => {
   for (const status of [undefined, 'pending', 'in_transit']) {

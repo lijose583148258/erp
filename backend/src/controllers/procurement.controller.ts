@@ -251,6 +251,7 @@ export class ProcurementController {
       const purchaseOrderId = Number(req.params.id);
       const result = await withDbRetry(() => prisma.$transaction(tx => createPurchaseReceiptBatch(tx, {
         purchaseOrderId,
+        idempotencyKey: req.get('Idempotency-Key'),
         quantity: req.body.quantity,
         acceptedQuantity: req.body.acceptedQuantity,
         rejectedQuantity: req.body.rejectedQuantity,
@@ -260,15 +261,9 @@ export class ProcurementController {
         discrepancyType: req.body.discrepancyType,
         note: req.body.note,
         createdBy: req.user?.userId || null,
+        ipAddress: req.ip,
+        userAgent: req.get('user-agent'),
       })), { label: 'createPurchaseReceipt' });
-
-      await writeAuditLog({
-        req,
-        action: 'CREATE_RECEIPT',
-        resource: 'purchase_order',
-        resourceId: purchaseOrderId,
-        details: `采购单 ${purchaseOrderId} 新增收货批次 ${result.receiptNo}`,
-      });
 
       return res.status(201).json({
         success: true,
@@ -278,6 +273,8 @@ export class ProcurementController {
           receipts: result.receipts,
           discrepancyCases: result.discrepancyCases,
           discrepancyCase: result.discrepancyCase,
+          submission: result.submission,
+          replayed: result.replayed,
         },
         message: '采购收货批次已记录',
       });
@@ -295,6 +292,10 @@ export class ProcurementController {
         PURCHASE_RECEIPT_QUANTITY_MISMATCH: '收货数量必须等于合格数量与差异数量之和',
         PURCHASE_RECEIPT_INVALID_DATE: '收货日期格式不正确',
         PURCHASE_RECEIPT_ACTOR_REQUIRED: '实收入库必须由已登录的授权人员操作',
+        PURCHASE_RECEIPT_KEY_REQUIRED: '收货登记缺少稳定请求身份，请恢复原表单后再提交',
+        PURCHASE_RECEIPT_KEY_CONFLICT: '原请求身份已用于不同收货事实或操作人，请核对原收货记录',
+        PURCHASE_RECEIPT_SUBMISSION_INVALID: '原收货回执与审计不一致，须核对原记录，不能重复入库',
+        PURCHASE_RECEIPT_INVALID_TEXT: '收货文本字段格式不正确',
         PURCHASE_RECEIPT_COST_BASIS_REQUIRED: '采购落地成本来源不完整，须核对原采购金额后再收货',
         PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED: '历史收货库存与成本凭证不一致，须核对原凭证，不能自动补零或改写旧账',
         RECEIPT_DISCREPANCY_BLOCKED_BY_TOLERANCE: '收货差异超过容差规则，已阻止处理',
@@ -303,6 +304,7 @@ export class ProcurementController {
       return res.status(statusCode).json({
         success: false,
         message: messages[errorKey] || '创建采购收货批次失败',
+        errorCode: error instanceof AppError ? errorKey : 'PURCHASE_RECEIPT_INTERNAL_ERROR',
         details,
       });
     }

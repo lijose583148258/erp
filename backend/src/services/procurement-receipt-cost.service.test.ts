@@ -20,6 +20,9 @@ function transaction(rows: Record<string, unknown>[], orphans: Array<{ id: numbe
 }
 
 describe('immutable procurement receipt cost history', () => {
+  it.each([0.0000001, 1.1234567, 1e15])('rejects quantities outside the six-decimal physical ledger before any write: %s', quantity => {
+    return expect(createPurchaseReceiptBatch({} as TransactionClient, { purchaseOrderId: 9, quantity, createdBy: 7, idempotencyKey: 'receipt-precise-123' })).rejects.toThrow('INVALID_QUANTITY');
+  });
   it.each([null, undefined, 0, -1, NaN, Infinity])('does not create unvalued physical history without an accountable actor: %s', async actor => {
     const untouched = {} as TransactionClient;
     await expect(createPurchaseReceiptBatch(untouched, { purchaseOrderId: 9, quantity: 1, createdBy: actor })).rejects.toThrow('ACTOR_REQUIRED');

@@ -235,6 +235,7 @@ async function main() {
       method: 'PATCH', data: { status: 'approved' },
     }, person('buyer_2').token), 'approve purchase order');
     const receipt = requireSuccess(await primary.apiFetch('/procurement/orders/' + purchase.id + '/receipts', {
+      headers: { 'Idempotency-Key': `e20-${runKey}-purchase-receipt` },
       method: 'POST', data: { quantity: 100, acceptedQuantity: 95, rejectedQuantity: 5,
         discrepancyType: 'quality_rejected', discrepancyReason: 'synthetic incoming inspection',
         batchNo: 'E20-PO-BATCH-' + runKey },

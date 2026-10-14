@@ -1,7 +1,13 @@
 import { AppError, ErrorCode } from '../middleware/errorHandler';
+import { Prisma } from '@prisma/client';
 import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import { buildBusinessNo } from '../utils/businessNo';
 import { roundMoney } from '../utils/money';
+import {
+  requirePurchaseReceiptKey, purchaseReceiptFingerprint, purchaseReceiptAuditDetails,
+  purchaseReceiptSubmissionSchema, readPurchaseReceiptSubmission, invalidPurchaseReceiptSubmission,
+  type PurchaseReceiptFacts, type PurchaseReceiptSubmission,
+} from '../domain/purchase-receipt-submission';
 import { ReceiptDiscrepancyService } from './receipt-discrepancy.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
 import {
@@ -15,6 +21,7 @@ export const PARTIAL_RECEIPT_MESSAGE = '采购单已有部分收货，必须继�
 
 type PurchaseOrderForReceipt = {
   id: number;
+  revision?: number;
   materialId?: number | null;
   supplierId?: number | null;
   supplier?: Record<string, unknown> | null;
@@ -53,6 +60,7 @@ type PurchaseReceiptTotalsRow = {
 
 export interface CreatePurchaseReceiptBatchInput {
   purchaseOrderId: number;
+  idempotencyKey?: unknown;
   quantity: unknown;
   acceptedQuantity?: unknown;
   rejectedQuantity?: unknown;
@@ -62,11 +70,14 @@ export interface CreatePurchaseReceiptBatchInput {
   discrepancyType?: unknown;
   note?: unknown;
   createdBy?: number | null;
+  ipAddress?: string;
+  userAgent?: string;
 }
 
 function toFiniteReceiptNumber(value: unknown, label: string) {
   const parsed = Number(value);
-  if (!Number.isFinite(parsed)) {
+  if (value == null || typeof value === 'boolean' || value === '' || !Number.isFinite(parsed)
+    || new Prisma.Decimal(parsed).decimalPlaces() > 6 || !Number.isSafeInteger(new Prisma.Decimal(parsed).times(1000000).toNumber())) {
     throw new AppError(
       'PURCHASE_RECEIPT_INVALID_QUANTITY',
       400,
@@ -114,7 +125,8 @@ function normalizeReceiptDate(value: unknown) {
 
 function toOptionalReceiptText(value: unknown) {
   if (value === undefined || value === null || value === '') return null;
-  return String(value);
+  if (typeof value !== 'string') throw new AppError('PURCHASE_RECEIPT_INVALID_TEXT', 400, ErrorCode.VALIDATION_ERROR);
+  return value.trim() || null;
 }
 
 function requireValuedReceiptActor(createdBy: number | null | undefined) {
@@ -129,12 +141,9 @@ async function claimPurchaseReceiptWrite(tx: TransactionClient, purchaseOrderId:
     throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
   }
 
-  // Make the first operation a write so concurrent partial receipts serialize before remaining quantity is calculated.
-  const claim = await tx.purchaseOrder.updateMany({
-    where: { id: normalizedId },
-    data: { updatedAt: new Date() },
-  });
-  if (claim.count !== 1) {
+  // Serialize new receipt owners without advancing the commercial revision timestamp.
+  const claim = await executeRawCompat(tx, 'UPDATE purchase_orders SET id = id WHERE id = ?', normalizedId);
+  if (claim !== 1) {
     throw new AppError('PURCHASE_ORDER_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
   }
 
@@ -190,39 +199,11 @@ export async function postProcurementReceiptIfMissing(
 
   requireValuedReceiptActor(createdBy);
 
-  const receiptLocationId = await resolveProcurementReceiptLocationId(tx);
-  const receiptNo = buildBusinessNo('PRC');
-  await executeRawCompat(tx, 
-    `INSERT INTO purchase_receipts
-      (receipt_no, purchase_order_id, quantity, accepted_quantity, rejected_quantity, unit, batch_no, stock_entry_ref, note, received_by, received_at, created_at)
-     VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    receiptNo,
-    Number(order.id),
-    Number(order.quantity || 0),
-    Number(order.quantity || 0),
-    order.unit || 'kg',
-    sourceRef,
-    sourceRef,
-    'Full receipt created from legacy status transition',
-    createdBy || null,
-  );
-  await StockMovementService.postStockEntry({
-    sourceType: 'procurement_receipt',
-    sourceRef,
-    reason: 'purchase_order_received',
-    note: `Purchase order received: ${sourceRef}`,
-    createdBy: createdBy || null,
-    lines: [{
-      locationId: receiptLocationId,
-      materialId: order.materialId || null,
-      productName: order.item,
-      batchNo: sourceRef,
-      quantityDelta: Number(order.quantity || 0),
-      unit: order.unit || 'kg',
-      unitCost: resolveReceiptUnitCost(order),
-      costAmountDelta: resolveReceiptCostAmount(order, Number(order.quantity || 0)),
-    }],
-  }, tx);
+  await createPurchaseReceiptBatch(tx, {
+    purchaseOrderId: order.id, idempotencyKey: `purchase-full:${order.id}:r${order.revision || 0}`,
+    quantity: Number(order.quantity || 0), batchNo: sourceRef,
+    note: 'Full receipt created from legacy status transition', createdBy,
+  }, sourceRef);
 
   return { posted: true, sourceRef };
 }
@@ -241,9 +222,31 @@ function normalizeReceiptRow(row: PurchaseReceiptRow) {
     discrepancyReason: row.discrepancyReason ? String(row.discrepancyReason) : null,
     note: row.note ? String(row.note) : null,
     receivedBy: row.receivedBy == null ? null : Number(row.receivedBy),
-    receivedAt: row.receivedAt,
-    createdAt: row.createdAt,
+    receivedAt: receiptDateIso(row.receivedAt),
+    createdAt: receiptDateIso(row.createdAt),
   };
+}
+
+function receiptDateIso(value: unknown) {
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (!Number.isFinite(date.getTime())) throw invalidPurchaseReceiptSubmission();
+  return date.toISOString();
+}
+
+async function readReceiptReplay(tx: TransactionClient, facts: PurchaseReceiptFacts, key: string) {
+  const stored = await tx.purchaseReceipt.findFirst({ where: { purchaseOrderId: facts.purchaseOrderId, submissionKey: key } });
+  if (!stored) return null;
+  let auditId = 0;
+  try { auditId = purchaseReceiptSubmissionSchema.parse(JSON.parse(stored.submissionJson || '')).auditId; }
+  catch { throw invalidPurchaseReceiptSubmission(); }
+  const audit = await tx.auditLog.findUnique({ where: { id: auditId } });
+  const receipt = normalizeReceiptRow(stored) as PurchaseReceiptSubmission['receipt'];
+  const submission = readPurchaseReceiptSubmission(stored, receipt, facts, key, audit);
+  const order = await tx.purchaseOrder.findUnique({ where: { id: facts.purchaseOrderId }, include: { supplier: true, salesOrder: true } });
+  if (!order) throw invalidPurchaseReceiptSubmission();
+  const bundle = await getPurchaseOrderReceiptBundle(tx, order);
+  const discrepancyCase = bundle.discrepancyCases.find(c => c.sourceRef === submission.receipt.receiptNo) || null;
+  return { purchaseOrder: order, ...bundle, discrepancyCase, receiptNo: submission.receipt.receiptNo, submission, replayed: true };
 }
 
 export async function listPurchaseReceipts(tx: TransactionClient, purchaseOrderId: number) {
@@ -415,10 +418,25 @@ export async function getPurchaseOrderReceiptBundle(
 export async function createPurchaseReceiptBatch(
   tx: TransactionClient,
   input: CreatePurchaseReceiptBatchInput,
+  // Only the legacy server-side full-receipt adapter supplies this reference.
+  // No HTTP field is forwarded here; both paths still use one transaction core.
+  legacyFullSourceRef?: string,
 ) {
   const { inputQuantity, acceptedQuantity, rejectedQuantity } = normalizeReceiptQuantities(input);
-  if (acceptedQuantity > 0) requireValuedReceiptActor(input.createdBy);
+  requireValuedReceiptActor(input.createdBy);
+  const key = requirePurchaseReceiptKey(input.idempotencyKey);
+  const discrepancyType = ReceiptDiscrepancyService.normalizeDiscrepancyType(input.discrepancyType, 'short_shipped');
+  const facts: PurchaseReceiptFacts = {
+    purchaseOrderId: input.purchaseOrderId, receivedBy: Number(input.createdBy), quantity: inputQuantity, acceptedQuantity, rejectedQuantity,
+    batchNo: toOptionalReceiptText(input.batchNo), receivedAt: input.receivedAt ? normalizeReceiptDate(input.receivedAt).toISOString() : null,
+    discrepancyReason: toOptionalReceiptText(input.discrepancyReason), discrepancyType, note: toOptionalReceiptText(input.note),
+  };
+  const fingerprint = purchaseReceiptFingerprint(facts);
+  const existing = await readReceiptReplay(tx, facts, key);
+  if (existing) return existing;
   const order = await claimPurchaseReceiptWrite(tx, input.purchaseOrderId);
+  const raced = await readReceiptReplay(tx, facts, key);
+  if (raced) return raced;
   if (order.status === 'cancelled') {
     throw new AppError('PURCHASE_ORDER_CANCELLED', 409, ErrorCode.CONFLICT);
   }
@@ -445,16 +463,17 @@ export async function createPurchaseReceiptBatch(
     ? resolveReceiptCostAmount(order, acceptedQuantity, totals.acceptedQuantity, postedCostBefore) : 0;
 
   const receiptNo = buildBusinessNo('PRC');
-  const sourceRef = `PO-${order.id}-RCV-${receiptNo}`;
-  const batchNo = String(input.batchNo || sourceRef);
-  const receivedAt = normalizeReceiptDate(input.receivedAt);
-  const discrepancyReason = toOptionalReceiptText(input.discrepancyReason);
-  const receiptNote = toOptionalReceiptText(input.note);
+  const sourceRef = legacyFullSourceRef || `PO-${order.id}-RCV-${receiptNo}`;
+  if (legacyFullSourceRef && legacyFullSourceRef !== `PO-${order.id}`) throw invalidPurchaseReceiptSubmission();
+  const batchNo = facts.batchNo || sourceRef;
+  const receivedAt = facts.receivedAt ? new Date(facts.receivedAt) : new Date();
+  const discrepancyReason = facts.discrepancyReason;
+  const receiptNote = facts.note;
 
   await executeRawCompat(tx, 
     `INSERT INTO purchase_receipts
-      (receipt_no, purchase_order_id, quantity, accepted_quantity, rejected_quantity, unit, batch_no, stock_entry_ref, discrepancy_reason, note, received_by, received_at, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
+      (receipt_no, purchase_order_id, quantity, accepted_quantity, rejected_quantity, unit, batch_no, stock_entry_ref, discrepancy_reason, note, received_by, received_at, submission_key, submission_fingerprint, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
     receiptNo,
     order.id,
     inputQuantity,
@@ -467,6 +486,8 @@ export async function createPurchaseReceiptBatch(
     receiptNote,
     input.createdBy || null,
     receivedAt,
+    key,
+    fingerprint,
   );
 
   if (acceptedQuantity > 0) {
@@ -494,10 +515,6 @@ export async function createPurchaseReceiptBatch(
     `SELECT id FROM purchase_receipts WHERE receipt_no = ? LIMIT 1`,
     receiptNo,
   );
-  const discrepancyType = ReceiptDiscrepancyService.normalizeDiscrepancyType(
-    input.discrepancyType,
-    'short_shipped',
-  );
   const discrepancyCase = await ReceiptDiscrepancyService.createCaseForRejectedReceipt(tx, {
     sourceType: 'purchase_receipt',
     sourceRef: receiptNo,
@@ -524,7 +541,7 @@ export async function createPurchaseReceiptBatch(
   const nextStatus = nextTotals.processedQuantity + 0.000001 >= Number(order.quantity || 0)
     ? 'received'
     : 'in_transit';
-  const updatedOrder = await tx.purchaseOrder.update({
+  const updatedOrder = order.status === nextStatus ? order : await tx.purchaseOrder.update({
     where: { id: order.id },
     data: { status: nextStatus },
     include: { supplier: true, salesOrder: true },
@@ -534,10 +551,21 @@ export async function createPurchaseReceiptBatch(
     quantity: Number(updatedOrder.quantity || 0),
   });
 
+  const receipt = receiptBundle.receipts.find(r => r.receiptNo === receiptNo) as PurchaseReceiptSubmission['receipt'] | undefined;
+  if (!receipt) throw invalidPurchaseReceiptSubmission();
+  const audit = await tx.auditLog.create({ data: {
+    userId: facts.receivedBy, action: 'CREATE_RECEIPT', resource: 'purchase_order', resourceId: order.id,
+    details: JSON.stringify(purchaseReceiptAuditDetails(key, fingerprint, receipt)), ipAddress: input.ipAddress, userAgent: input.userAgent,
+  } });
+  const submission = purchaseReceiptSubmissionSchema.parse({ schema: 'purchase-receipt-submission/v1', key, fingerprint, auditId: audit.id, receipt });
+  await tx.purchaseReceipt.update({ where: { id: receipt.id }, data: { submissionJson: JSON.stringify(submission) } });
+
   return {
     purchaseOrder: updatedOrder,
     ...receiptBundle,
     discrepancyCase,
     receiptNo,
+    submission,
+    replayed: false,
   };
 }

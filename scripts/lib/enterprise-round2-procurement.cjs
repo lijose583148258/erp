@@ -1,6 +1,84 @@
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { synchronizedBurst } = require('./enterprise-round2-runner.cjs');
 
+async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
+  const create = async quantity => dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
+    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity, price: 10,
+      unit: 'kg', eta: '2026-10-01', status: 'approved' } }));
+  const original = await create(2), id = Number(original.id), key = `${runId}-durable-receipt`;
+  const facts = { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-durable-batch`, note: 'One physical delivery, one immutable receipt' };
+  const post = async (actor, instance, requestKey, data) => ({ ...await request(`/procurement/orders/${id}/receipts`, { actor, instance, method: 'POST', signal,
+    headers: requestKey ? { 'Idempotency-Key': requestKey } : {}, data }), purchaseOrderId: id, actorId: actor.id, instance, method: 'POST', requestKey: requestKey || null, requestBody: data });
+  const batchNames = [`${runId}-durable-batch`, `${runId}-remaining-batch`, `${runId}-audit-fault-batch`];
+  const snapshot = async poId => {
+    const receipts = await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: poId }, orderBy: { id: 'asc' } });
+    const entries = await prisma.stockEntry.findMany({ where: { sourceType: 'procurement_receipt', sourceRef: { startsWith: `PO-${poId}-RCV-` } }, include: { movements: true }, orderBy: { id: 'asc' } });
+    const batches = await prisma.productBatch.findMany({ where: { batchNo: { in: batchNames } }, orderBy: { id: 'asc' } });
+    return { order: await prisma.purchaseOrder.findUnique({ where: { id: poId } }), receipts, entries,
+      batches, balances: await prisma.stockBalance.findMany({ where: { batchNo: { in: batchNames } }, orderBy: { id: 'asc' } }),
+      costs: await prisma.inventoryCostLedger.findMany({ where: { OR: [{ sourceRef: { in: entries.map(e => e.entryNo) } }, { batchId: { in: batches.map(b => b.id) } }] }, orderBy: { id: 'asc' } }),
+      audits: await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: poId }, orderBy: { id: 'asc' } }) };
+  };
+  const before = await snapshot(id), missingKey = await post(actors.buyer1, 0, null, facts), afterMissing = await snapshot(id);
+  // A duplicated intent is deliberately the same authenticated receiver on two
+  // nodes, not two invented workforce identities. Rendezvous before dispatch.
+  let release;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const queued = [0, 1].map(async instance => { await barrier; return post(actors.buyer1, instance, key, facts); });
+  release();
+  const concurrent = await Promise.all(queued);
+  const committed = await snapshot(id), receipt = concurrent.map(r => dataOf(r))[0].submission;
+  const changed = await post(actors.buyer1, 1, key, { ...facts, quantity: 0.5, acceptedQuantity: 0.5 });
+  const differentActor = await post(actors.buyer2, 0, key, facts), afterConflicts = await snapshot(id);
+  dataOf(await post(actors.buyer1, 1, `${runId}-remaining-receipt`, { ...facts, batchNo: `${runId}-remaining-batch` }));
+  const full = await snapshot(id), replay = await post(actors.buyer1, 0, key, facts), afterReplay = await snapshot(id);
+  const blockedOrder = await create(1), faultId = Number(blockedOrder.id), faultBefore = await snapshot(faultId);
+  const faultName = `receipt_audit_fault_${faultId}`, pg = process.env.AUDIT_PRISMA_PROVIDER === 'postgresql';
+  const readFault = () => pg
+    ? prisma.$queryRawUnsafe('SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal', faultName)
+    : prisma.$queryRawUnsafe("SELECT sql AS definition FROM sqlite_master WHERE type = 'trigger' AND name = ?", faultName);
+  const readFaultFunction = () => pg ? prisma.$queryRawUnsafe('SELECT pg_get_functiondef(oid) AS definition FROM pg_proc WHERE proname = $1 AND pronargs = 0', faultName) : Promise.resolve([]);
+  const faultInjection = { name: faultName, targetAction: 'CREATE_RECEIPT', purchaseOrderId: faultId, before: await readFault(), beforeFunctions: await readFaultFunction() };
+  let auditFailure;
+  // Fault injection is scoped to this synthetic PO and removed in finally. It
+  // demonstrates database rollback, not a mocked audit call or a status-only check.
+  try {
+    if (pg) {
+      await prisma.$executeRawUnsafe(`CREATE FUNCTION ${faultName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic receipt audit unavailable'; END; $$`);
+      await prisma.$executeRawUnsafe(`CREATE TRIGGER ${faultName} BEFORE INSERT ON audit_logs FOR EACH ROW WHEN (NEW.action = 'CREATE_RECEIPT' AND NEW.resource = 'purchase_order' AND NEW.resource_id = ${faultId}) EXECUTE FUNCTION ${faultName}()`);
+    } else await prisma.$executeRawUnsafe(`CREATE TRIGGER ${faultName} BEFORE INSERT ON audit_logs WHEN NEW.action = 'CREATE_RECEIPT' AND NEW.resource = 'purchase_order' AND NEW.resource_id = ${faultId} BEGIN SELECT RAISE(ABORT, 'Synthetic receipt audit unavailable'); END`);
+    faultInjection.installed = await readFault();
+    faultInjection.installedFunctions = await readFaultFunction();
+    const requestBody = { quantity: 1, batchNo: `${runId}-audit-fault-batch` }, requestKey = `${runId}-audit-rollback`;
+    auditFailure = { ...await request(`/procurement/orders/${faultId}/receipts`, { actor: actors.buyer1, instance: 1, method: 'POST', signal,
+      headers: { 'Idempotency-Key': requestKey }, data: requestBody }), purchaseOrderId: faultId, actorId: actors.buyer1.id, instance: 1, method: 'POST', requestKey, requestBody };
+  } finally {
+    await prisma.$executeRawUnsafe(pg ? `DROP TRIGGER IF EXISTS ${faultName} ON audit_logs` : `DROP TRIGGER IF EXISTS ${faultName}`);
+    if (pg) await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${faultName}()`);
+  }
+  faultInjection.removed = await readFault();
+  faultInjection.removedFunctions = await readFaultFunction();
+  const faultAfter = await snapshot(faultId);
+  const orphanFaultBatch = await prisma.productBatch.findUnique({ where: { batchNo: `${runId}-audit-fault-batch` } });
+  const requirements = {
+    missing_identity_rejected_without_effect: missingKey.status === 400 && missingKey.json.errorCode === 'PURCHASE_RECEIPT_KEY_REQUIRED' && JSON.stringify(before) === JSON.stringify(afterMissing),
+    two_nodes_one_owner_one_acknowledgement: concurrent.every(r => r.status === 201) && concurrent.map(r => r.json.data.replayed).filter(Boolean).length === 1
+      && concurrent.every(r => JSON.stringify(r.json.data.submission) === JSON.stringify(receipt)) && committed.receipts.length === 1 && committed.entries.length === 1 && committed.costs.length === 1,
+    committed_identity_and_audit_bound: committed.receipts[0]?.submissionKey === key && committed.receipts[0]?.submissionFingerprint === receipt.fingerprint
+      && committed.receipts[0]?.submissionJson === JSON.stringify(receipt) && receipt.receipt.receivedBy === actors.buyer1.id
+      && committed.audits.filter(a => a.action === 'CREATE_RECEIPT').length === 1 && committed.audits.some(a => a.id === receipt.auditId),
+    changed_facts_and_actor_do_not_rebook: changed.status === 409 && differentActor.status === 409 && JSON.stringify(committed) === JSON.stringify(afterConflicts),
+    full_order_returns_original_receipt_not_a_new_posting: full.order.status === 'received' && replay.status === 201 && replay.json.data.replayed === true
+      && JSON.stringify(replay.json.data.submission) === JSON.stringify(receipt) && replay.json.data.receiptSummary.remainingQuantity === 0 && JSON.stringify(full) === JSON.stringify(afterReplay),
+    failed_audit_rolls_back_receipt_stock_cost_status: auditFailure.status === 500 && JSON.stringify(faultBefore) === JSON.stringify(faultAfter) && orphanFaultBatch === null,
+  };
+  const evidence = verify(requirements, { version: 'purchase-receipt-submission/v1', original, before, missingKey, afterMissing, concurrent, committed,
+    changed, differentActor, afterConflicts, full, replay, afterReplay, faultBefore, auditFailure, faultAfter, orphanFaultBatch,
+    faultInjection, scope: 'Real two-node durable receipt and atomic audit rollback; not incoming QA, supplier AP/payment or a database restart', provider: pg ? 'postgresql' : 'sqlite' });
+  require('./enterprise-round2-purchase-receipt-proof.cjs').verifyPurchaseReceiptSubmissionProof(evidence);
+  return evidence;
+}
+
 async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
   const terms = { taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 3, evidenceRef: `${runId}-supplier-quote` };
   const plan = { specificationRef: `${runId}-incoming-spec`, specificationRevision: 'R1', characteristics: [
@@ -17,6 +95,7 @@ async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId,
   const apiReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/procurement/orders/${id}/revisions`, { actor: actors.buyer2, instance, signal }))));
   const approved = dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
   const receive = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+    headers: { 'Idempotency-Key': `${runId}-source-receipt` },
     data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-governed-source` } });
   const snapshot = async () => ({ order: await prisma.purchaseOrder.findUnique({ where: { id } }),
     receipts: await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: id }, orderBy: { id: 'asc' } }),
@@ -46,15 +125,16 @@ async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId
     data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 3, price: 1 / 3,
       unit: 'kg', eta: '2026-10-01', currency: 'CNY', status: 'approved' } }));
   const id = Number(original.id), batchNo = `${runId}-fractional-receipt`;
-  const receive = async (actor, instance) => {
+  const receive = async (actor, instance, index) => {
     const result = await request(`/procurement/orders/${id}/receipts`, { actor, instance, method: 'POST', signal,
+      headers: { 'Idempotency-Key': `${runId}-fractional-${index}` },
       data: { quantity: 0.5, acceptedQuantity: 0.5, rejectedQuantity: 0, batchNo } });
     return { actorId: actor.id, instance, status: result.status, body: result.json };
   };
   const responses = [];
-  for (let index = 0; index < 4; index++) responses.push(await receive(actors.buyer1, index % 2));
+  for (let index = 0; index < 4; index++) responses.push(await receive(actors.buyer1, index % 2, index));
   responses.push(...await synchronizedBurst([actors.buyer1, actors.buyer2], actor =>
-    receive(actor, actor.id === actors.buyer1.id ? 0 : 1), signal));
+    receive(actor, actor.id === actors.buyer1.id ? 0 : 1, actor.id === actors.buyer1.id ? 4 : 5), signal));
   const order = await prisma.purchaseOrder.findUnique({ where: { id } });
   const receipts = await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: id }, orderBy: { id: 'asc' } });
   const entries = await prisma.stockEntry.findMany({ where: { sourceType: 'procurement_receipt', sourceRef: { startsWith: `PO-${id}-RCV-` } },
@@ -128,6 +208,7 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   const staleApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 0 } });
   const unversionedApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, method: 'PATCH', signal, data: { status: 'approved' } });
   const pendingReceipt = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+    headers: { 'Idempotency-Key': `${runId}-unapproved-receipt` },
     data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-blocked` } });
   const deniedEdit = await request(`/procurement/orders/${id}`, { actor: actors.sales, method: 'PATCH', signal,
     data: { ...terms[0], expectedRevision: 1, expectedUpdatedAt: state.order.updatedAt.toISOString() } });
@@ -143,6 +224,7 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
   requirements.approval_replay_does_not_duplicate_audit = JSON.stringify(await snapshot()) === JSON.stringify(statusBeforeReplay);
   dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+    headers: { 'Idempotency-Key': `${runId}-revised-receipt` },
     data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-received` } }));
   const received = await snapshot();
   const receiptEdit = await request(`/procurement/orders/${id}`, { actor: actors.buyer1, instance: 1, method: 'PATCH', signal,
@@ -150,7 +232,8 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   requirements.received_order_cannot_be_rewritten = receiptEdit.status === 409 && JSON.stringify(await snapshot()) === JSON.stringify(received);
   const receiptCost = await purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
   const governance = await purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
-  return verify(requirements, { ...evidence, apiReadbacks, approved, received, receiptCost, governance, statuses: { replay: replay.status, staleApproval: staleApproval.status,
+  const receiptSubmission = await purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
+  return verify(requirements, { ...evidence, apiReadbacks, approved, received, receiptCost, governance, receiptSubmission, statuses: { replay: replay.status, staleApproval: staleApproval.status,
     unversionedApproval: unversionedApproval.status, pendingReceipt: pendingReceipt.status, deniedEdit: deniedEdit.status, receiptEdit: receiptEdit.status } });
 }
 

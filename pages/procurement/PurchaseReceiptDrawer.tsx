@@ -13,6 +13,7 @@ type PurchaseReceiptDrawerProps = {
   clearReceiptError: (field: string) => void;
   isReceiptLoading: boolean;
   isReceiptSubmitting: boolean;
+  hasUnconfirmedReceipt?: boolean;
   submitReceipt: () => void;
   onClose: () => void;
   canWrite: boolean;
@@ -27,6 +28,7 @@ export const PurchaseReceiptDrawer = ({
   clearReceiptError,
   isReceiptLoading,
   isReceiptSubmitting,
+  hasUnconfirmedReceipt = false,
   submitReceipt,
   onClose,
   canWrite,
@@ -40,7 +42,8 @@ export const PurchaseReceiptDrawer = ({
     value: receiptForm,
   });
   const handleClose = () => { if (!isReceiptSubmitting) requestClose(onClose); };
-  const formDisabled = isReceiptLoading || isReceiptSubmitting || !receiptBundle || !canWrite || receiptDrawerOrder.status === 'received';
+  const saveDisabled = isReceiptLoading || isReceiptSubmitting || !receiptBundle || !canWrite || (!hasUnconfirmedReceipt && receiptDrawerOrder.status === 'received');
+  const formDisabled = saveDisabled || hasUnconfirmedReceipt;
   const updateReceiptField = (field: keyof PurchaseReceiptForm, value: string) => {
     clearReceiptError(field);
     setReceiptForm(prev => ({ ...prev, [field]: value }));
@@ -96,6 +99,11 @@ export const PurchaseReceiptDrawer = ({
             当前角色只能查看收货批次，保存收货需要采购收货登记权限。
           </div>
         )}
+        {hasUnconfirmedReceipt && (
+          <p data-testid="purchase-receipt-unconfirmed" className="mb-4 text-sm font-bold text-amber-700">
+            原收货结果尚未确认，已保留数量与批次；确认原请求不会再次入库。
+          </p>
+        )}
         {receiptErrorCount > 0 && (
           <div data-testid="purchase-receipt-error-summary" className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-black text-rose-700 dark:border-rose-900/50 dark:bg-rose-950/20 dark:text-rose-200">
             还有 {receiptErrorCount} 项收货信息需要修正：{Object.values(receiptErrors)[0]}
@@ -118,11 +126,11 @@ export const PurchaseReceiptDrawer = ({
           type="button"
           data-testid="purchase-receipt-save-button"
           onClick={submitReceipt}
-          disabled={formDisabled}
+          disabled={saveDisabled}
           aria-busy={isReceiptSubmitting}
           className="mt-4 w-full rounded-2xl bg-emerald-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {isReceiptSubmitting ? '保存中...' : isReceiptLoading ? '加载中...' : '保存收货批次'}
+          {isReceiptSubmitting ? '保存中...' : isReceiptLoading ? '加载中...' : hasUnconfirmedReceipt ? '确认原收货请求' : '保存收货批次'}
         </button>
       </div>
 

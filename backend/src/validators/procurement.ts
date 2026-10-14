@@ -105,9 +105,9 @@ export const revisePurchaseOrderSchema = z.object({
 }).strict();
 
 export const createPurchaseReceiptSchema = z.object({
-  quantity: z.coerce.number().positive(),
-  acceptedQuantity: z.coerce.number().nonnegative().optional(),
-  rejectedQuantity: z.coerce.number().nonnegative().optional(),
+  quantity: z.coerce.number().finite().positive().multipleOf(0.000001),
+  acceptedQuantity: z.coerce.number().finite().nonnegative().multipleOf(0.000001).optional(),
+  rejectedQuantity: z.coerce.number().finite().nonnegative().multipleOf(0.000001).optional(),
   discrepancyType: receiptDiscrepancyTypeSchema.optional(),
   batchNo: z.string().trim().optional(),
   receivedAt: z.string().trim().optional(),

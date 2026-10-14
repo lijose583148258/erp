@@ -40,6 +40,9 @@ import {
   type ProcurementFormErrors,
 } from './procurement/procurementForms';
 import { useProcurementUnsavedFormGuards } from './procurement/useProcurementUnsavedFormGuards';
+import { readPurchaseReceiptIntent, preparePurchaseReceiptIntent, clearPurchaseReceiptIntent,
+  confirmPurchaseReceiptSubmission, definitivePurchaseReceiptRejection, type PurchaseReceiptIntent } from './procurement/purchaseReceiptIntent';
+import type { ApiClientError } from '../utils/api';
 
 const Procurement = () => {
   const { t, notify, language, currentUser } = useAppContext();
@@ -68,6 +71,7 @@ const Procurement = () => {
   const [receiptBundle, setReceiptBundle] = useState<PurchaseReceiptBundle | null>(null);
   const [isReceiptLoading, setIsReceiptLoading] = useState(false);
   const [isReceiptSubmitting, setIsReceiptSubmitting] = useState(false);
+  const [hasUnconfirmedReceipt, setHasUnconfirmedReceipt] = useState(false);
   const [isPurchaseSubmitting, setIsPurchaseSubmitting] = useState(false);
   const [receiptForm, setReceiptForm] = useState(createEmptyReceiptForm);
   const [supplierSaveVersion, setSupplierSaveVersion] = useState(0);
@@ -217,11 +221,14 @@ const Procurement = () => {
       setIsReceiptLoading(true);
       const bundle = await procurementService.getOrderReceipts(order.id);
       if (version !== receiptLoadVersionRef.current) return;
+      const prior = readPurchaseReceiptIntent(window.localStorage, String(currentUser?.id || ''), order.id);
       setReceiptBundle(bundle);
-      resetReceiptForm(order, bundle);
-    } catch {
+      setHasUnconfirmedReceipt(Boolean(prior));
+      if (prior) setReceiptForm({ ...prior.facts, quantity: String(prior.facts.quantity), acceptedQuantity: String(prior.facts.acceptedQuantity), rejectedQuantity: String(prior.facts.rejectedQuantity) });
+      else resetReceiptForm(order, bundle);
+    } catch (error) {
       if (version !== receiptLoadVersionRef.current) return;
-      notify('error', t.connectionFailed || '收货批次读取失败');
+      notify('error', error instanceof Error ? error.message : (t.connectionFailed || '收货批次读取失败'));
     } finally {
       if (version === receiptLoadVersionRef.current) setIsReceiptLoading(false);
     }
@@ -233,7 +240,7 @@ const Procurement = () => {
       notify('warning', '当前角色只能查看采购收货批次，不能保存收货');
       return;
     }
-    const nextErrors = validatePurchaseReceiptForm(receiptForm, receiptDrawerOrder, receiptBundle);
+    const nextErrors = hasUnconfirmedReceipt ? {} : validatePurchaseReceiptForm(receiptForm, receiptDrawerOrder, receiptBundle);
     if (Object.keys(nextErrors).length) {
       setReceiptErrors(nextErrors);
       notify('error', Object.values(nextErrors)[0] || '请先修正收货批次');
@@ -243,24 +250,35 @@ const Procurement = () => {
     const acceptedQuantity = Number(receiptForm.acceptedQuantity || 0);
     const rejectedQuantity = Number(receiptForm.rejectedQuantity || 0);
 
+    let intent: PurchaseReceiptIntent | null = null;
     try {
       setIsReceiptSubmitting(true);
-      const bundle = await procurementService.createReceipt(receiptDrawerOrder.id, {
-        quantity,
-        acceptedQuantity,
-        rejectedQuantity,
-        batchNo: receiptForm.batchNo || undefined,
-        discrepancyReason: receiptForm.discrepancyReason || undefined,
-        note: receiptForm.note || undefined,
-      });
+      if (!globalThis.crypto?.subtle || typeof globalThis.crypto.randomUUID !== 'function') {
+        throw Error('当前连接无法验证收货身份，请使用 HTTPS 或本机入口；未发送入库。');
+      }
+      const userId = String(currentUser?.id || ''), orderId = receiptDrawerOrder.id;
+      intent = preparePurchaseReceiptIntent(window.localStorage, userId, orderId, { quantity, acceptedQuantity, rejectedQuantity,
+        batchNo: receiptForm.batchNo, discrepancyReason: receiptForm.discrepancyReason, note: receiptForm.note }, () => crypto.randomUUID());
+      setHasUnconfirmedReceipt(true);
+      const bundle = await procurementService.createReceipt(orderId, { ...intent.facts,
+        batchNo: intent.facts.batchNo || undefined, discrepancyReason: intent.facts.discrepancyReason || undefined, note: intent.facts.note || undefined }, intent.key);
+      await confirmPurchaseReceiptSubmission(intent, bundle.submission);
+      clearPurchaseReceiptIntent(window.localStorage, userId, orderId, intent.key);
+      setHasUnconfirmedReceipt(false);
       setReceiptBundle(bundle);
       setReceiptDrawerOrder(bundle.purchaseOrder);
       setOrders(prev => prev.map(item => item.id === bundle.purchaseOrder.id ? bundle.purchaseOrder : item));
       resetReceiptForm(bundle.purchaseOrder, bundle);
       setReceiptErrors({});
       notify('success', '收货批次已入账');
-    } catch {
-      notify('error', t.saveFail || '收货批次保存失败');
+    } catch (error) {
+      if (intent && definitivePurchaseReceiptRejection((error as ApiClientError).errorCode)) {
+        try {
+          clearPurchaseReceiptIntent(window.localStorage, intent.userId, intent.orderId, intent.key);
+          setHasUnconfirmedReceipt(false);
+        } catch { /* Keep an unconfirmed identity rather than silently creating another receipt. */ }
+      }
+      notify('error', error instanceof Error ? error.message : (t.saveFail || '收货批次保存失败'));
     } finally {
       setIsReceiptSubmitting(false);
     }
@@ -546,6 +564,7 @@ const Procurement = () => {
           clearReceiptError={clearReceiptError}
           isReceiptLoading={isReceiptLoading || isReceiptSubmitting}
           isReceiptSubmitting={isReceiptSubmitting}
+          hasUnconfirmedReceipt={hasUnconfirmedReceipt}
           submitReceipt={submitReceipt}
           onClose={() => { receiptLoadVersionRef.current += 1; setReceiptDrawerOrder(null); }}
           canWrite={canReceiveProcurement}

@@ -456,6 +456,11 @@ jobs:
           node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-reversal.service.test.ts backend/src/services/payment-reversal-event.service.test.ts backend/src/services/payment-reversal-receipts.test.ts backend/src/services/collection-state-aggregate-lock.test.ts
           npm run test:contract:enterprise-round2
 
+      - name: Verify durable purchase receipt boundaries
+        run: |
+          npm run test:unit:purchase-receipt
+          node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/domain/purchase-receipt-submission.test.ts backend/src/database/purchase-receipt-submission-schema.test.ts backend/src/services/procurement-receipt-cost.service.test.ts
+
       - name: Remove stale generated runtime evidence
         shell: bash
         run: |

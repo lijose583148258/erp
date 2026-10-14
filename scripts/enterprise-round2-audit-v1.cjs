@@ -43,10 +43,10 @@ const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
 
-async function request(endpoint, { actor = actors.admin, instance = 0, method = 'GET', data, signal } = {}) {
+async function request(endpoint, { actor = actors.admin, instance = 0, method = 'GET', data, signal, headers = {} } = {}) {
   const signals = [AbortSignal.timeout(20_000), ...(signal ? [signal] : [])];
   const response = await fetch(`${urls[instance]}/api${endpoint}`, {
-    method, headers: { 'content-type': 'application/json', ...(actor?.token ? { authorization: `Bearer ${actor.token}` } : {}) },
+    method, headers: { 'content-type': 'application/json', ...headers, ...(actor?.token ? { authorization: `Bearer ${actor.token}` } : {}) },
     body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.any(signals),
   });
   const raw = await response.text();

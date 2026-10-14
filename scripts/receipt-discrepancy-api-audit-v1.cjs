@@ -209,6 +209,7 @@ async function runProcurementDiscrepancy(manager) {
 
   const receipt = await expectOk('create purchase rejected receipt', apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `discrepancy-${RUN_ID}-purchase` },
     data: {
       quantity: 5,
       acceptedQuantity: 3,

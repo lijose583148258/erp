@@ -230,24 +230,28 @@ async function runProcurementFlow(manager) {
 
   const mismatchReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-mismatch` },
     data: { quantity: 3, acceptedQuantity: 2, rejectedQuantity: 0 },
   }, manager.token);
   assertEqual(mismatchReceipt.status, 400, 'mismatched receipt quantities must be blocked');
 
   const negativeReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-negative` },
     data: { quantity: -1, acceptedQuantity: -1, rejectedQuantity: 0 },
   }, manager.token);
   assertEqual(negativeReceipt.status, 400, 'negative receipt quantity must be blocked');
 
   const zeroReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-zero` },
     data: { quantity: 0, acceptedQuantity: 0, rejectedQuantity: 0 },
   }, manager.token);
   assertEqual(zeroReceipt.status, 400, 'zero receipt quantity must be blocked');
 
   const invalidDateReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-invalid-date` },
     data: {
       quantity: 1,
       acceptedQuantity: 1,
@@ -281,6 +285,7 @@ async function runProcurementFlow(manager) {
 
   const receiptOne = await expectOk('create first purchase receipt', apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-first` },
     data: {
       quantity: 4,
       acceptedQuantity: 4,
@@ -302,6 +307,7 @@ async function runProcurementFlow(manager) {
 
   const receiptTwo = await expectOk('create second purchase receipt', apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-second` },
     data: {
       quantity: 6,
       acceptedQuantity: 5,
@@ -320,6 +326,7 @@ async function runProcurementFlow(manager) {
 
   const overReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-over` },
     data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0 },
   }, manager.token);
   assertEqual(overReceipt.status, 409, 'purchase over receipt must be blocked');

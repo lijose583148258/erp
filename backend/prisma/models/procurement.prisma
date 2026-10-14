@@ -80,6 +80,9 @@ model PurchaseReceipt {
   discrepancyReason String?       @map("discrepancy_reason")
   note              String?
   receivedBy        Int?          @map("received_by")
+  submissionKey     String?       @map("submission_key")
+  submissionFingerprint String?   @map("submission_fingerprint")
+  submissionJson    String?       @map("submission_json")
   receivedAt        DateTime      @default(now()) @map("received_at")
   createdAt         DateTime      @default(now()) @map("created_at")
 
@@ -88,6 +91,7 @@ model PurchaseReceipt {
 
   @@index([purchaseOrderId])
   @@index([stockEntryRef])
+  @@unique([purchaseOrderId, submissionKey])
   @@map("purchase_receipts")
 }
 

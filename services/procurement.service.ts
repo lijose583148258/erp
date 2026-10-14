@@ -153,6 +153,15 @@ export interface PurchaseReceiptBundle {
   receipts: PurchaseReceipt[];
   discrepancyCases: ReceiptDiscrepancyCase[];
   discrepancyCase?: ReceiptDiscrepancyCase | null;
+  submission?: PurchaseReceiptSubmission;
+  replayed?: boolean;
+}
+
+export interface PurchaseReceiptSubmission {
+  schema: 'purchase-receipt-submission/v1'; key: string; fingerprint: string; auditId: number;
+  receipt: { id: number; receiptNo: string; purchaseOrderId: number; quantity: number; acceptedQuantity: number;
+    rejectedQuantity: number; unit: string; batchNo: string; stockEntryRef: string | null;
+    discrepancyReason: string | null; note: string | null; receivedBy: number; receivedAt: string; createdAt: string };
 }
 
 export interface Supplier {
@@ -374,9 +383,11 @@ export const procurementService = {
     batchNo?: string;
     discrepancyReason?: string;
     note?: string;
-  }): Promise<PurchaseReceiptBundle> {
-    const response = await api.post<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/receipts`, receipt);
-    return mapReceiptBundle(response.data);
+  }, key: string): Promise<PurchaseReceiptBundle> {
+    const response = await api.post<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/receipts`, receipt,
+      { headers: { 'Idempotency-Key': key } });
+    const raw = toApiRecord(response.data);
+    return { ...mapReceiptBundle(raw), submission: raw.submission as PurchaseReceiptSubmission | undefined, replayed: raw.replayed === true };
   },
 
   async getAllSuppliers(search = '', options: ApiRequestOptions = {}): Promise<Supplier[]> {

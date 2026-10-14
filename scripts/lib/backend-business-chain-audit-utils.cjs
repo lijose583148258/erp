@@ -315,8 +315,10 @@ function createBackendBusinessChainContext({
   }
 
   async function createPurchaseReceipt(manager, purchaseOrderId) {
+    const requestKey = `business-chain-${runId}-purchase-${purchaseOrderId}`;
     const response = await expectOk('create purchase receipt', () => apiFetch(`/procurement/orders/${purchaseOrderId}/receipts`, {
       method: 'POST',
+      headers: { 'Idempotency-Key': requestKey },
       data: {
         quantity: data.procurementQuantity,
         acceptedQuantity: data.procurementAcceptedQuantity,

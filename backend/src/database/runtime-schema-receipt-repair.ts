@@ -101,15 +101,22 @@ export const repairReceiptSchema = async (report: SchemaRepairReport) => {
       "discrepancy_reason" TEXT,
       "note" TEXT,
       "received_by" INTEGER,
+      "submission_key" TEXT,
+      "submission_fingerprint" TEXT,
+      "submission_json" TEXT,
       "received_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT "purchase_receipts_purchase_order_id_fkey" FOREIGN KEY ("purchase_order_id") REFERENCES "purchase_orders" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
       CONSTRAINT "purchase_receipts_received_by_fkey" FOREIGN KEY ("received_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
     )
   `);
+  await addColumnIfMissing(report, 'purchase_receipts', 'submission_key', 'TEXT');
+  await addColumnIfMissing(report, 'purchase_receipts', 'submission_fingerprint', 'TEXT');
+  await addColumnIfMissing(report, 'purchase_receipts', 'submission_json', 'TEXT');
   await createIndexIfMissing(report, 'purchase_receipts_receipt_no_key', 'CREATE UNIQUE INDEX "purchase_receipts_receipt_no_key" ON "purchase_receipts"("receipt_no")');
   await createIndexIfMissing(report, 'purchase_receipts_purchase_order_id_idx', 'CREATE INDEX "purchase_receipts_purchase_order_id_idx" ON "purchase_receipts"("purchase_order_id")');
   await createIndexIfMissing(report, 'purchase_receipts_stock_entry_ref_idx', 'CREATE INDEX "purchase_receipts_stock_entry_ref_idx" ON "purchase_receipts"("stock_entry_ref")');
+  await createIndexIfMissing(report, 'purchase_receipts_purchase_order_id_submission_key_key', 'CREATE UNIQUE INDEX "purchase_receipts_purchase_order_id_submission_key_key" ON "purchase_receipts"("purchase_order_id", "submission_key")');
 
   await createTableIfMissing(report, 'shipment_receipts', `
     CREATE TABLE "shipment_receipts" (

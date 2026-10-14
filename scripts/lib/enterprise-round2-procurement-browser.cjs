@@ -181,7 +181,9 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     const page = pages[job]; const response = page.waitForResponse(r => new URL(r.url()).pathname.endsWith(`/procurement/orders/${id}${suffix}`) && r.request().method() === method);
     await page.getByTestId(testId).click(); const r = await response; const body = await r.json();
     assert([200, 201].includes(r.status()), JSON.stringify(body));
-    evidence.writes.push({ job, operation: suffix || 'revise', instance: 1, status: r.status(), request: r.request().postDataJSON(), response: body });
+    const row = { job, operation: suffix || 'revise', instance: 1, status: r.status(), request: r.request().postDataJSON(), response: body,
+      ...(suffix === '/receipts' ? { requestKey: r.request().headers()['idempotency-key'] } : {}) };
+    evidence.writes.push(row); return row;
   }
   try {
     const errors = {};
@@ -226,7 +228,92 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     } finally { releaseReceipt(); }
     await receiver.getByTestId('purchase-receipt-quantity-input').fill('5'); await receiver.getByTestId('purchase-receipt-accepted-input').fill('5');
     await receiver.getByTestId('purchase-receipt-rejected-input').fill('0'); await receiver.getByTestId('purchase-receipt-batch-input').fill(batchNo);
-    await write('receiver', 'purchase-receipt-save-button', '/receipts', 'POST');
+    // The owner request really commits once; only its browser acknowledgment is
+    // dropped. Refresh must restore that intent, never invent another receipt.
+    const storageSlot = `ailaoda.purchase-receipt-intent/v1.${encodeURIComponent(String(people.receiver.id))}.${encodeURIComponent(String(id))}`;
+    const recovery = evidence.receiptRecovery = { version: 'purchase-receipt-browser-recovery/v1', actorId: people.receiver.id, orderId: id,
+      storageSlot, scope: 'Lost HTTP acknowledgment and browser refresh; one 5 kg receipt only, not database restart or full-received remaining-zero recovery',
+      beforeOwner: await snapshot() };
+    const receiptRoute = `**/api/procurement/orders/${id}/receipts`;
+    let ownerTimer, resolveOwner, rejectOwner;
+    const ownerResult = new Promise((resolve, reject) => {
+      resolveOwner = resolve; rejectOwner = reject;
+      ownerTimer = setTimeout(() => reject(Error('Committed receipt acknowledgment-drop probe timed out after 20 seconds')), 20000);
+    });
+    const dropOwnerAck = async route => {
+      try {
+        assert.equal(route.request().method(), 'POST', 'Acknowledgment-drop route must intercept the actual receipt POST');
+        recovery.firstRequest = { instance: 1, method: route.request().method(), requestKey: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() };
+        assert.match(recovery.firstRequest.requestKey || '', /^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$/);
+        assert.deepEqual(recovery.firstRequest.body, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
+        const response = await route.fetch({ timeout: 15000 });
+        recovery.ownerResponse = { status: response.status(), body: await response.json() };
+        assert.equal(recovery.ownerResponse.status, 201, JSON.stringify(recovery.ownerResponse.body));
+        assert.equal(recovery.ownerResponse.body.success, true);
+        assert.equal(recovery.ownerResponse.body.data.replayed, false);
+        assert.equal(recovery.ownerResponse.body.data.submission.key, recovery.firstRequest.requestKey);
+        await route.abort('failed'); resolveOwner();
+      } catch (error) { await route.abort('failed').catch(() => {}); rejectOwner(error); }
+    };
+    await receiver.route(receiptRoute, dropOwnerAck, { times: 1 });
+    try { await Promise.all([receiver.getByTestId('purchase-receipt-save-button').click(), ownerResult]); }
+    finally { clearTimeout(ownerTimer); await receiver.unroute(receiptRoute, dropOwnerAck); }
+    await expect(receiver.getByTestId('purchase-receipt-unconfirmed')).toBeVisible({ timeout: 15000 });
+    await expect(receiver.getByTestId('purchase-receipt-save-button')).toHaveText('确认原收货请求');
+    await expect(receiver.getByTestId('purchase-receipt-save-button')).toBeEnabled();
+    recovery.persistedBeforeRefresh = await receiver.evaluate(slot => localStorage.getItem(slot), storageSlot);
+    assert(recovery.persistedBeforeRefresh, 'Unknown receipt acknowledgment must retain the original durable browser intent');
+    recovery.intent = JSON.parse(recovery.persistedBeforeRefresh);
+    assert.equal(recovery.intent.key, recovery.firstRequest.requestKey); assert.equal(recovery.intent.userId, String(people.receiver.id));
+    assert.equal(recovery.intent.orderId, String(id));
+    assert.deepEqual(recovery.intent.facts, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo, discrepancyReason: '', note: '' });
+    recovery.afterOwner = await snapshot();
+    assert.equal(recovery.afterOwner.receipts.length, 1); assert.equal(recovery.afterOwner.movements.length, 1);
+    assert.equal(recovery.afterOwner.entries.length, 1); assert.equal(recovery.afterOwner.costs.length, 1);
+    assert.equal(recovery.afterOwner.balances.reduce((sum, row) => sum + Number(row.quantity), 0), 5);
+    assert.equal(recovery.afterOwner.costs[0].costAmountDelta, 50);
+    recovery.unknownScreenshot = path.join(folder, 'receiver-receipt-ack-unknown.png'); await receiver.screenshot({ path: recovery.unknownScreenshot });
+    recovery.refreshDialogs = [];
+    const acceptRefresh = dialog => {
+      const accepted = dialog.type() === 'beforeunload'; recovery.refreshDialogs.push({ type: dialog.type(), accepted });
+      void (accepted ? dialog.accept() : dialog.dismiss()).catch(error => { recovery.refreshDialogError = error.message; });
+    };
+    assert.equal(receiver.url(), `${urls[1]}/#procurement`, 'Recovery must perform a real reload of the original receiver page');
+    receiver.on('dialog', acceptRefresh);
+    try { await load('receiver'); }
+    finally { receiver.off('dialog', acceptRefresh); }
+    assert(!recovery.refreshDialogError, recovery.refreshDialogError);
+    assert(recovery.refreshDialogs.every(dialog => dialog.type === 'beforeunload' && dialog.accepted), 'Unexpected dialog occurred while refreshing the unconfirmed receipt');
+    recovery.refreshed = true;
+    await receiver.getByTestId(`purchase-order-receipts-${id}`).click();
+    await expect(receiver.getByTestId('purchase-receipt-unconfirmed')).toBeVisible({ timeout: 15000 });
+    await expect(receiver.getByTestId('purchase-receipt-save-button')).toHaveText('确认原收货请求');
+    await expect(receiver.getByTestId('purchase-receipt-save-button')).toBeEnabled();
+    recovery.persistedAfterRefresh = await receiver.evaluate(slot => localStorage.getItem(slot), storageSlot);
+    assert.equal(recovery.persistedAfterRefresh, recovery.persistedBeforeRefresh);
+    const restoredInputs = receiver.getByTestId('purchase-receipt-drawer').locator('input, textarea');
+    assert.equal(await restoredInputs.count(), 6);
+    for (const input of await restoredInputs.all()) await expect(input).toBeDisabled();
+    recovery.restoredValues = await restoredInputs.evaluateAll(inputs => inputs.map(input => input.value));
+    assert.deepEqual(recovery.restoredValues, ['5', '5', '0', batchNo, '', '']);
+    recovery.refreshGuard = { inputsDisabled: 6, retryEnabled: true };
+    recovery.refreshedScreenshot = path.join(folder, 'receiver-receipt-ack-restored.png'); await receiver.screenshot({ path: recovery.refreshedScreenshot });
+    recovery.beforeReplay = await snapshot(); assert.deepEqual(recovery.beforeReplay, recovery.afterOwner);
+    const replay = await write('receiver', 'purchase-receipt-save-button', '/receipts', 'POST');
+    recovery.replayRequest = { instance: replay.instance, method: 'POST', requestKey: replay.requestKey, body: replay.request };
+    recovery.replayResponse = { status: replay.status, body: replay.response };
+    assert.deepEqual(recovery.replayRequest, recovery.firstRequest);
+    assert.equal(replay.response.data.replayed, true);
+    assert.deepEqual(replay.response.data.submission, recovery.ownerResponse.body.data.submission);
+    await expect(receiver.getByTestId('purchase-receipt-unconfirmed')).toHaveCount(0);
+    await expect(receiver.getByTestId('purchase-receipt-save-button')).toHaveText('保存收货批次');
+    await expect(receiver.getByTestId('purchase-receipt-save-button')).toBeEnabled();
+    recovery.storageAfterReplay = await receiver.evaluate(slot => localStorage.getItem(slot), storageSlot);
+    assert.equal(recovery.storageAfterReplay, null, 'Only the validated original submission may clear its browser intent');
+    recovery.afterReplay = await snapshot(); assert.deepEqual(recovery.afterReplay, recovery.beforeReplay, 'Same-key confirmation changed stock, cost, receipt, PO timestamp or audit facts');
+    recovery.mutableRemainingQuantity = replay.response.data.receiptSummary.remainingQuantity; assert.equal(recovery.mutableRemainingQuantity, 7);
+    recovery.confirmedScreenshot = path.join(folder, 'receiver-receipt-ack-confirmed.png'); await receiver.screenshot({ path: recovery.confirmedScreenshot });
+    recovery.status = 'passed';
     assert.deepEqual(evidence.writes.at(-1).request, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
     await expect(receiver.getByTestId('purchase-receipt-drawer')).toContainText(batchNo);
     for (const row of evidence.browser) {
@@ -245,7 +332,9 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     assert.equal(evidence.final.receipts.length, 1); assert.equal(evidence.final.receipts[0].receivedBy, people.receiver.id);
     assert.equal(evidence.final.balances.reduce((sum, row) => sum + Number(row.quantity), 0), 5);
     assert.equal(evidence.final.movements.length, 1); assert.equal(evidence.final.entries.length, 1); assert.equal(evidence.final.costs.length, 1);
-    evidence.status = 'passed'; require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(evidence); return evidence;
+    evidence.status = 'passed'; require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(evidence);
+    require('./enterprise-round2-purchase-receipt-proof.cjs').verifyPurchaseReceiptRecoveryProof(evidence);
+    return evidence;
   } catch (error) { error.evidence = evidence; throw error; }
   finally { signal.removeEventListener('abort', abort); for (const c of contexts) await c.close().catch(() => {}); await browser.close(); }
 }

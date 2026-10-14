@@ -16,8 +16,8 @@ const report = { name: 'Linked purchase fulfillment plan', runId, startedAt: new
   scope: 'linked_purchase_only; no physical reservation or mandatory presale gate; not complete R2-01',
   status: 'failed', summary: { passedChecks: 0, failedChecks: 1, remainingChecks: 0 }, checks: {} };
 let prisma, browser, token;
-async function request(endpoint, { method = 'GET', data, instance = 0, auth = token } = {}) {
-  const r = await fetch(`${urls[instance]}/api${endpoint}`, { method, headers: { 'content-type': 'application/json', ...(auth ? { authorization: `Bearer ${auth}` } : {}) },
+async function request(endpoint, { method = 'GET', data, instance = 0, auth = token, headers = {} } = {}) {
+  const r = await fetch(`${urls[instance]}/api${endpoint}`, { method, headers: { 'content-type': 'application/json', ...(auth ? { authorization: `Bearer ${auth}` } : {}), ...headers },
     body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.timeout(15000) });
   return { status: r.status, ok: r.ok, json: await r.json() };
 }
@@ -151,7 +151,7 @@ async function main() {
   await reject('early closeout', `${endpoint}/${plan.id}/close`, { auth: actors.reviewer.token, method: 'POST', data: closeInput }, 409);
   dataOf(await request(`/orders/${order.id}/status`, { method: 'PATCH', data: { status: 'confirmed' } }));
   const batchNo = `${runId}-purchased`;
-  report.purchaseReceipt = dataOf(await request(`/procurement/orders/${po.id}/receipts`, { method: 'POST', data: { quantity: 100, acceptedQuantity: 100, rejectedQuantity: 0, batchNo, note: 'Synthetic actual purchase delivery' } }));
+  report.purchaseReceipt = dataOf(await request(`/procurement/orders/${po.id}/receipts`, { method: 'POST', headers: { 'Idempotency-Key': `${runId}-purchase-receipt` }, data: { quantity: 100, acceptedQuantity: 100, rejectedQuantity: 0, batchNo, note: 'Synthetic actual purchase delivery' } }));
   // Procurement receives into LOC-RM; actual sales dispatch reads LOC-FG. Move
   // the real received lot through the governed transfer API, never seed another
   // stock row or rewrite locations to fabricate available supply.
@@ -261,7 +261,7 @@ async function main() {
   p.afterShortage = await state();
   assert.deepEqual(p.afterShortage, p.beforeShortage, 'Rejected presale dispatch changed persisted business state');
   assert.equal(p.shortageResponse.status, 409, JSON.stringify(p.shortageResponse));
-  p.purchaseReceipt = dataOf(await request(`/procurement/orders/${replenishment.id}/receipts`, { method: 'POST', data: {
+  p.purchaseReceipt = dataOf(await request(`/procurement/orders/${replenishment.id}/receipts`, { method: 'POST', headers: { 'Idempotency-Key': `${runId}-presale-replenishment-receipt` }, data: {
     quantity: 50, acceptedQuantity: 50, rejectedQuantity: 0, batchNo: replenishmentBatch, note: 'Only the original outstanding 50 kg is replenished' } }));
   const replenishedStock = await prisma.stockBalance.findFirst({ where: { materialId: presaleMaterial.id, batchNo: replenishmentBatch, quantity: 50 } });
   assert(replenishedStock);
