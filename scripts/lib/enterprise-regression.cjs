@@ -169,6 +169,14 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
     if (id === 'purchase-browser-readback') require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(check.evidence);
+    if (id === 'purchase-partial-receipt-qc-payables') {
+      const e = check.evidence;
+      assert.equal(e.version, 'purchase-quality-payables-chain/v1'); assert.equal(e.status, 'passed');
+      assert.equal(e.api.provider, provider, 'Purchase API evidence uses a different database');
+      require('./purchase-quality-payables-api-proof.cjs').verifyPurchaseQualityPayablesApiProof(e.api);
+      require('./purchase-quality-payables-browser-proof.cjs').verifyPurchaseQualityBrowserProof(e.browser);
+      assert.deepEqual(e.api.receipt2.submission.receipt, e.browser.seed.receipt, 'API and role browsers must use the same immutable receipt');
+    }
     if (id === 'barter-browser-readback') {
       const source = round2.checks.find(c => c.id === 'barter-partial-fulfillment');
       assert.equal(source?.status, 'passed', 'Barter UI proof requires the same-run reconciled partial chain');

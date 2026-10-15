@@ -81,6 +81,10 @@ export type Permission =
   | 'procurement.write'
   | 'procurement.approve'
   | 'procurement.receive'
+  | 'procurement.quality.inspect'
+  | 'procurement.quality.release'
+  | 'procurement.payment.record'
+  | 'procurement.payment.verify'
   | 'procurement.b2b.read'
   | 'materials.read'
   | 'materials.write'
@@ -177,6 +181,10 @@ export const PERMISSION_DEFINITIONS: readonly PermissionDefinition[] = [
   { code: 'procurement.write', resource: 'procurement', action: 'write', label: '维护采购单与供应商', group: '采购' },
   { code: 'procurement.approve', resource: 'procurement', action: 'approve', label: '审批采购单', group: '采购' },
   { code: 'procurement.receive', resource: 'procurement', action: 'receive', label: '登记采购收货', group: '采购' },
+  { code: 'procurement.quality.inspect', resource: 'procurement.quality', action: 'inspect', label: '执行来料检验', group: '采购', description: '录入冻结来料规范的实测值，不包含 QA 放行或供应商价款读取权限' },
+  { code: 'procurement.quality.release', resource: 'procurement.quality', action: 'release', label: '独立审核来料放行', group: '采购', description: '独立审核最新来料检验；同一人不得检验并放行同一记录，不包含供应商价款读取权限' },
+  { code: 'procurement.payment.record', resource: 'procurement.payment', action: 'record', label: '登记供应商付款提案', group: '财务', description: '登记付款证据或取消本人未核验提案，不代表已付款或减少应付' },
+  { code: 'procurement.payment.verify', resource: 'procurement.payment', action: 'verify', label: '独立核验供应商付款', group: '财务', description: '独立核验付款与 QA 放行、应付余额；不得核验本人登记的付款' },
   { code: 'procurement.b2b.read', resource: 'procurement.b2b', action: 'read', label: '查看 B2B 采购状态', group: '采购' },
   { code: 'materials.read', resource: 'materials', action: 'read', label: '查看物料主数据', group: '物料主数据' },
   { code: 'materials.write', resource: 'materials', action: 'write', label: '维护物料主数据', group: '物料主数据', description: '创建、修改、启用、冻结或停用统一物料及其别名' },
@@ -288,6 +296,10 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'system.read',
     'system.metrics.read',
     'system.backup.manage',
+    'procurement.quality.inspect',
+    'procurement.quality.release',
+    'procurement.payment.record',
+    'procurement.payment.verify',
     'settings.read',
     'audit.read',
     'ai.assistant.use',
@@ -348,6 +360,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'production.plan.write',
     'production.execute',
     'production.quality.release',
+    'procurement.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -429,6 +442,7 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'production.plan.write',
     'production.execute',
     'production.quality.inspect',
+    'procurement.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
@@ -454,6 +468,8 @@ export const ROLE_POLICIES: Record<BuiltInRole, RolePolicy> = {
     'orders.export',
     'orders.payment.record',
     'orders.payment.verify',
+    'procurement.payment.record',
+    'procurement.payment.verify',
     'orders.payment.reversal.request',
     'orders.payment.reversal.review',
     'collections.read',

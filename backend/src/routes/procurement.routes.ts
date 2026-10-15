@@ -4,6 +4,9 @@ import { authenticate, authorizePermission, type AuthRequest } from '../middlewa
 import type { Response, NextFunction } from 'express';
 import { normalizePurchaseStatus } from '../services/procurement-domain.service';
 import { validateZod } from '../middleware/validateZod';
+import { confirmPurchaseSourcesSchema } from '../validators/procurement';
+import qualityRoutes from './procurement-quality.routes';
+import supplierPaymentRoutes from './supplier-payment.routes';
 import {
   createPurchaseOrderSchema,
   revisePurchaseOrderSchema,
@@ -18,6 +21,8 @@ const router = Router();
 const procurementController = new ProcurementController();
 
 router.use(authenticate);
+router.use(qualityRoutes);
+router.use(supplierPaymentRoutes);
 
 router.get('/suppliers', authorizePermission('procurement.suppliers.read'), procurementController.getSuppliers);
 router.post('/suppliers', authorizePermission('procurement.write'), validateZod(createSupplierSchema), procurementController.createSupplier);
@@ -27,6 +32,7 @@ router.post('/orders', authorizePermission('procurement.write'), validateZod(cre
   (req: AuthRequest, res: Response, next: NextFunction) => ['approved', 'in_transit'].includes(normalizePurchaseStatus(req.body.status))
     ? authorizePermission('procurement.approve')(req, res, next) : next(), procurementController.createOrder);
 router.patch('/orders/:id', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(revisePurchaseOrderSchema), procurementController.reviseOrder);
+router.post('/orders/:id/confirm-sources', authorizePermission('procurement.write'), validateZod(idParamSchema, 'params'), validateZod(confirmPurchaseSourcesSchema), procurementController.confirmOrderSources);
 router.get('/orders/:id/revisions', authorizePermission('procurement.read'), validateZod(idParamSchema, 'params'), procurementController.getOrderRevisions);
 router.patch('/orders/:id/status', validateZod(idParamSchema, 'params'), validateZod(purchaseStatusUpdateSchema),
   (req: AuthRequest, res: Response, next: NextFunction) => {

@@ -1,12 +1,12 @@
 const assert = require('node:assert/strict');
 
-async function salesPlanCancellation({ request, dataOf, prisma, actors, browser, urls, runId, customer, material, supplier, eta, delivery, capture }) {
+async function salesPlanCancellation({ request, dataOf, prisma, actors, browser, urls, runId, customer, material, supplier, eta, delivery, capture, governedPurchase }) {
   const { expect } = require('playwright/test');
   const order = dataOf(await request('/orders', { auth: actors.sales.token, method: 'POST', data: { customerId: Number(customer.id),
     items: [{ materialId: material.id, productName: material.nameZh, quantity: 100, unit: 'kg', unitPrice: 10 }], paymentTerms: 30 } }));
   const original = dataOf(await request(`/orders/${order.id}`)), lineId = original.items[0].id;
-  const po = dataOf(await request('/procurement/orders', { method: 'POST', data: { supplierId: Number(supplier.id), materialId: material.id,
-    salesOrderId: Number(order.id), item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta, currency: 'CNY', status: 'approved' } }));
+  const po = await governedPurchase({ supplierId: Number(supplier.id), materialId: material.id,
+    salesOrderId: Number(order.id), item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta, currency: 'CNY' });
   const endpoint = `/orders/${order.id}/fulfillment-plans`;
   const input = { orderItemId: lineId, fulfillmentOption: 'linked_purchase', sourceDocumentId: Number(po.id), plannedQuantity: 100,
     expectedFulfillmentAt: delivery, note: 'Replace obsolete supply without cancelling customer demand' };
@@ -15,8 +15,10 @@ async function salesPlanCancellation({ request, dataOf, prisma, actors, browser,
     data: { expectedUpdatedAt: plan.updatedAt, reason: 'Independent replenishment approval' } });
   const first = dataOf(await approve(await create('cancel-original')));
   dataOf(await request(`/procurement/orders/${po.id}`, { method: 'PATCH', data: { expectedRevision: po.revision, expectedUpdatedAt: po.updatedAt,
-    quantity: 100, price: 11, taxAmount: 0, eta, reason: 'Supplier revised purchase before any receipt' } }));
-  dataOf(await request(`/procurement/orders/${po.id}/status`, { method: 'PATCH', data: { status: 'approved', expectedRevision: po.revision + 1 } }));
+    quantity: 100, price: 11, taxAmount: 0, eta, reason: 'Supplier revised purchase before any receipt',
+    supplierPayableTerms: { ...JSON.parse(po.supplierPayableBasisJson).terms, evidenceRef: `${runId}-cancellation-revised-quote` },
+    incomingQualityPlan: JSON.parse(po.incomingQualityPlanJson).plan } }));
+  dataOf(await request(`/procurement/orders/${po.id}/status`, { auth: actors.reviewer.token, method: 'PATCH', data: { status: 'approved', expectedRevision: po.revision + 1 } }));
   const replacement = await create('cancel-replacement');
   const state = async () => ({
     order: await prisma.order.findUnique({ where: { id: Number(order.id) }, include: { items: true, shipments: true, paymentRecords: true } }),
@@ -70,8 +72,8 @@ async function salesPlanCancellation({ request, dataOf, prisma, actors, browser,
     const raceOrder = dataOf(await request('/orders', { auth: actors.sales.token, method: 'POST', data: { customerId: Number(customer.id),
       items: [{ materialId: material.id, productName: material.nameZh, quantity: 100, unit: 'kg', unitPrice: 10 }], paymentTerms: 30 } }));
     const raceBase = `/orders/${raceOrder.id}/fulfillment-plans`, raceLine = dataOf(await request(`/orders/${raceOrder.id}`)).items[0];
-    const racePo = dataOf(await request('/procurement/orders', { method: 'POST', data: { supplierId: Number(supplier.id), materialId: material.id,
-      salesOrderId: Number(raceOrder.id), item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta, currency: 'CNY', status: 'approved' } }));
+    const racePo = await governedPurchase({ supplierId: Number(supplier.id), materialId: material.id,
+      salesOrderId: Number(raceOrder.id), item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta, currency: 'CNY' });
     const racePlan = dataOf(await request(raceBase, { auth: actors.sales.token, method: 'POST', data: { ...input, idempotencyKey: `${runId}-cancel-race`, orderItemId: raceLine.id, sourceDocumentId: Number(racePo.id) } }));
     const results = await Promise.all([
       request(`${raceBase}/${racePlan.id}/approve`, { auth: actors.reviewer.token, instance: 0, method: 'POST', data: { expectedUpdatedAt: racePlan.updatedAt, reason } }),

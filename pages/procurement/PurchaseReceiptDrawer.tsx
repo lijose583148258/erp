@@ -77,7 +77,7 @@ export const PurchaseReceiptDrawer = ({
         {[
           ['订单量', receiptBundle?.receiptSummary.orderedQuantity ?? receiptDrawerOrder.quantity],
           ['已处理', receiptBundle?.receiptSummary.processedQuantity ?? 0],
-          ['合格', receiptBundle?.receiptSummary.acceptedQuantity ?? 0],
+          ['实收入库', receiptBundle?.receiptSummary.acceptedQuantity ?? 0],
           ['剩余', receiptBundle?.receiptSummary.remainingQuantity ?? receiptDrawerOrder.quantity],
         ].map(([label, value]) => (
           <div key={String(label)} className="rounded-2xl border border-slate-100 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-900">
@@ -114,11 +114,11 @@ export const PurchaseReceiptDrawer = ({
             clearReceiptError('quantity');
             setReceiptForm(prev => ({ ...prev, quantity: value, acceptedQuantity: prev.acceptedQuantity || value }));
           }} error={receiptErrors.quantity} disabled={formDisabled} />
-          <FormField dataTestId="purchase-receipt-accepted-input" label="合格数量" value={receiptForm.acceptedQuantity} onChange={(value) => updateReceiptField('acceptedQuantity', value)} error={receiptErrors.acceptedQuantity} disabled={formDisabled} />
-          <FormField dataTestId="purchase-receipt-rejected-input" label="差异数量" value={receiptForm.rejectedQuantity} onChange={(value) => updateReceiptField('rejectedQuantity', value)} error={receiptErrors.rejectedQuantity} disabled={formDisabled} />
+          <FormField dataTestId="purchase-receipt-accepted-input" label="实收入库（未判定合格）" value={receiptForm.acceptedQuantity} onChange={(value) => updateReceiptField('acceptedQuantity', value)} error={receiptErrors.acceptedQuantity} disabled={formDisabled} />
+          <FormField dataTestId="purchase-receipt-rejected-input" label="门口拒收（不入库存/应付）" value={receiptForm.rejectedQuantity} onChange={(value) => updateReceiptField('rejectedQuantity', value)} error={receiptErrors.rejectedQuantity} disabled={formDisabled} />
         </div>
         <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <FormField dataTestId="purchase-receipt-batch-input" label="入库批次" value={receiptForm.batchNo} onChange={(value) => updateReceiptField('batchNo', value)} disabled={formDisabled} />
+          <FormField dataTestId="purchase-receipt-batch-input" label="实际供应商批号" value={receiptForm.batchNo} onChange={(value) => updateReceiptField('batchNo', value)} error={receiptErrors.batchNo} disabled={formDisabled} />
           <FormField label="差异原因" value={receiptForm.discrepancyReason} onChange={(value) => updateReceiptField('discrepancyReason', value)} disabled={formDisabled} />
         </div>
         <FormField className="mt-3" as="textarea" rows={3} label="备注" value={receiptForm.note} onChange={(value) => updateReceiptField('note', value)} disabled={formDisabled} />
@@ -148,13 +148,14 @@ export const PurchaseReceiptDrawer = ({
                   <p className="text-xs font-black text-slate-700 dark:text-slate-100">{receipt.receiptNo}</p>
                   <p className="mt-1 text-[11px] font-bold text-slate-400">{receipt.batchNo || '-'} · {receipt.receivedAt || receipt.createdAt || '-'}</p>
                 </div>
-                <StatusBadge status={receipt.rejectedQuantity > 0 ? 'exception' : 'received'} label={receipt.rejectedQuantity > 0 ? '有差异' : '正常'} />
+                <StatusBadge status={receipt.rejectedQuantity > 0 ? 'exception' : 'received'} label={receipt.rejectedQuantity > 0 ? '有门口拒收' : '已登记实收（非合格证明）'} />
               </div>
               <div className="mt-3 grid grid-cols-1 gap-2 text-xs font-bold text-slate-500 sm:grid-cols-3">
                 <span>本次 {receipt.quantity}{receipt.unit}</span>
-                <span>合格 {receipt.acceptedQuantity}{receipt.unit}</span>
-                <span>差异 {receipt.rejectedQuantity}{receipt.unit}</span>
+                <span>实收入库 {receipt.acceptedQuantity}{receipt.unit}</span>
+                <span>门口拒收 {receipt.rejectedQuantity}{receipt.unit}</span>
               </div>
+              <p className="mt-2 text-xs">供应商批号：{receipt.supplierBatchNo || '历史记录未确认'}；检验及放行状态请查 QC/QA 记录。</p>
               {receipt.note || receipt.discrepancyReason ? (
                 <p className="mt-2 text-xs font-medium text-slate-400">{receipt.discrepancyReason || receipt.note}</p>
               ) : null}

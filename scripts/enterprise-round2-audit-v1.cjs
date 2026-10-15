@@ -22,6 +22,7 @@ const runId = `r2-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
 const runner = createRound2Runner({ catalog, reportPath, metadata: {
   runId, commit: process.env.GITHUB_SHA || process.env.ROUND2_COMMIT || null,
   dirtySource: process.env.ROUND2_DIRTY || null, sourceHash: process.env.ROUND2_SOURCE_HASH || null, builtAt: process.env.ROUND2_BUILT_AT || null,
+  supervisionKey: process.env.ROUND2_SUPERVISION_KEY || null,
   provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite', appUrls: urls,
   scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes with selected procurement, finance, barter and production browser readbacks; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
   loadCohort: '20 distinct warehouse actors, separate from the planned workforce',
@@ -29,6 +30,7 @@ const runner = createRound2Runner({ catalog, reportPath, metadata: {
 const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback', 'stock-contention-browser', 'transfer-shipping-browser');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('purchase-partial-receipt-qc-payables');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('barter-browser-readback');
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
@@ -415,6 +417,23 @@ async function runInventoryBrowser(id, source) {
   await runner.run(id, signal => inventoryRaceBrowser({ actors, urls, reportPath, runId }, source, signal), { timeoutMs: 120000 });
 }
 
+async function purchaseQualityPayables(signal) {
+  const qualityRunId = `${runId}-quality`;
+  const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
+    code: qualityRunId, name: qualityRunId, category: 'raw_material', unit: 'kg' });
+  const supplier = dataOf(await request('/procurement/suppliers', { actor: actors.buyer1, method: 'POST', signal,
+    data: { name: `${qualityRunId}-supplier`, category: 'Raw Materials', contact: 'Explicit synthetic' } }));
+  const api = await require('./lib/purchase-quality-payables-api-proof.cjs').purchaseQualityPayablesApiProbe({ request, dataOf, actors, prisma,
+    runId: qualityRunId, material, supplier }, signal);
+  const { purchaseQualityPayablesBrowser, verifyPurchaseQualityBrowserProof } = require('./lib/enterprise-round2-purchase-quality-browser.cjs');
+  let browser;
+  try { browser = await purchaseQualityPayablesBrowser({ request, dataOf, prisma, runId: qualityRunId, urls, reportPath }, api, signal); }
+  catch (error) { error.evidence = { version: 'purchase-quality-payables-chain/v1', status: 'failed', phase: 'role-browser', api, browser: error.evidence || null }; throw error; }
+  const browserVerification = verifyPurchaseQualityBrowserProof(browser);
+  return { version: 'purchase-quality-payables-chain/v1', status: 'passed', api, browser, browserVerification,
+    scope: 'Real receipt AP/QC/QA/external supplier-payment API and four least-privilege browser roles; not all20 workforce, refunds, bank execution or full37' };
+}
+
 async function main() {
   try {
     await setup(AbortSignal.timeout(90_000));
@@ -424,12 +443,16 @@ async function main() {
     return;
   }
   if (process.env.ROUND2_ONLY_CHECK) {
-    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'inventory-browser', 'po-stale-edit-conflict'].includes(process.env.ROUND2_ONLY_CHECK));
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'purchase-partial-receipt-qc-payables', 'inventory-browser', 'po-stale-edit-conflict'].includes(process.env.ROUND2_ONLY_CHECK));
     if (process.env.ROUND2_ONLY_CHECK === 'po-stale-edit-conflict') {
       await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
       return;
     }
     assert.equal(process.env.ROUND2_BROWSER, 'true');
+    if (process.env.ROUND2_ONLY_CHECK === 'purchase-partial-receipt-qc-payables') {
+      await runner.run('purchase-partial-receipt-qc-payables', purchaseQualityPayables, { timeoutMs: 180000 });
+      return;
+    }
     if (process.env.ROUND2_ONLY_CHECK === 'inventory-browser') {
       await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
       await runInventoryBrowser('transfer-shipping-browser', await runner.run('transfer-shipping-contention', transferShipping));
@@ -470,6 +493,7 @@ async function main() {
     const { purchaseRevisionBrowser, purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
     await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
     await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+    await runner.run('purchase-partial-receipt-qc-payables', purchaseQualityPayables, { timeoutMs: 180000 });
   }
   await runInventoryBrowser('transfer-shipping-browser', await runner.run('transfer-shipping-contention', transferShipping));
   await runner.run('shipping-cost-conservation', shippingCost);

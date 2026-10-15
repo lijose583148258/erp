@@ -8,12 +8,18 @@ const { evaluateRegression, validateBaseline } = require('./lib/enterprise-regre
 const { summarize, validateCatalog } = require('./lib/enterprise-round2-runner.cjs');
 const futureId = validateCatalog(catalog).find(id => !baseline.revisions.at(-1).round2Checks.includes(id));
 
+function purchaseQualityChainFixture(profile) {
+  const api = require('./fixtures/purchase-quality-payables-api-proof-fixture.cjs').purchaseQualityPayablesApiProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite');
+  const browser = require('./fixtures/purchase-quality-payables-browser-proof-fixture.cjs').fixture(api.receipt2.submission.receipt);
+  return { version: 'purchase-quality-payables-chain/v1', status: 'passed', api, browser, browserVerification: true };
+}
+
 function fixture(profile = 'cloud') {
   const context = { version: 'enterprise-regression-run/v1', profile, key: 'unique-current-run', commit: 'a'.repeat(40), sourceHash: 'b'.repeat(64), startedAt: '2026-01-01T00:00:00.000Z' };
   const stamp = { regression: context, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:03.000Z', provider: profile === 'cloud' ? 'postgresql' : 'sqlite' };
   const protectedIds = baseline.revisions.at(-1).round2Checks;
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
-    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'purchase-browser-readback' ? require('./fixtures/purchase-role-proof-fixture.cjs').purchaseRoleProofFixture() : id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : id === 'payment-reversal-browser' ? { version: 'payment-reversal-acceptance/v1', api: require('./fixtures/payment-reversal-api-proof-fixture.cjs').paymentReversalApiProofFixture(), browser: require('./fixtures/payment-reversal-browser-proof-fixture.cjs').paymentReversalBrowserProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') } : { readback: true } })) };
+    startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'purchase-partial-receipt-qc-payables' ? purchaseQualityChainFixture(profile) : id === 'purchase-browser-readback' ? require('./fixtures/purchase-role-proof-fixture.cjs').purchaseRoleProofFixture() : id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : id === 'payment-reversal-browser' ? { version: 'payment-reversal-acceptance/v1', api: require('./fixtures/payment-reversal-api-proof-fixture.cjs').paymentReversalApiProofFixture(), browser: require('./fixtures/payment-reversal-browser-proof-fixture.cjs').paymentReversalBrowserProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') } : { readback: true } })) };
   for (const [browserId, sourceId, status] of [
     ['stock-contention-browser', 'stock-20-contention', undefined],
     ['transfer-shipping-browser', 'transfer-shipping-contention', 'in_transit'],
@@ -97,6 +103,23 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+for (const [label, mutate] of [
+  ['only a passed summary', e => { e.api = { provider: e.api.provider, requirements: { all: true } }; }],
+  ['missing API request', e => { e.api.requests.pop(); }],
+  ['missing role browser', e => { e.browser = { passed: true }; }],
+  ['overgranted QC role', e => { e.browser.actors[0].permissions.push('finance.read'); }],
+  ['different immutable receipt', e => {
+    const other = structuredClone(e.api.receipt2.submission.receipt); other.supplierBatchNo += '-other';
+    e.browser = require('./fixtures/purchase-quality-payables-browser-proof-fixture.cjs').fixture(other);
+  }],
+]) test(`cumulative purchase candidate rejects ${label} without truncating prior packages`, () => {
+  const d = fixture(), id = 'purchase-partial-receipt-qc-payables';
+  mutate(d.reports.round2.checks.find(c => c.id === id).evidence);
+  const result = evaluateRegression(d);
+  assert.equal(result.status, 'failed'); assert.equal(result.checks.find(c => c.id === `round2:${id}`).status, 'failed');
+  assert.equal(result.checks.find(c => c.id === 'barter-cash-legacy-upgrade').status, 'passed');
 });
 
 for (const [label, mutate] of [

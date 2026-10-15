@@ -15,7 +15,7 @@ jest.mock('../controllers/procurement.controller', () => {
   return { ProcurementController: class {
     getSuppliers = handler; createSupplier = handler; getOrders = handler; createOrder = handler; reviseOrder = handler;
     getOrderRevisions = handler; updateOrderStatus = handler; getOrderReceipts = handler; createReceipt = handler;
-    linkB2BOrder = handler; getB2BStatus = handler; syncB2BStatus = handler;
+    linkB2BOrder = handler; getB2BStatus = handler; syncB2BStatus = handler; confirmOrderSources = handler;
   } };
 });
 import router from './procurement.routes';
@@ -49,4 +49,15 @@ test('B2B shortcut requires every responsibility it can cross', async () => {
 test('buyer retains draft creation, but invalid status cannot reach the controller', async () => {
   expect((await request(app).post('/orders').set('x-test-permissions', 'procurement.write').send(payload)).status).toBe(200);
   expect((await request(app).patch('/orders/1/status').set('x-test-permissions', 'procurement.write').send({ status: 'fake' })).status).toBe(400);
+});
+test('source confirmation is a buyer command, not receipt/approval authority, and accepts no commercial overrides', async () => {
+  const input = { expectedRevision: 0, expectedUpdatedAt: '2026-10-14T00:00:00Z', reason: 'Confirm supplier documents',
+    supplierPayableTerms: { taxTreatment: 'included_in_price', supplierTaxAmount: 0, supplierChargesAmount: 0, evidenceRef: 'Signed quote Q-1' },
+    incomingQualityPlan: { specificationRef: 'Signed specification', specificationRevision: 'R1', characteristics: [{
+      code: 'PH', name: 'pH', valueType: 'numeric', unit: 'pH', lowerLimit: '6.5', upperLimit: '7.5', testMethod: 'Calibrated meter', required: true,
+    }] } };
+  for (const granted of ['procurement.write', 'procurement.approve', 'procurement.receive']) {
+    expect((await request(app).post('/orders/1/confirm-sources').set('x-test-permissions', granted).send(input)).status).toBe(granted === 'procurement.write' ? 200 : 403);
+  }
+  expect((await request(app).post('/orders/1/confirm-sources').set('x-test-permissions', 'procurement.write').send({ ...input, quantity: 999 })).status).toBe(400);
 });

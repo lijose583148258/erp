@@ -8,13 +8,33 @@ const { validateCatalog, summarize, createRound2Runner, synchronizedBurst } = re
 const { verifyInventoryBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
 const { inventoryBrowserFixture } = require('./fixtures/inventory-browser-proof-fixture.cjs');
 const { verifyPurchaseReceiptSubmissionProof, verifyPurchaseReceiptRecoveryProof } = require('./lib/enterprise-round2-purchase-receipt-proof.cjs');
-const { purchaseReceiptSubmissionProofFixture, purchaseReceiptRecoveryProofFixture } = require('./fixtures/purchase-receipt-proof-fixture.cjs');
+const { purchaseReceiptSubmissionProofFixture, purchaseReceiptRecoveryProofFixture, controlledPurchaseReceiptSubmissionProofFixture } = require('./fixtures/purchase-receipt-proof-fixture.cjs');
 
 test('independent purchase receipt verifiers accept explicitly synthetic contracts without business acceptance credit', () => {
   for (const provider of ['sqlite', 'postgresql']) assert.deepEqual(verifyPurchaseReceiptSubmissionProof(purchaseReceiptSubmissionProofFixture(provider)),
     { concurrentNodes: 2, originalReceipts: 1, finalReceipts: 2, auditFailureRollback: true, fullReceivedReplay: true });
   assert.deepEqual(verifyPurchaseReceiptRecoveryProof(purchaseReceiptRecoveryProofFixture()),
     { lostAcknowledgment: true, refreshRecovery: true, physicalReceiptCount: 1, physicalQuantity: 5, costAmount: 50 });
+});
+test('V2 independent reader checks synthetic frozen supplier AP, independent source approval and held internal batches without rewriting V1 fixtures', () => {
+  for (const provider of ['sqlite','postgresql']) assert.deepEqual(verifyPurchaseReceiptSubmissionProof(controlledPurchaseReceiptSubmissionProofFixture(provider)),
+    { concurrentNodes:2, originalReceipts:1, finalReceipts:2, auditFailureRollback:true, fullReceivedReplay:true });
+  assert.equal(purchaseReceiptSubmissionProofFixture().concurrent[0].json.data.submission.schema, 'purchase-receipt-submission/v1');
+});
+for (const [label, mutate] of [
+  ['caller omitted reviewed revision', e => { delete e.concurrent[0].requestBody.expectedRevision; }],
+  ['internal batch reused supplier lot', e => { e.concurrent[0].json.data.submission.receipt.batchNo = 'synthetic-first'; }],
+  ['batch held flag fabricated as released', e => { e.committed.batches[0].qualityStatus = 'released'; }],
+  ['unknown legacy AP treated as zero', e => { e.committed.receipts[0].payableAmountNative = null; }],
+  ['typed base liability altered', e => { e.committed.receipts[0].payableAmountBase = '9.99'; }],
+  ['self source approval', e => { e.committed.audits[1].userId = e.committed.audits[0].userId; }],
+  ['dispatch pretended to be independent approval', e => { const a = JSON.parse(e.committed.audits[1].details); a.isSourceApproval = false; e.committed.audits[1].details = JSON.stringify(a); }],
+  ['source plan replaced', e => { const a = JSON.parse(e.committed.audits[0].details); a.after.incomingQualityPlanJson = '{}'; e.committed.audits[0].details = JSON.stringify(a); }],
+  ['source schema unknown', e => { const a = JSON.parse(e.committed.audits[0].details); a.schema = 'unrecognized'; e.committed.audits[0].details = JSON.stringify(a); }],
+  ['raw supplier lot overwritten', e => { e.committed.receipts[0].supplierBatchNo = 'OTHER'; }],
+  ['receipt batch ID changed', e => { e.committed.receipts[0].batchId = 99; }],
+]) test(`controlled receipt verifier rejects ${label}`, () => {
+  const e = controlledPurchaseReceiptSubmissionProofFixture(); mutate(e); assert.throws(() => verifyPurchaseReceiptSubmissionProof(e));
 });
 for (const [label, mutate] of [
   ['missing raw stock balance coverage', e => { delete e.committed.balances; }],
@@ -329,7 +349,15 @@ test('purchase source freezing is revision-bound, nullable for unconfirmed histo
   assert.match(domain, /plan === undefined \? null/);
   assert.match(domain, /prorateMoney\(amountNative, 1, bound\.exchangeRate\)/);
   assert.match(read('lib/enterprise-round2-procurement.cjs'), /await purchaseGovernanceProbe\(/);
-  assert.doesNotMatch(read('enterprise-round2-audit-v1.cjs'), /implemented\.push\('purchase-partial-receipt-qc-payables'\)/);
+  // Source freezing alone is still not acceptance. The original obligation is
+  // now executable only through actual API + four-role browser + raw verifier.
+  const runner = read('enterprise-round2-audit-v1.cjs');
+  assert.match(runner, /purchaseQualityPayablesApiProbe\(/);
+  assert.match(runner, /await purchaseQualityPayablesBrowser\(/);
+  assert.match(runner, /verifyPurchaseQualityBrowserProof\(browser\)/);
+  assert.match(runner, /runner\.run\('purchase-partial-receipt-qc-payables', purchaseQualityPayables/);
+  assert.match(read('lib/purchase-quality-payables-api-proof.cjs'), /failed_audit_rolls_back_payment/);
+  assert.match(read('lib/purchase-quality-payables-browser-proof.cjs'), /assert\.deepEqual\(e\.errors, \[\]\)/);
   assert.equal(validateCatalog(catalog).length, 37);
 });
 

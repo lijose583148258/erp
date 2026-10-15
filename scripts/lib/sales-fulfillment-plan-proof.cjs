@@ -84,6 +84,13 @@ function verifyPresaleProof(r) {
   }
   assert.equal(p.purchase.salesOrderId, p.orderId); assert.equal(p.purchase.materialId, p.materialId); assert.equal(p.purchase.quantity, 50);
   assert.equal(p.purchase.receipts.length, 1); assert.equal(p.purchase.receipts[0].batchNo, p.replenishmentBatch); assert.equal(p.purchase.receipts[0].acceptedQuantity, 50);
+  if (p.purchaseReceipt?.submission?.schema === 'purchase-receipt-submission/v2') {
+    const receipt = p.purchase.receipts[0];
+    assert.equal(receipt.supplierBatchNo, p.supplierBatchNo); assert.equal(receipt.batchNo, `PO-${p.purchase.id}-RCV-${receipt.receiptNo}`);
+    assert.equal(receipt.batchId, p.final.batches.find(row => row.batchNo === p.replenishmentBatch).id);
+    assert.equal(p.purchaseQuality.receiptId, receipt.id); assert.notEqual(p.purchaseQuality.qcActorId, p.purchaseQuality.qaActorId);
+    assert.equal(p.purchaseQuality.readback.receipt.qualityStatus, 'released');
+  }
   assert.equal(p.plan.orderId, p.orderId); assert.equal(p.plan.orderItemId, p.orderItemId); assert.equal(p.plan.sourceDocumentId, p.purchase.id);
   assert.equal(p.plan.status, 'closed'); assert.equal(p.plan.plannedQuantity, 50); assert.notEqual(p.plan.createdBy, p.plan.approvedBy);
   const closeout = JSON.parse(p.plan.closeoutSnapshot);

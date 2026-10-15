@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 const { ensureUiAuditUser, createAuditPrismaClient, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
+const { explicitPurchaseSources, createApprovedPurchaseFixture, releasePurchaseFixture } = require('./lib/purchase-quality-audit-fixture.cjs');
 const { launchBrowserWithGuard } = require('./lib/browser-launch-guard.cjs');
 const { expect } = require('playwright/test');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(url => String(url || '').replace(/\/$/, ''));
@@ -46,7 +47,8 @@ async function main() {
   const accounts = { admin: { username: `${runId}-admin`, password, role: 'admin', segment: 'mixed' },
     reviewer: { username: `${runId}-reviewer`, password, role: 'admin', segment: 'mixed' },
     sales: { username: `${runId}-sales`, password, role: 'sales', segment: 'direct' },
-    peer: { username: `${runId}-peer`, password, role: 'sales', segment: 'direct' } };
+    peer: { username: `${runId}-peer`, password, role: 'sales', segment: 'direct' },
+    qc: { username: `${runId}-qc`, password, role: 'warehouse', segment: 'mixed' } };
   const actors = {};
   for (const [name, account] of Object.entries(accounts)) {
     await ensureUiAuditUser(account);
@@ -63,8 +65,22 @@ async function main() {
   const supplier = dataOf(await request('/procurement/suppliers', { method: 'POST', data: { name: runId, category: 'Raw Materials', contact: 'Synthetic' } }));
   const eta = new Date(Date.now() + 2 * 86400000).toISOString().slice(0, 10);
   const delivery = new Date(Date.now() + 4 * 86400000).toISOString();
-  const purchase = async () => dataOf(await request('/procurement/orders', { method: 'POST', data: { supplierId: Number(supplier.id), materialId: material.id,
-    salesOrderId: Number(order.id), item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta, currency: 'CNY', status: 'approved' } }));
+  const fixtureActor = name => ({ id: Number(actors[name].user.id), token: actors[name].token });
+  const fixtureRequest = (endpoint, { actor, ...options }) => request(endpoint, { ...options, auth: actor.token });
+  let purchaseSequence = 0;
+  const governedPurchase = async payload => {
+    const index = ++purchaseSequence;
+    const sources = explicitPurchaseSources({ quoteRef: `${runId}-quote-${index}`, specificationRef: `${runId}-spec-${index}`, specificationRevision: 'R1',
+      taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [{ code: 'PH', name: 'pH', valueType: 'numeric',
+        unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Explicit synthetic calibrated pH meter', required: true }] });
+    return (await createApprovedPurchaseFixture({ request: fixtureRequest, dataOf }, {
+      buyer: fixtureActor('admin'), approver: fixtureActor('reviewer'), sources, payload })).approved;
+  };
+  const releaseDelivery = (receiptId, key) => releasePurchaseFixture({ request: fixtureRequest, dataOf }, {
+    receiptId, qcActor: fixtureActor('qc'), qaActor: fixtureActor('reviewer'), key: `${runId}-${key}`, reason: 'Independent QA reviewed physical retained sample',
+    input: { sampleNo: `${runId}-${key}-sample`, measurements: [{ code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null, instrumentNo: 'SYNTHETIC-PH-METER' }], note: 'Explicit sample, not inferred from receipt' } });
+  const purchase = () => governedPurchase({ supplierId: Number(supplier.id), materialId: material.id,
+    salesOrderId: Number(order.id), item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta, currency: 'CNY' });
   const po = await purchase();
   const endpoint = `/orders/${order.id}/fulfillment-plans`;
   const input = { idempotencyKey: `${runId}-first`, orderItemId: lineId, fulfillmentOption: 'linked_purchase', sourceDocumentId: Number(po.id), plannedQuantity: 100, expectedFulfillmentAt: delivery, note: 'Synthetic traceable purchase replenishment' };
@@ -130,8 +146,11 @@ async function main() {
   await reject('admin self approval', `${endpoint}/${self.id}/approve`, { method: 'POST', data: { expectedUpdatedAt: self.updatedAt, reason: 'Cannot self approve' } }, 403);
   const stalePo = await purchase();
   const stale = dataOf(await request(endpoint, { method: 'POST', data: { ...input, idempotencyKey: `${runId}-stale`, sourceDocumentId: Number(stalePo.id) } }));
-  dataOf(await request(`/procurement/orders/${stalePo.id}`, { method: 'PATCH', data: { expectedRevision: stalePo.revision, expectedUpdatedAt: stalePo.updatedAt, quantity: 100, price: 11, taxAmount: 0, eta, reason: 'Synthetic revision change' } }));
-  dataOf(await request(`/procurement/orders/${stalePo.id}/status`, { method: 'PATCH', data: { status: 'approved', expectedRevision: stalePo.revision + 1 } }));
+  dataOf(await request(`/procurement/orders/${stalePo.id}`, { method: 'PATCH', data: { expectedRevision: stalePo.revision, expectedUpdatedAt: stalePo.updatedAt,
+    quantity: 100, price: 11, taxAmount: 0, eta, reason: 'Synthetic revision change',
+    supplierPayableTerms: { ...JSON.parse(stalePo.supplierPayableBasisJson).terms, evidenceRef: `${runId}-stale-revised-quote` },
+    incomingQualityPlan: JSON.parse(stalePo.incomingQualityPlanJson).plan } }));
+  dataOf(await request(`/procurement/orders/${stalePo.id}/status`, { auth: actors.reviewer.token, method: 'PATCH', data: { status: 'approved', expectedRevision: stalePo.revision + 1 } }));
   await reject('purchase revision frozen', `${endpoint}/${stale.id}/approve`, { auth: actors.reviewer.token, method: 'POST', data: { expectedUpdatedAt: stale.updatedAt, reason: 'Reject stale source' } }, 409);
 
   await page.close();
@@ -150,8 +169,11 @@ async function main() {
   const closeInput = { idempotencyKey: `sales-plan-close:${plan.id}`, reason: 'Verified source receipts and customer delivery' };
   await reject('early closeout', `${endpoint}/${plan.id}/close`, { auth: actors.reviewer.token, method: 'POST', data: closeInput }, 409);
   dataOf(await request(`/orders/${order.id}/status`, { method: 'PATCH', data: { status: 'confirmed' } }));
-  const batchNo = `${runId}-purchased`;
-  report.purchaseReceipt = dataOf(await request(`/procurement/orders/${po.id}/receipts`, { method: 'POST', headers: { 'Idempotency-Key': `${runId}-purchase-receipt` }, data: { quantity: 100, acceptedQuantity: 100, rejectedQuantity: 0, batchNo, note: 'Synthetic actual purchase delivery' } }));
+  const supplierBatchNo = `${runId}-purchased`;
+  report.purchaseReceipt = dataOf(await request(`/procurement/orders/${po.id}/receipts`, { method: 'POST', headers: { 'Idempotency-Key': `${runId}-purchase-receipt` },
+    data: { expectedRevision: po.revision, quantity: 100, acceptedQuantity: 100, rejectedQuantity: 0, batchNo: supplierBatchNo, note: 'Synthetic actual purchase delivery' } }));
+  const batchNo = report.purchaseReceipt.submission.receipt.batchNo;
+  report.purchaseQuality = await releaseDelivery(report.purchaseReceipt.submission.receipt.id, 'purchase-quality');
   // Procurement receives into LOC-RM; actual sales dispatch reads LOC-FG. Move
   // the real received lot through the governed transfer API, never seed another
   // stock row or rewrite locations to fabricate available supply.
@@ -190,8 +212,8 @@ async function main() {
   const raceOrder = dataOf(await request('/orders', { auth: actors.sales.token, method: 'POST', data: { customerId: Number(customer.id),
     items: [1, 2].map(() => ({ materialId: material.id, productName: material.nameZh, quantity: 50, unit: 'kg', unitPrice: 10 })), paymentTerms: 30 } }));
   const raceRead = dataOf(await request(`/orders/${raceOrder.id}`));
-  const racePo = dataOf(await request('/procurement/orders', { method: 'POST', data: { supplierId: Number(supplier.id), materialId: material.id, salesOrderId: Number(raceOrder.id),
-    item: material.nameZh, quantity: 50, price: 10, unit: 'kg', eta, currency: 'CNY', status: 'approved' } }));
+  const racePo = await governedPurchase({ supplierId: Number(supplier.id), materialId: material.id, salesOrderId: Number(raceOrder.id),
+    item: material.nameZh, quantity: 50, price: 10, unit: 'kg', eta, currency: 'CNY' });
   const raceBase = `/orders/${raceOrder.id}/fulfillment-plans`;
   const contenders = [];
   for (const [index, item] of raceRead.items.entries()) contenders.push(dataOf(await request(raceBase, { auth: actors.sales.token, method: 'POST', data: {
@@ -231,8 +253,8 @@ async function main() {
   report.presale = { scope: '100 existing + 50 linked purchase; no physical reservation/full workforce claim', materialId: presaleMaterial.id,
     orderId: Number(presaleOrder.id), orderItemId: presaleLineId, existingBatch, replenishmentBatch, original: await state() };
   const p = report.presale;
-  const replenishment = dataOf(await request('/procurement/orders', { method: 'POST', data: { supplierId: Number(supplier.id), materialId: presaleMaterial.id,
-    salesOrderId: Number(presaleOrder.id), item: presaleMaterial.nameZh, quantity: 50, price: 10, unit: 'kg', eta, currency: 'CNY', status: 'approved' } }));
+  const replenishment = await governedPurchase({ supplierId: Number(supplier.id), materialId: presaleMaterial.id,
+    salesOrderId: Number(presaleOrder.id), item: presaleMaterial.nameZh, quantity: 50, price: 10, unit: 'kg', eta, currency: 'CNY' });
   const presalePlan = dataOf(await request(presaleBase, { auth: actors.sales.token, method: 'POST', data: { ...input, idempotencyKey: `${runId}-presale-plan`,
     orderItemId: presaleLineId, sourceDocumentId: Number(replenishment.id), plannedQuantity: 50 } }));
   dataOf(await request(`${presaleBase}/${presalePlan.id}/approve`, { auth: actors.reviewer.token, method: 'POST', data: { expectedUpdatedAt: presalePlan.updatedAt, reason: 'Independent approval of remaining 50 kg supply' } }));
@@ -262,8 +284,10 @@ async function main() {
   assert.deepEqual(p.afterShortage, p.beforeShortage, 'Rejected presale dispatch changed persisted business state');
   assert.equal(p.shortageResponse.status, 409, JSON.stringify(p.shortageResponse));
   p.purchaseReceipt = dataOf(await request(`/procurement/orders/${replenishment.id}/receipts`, { method: 'POST', headers: { 'Idempotency-Key': `${runId}-presale-replenishment-receipt` }, data: {
-    quantity: 50, acceptedQuantity: 50, rejectedQuantity: 0, batchNo: replenishmentBatch, note: 'Only the original outstanding 50 kg is replenished' } }));
-  const replenishedStock = await prisma.stockBalance.findFirst({ where: { materialId: presaleMaterial.id, batchNo: replenishmentBatch, quantity: 50 } });
+    expectedRevision: replenishment.revision, quantity: 50, acceptedQuantity: 50, rejectedQuantity: 0, batchNo: replenishmentBatch, note: 'Only the original outstanding 50 kg is replenished' } }));
+  p.supplierBatchNo = replenishmentBatch; p.replenishmentBatch = p.purchaseReceipt.submission.receipt.batchNo;
+  p.purchaseQuality = await releaseDelivery(p.purchaseReceipt.submission.receipt.id, 'presale-quality');
+  const replenishedStock = await prisma.stockBalance.findFirst({ where: { materialId: presaleMaterial.id, batchNo: p.replenishmentBatch, quantity: 50 } });
   assert(replenishedStock);
   dataOf(await request(`/warehouses/stock-balances/${replenishedStock.id}/transfer`, { method: 'POST', data: { toLocationId: Number(fg.id), quantity: 50,
     requestId: `${runId}-presale-transfer`, note: 'Same purchased lot moves to dispatch' } }));
@@ -291,7 +315,7 @@ async function main() {
   assert(p.finalReadbacks.every(o => o.fulfillment.fullyDelivered && o.fulfillment.lines[0].outstandingQuantity === 0));
   check('presaleExistingThenPurchased150', true);
   report.planCancellation = await require('./lib/sales-plan-cancellation.cjs').salesPlanCancellation({ request, dataOf, prisma, actors,
-    browser, urls, runId, customer, material, supplier, eta, delivery, capture });
+    browser, urls, runId, customer, material, supplier, eta, delivery, capture, governedPurchase });
   report.status = 'passed'; report.summary = { passedChecks: Object.keys(report.checks).length, failedChecks: 0, remainingChecks: 0 };
 }
 main().catch(e => { report.error = e.stack || String(e); console.error(report.error); process.exitCode = 1; }).finally(async () => {

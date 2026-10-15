@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { CheckCircle, ClipboardList, Truck } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
 import { can } from '../app/permissions';
+import { IncomingQualityWorkspace } from './procurement/IncomingQualityWorkspace';
 import { getModuleDescription, getModuleTitle } from '../components/navigation/moduleRegistry';
 import { PageShell } from '../components/ui';
 import { procurementService, PurchaseOrder, PurchaseReceiptBundle, Supplier } from '../services/procurement.service';
@@ -44,7 +45,7 @@ import { readPurchaseReceiptIntent, preparePurchaseReceiptIntent, clearPurchaseR
   confirmPurchaseReceiptSubmission, definitivePurchaseReceiptRejection, type PurchaseReceiptIntent } from './procurement/purchaseReceiptIntent';
 import type { ApiClientError } from '../utils/api';
 
-const Procurement = () => {
+const ProcurementCommercialWorkspace = () => {
   const { t, notify, language, currentUser } = useAppContext();
   const canReadProcurement = can(currentUser, 'procurement.read');
   const canWriteProcurement = can(currentUser, 'procurement.write');
@@ -257,8 +258,10 @@ const Procurement = () => {
         throw Error('当前连接无法验证收货身份，请使用 HTTPS 或本机入口；未发送入库。');
       }
       const userId = String(currentUser?.id || ''), orderId = receiptDrawerOrder.id;
+      const originalIntent = readPurchaseReceiptIntent(window.localStorage, userId, orderId);
       intent = preparePurchaseReceiptIntent(window.localStorage, userId, orderId, { quantity, acceptedQuantity, rejectedQuantity,
-        batchNo: receiptForm.batchNo, discrepancyReason: receiptForm.discrepancyReason, note: receiptForm.note }, () => crypto.randomUUID());
+        batchNo: receiptForm.batchNo, discrepancyReason: receiptForm.discrepancyReason, note: receiptForm.note,
+        expectedRevision: originalIntent ? originalIntent.facts.expectedRevision : receiptDrawerOrder.revision ?? 0 }, () => crypto.randomUUID());
       setHasUnconfirmedReceipt(true);
       const bundle = await procurementService.createReceipt(orderId, { ...intent.facts,
         batchNo: intent.facts.batchNo || undefined, discrepancyReason: intent.facts.discrepancyReason || undefined, note: intent.facts.note || undefined }, intent.key);
@@ -572,6 +575,30 @@ const Procurement = () => {
       )}
     </PageShell>
   );
+};
+
+const Procurement = () => {
+  const { currentUser, language, confirmDiscardChanges } = useAppContext();
+  const canRead = can(currentUser, 'procurement.read');
+  const canInspect = can(currentUser, 'procurement.quality.inspect');
+  const canRelease = can(currentUser, 'procurement.quality.release');
+  const [qualitySelected, setQualitySelected] = useState(false);
+  const hasQuality = canInspect || canRelease;
+  const showQuality = !canRead || (hasQuality && qualitySelected);
+  // QC-only actors never mount the commercial hooks or fetch prices, supplier
+  // contacts or sales orders. Existing commercial navigation stays unchanged.
+  return <div className="space-y-4">
+    {canRead && hasQuality && <nav aria-label="采购与来料职责" className="flex flex-wrap gap-2">
+      {([{ quality: false, title: '采购 / 实收', id: 'procurement-commercial-tab' },
+        { quality: true, title: '来料 QC / QA', id: 'procurement-quality-tab' }]).map(item =>
+        <button key={item.id} data-testid={item.id} aria-pressed={showQuality === item.quality}
+          onClick={() => { if (showQuality !== item.quality && confirmDiscardChanges()) setQualitySelected(item.quality); }}
+          className={`rounded-xl border px-4 py-2 text-sm font-bold ${showQuality === item.quality ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-200 bg-white text-slate-700 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200'}`}>{item.title}</button>)}
+    </nav>}
+    {showQuality ? <PageShell title={getModuleTitle('procurement', language)} subtitle="按原收货冻结标准检验；实收不等于合格，只有独立 QA 可以放行。">
+      <IncomingQualityWorkspace canInspect={canInspect} canRelease={canRelease} currentUserId={currentUser.id} />
+    </PageShell> : <ProcurementCommercialWorkspace />}
+  </div>;
 };
 
 export default Procurement;

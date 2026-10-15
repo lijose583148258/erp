@@ -5,6 +5,7 @@ const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
 const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 const { verifyProcurementToolbarLayouts } = require('./procurement-toolbar-layout-audit.cjs');
+const { explicitPurchaseSources, createApprovedPurchaseFixture, fillPurchaseSourceFields } = require('./purchase-quality-audit-fixture.cjs');
 
 async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal) {
   const folder = path.join(path.dirname(reportPath), `${runId}-purchase-browser`);
@@ -13,9 +14,13 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
     code: `${runId}-po-ui`, name: `${runId}-po-ui`, category: 'raw_material', unit: 'kg' });
   const supplier = dataOf(await request('/procurement/suppliers', { actor: actors.buyer1, method: 'POST', signal,
     data: { name: `${runId}-po-ui-supplier`, category: 'Raw Materials', contact: 'Synthetic' } }));
-  const order = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
-    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 100, price: 10,
-      unit: 'kg', eta: '2026-10-01', status: 'approved' } }));
+  const sources = explicitPurchaseSources({ quoteRef: `${runId}-browser-quote`, specificationRef: `${runId}-browser-spec`, specificationRevision: 'R1',
+    taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
+      { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
+    ] });
+  const setup = await createApprovedPurchaseFixture({ request, dataOf, signal }, { buyer: actors.buyer1, approver: actors.buyer2, sources,
+    payload: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta: '2026-10-01' } });
+  const order = setup.approved;
   const steps = [];
   const launched = await launchBrowserWithGuard({ recordStep: entry => steps.push(entry), retryLimit: 1 }).catch(error => {
     error.evidence = { folder, orderId: order.id, steps }; throw error;
@@ -77,24 +82,40 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
     const rebased = await clickWrite(pages[1], 'purchase-revision-save', '');
     assert.equal(rebased.status, 200, JSON.stringify(rebased.body));
     await pages[1].getByTestId('purchase-revision-saved').waitFor();
+    const confirmedSources = { ...sources, supplierPayableTerms: { ...sources.supplierPayableTerms, evidenceRef: `${runId}-buyer-B-80kg-quote` } };
+    await fillPurchaseSourceFields(pages[1], confirmedSources);
+    await pages[1].getByTestId('purchase-source-reason').fill('采购员乙明确八十公斤供货报价和来料规范，等待其他人审批');
+    const sourceResponse = pages[1].waitForResponse(res => new URL(res.url()).pathname.endsWith(`/procurement/orders/${order.id}/confirm-sources`)
+      && res.request().method() === 'POST');
+    await pages[1].getByTestId('purchase-source-confirm').click();
+    const confirmedResponse = await sourceResponse;
+    const sourceConfirmation = { status: confirmedResponse.status(), body: await confirmedResponse.json(), request: confirmedResponse.request().postDataJSON(), actorId: actors.buyer2.id };
+    assert.equal(sourceConfirmation.status, 200, JSON.stringify(sourceConfirmation.body));
+    assert.equal(sourceConfirmation.body.data.revision, 3);
+    await pages[1].getByTestId('purchase-source-state').filter({ hasText: /等待另一位审批人/ }).waitFor();
     await pages[1].getByTestId('purchase-revision-close').click();
-    const approval = await clickWrite(pages[1], `purchase-order-approve-${order.id}`, '/status');
+    // The buyer who rebased and confirmed the quote cannot approve themselves.
+    await pages[0].getByTestId('purchase-revision-close').click();
+    await pages[0].reload({ waitUntil: 'domcontentloaded' });
+    await pages[0].getByTestId('procurement-desk-orders').click();
+    const approval = await clickWrite(pages[0], `purchase-order-approve-${order.id}`, '/status');
     assert.equal(approval.status, 200, JSON.stringify(approval.body));
-    await pages[1].getByTestId(`purchase-order-dispatch-${order.id}`).waitFor();
-    await pages[1].getByTestId(`purchase-order-revise-${order.id}`).click();
-    await pages[1].getByTestId('purchase-revision-history').getByText(/pending → approved/).waitFor();
-    const historyText = await pages[1].getByTestId('purchase-revision-history').innerText();
-    assert(historyText.includes('采购员甲协商变更') && historyText.includes('采购员乙协商变更') && historyText.includes('版本 2'));
-    await pages[1].screenshot({ path: path.join(folder, 'reapproved.png') });
+    await pages[0].getByTestId(`purchase-order-dispatch-${order.id}`).waitFor();
+    await pages[0].getByTestId(`purchase-order-revise-${order.id}`).click();
+    await pages[0].getByTestId('purchase-revision-history').getByText(/pending → approved/).first().waitFor();
+    const historyText = await pages[0].getByTestId('purchase-revision-history').innerText();
+    assert(historyText.includes('采购员甲协商变更') && historyText.includes('采购员乙协商变更') && historyText.includes('版本 3'));
+    await pages[0].screenshot({ path: path.join(folder, 'reapproved.png') });
     const readbacks = await Promise.all([read(0), read(1)]);
-    assert(readbacks.every(result => result.purchaseOrder.revision === 2 && result.purchaseOrder.quantity === 80
+    assert(readbacks.every(result => result.purchaseOrder.revision === 3 && result.purchaseOrder.quantity === 80
       && result.purchaseOrder.price === 9 && result.purchaseOrder.status === 'approved'));
     const persisted = await prisma.purchaseOrder.findUnique({ where: { id: Number(order.id) } });
-    assert.equal(persisted.revision, 2); assert.equal(persisted.landedCostAmount, 720);
+    assert.equal(persisted.revision, 3); assert.equal(persisted.landedCostAmount, 720);
     assert.equal(readbacks[0].history.filter(entry => entry.action === 'REVISE').length, 2);
-    assert.equal(readbacks[0].history.filter(entry => entry.action === 'STATUS_CHANGE').length, 1);
+    assert.equal(readbacks[0].history.filter(entry => entry.action === 'STATUS_CHANGE').length, 2);
+    assert.equal(readbacks[0].history.filter(entry => entry.action === 'CONFIRM_SOURCES').length, 1);
     assert.deepEqual(runtimeErrors, []);
-    return { orderId: order.id, actorIds: [actors.buyer1.id, actors.buyer2.id], first, stale, rebased, approval,
+    return { orderId: order.id, setup, actorIds: [actors.buyer1.id, actors.buyer2.id], first, stale, rebased, sourceConfirmation, approval, approvalActorId: actors.buyer1.id,
       conflictText, historyText, readbacks, persisted, fontEvidence, layoutEvidence, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps };
   } catch (error) {
     if (error.fontEvidence) fontEvidence.push(error.fontEvidence);
@@ -113,7 +134,7 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
   const { expect } = require('playwright/test');
   const jobs = { buyer: 'procurement.write', approver: 'procurement.approve', receiver: 'procurement.receive' };
   const password = require('node:crypto').randomBytes(24).toString('base64url') + '!Aa1';
-  const people = {}, evidence = { version: 'purchase-role-browser/v1', scope: 'Three least-privilege purchasing responsibilities; not full20/QC/payables acceptance', actors: [], denied: [], browser: [], writes: [] };
+  const people = {}, evidence = { version: 'purchase-role-browser/v1', controlledVersion: 2, scope: 'Three least-privilege purchasing responsibilities, actual source confirmation and controlled hold receipt; not full20/QC/payables acceptance', actors: [], denied: [], browser: [], writes: [] };
   for (const [job, permission] of Object.entries(jobs)) {
     const role = `${runId.replace(/-/g, '_')}_po_${job}`;
     const permissions = ['dashboard.read', 'procurement.read', 'procurement.suppliers.read', 'materials.read', permission];
@@ -126,7 +147,11 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
   }
   const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }), code: `${runId}-po-roles`, name: `${runId}-po-roles`, category: 'raw_material', unit: 'kg' });
   const supplier = dataOf(await request('/procurement/suppliers', { actor: people.buyer, method: 'POST', data: { name: `${runId}-po-roles`, category: 'Raw Materials', contact: 'Isolated test' }, signal }));
-  const payload = { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 10, price: 10, unit: 'kg', eta: '2026-10-06', currency: 'CNY', status: 'pending' };
+  const sources = explicitPurchaseSources({ quoteRef: `${runId}-role-10kg-quote`, specificationRef: `${runId}-role-spec`, specificationRevision: 'R1',
+    taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
+      { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
+    ] });
+  const payload = { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 10, price: 10, unit: 'kg', eta: '2026-10-06', currency: 'CNY', status: 'pending', ...sources };
   const original = dataOf(await request('/procurement/orders', { actor: people.buyer, method: 'POST', data: payload, signal }));
   const id = Number(original.id), batchNo = `${runId}-po-role-batch`;
   Object.assign(evidence, { orderId: id, materialId: material.id, batchNo, original });
@@ -207,7 +232,13 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     const buyer = pages.buyer; await buyer.getByTestId(`purchase-order-revise-${id}`).click();
     await buyer.getByTestId('purchase-revision-quantity').fill('12'); await buyer.getByTestId('purchase-revision-reason').fill('采购员确认十二公斤供货，等待独立审批');
     await write('buyer', 'purchase-revision-save', '', 'PATCH'); await buyer.getByTestId('purchase-revision-saved').waitFor(); await buyer.getByTestId('purchase-revision-close').click();
-    await load('approver'); await expect(pages.approver.getByTestId(`purchase-order-revise-${id}`)).toHaveText('版本 1');
+    await buyer.getByTestId(`purchase-order-revise-${id}`).click();
+    await fillPurchaseSourceFields(buyer, { ...sources, supplierPayableTerms: { ...sources.supplierPayableTerms, evidenceRef: `${runId}-role-12kg-confirmed-quote` } });
+    await buyer.getByTestId('purchase-source-reason').fill('明确确认十二公斤供应商报价与来料规范，不沿用未确认金额');
+    await write('buyer', 'purchase-source-confirm', '/confirm-sources', 'POST');
+    await buyer.getByTestId('purchase-source-state').filter({ hasText: /等待另一位审批人/ }).waitFor();
+    await buyer.getByTestId('purchase-revision-close').click();
+    await load('approver'); await expect(pages.approver.getByTestId(`purchase-order-revise-${id}`)).toHaveText('版本 2');
     await write('approver', `purchase-order-approve-${id}`, '/status', 'PATCH');
     await expect(pages.approver.getByTestId(`purchase-order-dispatch-${id}`)).toHaveCount(0);
     await load('buyer'); await write('buyer', `purchase-order-dispatch-${id}`, '/status', 'PATCH');
@@ -245,7 +276,7 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
         assert.equal(route.request().method(), 'POST', 'Acknowledgment-drop route must intercept the actual receipt POST');
         recovery.firstRequest = { instance: 1, method: route.request().method(), requestKey: route.request().headers()['idempotency-key'], body: route.request().postDataJSON() };
         assert.match(recovery.firstRequest.requestKey || '', /^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$/);
-        assert.deepEqual(recovery.firstRequest.body, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
+        assert.deepEqual(recovery.firstRequest.body, { expectedRevision: 2, quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
         const response = await route.fetch({ timeout: 15000 });
         recovery.ownerResponse = { status: response.status(), body: await response.json() };
         assert.equal(recovery.ownerResponse.status, 201, JSON.stringify(recovery.ownerResponse.body));
@@ -266,7 +297,7 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     recovery.intent = JSON.parse(recovery.persistedBeforeRefresh);
     assert.equal(recovery.intent.key, recovery.firstRequest.requestKey); assert.equal(recovery.intent.userId, String(people.receiver.id));
     assert.equal(recovery.intent.orderId, String(id));
-    assert.deepEqual(recovery.intent.facts, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo, discrepancyReason: '', note: '' });
+    assert.deepEqual(recovery.intent.facts, { expectedRevision: 2, quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo, discrepancyReason: '', note: '' });
     recovery.afterOwner = await snapshot();
     assert.equal(recovery.afterOwner.receipts.length, 1); assert.equal(recovery.afterOwner.movements.length, 1);
     assert.equal(recovery.afterOwner.entries.length, 1); assert.equal(recovery.afterOwner.costs.length, 1);
@@ -314,13 +345,13 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     recovery.mutableRemainingQuantity = replay.response.data.receiptSummary.remainingQuantity; assert.equal(recovery.mutableRemainingQuantity, 7);
     recovery.confirmedScreenshot = path.join(folder, 'receiver-receipt-ack-confirmed.png'); await receiver.screenshot({ path: recovery.confirmedScreenshot });
     recovery.status = 'passed';
-    assert.deepEqual(evidence.writes.at(-1).request, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
+    assert.deepEqual(evidence.writes.at(-1).request, { expectedRevision: 2, quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo });
     await expect(receiver.getByTestId('purchase-receipt-drawer')).toContainText(batchNo);
     for (const row of evidence.browser) {
       const page = await load(row.job); await page.getByTestId(`purchase-order-receipts-${id}`).click();
-      const drawer = page.getByTestId('purchase-receipt-drawer'); await expect(drawer).toContainText(batchNo); await expect(drawer).toContainText('合格 5kg');
+      const drawer = page.getByTestId('purchase-receipt-drawer'); await expect(drawer).toContainText(batchNo); await expect(drawer).toContainText('实收入库 5kg');
       row.receiveEnabled = await page.getByTestId('purchase-receipt-save-button').isEnabled();
-      assert.equal(row.receiveEnabled, row.job === 'receiver'); row.batchReadback = batchNo; row.acceptedReadback = '合格 5kg';
+      assert.equal(row.receiveEnabled, row.job === 'receiver'); row.batchReadback = batchNo; row.acceptedReadback = '实收入库 5kg';
       row.receiptNotice = row.job === 'receiver' ? null : '当前角色只能查看收货批次，保存收货需要采购收货登记权限。';
       if (row.receiptNotice) await expect(drawer.getByText(row.receiptNotice, { exact: true })).toBeVisible();
       row.errors = errors[row.job]; assert.deepEqual(row.errors, []);
@@ -328,7 +359,7 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
     }
     evidence.readbacks = await Promise.all([0, 1].map(async instance => ({ instance, ...dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: people.buyer, instance, signal })) })));
     evidence.final = await snapshot();
-    assert.equal(evidence.final.orders[0].revision, 1); assert.equal(evidence.final.orders[0].quantity, 12); assert.equal(evidence.final.orders[0].status, 'in_transit');
+    assert.equal(evidence.final.orders[0].revision, 2); assert.equal(evidence.final.orders[0].quantity, 12); assert.equal(evidence.final.orders[0].status, 'in_transit');
     assert.equal(evidence.final.receipts.length, 1); assert.equal(evidence.final.receipts[0].receivedBy, people.receiver.id);
     assert.equal(evidence.final.balances.reduce((sum, row) => sum + Number(row.quantity), 0), 5);
     assert.equal(evidence.final.movements.length, 1); assert.equal(evidence.final.entries.length, 1); assert.equal(evidence.final.costs.length, 1);

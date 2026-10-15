@@ -4,10 +4,15 @@ import { executeRawCompat, queryRawCompat } from '../utils/raw-sql-compat';
 import { buildBusinessNo } from '../utils/businessNo';
 import { roundMoney } from '../utils/money';
 import {
-  requirePurchaseReceiptKey, purchaseReceiptFingerprint, purchaseReceiptAuditDetails,
+  requirePurchaseReceiptKey,
   purchaseReceiptSubmissionSchema, readPurchaseReceiptSubmission, invalidPurchaseReceiptSubmission,
   type PurchaseReceiptFacts, type PurchaseReceiptSubmission,
 } from '../domain/purchase-receipt-submission';
+import { controlledPurchaseReceiptFactsSchema, controlledPurchaseReceiptFingerprint, controlledPurchaseReceiptAuditDetails,
+  controlledPurchaseReceiptSubmissionSchema, normalizeControlledPurchaseReceipt, readControlledPurchaseReceiptSubmission } from '../domain/purchase-controlled-receipt';
+import { buildPurchaseReceiptPayable, payableMoney, requireReceiptPayableSource } from '../domain/purchase-payable';
+import { requireCommittedPurchaseReceipt } from './purchase-receipt-evidence.service';
+import { resolveApprovedPurchaseSources, resolveReceiptApprovedSources } from './procurement-source-confirmation.service';
 import { ReceiptDiscrepancyService } from './receipt-discrepancy.service';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
 import {
@@ -49,6 +54,7 @@ type PurchaseReceiptRow = {
   receivedBy?: unknown;
   receivedAt?: unknown;
   createdAt?: unknown;
+  supplierBatchNo?: unknown; batchId?: unknown; payableAmountNative?: unknown; payableAmountBase?: unknown;
 };
 
 type PurchaseReceiptTotalsRow = {
@@ -61,6 +67,7 @@ type PurchaseReceiptTotalsRow = {
 export interface CreatePurchaseReceiptBatchInput {
   purchaseOrderId: number;
   idempotencyKey?: unknown;
+  expectedRevision?: unknown;
   quantity: unknown;
   acceptedQuantity?: unknown;
   rejectedQuantity?: unknown;
@@ -199,13 +206,9 @@ export async function postProcurementReceiptIfMissing(
 
   requireValuedReceiptActor(createdBy);
 
-  await createPurchaseReceiptBatch(tx, {
-    purchaseOrderId: order.id, idempotencyKey: `purchase-full:${order.id}:r${order.revision || 0}`,
-    quantity: Number(order.quantity || 0), batchNo: sourceRef,
-    note: 'Full receipt created from legacy status transition', createdBy,
-  }, sourceRef);
-
-  return { posted: true, sourceRef };
+  // Status/B2B delivery is not a warehouse receipt. Preserve old posted rows
+  // above, but never invent a new physical lot, liability or QA from a status.
+  throw new AppError('ACTUAL_RECEIPT_REQUIRED', 409, ErrorCode.CONFLICT);
 }
 
 function normalizeReceiptRow(row: PurchaseReceiptRow) {
@@ -233,15 +236,29 @@ function receiptDateIso(value: unknown) {
   return date.toISOString();
 }
 
-async function readReceiptReplay(tx: TransactionClient, facts: PurchaseReceiptFacts, key: string) {
+function controlledFacts(facts: PurchaseReceiptFacts, expectedRevision: unknown) {
+  const parsed = controlledPurchaseReceiptFactsSchema.safeParse({ ...facts, expectedRevision });
+  if (!parsed.success) throw new AppError('PURCHASE_RECEIPT_SOURCE_FACTS_REQUIRED', 400, ErrorCode.VALIDATION_ERROR, { issues: parsed.error.issues });
+  return parsed.data;
+}
+async function readReceiptReplay(tx: TransactionClient, facts: PurchaseReceiptFacts, key: string, expectedRevision: unknown) {
   const stored = await tx.purchaseReceipt.findFirst({ where: { purchaseOrderId: facts.purchaseOrderId, submissionKey: key } });
   if (!stored) return null;
-  let auditId = 0;
-  try { auditId = purchaseReceiptSubmissionSchema.parse(JSON.parse(stored.submissionJson || '')).auditId; }
+  let raw: unknown;
+  try { raw = JSON.parse(stored.submissionJson || ''); }
   catch { throw invalidPurchaseReceiptSubmission(); }
-  const audit = await tx.auditLog.findUnique({ where: { id: auditId } });
-  const receipt = normalizeReceiptRow(stored) as PurchaseReceiptSubmission['receipt'];
-  const submission = readPurchaseReceiptSubmission(stored, receipt, facts, key, audit);
+  const v2 = controlledPurchaseReceiptSubmissionSchema.safeParse(raw);
+  let submission;
+  if (v2.success) {
+    const audit = await tx.auditLog.findUnique({ where: { id: v2.data.auditId } });
+    submission = readControlledPurchaseReceiptSubmission(stored, normalizeControlledPurchaseReceipt(stored), audit,
+      { key, facts: controlledFacts(facts, expectedRevision) });
+  } else {
+    const v1 = purchaseReceiptSubmissionSchema.safeParse(raw);
+    if (!v1.success) throw invalidPurchaseReceiptSubmission();
+    const audit = await tx.auditLog.findUnique({ where: { id: v1.data.auditId } });
+    submission = readPurchaseReceiptSubmission(stored, normalizeReceiptRow(stored) as PurchaseReceiptSubmission['receipt'], facts, key, audit);
+  }
   const order = await tx.purchaseOrder.findUnique({ where: { id: facts.purchaseOrderId }, include: { supplier: true, salesOrder: true } });
   if (!order) throw invalidPurchaseReceiptSubmission();
   const bundle = await getPurchaseOrderReceiptBundle(tx, order);
@@ -260,6 +277,8 @@ export async function listPurchaseReceipts(tx: TransactionClient, purchaseOrderI
        rejected_quantity AS "rejectedQuantity",
        unit,
        batch_no AS "batchNo",
+       supplier_batch_no AS "supplierBatchNo", batch_id AS "batchId",
+       payable_amount_native AS "payableAmountNative", payable_amount_base AS "payableAmountBase",
        stock_entry_ref AS "stockEntryRef",
        discrepancy_reason AS "discrepancyReason",
        note,
@@ -271,7 +290,24 @@ export async function listPurchaseReceipts(tx: TransactionClient, purchaseOrderI
      ORDER BY id ASC`,
     purchaseOrderId,
   );
-  return rows.map(normalizeReceiptRow);
+  return rows.map(row => ({ ...normalizeReceiptRow(row), supplierBatchNo: row.supplierBatchNo == null ? null : String(row.supplierBatchNo),
+    batchId: row.batchId == null ? null : Number(row.batchId), payableAmountNative: row.payableAmountNative == null ? null : payableMoney(row.payableAmountNative).toFixed(2),
+    payableAmountBase: row.payableAmountBase == null ? null : payableMoney(row.payableAmountBase).toFixed(2) }));
+}
+
+async function readReceiptPayableHistory(tx: TransactionClient, order: Awaited<ReturnType<typeof claimPurchaseReceiptWrite>>) {
+  let quantity = new Prisma.Decimal(0), native = new Prisma.Decimal(0), base = new Prisma.Decimal(0);
+  const rows = await tx.purchaseReceipt.findMany({ where: { purchaseOrderId: order.id }, orderBy: { id: 'asc' } });
+  for (const row of rows) {
+    await requireCommittedPurchaseReceipt(tx, row);
+    await resolveReceiptApprovedSources(tx, row);
+    const snapshot = requireReceiptPayableSource(row, { revision: order.revision, supplierId: order.supplierId, materialId: order.materialId,
+      unit: order.unit, quantity: order.quantity, price: order.price, currency: order.currency, exchangeRate: order.exchangeRate });
+    if (!quantity.equals(snapshot.allocation.receivedQuantityBefore) || !native.equals(snapshot.allocation.postedAmountNativeBefore)
+      || !base.equals(snapshot.allocation.postedAmountBaseBefore)) throw new AppError('PURCHASE_PAYABLE_RECONCILIATION_REQUIRED', 409, ErrorCode.CONFLICT);
+    quantity = quantity.plus(row.acceptedQuantity); native = native.plus(snapshot.allocation.amountNative); base = base.plus(snapshot.allocation.amountBase);
+  }
+  return { receivedQuantityBefore: quantity, postedAmountNativeBefore: native, postedAmountBaseBefore: base };
 }
 
 export async function getPurchaseReceiptTotals(tx: TransactionClient, purchaseOrderId: number) {
@@ -418,9 +454,6 @@ export async function getPurchaseOrderReceiptBundle(
 export async function createPurchaseReceiptBatch(
   tx: TransactionClient,
   input: CreatePurchaseReceiptBatchInput,
-  // Only the legacy server-side full-receipt adapter supplies this reference.
-  // No HTTP field is forwarded here; both paths still use one transaction core.
-  legacyFullSourceRef?: string,
 ) {
   const { inputQuantity, acceptedQuantity, rejectedQuantity } = normalizeReceiptQuantities(input);
   requireValuedReceiptActor(input.createdBy);
@@ -431,11 +464,10 @@ export async function createPurchaseReceiptBatch(
     batchNo: toOptionalReceiptText(input.batchNo), receivedAt: input.receivedAt ? normalizeReceiptDate(input.receivedAt).toISOString() : null,
     discrepancyReason: toOptionalReceiptText(input.discrepancyReason), discrepancyType, note: toOptionalReceiptText(input.note),
   };
-  const fingerprint = purchaseReceiptFingerprint(facts);
-  const existing = await readReceiptReplay(tx, facts, key);
+  const existing = await readReceiptReplay(tx, facts, key, input.expectedRevision);
   if (existing) return existing;
   const order = await claimPurchaseReceiptWrite(tx, input.purchaseOrderId);
-  const raced = await readReceiptReplay(tx, facts, key);
+  const raced = await readReceiptReplay(tx, facts, key, input.expectedRevision);
   if (raced) return raced;
   if (order.status === 'cancelled') {
     throw new AppError('PURCHASE_ORDER_CANCELLED', 409, ErrorCode.CONFLICT);
@@ -443,13 +475,18 @@ export async function createPurchaseReceiptBatch(
   if (order.status === 'pending') {
     throw new AppError('PURCHASE_ORDER_NOT_APPROVED', 409, ErrorCode.CONFLICT);
   }
+  const sourcedFacts = controlledFacts(facts, input.expectedRevision);
+  if (sourcedFacts.expectedRevision !== order.revision) throw new AppError('PURCHASE_RECEIPT_REVISION_CONFLICT', 409, ErrorCode.CONFLICT);
+  const sources = await resolveApprovedPurchaseSources(tx, order);
+  const fingerprint = controlledPurchaseReceiptFingerprint(sourcedFacts);
 
   const totals = await getPurchaseReceiptTotals(tx, order.id);
-  const remainingQuantity = Number(order.quantity || 0) - totals.processedQuantity;
-  if (remainingQuantity <= 0.000001) {
+  const remaining = new Prisma.Decimal(order.quantity).minus(new Prisma.Decimal(totals.processedQuantity).toDecimalPlaces(6));
+  const remainingQuantity = remaining.toNumber();
+  if (remaining.lessThanOrEqualTo(0)) {
     throw new AppError('PURCHASE_ORDER_ALREADY_FULLY_RECEIVED', 409, ErrorCode.CONFLICT);
   }
-  if (inputQuantity - remainingQuantity > 0.000001) {
+  if (new Prisma.Decimal(inputQuantity).greaterThan(remaining)) {
     throw new AppError(
       'PURCHASE_RECEIPT_EXCEEDS_REMAINING',
       409,
@@ -459,38 +496,28 @@ export async function createPurchaseReceiptBatch(
   }
 
   const postedCostBefore = await readPostedPurchaseReceiptCost(tx, order, totals.acceptedQuantity);
+  const payableBefore = await readReceiptPayableHistory(tx, order);
   const costAmountDelta = acceptedQuantity > 0
     ? resolveReceiptCostAmount(order, acceptedQuantity, totals.acceptedQuantity, postedCostBefore) : 0;
 
   const receiptNo = buildBusinessNo('PRC');
-  const sourceRef = legacyFullSourceRef || `PO-${order.id}-RCV-${receiptNo}`;
-  if (legacyFullSourceRef && legacyFullSourceRef !== `PO-${order.id}`) throw invalidPurchaseReceiptSubmission();
-  const batchNo = facts.batchNo || sourceRef;
+  const sourceRef = `PO-${order.id}-RCV-${receiptNo}`;
+  const batchNo = sourceRef; // Repeated supplier lots never merge into an already released internal batch.
+  const payable = buildPurchaseReceiptPayable({ purchaseOrderId: order.id, receiptNo, supplierBatchNo: sourcedFacts.batchNo, batchNo,
+    receivedBy: facts.receivedBy, binding: sources.binding, supplierPayableBasisJson: order.supplierPayableBasisJson!,
+    sourceAuditId: sources.sourceAuditId, approvalAuditId: sources.approvalAuditId, receivedQuantity: acceptedQuantity, ...payableBefore });
   const receivedAt = facts.receivedAt ? new Date(facts.receivedAt) : new Date();
   const discrepancyReason = facts.discrepancyReason;
   const receiptNote = facts.note;
 
-  await executeRawCompat(tx, 
-    `INSERT INTO purchase_receipts
-      (receipt_no, purchase_order_id, quantity, accepted_quantity, rejected_quantity, unit, batch_no, stock_entry_ref, discrepancy_reason, note, received_by, received_at, submission_key, submission_fingerprint, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
-    receiptNo,
-    order.id,
-    inputQuantity,
-    acceptedQuantity,
-    rejectedQuantity,
-    order.unit || 'kg',
-    batchNo,
-    acceptedQuantity > 0 ? sourceRef : null,
-    discrepancyReason,
-    receiptNote,
-    input.createdBy || null,
-    receivedAt,
-    key,
-    fingerprint,
-  );
+  let persisted = await tx.purchaseReceipt.create({ data: { receiptNo, purchaseOrderId: order.id, quantity: inputQuantity,
+    acceptedQuantity, rejectedQuantity, unit: order.unit, batchNo, supplierBatchNo: sourcedFacts.batchNo,
+    stockEntryRef: acceptedQuantity > 0 ? sourceRef : null, discrepancyReason, note: receiptNote, receivedBy: facts.receivedBy,
+    receivedAt, submissionKey: key, submissionFingerprint: fingerprint, payableAmountNative: payable.payableAmountNative,
+    payableAmountBase: payable.payableAmountBase, payableSnapshotJson: payable.payableSnapshotJson, incomingQualityPlanJson: order.incomingQualityPlanJson } });
 
   if (acceptedQuantity > 0) {
+    if (await tx.productBatch.findUnique({ where: { batchNo } })) throw new AppError('PURCHASE_RECEIPT_BATCH_COLLISION', 409, ErrorCode.CONFLICT);
     const receiptLocationId = await resolveProcurementReceiptLocationId(tx);
     await StockMovementService.postStockEntry({
       sourceType: 'procurement_receipt',
@@ -509,16 +536,15 @@ export async function createPurchaseReceiptBatch(
         costAmountDelta,
       }],
     }, tx);
+    const batch = await tx.productBatch.findUnique({ where: { batchNo } });
+    if (!batch || batch.materialId !== order.materialId || batch.unit !== order.unit) throw invalidPurchaseReceiptSubmission();
+    await tx.productBatch.update({ where: { id: batch.id }, data: { qualityStatus: 'hold' } });
+    persisted = await tx.purchaseReceipt.update({ where: { id: persisted.id }, data: { batchId: batch.id } });
   }
-
-  const receiptRows = await queryRawCompat<Array<{ id: number }>>(tx, 
-    `SELECT id FROM purchase_receipts WHERE receipt_no = ? LIMIT 1`,
-    receiptNo,
-  );
   const discrepancyCase = await ReceiptDiscrepancyService.createCaseForRejectedReceipt(tx, {
     sourceType: 'purchase_receipt',
     sourceRef: receiptNo,
-    sourceId: receiptRows[0]?.id ? Number(receiptRows[0].id) : null,
+    sourceId: persisted.id,
     relatedModule: 'procurement',
     relatedId: order.id,
     businessRef: `PO-${order.id}`,
@@ -538,7 +564,7 @@ export async function createPurchaseReceiptBatch(
   });
 
   const nextTotals = await getPurchaseReceiptTotals(tx, order.id);
-  const nextStatus = nextTotals.processedQuantity + 0.000001 >= Number(order.quantity || 0)
+  const nextStatus = new Prisma.Decimal(nextTotals.processedQuantity).toDecimalPlaces(6).greaterThanOrEqualTo(order.quantity)
     ? 'received'
     : 'in_transit';
   const updatedOrder = order.status === nextStatus ? order : await tx.purchaseOrder.update({
@@ -551,13 +577,13 @@ export async function createPurchaseReceiptBatch(
     quantity: Number(updatedOrder.quantity || 0),
   });
 
-  const receipt = receiptBundle.receipts.find(r => r.receiptNo === receiptNo) as PurchaseReceiptSubmission['receipt'] | undefined;
-  if (!receipt) throw invalidPurchaseReceiptSubmission();
+  const receipt = normalizeControlledPurchaseReceipt(persisted);
   const audit = await tx.auditLog.create({ data: {
     userId: facts.receivedBy, action: 'CREATE_RECEIPT', resource: 'purchase_order', resourceId: order.id,
-    details: JSON.stringify(purchaseReceiptAuditDetails(key, fingerprint, receipt)), ipAddress: input.ipAddress, userAgent: input.userAgent,
+    details: JSON.stringify(controlledPurchaseReceiptAuditDetails(key, fingerprint, receipt)), ipAddress: input.ipAddress, userAgent: input.userAgent,
   } });
-  const submission = purchaseReceiptSubmissionSchema.parse({ schema: 'purchase-receipt-submission/v1', key, fingerprint, auditId: audit.id, receipt });
+  const submission = controlledPurchaseReceiptSubmissionSchema.parse({ schema: 'purchase-receipt-submission/v2', key, fingerprint, auditId: audit.id,
+    facts: sourcedFacts, receipt });
   await tx.purchaseReceipt.update({ where: { id: receipt.id }, data: { submissionJson: JSON.stringify(submission) } });
 
   return {

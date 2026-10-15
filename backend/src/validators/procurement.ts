@@ -1,6 +1,10 @@
 import { z } from 'zod';
 import { incomingQualityPlanSchema, supplierPayableTermsSchema } from '../domain/purchase-governance';
 
+export const confirmPurchaseSourcesSchema = z.object({ expectedRevision: z.number().int().nonnegative(), expectedUpdatedAt: z.string().datetime(),
+  supplierPayableTerms: supplierPayableTermsSchema, incomingQualityPlan: incomingQualityPlanSchema,
+  reason: z.string().trim().min(3).max(1000) }).strict();
+
 const purchaseStatusSchema = z.enum(['pending', 'approved', 'in_transit', 'received', 'cancelled', 'confirmed', 'shipped', 'delivered']);
 const receiptDiscrepancyTypeSchema = z.enum([
   'short_shipped',
@@ -105,6 +109,7 @@ export const revisePurchaseOrderSchema = z.object({
 }).strict();
 
 export const createPurchaseReceiptSchema = z.object({
+  expectedRevision: z.number().int().nonnegative().optional(), // V1 committed replay remains readable without inventing new facts.
   quantity: z.coerce.number().finite().positive().multipleOf(0.000001),
   acceptedQuantity: z.coerce.number().finite().nonnegative().multipleOf(0.000001).optional(),
   rejectedQuantity: z.coerce.number().finite().nonnegative().multipleOf(0.000001).optional(),

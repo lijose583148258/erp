@@ -1,21 +1,25 @@
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { synchronizedBurst } = require('./enterprise-round2-runner.cjs');
+const { explicitPurchaseSources, createApprovedPurchaseFixture, releasePurchaseFixture } = require('./purchase-quality-audit-fixture.cjs');
 
 async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
-  const create = async quantity => dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
-    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity, price: 10,
-      unit: 'kg', eta: '2026-10-01', status: 'approved' } }));
-  const original = await create(2), id = Number(original.id), key = `${runId}-durable-receipt`;
-  const facts = { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-durable-batch`, note: 'One physical delivery, one immutable receipt' };
+  const sources = explicitPurchaseSources({ quoteRef: `${runId}-durable-quote`, specificationRef: `${runId}-durable-spec`, specificationRevision: 'R1',
+    taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
+      { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
+    ] });
+  const create = async quantity => createApprovedPurchaseFixture({ request, dataOf, signal }, { buyer: actors.buyer1, approver: actors.buyer2, sources,
+    payload: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity, price: 10, unit: 'kg', eta: '2026-10-01' } });
+  const setup = await create(2), original = setup.approved, id = Number(original.id), key = `${runId}-durable-receipt`;
+  const facts = { expectedRevision: original.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0,
+    batchNo: `${runId}-durable-batch`, note: 'One physical delivery, one immutable receipt' };
   const post = async (actor, instance, requestKey, data) => ({ ...await request(`/procurement/orders/${id}/receipts`, { actor, instance, method: 'POST', signal,
     headers: requestKey ? { 'Idempotency-Key': requestKey } : {}, data }), purchaseOrderId: id, actorId: actor.id, instance, method: 'POST', requestKey: requestKey || null, requestBody: data });
-  const batchNames = [`${runId}-durable-batch`, `${runId}-remaining-batch`, `${runId}-audit-fault-batch`];
   const snapshot = async poId => {
     const receipts = await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: poId }, orderBy: { id: 'asc' } });
     const entries = await prisma.stockEntry.findMany({ where: { sourceType: 'procurement_receipt', sourceRef: { startsWith: `PO-${poId}-RCV-` } }, include: { movements: true }, orderBy: { id: 'asc' } });
-    const batches = await prisma.productBatch.findMany({ where: { batchNo: { in: batchNames } }, orderBy: { id: 'asc' } });
+    const batches = await prisma.productBatch.findMany({ where: { batchNo: { startsWith: `PO-${poId}-RCV-` } }, orderBy: { id: 'asc' } });
     return { order: await prisma.purchaseOrder.findUnique({ where: { id: poId } }), receipts, entries,
-      batches, balances: await prisma.stockBalance.findMany({ where: { batchNo: { in: batchNames } }, orderBy: { id: 'asc' } }),
+      batches, balances: await prisma.stockBalance.findMany({ where: { batchNo: { startsWith: `PO-${poId}-RCV-` } }, orderBy: { id: 'asc' } }),
       costs: await prisma.inventoryCostLedger.findMany({ where: { OR: [{ sourceRef: { in: entries.map(e => e.entryNo) } }, { batchId: { in: batches.map(b => b.id) } }] }, orderBy: { id: 'asc' } }),
       audits: await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: poId }, orderBy: { id: 'asc' } }) };
   };
@@ -32,7 +36,7 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
   const differentActor = await post(actors.buyer2, 0, key, facts), afterConflicts = await snapshot(id);
   dataOf(await post(actors.buyer1, 1, `${runId}-remaining-receipt`, { ...facts, batchNo: `${runId}-remaining-batch` }));
   const full = await snapshot(id), replay = await post(actors.buyer1, 0, key, facts), afterReplay = await snapshot(id);
-  const blockedOrder = await create(1), faultId = Number(blockedOrder.id), faultBefore = await snapshot(faultId);
+  const faultSetup = await create(1), blockedOrder = faultSetup.approved, faultId = Number(blockedOrder.id), faultBefore = await snapshot(faultId);
   const faultName = `receipt_audit_fault_${faultId}`, pg = process.env.AUDIT_PRISMA_PROVIDER === 'postgresql';
   const readFault = () => pg
     ? prisma.$queryRawUnsafe('SELECT pg_get_triggerdef(oid) AS definition FROM pg_trigger WHERE tgname = $1 AND NOT tgisinternal', faultName)
@@ -49,7 +53,7 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
     } else await prisma.$executeRawUnsafe(`CREATE TRIGGER ${faultName} BEFORE INSERT ON audit_logs WHEN NEW.action = 'CREATE_RECEIPT' AND NEW.resource = 'purchase_order' AND NEW.resource_id = ${faultId} BEGIN SELECT RAISE(ABORT, 'Synthetic receipt audit unavailable'); END`);
     faultInjection.installed = await readFault();
     faultInjection.installedFunctions = await readFaultFunction();
-    const requestBody = { quantity: 1, batchNo: `${runId}-audit-fault-batch` }, requestKey = `${runId}-audit-rollback`;
+    const requestBody = { expectedRevision: blockedOrder.revision, quantity: 1, batchNo: `${runId}-audit-fault-batch` }, requestKey = `${runId}-audit-rollback`;
     auditFailure = { ...await request(`/procurement/orders/${faultId}/receipts`, { actor: actors.buyer1, instance: 1, method: 'POST', signal,
       headers: { 'Idempotency-Key': requestKey }, data: requestBody }), purchaseOrderId: faultId, actorId: actors.buyer1.id, instance: 1, method: 'POST', requestKey, requestBody };
   } finally {
@@ -59,7 +63,7 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
   faultInjection.removed = await readFault();
   faultInjection.removedFunctions = await readFaultFunction();
   const faultAfter = await snapshot(faultId);
-  const orphanFaultBatch = await prisma.productBatch.findUnique({ where: { batchNo: `${runId}-audit-fault-batch` } });
+  const orphanFaultBatch = await prisma.productBatch.findFirst({ where: { batchNo: { startsWith: `PO-${faultId}-RCV-` } } });
   const requirements = {
     missing_identity_rejected_without_effect: missingKey.status === 400 && missingKey.json.errorCode === 'PURCHASE_RECEIPT_KEY_REQUIRED' && JSON.stringify(before) === JSON.stringify(afterMissing),
     two_nodes_one_owner_one_acknowledgement: concurrent.every(r => r.status === 201) && concurrent.map(r => r.json.data.replayed).filter(Boolean).length === 1
@@ -72,9 +76,9 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
       && JSON.stringify(replay.json.data.submission) === JSON.stringify(receipt) && replay.json.data.receiptSummary.remainingQuantity === 0 && JSON.stringify(full) === JSON.stringify(afterReplay),
     failed_audit_rolls_back_receipt_stock_cost_status: auditFailure.status === 500 && JSON.stringify(faultBefore) === JSON.stringify(faultAfter) && orphanFaultBatch === null,
   };
-  const evidence = verify(requirements, { version: 'purchase-receipt-submission/v1', original, before, missingKey, afterMissing, concurrent, committed,
+  const evidence = verify(requirements, { version: 'purchase-receipt-submission/v1', controlledVersion: 2, setup, original, before, missingKey, afterMissing, concurrent, committed,
     changed, differentActor, afterConflicts, full, replay, afterReplay, faultBefore, auditFailure, faultAfter, orphanFaultBatch,
-    faultInjection, scope: 'Real two-node durable receipt and atomic audit rollback; not incoming QA, supplier AP/payment or a database restart', provider: pg ? 'postgresql' : 'sqlite' });
+    faultInjection, faultSetup, scope: 'Real controlled receipt with sourced AP, two-node durable ACK and atomic audit rollback; not supplier payment, full QC/QA browser chain or a database restart', provider: pg ? 'postgresql' : 'sqlite' });
   require('./enterprise-round2-purchase-receipt-proof.cjs').verifyPurchaseReceiptSubmissionProof(evidence);
   return evidence;
 }
@@ -86,7 +90,7 @@ async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId,
   ] };
   const created = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
     data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 1, price: 10, otherCost: 7,
-      unit: 'kg', eta: '2026-10-01', status: 'approved', supplierPayableTerms: terms, incomingQualityPlan: plan } }));
+      unit: 'kg', eta: '2026-10-01', status: 'pending', supplierPayableTerms: terms, incomingQualityPlan: plan } }));
   const id = Number(created.id), amendedPlan = { ...plan, specificationRevision: 'R2', characteristics: [{ ...plan.characteristics[0], upperLimit: '7.9' }] };
   const revision = dataOf(await request(`/procurement/orders/${id}`, { actor: actors.buyer1, method: 'PATCH', signal,
     data: { expectedRevision: created.revision, expectedUpdatedAt: created.updatedAt, quantity: 1, price: 10, taxAmount: 0,
@@ -96,7 +100,7 @@ async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId,
   const approved = dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
   const receive = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
     headers: { 'Idempotency-Key': `${runId}-source-receipt` },
-    data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-governed-source` } });
+    data: { expectedRevision: approved.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-governed-source` } });
   const snapshot = async () => ({ order: await prisma.purchaseOrder.findUnique({ where: { id } }),
     receipts: await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: id }, orderBy: { id: 'asc' } }),
     audits: await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: id }, orderBy: { id: 'asc' } }) });
@@ -121,14 +125,18 @@ async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId,
 }
 
 async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
-  const original = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
-    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 3, price: 1 / 3,
-      unit: 'kg', eta: '2026-10-01', currency: 'CNY', status: 'approved' } }));
+  const sources = explicitPurchaseSources({ quoteRef: `${runId}-fractional-quote`, specificationRef: `${runId}-fractional-spec`, specificationRevision: 'R1',
+    taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
+      { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
+    ] });
+  const setup = await createApprovedPurchaseFixture({ request, dataOf, signal }, { buyer: actors.buyer1, approver: actors.buyer2, sources,
+    payload: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 3, price: 1 / 3, unit: 'kg', eta: '2026-10-01', currency: 'CNY' } });
+  const original = setup.approved;
   const id = Number(original.id), batchNo = `${runId}-fractional-receipt`;
   const receive = async (actor, instance, index) => {
     const result = await request(`/procurement/orders/${id}/receipts`, { actor, instance, method: 'POST', signal,
       headers: { 'Idempotency-Key': `${runId}-fractional-${index}` },
-      data: { quantity: 0.5, acceptedQuantity: 0.5, rejectedQuantity: 0, batchNo } });
+      data: { expectedRevision: original.revision, quantity: 0.5, acceptedQuantity: 0.5, rejectedQuantity: 0, batchNo } });
     return { actorId: actor.id, instance, status: result.status, body: result.json };
   };
   const responses = [];
@@ -140,22 +148,32 @@ async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId
   const entries = await prisma.stockEntry.findMany({ where: { sourceType: 'procurement_receipt', sourceRef: { startsWith: `PO-${id}-RCV-` } },
     include: { movements: true }, orderBy: { id: 'asc' } });
   const ledgers = await prisma.inventoryCostLedger.findMany({ where: { sourceRef: { in: entries.map(e => e.entryNo) } }, orderBy: { id: 'asc' } });
-  const batch = await prisma.productBatch.findUnique({ where: { batchNo } });
+  const quality = [];
+  for (const [index, receipt] of receipts.entries()) {
+    quality.push(await releasePurchaseFixture({ request, dataOf, signal }, { receiptId: receipt.id, qcActor: actors.stock0, qaActor: actors.buyer2,
+      key: `${runId}-fractional-qc-${index}`, input: { sampleNo: `${runId}-fractional-sample-${index}`, measurements: [
+        { code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null, instrumentNo: 'SYNTHETIC-PH-METER-1' },
+      ], note: 'Explicit synthetic 0.5 kg delivery sample' }, reason: 'Independent QA reviewed explicit synthetic pH evidence' }));
+  }
+  const batches = await prisma.productBatch.findMany({ where: { id: { in: receipts.map(r => r.batchId) } }, orderBy: { id: 'asc' } });
   const audits = await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: id, action: 'CREATE_RECEIPT' }, orderBy: { id: 'asc' } });
   const apiReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer2, instance, signal }))));
-  const evidence = { version: 'purchase-receipt-cost/v1', original, responses, order, receipts, entries, ledgers, batch, audits, apiReadbacks,
-    scope: 'Actual immutable cost history and concurrent fractional receipts; not incoming QC, supplier AP or durable receipt replay' };
+  const evidence = { version: 'purchase-receipt-cost/v1', controlledVersion: 2, setup, original, responses, order, receipts, entries, ledgers, batches, quality, supplierBatchNo: batchNo, audits, apiReadbacks,
+    scope: 'Actual immutable cost history, independent controlled batches with the same supplier lot, explicit QC/QA and concurrent fractional receipts; not supplier payment or full workforce' };
   return verify({
     six_real_receipts: responses.length === 6 && responses.every(r => r.status === 201) && receipts.length === 6
       && receipts.every(r => r.quantity === 0.5 && r.acceptedQuantity === 0.5 && r.rejectedQuantity === 0),
     one_voucher_and_cost_per_receipt: entries.length === 6 && ledgers.length === 6
       && entries.every(e => e.status === 'posted' && e.movements.length === 1 && e.movements[0].quantityDelta === 0.5
-        && e.movements[0].materialId === material.id && e.movements[0].batchNo === batchNo && e.movements[0].unit === 'kg'
-        && receipts.filter(r => r.stockEntryRef === e.sourceRef).length === 1
-        && ledgers.filter(l => l.sourceRef === e.entryNo && l.batchId === batch?.id && l.sourceType === 'inventory_adjustment' && l.quantityDelta === 0.5).length === 1),
+        && e.movements[0].materialId === material.id && e.movements[0].unit === 'kg'
+        && receipts.filter(r => r.stockEntryRef === e.sourceRef && r.batchNo === e.movements[0].batchNo && r.supplierBatchNo === batchNo).length === 1
+        && ledgers.filter(l => l.sourceRef === e.entryNo && l.batchId === receipts.find(r => r.stockEntryRef === e.sourceRef)?.batchId
+          && l.sourceType === 'inventory_adjustment' && l.quantityDelta === 0.5).length === 1),
     no_split_rounding_drift: JSON.stringify(ledgers.map(l => l.costAmountDelta)) === JSON.stringify([0.17, 0.16, 0.17, 0.17, 0.16, 0.17])
       && ledgers.reduce((sum, l) => sum + Math.round(l.costAmountDelta * 100), 0) === 100,
-    physical_quantity_and_original_value_unchanged: batch?.stockQuantity === 3 && batch.unit === 'kg'
+    physical_quantity_and_original_value_unchanged: batches.length === 6 && new Set(batches.map(b => b.batchNo)).size === 6
+      && batches.every(b => b.stockQuantity === 0.5 && b.unit === 'kg' && b.qualityStatus === 'released')
+      && batches.reduce((sum, b) => sum + b.stockQuantity, 0) === 3
       && order.quantity === original.quantity && order.price === original.price && order.landedCostAmount === 1 && order.status === 'received',
     six_receipt_audits: audits.length === 6,
     both_nodes_read_same_receipts: apiReadbacks.every(r => r.receipts.length === 6 && r.receiptSummary.acceptedQuantity === 3 && r.receiptSummary.remainingQuantity === 0),
@@ -167,13 +185,17 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
     code: `${runId}-po-revise`, name: `${runId}-po-revise`, category: 'raw_material', unit: 'kg' });
   const supplier = dataOf(await request('/procurement/suppliers', { actor: actors.buyer1, method: 'POST', signal,
     data: { name: `${runId}-supplier`, category: 'Raw Materials', contact: 'Synthetic' } }));
-  const original = dataOf(await request('/procurement/orders', { actor: actors.buyer1, method: 'POST', signal,
-    data: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 100, price: 10,
-      unit: 'kg', eta: '2026-10-01', currency: 'CNY', status: 'approved' } }));
+  const sources = explicitPurchaseSources({ quoteRef: `${runId}-revision-quote`, specificationRef: `${runId}-revision-spec`, specificationRevision: 'R1',
+    taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
+      { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
+    ] });
+  const setup = await createApprovedPurchaseFixture({ request, dataOf, signal }, { buyer: actors.buyer1, approver: actors.buyer2, sources,
+    payload: { supplierId: Number(supplier.id), materialId: material.id, item: material.nameZh, quantity: 100, price: 10, unit: 'kg', eta: '2026-10-01', currency: 'CNY' } });
+  const original = setup.approved;
   const id = Number(original.id);
   const terms = [
-    { quantity: 120, price: 11, taxAmount: 0, eta: '2026-10-02', reason: 'Buyer A revised offer' },
-    { quantity: 80, price: 9, taxAmount: 0, eta: '2026-10-03', reason: 'Buyer B revised offer' },
+    { quantity: 120, price: 11, taxAmount: 0, eta: '2026-10-02', reason: 'Buyer A revised offer', ...sources },
+    { quantity: 80, price: 9, taxAmount: 0, eta: '2026-10-03', reason: 'Buyer B revised offer', ...sources },
   ];
   const snapshot = async () => ({
     order: await prisma.purchaseOrder.findUnique({ where: { id } }),
@@ -195,7 +217,7 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
     revision_audit_exactly_once: state.audits.filter(row => row.action === 'REVISE').length === 1,
     no_receipt_created: state.receipts.length === 0,
   };
-  const evidence = { original, responses, state, roleBoundary: 'Two distinct manager-backed purchasing actors; not a least-privilege workforce proof' };
+  const evidence = { setup, original, responses, state, roleBoundary: 'Two distinct manager-backed purchasing actors; not a least-privilege workforce proof' };
   verify(requirements, evidence);
   const winningTerms = terms[winner.index];
   requirements.only_winning_terms_persist = state.order.quantity === winningTerms.quantity && state.order.price === winningTerms.price
@@ -209,7 +231,7 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   const unversionedApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, method: 'PATCH', signal, data: { status: 'approved' } });
   const pendingReceipt = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
     headers: { 'Idempotency-Key': `${runId}-unapproved-receipt` },
-    data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-blocked` } });
+    data: { expectedRevision: state.order.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-blocked` } });
   const deniedEdit = await request(`/procurement/orders/${id}`, { actor: actors.sales, method: 'PATCH', signal,
     data: { ...terms[0], expectedRevision: 1, expectedUpdatedAt: state.order.updatedAt.toISOString() } });
   requirements.stale_replay_and_approvals_rejected = [replay, staleApproval, unversionedApproval].every(result => result.status === 409);
@@ -219,13 +241,14 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   const apiReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/procurement/orders/${id}/revisions`, { actor: actors.buyer2, instance, signal }))));
   requirements.both_nodes_agree = apiReadbacks.every(result => result.purchaseOrder.revision === 1
     && Number(result.purchaseOrder.quantity) === winningTerms.quantity && result.history.filter(row => row.action === 'REVISE').length === 1);
-  const approved = dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
+  const approver = winner.index === 0 ? actors.buyer2 : actors.buyer1;
+  const approved = dataOf(await request(`/procurement/orders/${id}/status`, { actor: approver, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
   const statusBeforeReplay = await snapshot();
-  dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
+  dataOf(await request(`/procurement/orders/${id}/status`, { actor: approver, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
   requirements.approval_replay_does_not_duplicate_audit = JSON.stringify(await snapshot()) === JSON.stringify(statusBeforeReplay);
   dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
     headers: { 'Idempotency-Key': `${runId}-revised-receipt` },
-    data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-received` } }));
+    data: { expectedRevision: approved.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-received` } }));
   const received = await snapshot();
   const receiptEdit = await request(`/procurement/orders/${id}`, { actor: actors.buyer1, instance: 1, method: 'PATCH', signal,
     data: { ...terms[0], quantity: 999, expectedRevision: received.order.revision, expectedUpdatedAt: received.order.updatedAt.toISOString() } });
@@ -239,10 +262,12 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
 
 function verifyPurchaseRoleProof(e) {
   const assert = require('node:assert/strict');
+  const controlled = e.controlledVersion === 2, revision = controlled ? 2 : 1;
+  const acceptedLabel = controlled ? '实收入库 5kg' : '合格 5kg';
   assert.equal(e.version, 'purchase-role-browser/v1'); assert.equal(e.status, 'passed');
   assert.deepEqual(e.receiptLoadingGuard, { inputsDisabled: 6, saveDisabled: true });
   assert.deepEqual(e.writes.find(w => w.operation === '/receipts')?.request,
-    { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo });
+    { ...(controlled ? { expectedRevision: revision } : {}), quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo });
   const jobs = { buyer: 'procurement.write', approver: 'procurement.approve', receiver: 'procurement.receive' };
   assert.deepEqual(e.actors.map(a => a.job), Object.keys(jobs));
   assert.equal(new Set(e.actors.map(a => a.id)).size, 3); assert.equal(new Set(e.actors.map(a => a.role)).size, 3);
@@ -264,34 +289,44 @@ function verifyPurchaseRoleProof(e) {
   assert.deepEqual(e.afterDenied, e.before); assert.equal(e.before.audits.length, 1); assert.equal(e.before.orders.length, 1); assert.equal(e.before.orders[0].revision, 0); assert.equal(e.before.orders[0].status, 'pending');
   for (const key of ['receipts', 'balances', 'movements', 'entries', 'batches', 'costs']) assert.deepEqual(e.before[key], []);
   assert.deepEqual(e.writes.map(({ job, operation, instance, status }) => ({ job, operation, instance, status })), [
-    { job: 'buyer', operation: 'revise', instance: 1, status: 200 }, { job: 'approver', operation: '/status', instance: 1, status: 200 },
+    { job: 'buyer', operation: 'revise', instance: 1, status: 200 },
+    ...(controlled ? [{ job: 'buyer', operation: '/confirm-sources', instance: 1, status: 200 }] : []),
+    { job: 'approver', operation: '/status', instance: 1, status: 200 },
     { job: 'buyer', operation: '/status', instance: 1, status: 200 }, { job: 'receiver', operation: '/receipts', instance: 1, status: 201 }]);
   for (const [i, w] of e.writes.entries()) {
-    assert.equal(w.response.success, true); const order = i === 3 ? w.response.data.purchaseOrder : w.response.data;
-    assert.equal(Number(order.id), e.orderId); assert.equal(order.revision, 1); assert.equal(order.quantity, 12);
-    assert.equal(order.status, ['pending', 'approved', 'in_transit', 'in_transit'][i]);
+    assert.equal(w.response.success, true); const order = w.operation === '/receipts' ? w.response.data.purchaseOrder : w.response.data;
+    assert.equal(Number(order.id), e.orderId); assert.equal(order.revision, i === 0 ? 1 : revision); assert.equal(order.quantity, 12);
+    assert.equal(order.status, (controlled ? ['pending', 'pending', 'approved', 'in_transit', 'in_transit'] : ['pending', 'approved', 'in_transit', 'in_transit'])[i]);
   }
   const f = e.final; for (const key of ['orders', 'receipts', 'balances', 'movements', 'entries', 'batches', 'costs']) assert.equal(f[key].length, 1);
   const [order] = f.orders, [receipt] = f.receipts, [balance] = f.balances, [movement] = f.movements, [entry] = f.entries, [batch] = f.batches, [cost] = f.costs;
-  assert.equal(order.id, e.orderId); assert.equal(order.materialId, e.materialId); assert.equal(order.quantity, 12); assert.equal(order.revision, 1); assert.equal(order.status, 'in_transit'); assert.equal(order.landedCostAmount, 120);
-  assert.equal(receipt.purchaseOrderId, e.orderId); assert.equal(receipt.batchNo, e.batchNo); assert.equal(receipt.receivedBy, people.receiver.id); assert.equal(receipt.quantity, 5); assert.equal(receipt.acceptedQuantity, 5); assert.equal(receipt.rejectedQuantity, 0);
+  const internalBatchNo = controlled ? `PO-${e.orderId}-RCV-${receipt.receiptNo}` : e.batchNo;
+  assert.equal(order.id, e.orderId); assert.equal(order.materialId, e.materialId); assert.equal(order.quantity, 12); assert.equal(order.revision, revision); assert.equal(order.status, 'in_transit'); assert.equal(order.landedCostAmount, 120);
+  assert.equal(receipt.purchaseOrderId, e.orderId); assert.equal(receipt.batchNo, internalBatchNo); assert.equal(receipt.receivedBy, people.receiver.id); assert.equal(receipt.quantity, 5); assert.equal(receipt.acceptedQuantity, 5); assert.equal(receipt.rejectedQuantity, 0);
+  if (controlled) {
+    assert.equal(receipt.supplierBatchNo, e.batchNo); assert.equal(receipt.batchId, batch.id); assert.equal(receipt.stockEntryRef, internalBatchNo);
+    assert.equal(Number(receipt.payableAmountNative), 50); assert.equal(Number(receipt.payableAmountBase), 50);
+    assert(receipt.payableSnapshotJson && receipt.incomingQualityPlanJson); assert.equal(batch.qualityStatus, 'hold');
+  }
   assert.equal(entry.sourceType, 'procurement_receipt'); assert.equal(entry.sourceRef, receipt.stockEntryRef); assert.equal(entry.createdBy, people.receiver.id); assert.equal(entry.status, 'posted');
   assert.equal(movement.entryId, entry.id); assert.equal(movement.stockBalanceId, balance.id); assert.equal(movement.quantityBefore, 0); assert.equal(movement.quantityDelta, 5); assert.equal(movement.quantityAfter, 5);
-  assert.equal(balance.materialId, e.materialId); assert.equal(balance.batchNo, e.batchNo); assert.equal(balance.unit, 'kg'); assert.equal(balance.quantity, 5);
-  assert.equal(batch.materialId, e.materialId); assert.equal(batch.batchNo, e.batchNo); assert.equal(batch.stockQuantity, 5);
+  assert.equal(balance.materialId, e.materialId); assert.equal(balance.batchNo, internalBatchNo); assert.equal(balance.unit, 'kg'); assert.equal(balance.quantity, 5);
+  assert.equal(batch.materialId, e.materialId); assert.equal(batch.batchNo, internalBatchNo); assert.equal(batch.stockQuantity, 5);
   assert.equal(cost.batchId, batch.id); assert.equal(cost.sourceRef, entry.entryNo); assert.equal(cost.createdBy, people.receiver.id); assert.equal(cost.quantityBefore, 0); assert.equal(cost.quantityDelta, 5); assert.equal(cost.quantityAfter, 5);
   assert.equal(cost.costBefore, 0); assert.equal(cost.costAmountDelta, 50); assert.equal(cost.costAfter, 50); assert.equal(cost.unitCost, 10);
-  assert.deepEqual(f.audits.map(a => [a.action, a.userId, a.resourceId]), [['CREATE', people.buyer.id, e.orderId], ['REVISE', people.buyer.id, e.orderId], ['STATUS_CHANGE', people.approver.id, e.orderId], ['STATUS_CHANGE', people.buyer.id, e.orderId], ['CREATE_RECEIPT', people.receiver.id, e.orderId]]);
+  assert.deepEqual(f.audits.map(a => [a.action, a.userId, a.resourceId]), [['CREATE', people.buyer.id, e.orderId], ['REVISE', people.buyer.id, e.orderId],
+    ...(controlled ? [['CONFIRM_SOURCES', people.buyer.id, e.orderId]] : []), ['STATUS_CHANGE', people.approver.id, e.orderId], ['STATUS_CHANGE', people.buyer.id, e.orderId], ['CREATE_RECEIPT', people.receiver.id, e.orderId]]);
   assert.deepEqual(f.audits.slice(0, e.before.audits.length), e.before.audits);
   assert.deepEqual(e.readbacks.map(r => r.instance), [0, 1]);
-  for (const r of e.readbacks) { assert.equal(Number(r.purchaseOrder.id), e.orderId); assert.equal(r.purchaseOrder.revision, 1); assert.equal(r.purchaseOrder.quantity, 12); assert.equal(r.purchaseOrder.status, 'in_transit');
-    assert.deepEqual(r.receiptSummary, { orderedQuantity: 12, processedQuantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, remainingQuantity: 7, receiptCount: 1 }); assert.equal(r.receipts.length, 1); assert.equal(Number(r.receipts[0].id), receipt.id); assert.equal(r.receipts[0].batchNo, e.batchNo); }
+  for (const r of e.readbacks) { assert.equal(Number(r.purchaseOrder.id), e.orderId); assert.equal(r.purchaseOrder.revision, revision); assert.equal(r.purchaseOrder.quantity, 12); assert.equal(r.purchaseOrder.status, 'in_transit');
+    assert.deepEqual(r.receiptSummary, { orderedQuantity: 12, processedQuantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, remainingQuantity: 7, receiptCount: 1 }); assert.equal(r.receipts.length, 1); assert.equal(Number(r.receipts[0].id), receipt.id); assert.equal(r.receipts[0].batchNo, internalBatchNo);
+    if (controlled) { assert.equal(r.receipts[0].supplierBatchNo, e.batchNo); assert.equal(Number(r.receipts[0].payableAmountNative), 50); } }
   assert.deepEqual(e.browser.map(b => b.job), Object.keys(jobs));
-  for (const b of e.browser) { assert.equal(b.actorId, people[b.job].id); assert.equal(b.role, people[b.job].role); assert.equal(b.orderId, e.orderId); assert.equal(b.instance, 1); assert.equal(b.approveVisible, b.job === 'approver'); assert.equal(b.receiveEnabled, b.job === 'receiver'); assert.equal(b.batchReadback, e.batchNo); assert.equal(b.acceptedReadback, '合格 5kg'); assert.deepEqual(b.errors, []); assert(b.permissionScreenshot && b.receiptScreenshot); }
+  for (const b of e.browser) { assert.equal(b.actorId, people[b.job].id); assert.equal(b.role, people[b.job].role); assert.equal(b.orderId, e.orderId); assert.equal(b.instance, 1); assert.equal(b.approveVisible, b.job === 'approver'); assert.equal(b.receiveEnabled, b.job === 'receiver'); assert.equal(b.batchReadback, e.batchNo); assert.equal(b.acceptedReadback, acceptedLabel); assert.deepEqual(b.errors, []); assert(b.permissionScreenshot && b.receiptScreenshot); }
   for (const b of e.browser) {
     assert.equal(b.purchaseNotice, b.job === 'buyer' ? null : '当前角色不能新增或修改采购单；审批与收货按对应操作权限控制。');
     assert.equal(b.receiptNotice, b.job === 'receiver' ? null : '当前角色只能查看收货批次，保存收货需要采购收货登记权限。');
   }
-  return { actors: 3, deniedWrites: 26, browserWrites: 4, receivedQuantity: 5, remainingQuantity: 7, receivedCost: 50 };
+  return { actors: 3, deniedWrites: 26, browserWrites: controlled ? 5 : 4, receivedQuantity: 5, remainingQuantity: 7, receivedCost: 50 };
 }
 module.exports = { purchaseRevisionProbe, verifyPurchaseRoleProof };

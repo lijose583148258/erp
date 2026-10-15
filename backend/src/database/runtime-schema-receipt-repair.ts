@@ -97,6 +97,8 @@ export const repairReceiptSchema = async (report: SchemaRepairReport) => {
       "rejected_quantity" REAL NOT NULL DEFAULT 0,
       "unit" TEXT NOT NULL DEFAULT 'kg',
       "batch_no" TEXT,
+      "supplier_batch_no" TEXT,
+      "batch_id" INTEGER,
       "stock_entry_ref" TEXT,
       "discrepancy_reason" TEXT,
       "note" TEXT,
@@ -104,19 +106,123 @@ export const repairReceiptSchema = async (report: SchemaRepairReport) => {
       "submission_key" TEXT,
       "submission_fingerprint" TEXT,
       "submission_json" TEXT,
+      "payable_amount_native" DECIMAL,
+      "payable_amount_base" DECIMAL,
+      "payable_snapshot_json" TEXT,
+      "incoming_quality_plan_json" TEXT,
       "received_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
       CONSTRAINT "purchase_receipts_purchase_order_id_fkey" FOREIGN KEY ("purchase_order_id") REFERENCES "purchase_orders" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
-      CONSTRAINT "purchase_receipts_received_by_fkey" FOREIGN KEY ("received_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
+      CONSTRAINT "purchase_receipts_received_by_fkey" FOREIGN KEY ("received_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE,
+      CONSTRAINT "purchase_receipts_batch_id_fkey" FOREIGN KEY ("batch_id") REFERENCES "product_batches" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
     )
   `);
   await addColumnIfMissing(report, 'purchase_receipts', 'submission_key', 'TEXT');
   await addColumnIfMissing(report, 'purchase_receipts', 'submission_fingerprint', 'TEXT');
   await addColumnIfMissing(report, 'purchase_receipts', 'submission_json', 'TEXT');
+  await addColumnIfMissing(report, 'purchase_receipts', 'supplier_batch_no', 'TEXT');
+  await addColumnIfMissing(report, 'purchase_receipts', 'batch_id', 'INTEGER REFERENCES "product_batches"("id") ON DELETE RESTRICT ON UPDATE CASCADE');
+  const batchForeignKeys = await prisma.$queryRawUnsafe<Array<{ table: string; from: string; to: string; on_delete: string; on_update: string }>>(
+    'PRAGMA foreign_key_list("purchase_receipts")',
+  );
+  if (!batchForeignKeys.some(key => key.from === 'batch_id' && key.table === 'product_batches'
+    && key.to === 'id' && key.on_delete === 'RESTRICT' && key.on_update === 'CASCADE')) {
+    // Do not rebuild a populated table or silently accept an incomplete manual upgrade.
+    throw new Error('PURCHASE_RECEIPT_BATCH_FOREIGN_KEY_REQUIRED');
+  }
+  await addColumnIfMissing(report, 'purchase_receipts', 'payable_amount_native', 'DECIMAL');
+  await addColumnIfMissing(report, 'purchase_receipts', 'payable_amount_base', 'DECIMAL');
+  await addColumnIfMissing(report, 'purchase_receipts', 'payable_snapshot_json', 'TEXT');
+  await addColumnIfMissing(report, 'purchase_receipts', 'incoming_quality_plan_json', 'TEXT');
   await createIndexIfMissing(report, 'purchase_receipts_receipt_no_key', 'CREATE UNIQUE INDEX "purchase_receipts_receipt_no_key" ON "purchase_receipts"("receipt_no")');
   await createIndexIfMissing(report, 'purchase_receipts_purchase_order_id_idx', 'CREATE INDEX "purchase_receipts_purchase_order_id_idx" ON "purchase_receipts"("purchase_order_id")');
   await createIndexIfMissing(report, 'purchase_receipts_stock_entry_ref_idx', 'CREATE INDEX "purchase_receipts_stock_entry_ref_idx" ON "purchase_receipts"("stock_entry_ref")');
   await createIndexIfMissing(report, 'purchase_receipts_purchase_order_id_submission_key_key', 'CREATE UNIQUE INDEX "purchase_receipts_purchase_order_id_submission_key_key" ON "purchase_receipts"("purchase_order_id", "submission_key")');
+  await createIndexIfMissing(report, 'purchase_receipts_batch_id_key', 'CREATE UNIQUE INDEX "purchase_receipts_batch_id_key" ON "purchase_receipts"("batch_id")');
+
+  await createTableIfMissing(report, 'incoming_quality_checks', `
+    CREATE TABLE "incoming_quality_checks" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "check_no" TEXT NOT NULL,
+      "purchase_receipt_id" INTEGER NOT NULL,
+      "revision" INTEGER NOT NULL DEFAULT 1,
+      "request_key" TEXT NOT NULL,
+      "fingerprint" TEXT NOT NULL,
+      "submission_json" TEXT NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'submitted',
+      "result" TEXT NOT NULL,
+      "sample_no" TEXT,
+      "measurements_json" TEXT NOT NULL,
+      "note" TEXT,
+      "inspector_user_id" INTEGER NOT NULL,
+      "checked_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "reviewed_by_user_id" INTEGER,
+      "reviewed_at" DATETIME,
+      "review_note" TEXT,
+      "decision" TEXT,
+      "review_json" TEXT,
+      CONSTRAINT "incoming_quality_checks_purchase_receipt_id_fkey" FOREIGN KEY ("purchase_receipt_id") REFERENCES "purchase_receipts"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+      CONSTRAINT "incoming_quality_checks_inspector_user_id_fkey" FOREIGN KEY ("inspector_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+      CONSTRAINT "incoming_quality_checks_reviewed_by_user_id_fkey" FOREIGN KEY ("reviewed_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    )
+  `);
+  await createIndexIfMissing(report, 'incoming_quality_checks_check_no_key', 'CREATE UNIQUE INDEX "incoming_quality_checks_check_no_key" ON "incoming_quality_checks"("check_no")');
+  await createIndexIfMissing(report, 'incoming_quality_checks_purchase_receipt_id_revision_key', 'CREATE UNIQUE INDEX "incoming_quality_checks_purchase_receipt_id_revision_key" ON "incoming_quality_checks"("purchase_receipt_id", "revision")');
+  await createIndexIfMissing(report, 'incoming_quality_checks_purchase_receipt_id_request_key_key', 'CREATE UNIQUE INDEX "incoming_quality_checks_purchase_receipt_id_request_key_key" ON "incoming_quality_checks"("purchase_receipt_id", "request_key")');
+  await createIndexIfMissing(report, 'incoming_quality_checks_status_idx', 'CREATE INDEX "incoming_quality_checks_status_idx" ON "incoming_quality_checks"("status")');
+
+  await createTableIfMissing(report, 'supplier_payments', `
+    CREATE TABLE "supplier_payments" (
+      "id" INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+      "payment_no" TEXT NOT NULL,
+      "purchase_receipt_id" INTEGER NOT NULL,
+      "amount_native" DECIMAL NOT NULL,
+      "currency" TEXT NOT NULL,
+      "base_amount" DECIMAL NOT NULL,
+      "status" TEXT NOT NULL DEFAULT 'draft',
+      "request_key" TEXT NOT NULL,
+      "fingerprint" TEXT NOT NULL,
+      "submission_json" TEXT NOT NULL,
+      "method" TEXT NOT NULL,
+      "date" DATETIME NOT NULL,
+      "payment_account_ref" TEXT NOT NULL,
+      "external_transaction_ref" TEXT NOT NULL,
+      "evidence_ref" TEXT NOT NULL,
+      "note" TEXT,
+      "submitted_by_user_id" INTEGER NOT NULL,
+      "created_at" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      "verified_by_user_id" INTEGER,
+      "verified_at" DATETIME,
+      "verification_json" TEXT,
+      CONSTRAINT "supplier_payments_purchase_receipt_id_fkey" FOREIGN KEY ("purchase_receipt_id") REFERENCES "purchase_receipts"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+      CONSTRAINT "supplier_payments_submitted_by_user_id_fkey" FOREIGN KEY ("submitted_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+      CONSTRAINT "supplier_payments_verified_by_user_id_fkey" FOREIGN KEY ("verified_by_user_id") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+    )
+  `);
+  await createIndexIfMissing(report, 'supplier_payments_payment_no_key', 'CREATE UNIQUE INDEX "supplier_payments_payment_no_key" ON "supplier_payments"("payment_no")');
+  await createIndexIfMissing(report, 'supplier_payments_purchase_receipt_id_request_key_key', 'CREATE UNIQUE INDEX "supplier_payments_purchase_receipt_id_request_key_key" ON "supplier_payments"("purchase_receipt_id", "request_key")');
+  await createIndexIfMissing(report, 'supplier_payments_account_transaction_idx', 'CREATE INDEX "supplier_payments_account_transaction_idx" ON "supplier_payments"("payment_account_ref", "external_transaction_ref")');
+  await createIndexIfMissing(report, 'supplier_payments_account_transaction_key', 'CREATE UNIQUE INDEX "supplier_payments_account_transaction_key" ON "supplier_payments"("payment_account_ref", "external_transaction_ref") WHERE "status" <> \'cancelled\'');
+  await createIndexIfMissing(report, 'supplier_payments_status_idx', 'CREATE INDEX "supplier_payments_status_idx" ON "supplier_payments"("status")');
+  const activeReferenceIndex = await prisma.$queryRawUnsafe<Array<{ sql: string }>>(
+    'SELECT sql FROM sqlite_master WHERE type = ? AND name = ?', 'index', 'supplier_payments_account_transaction_key',
+  );
+  const expectedReferenceIndex = 'CREATE UNIQUE INDEX "supplier_payments_account_transaction_key" ON "supplier_payments"("payment_account_ref", "external_transaction_ref") WHERE "status" <> \'cancelled\'';
+  if (activeReferenceIndex[0]?.sql?.trim().replace(/\s+/g, ' ').toLowerCase() !== expectedReferenceIndex.toLowerCase()) {
+    throw new Error('SUPPLIER_PAYMENT_ACTIVE_REFERENCE_INDEX_REQUIRED');
+  }
+  for (const [table, actorColumns] of [
+    ['incoming_quality_checks', ['inspector_user_id', 'reviewed_by_user_id']],
+    ['supplier_payments', ['submitted_by_user_id', 'verified_by_user_id']],
+  ] as const) {
+    const keys = await prisma.$queryRawUnsafe<Array<{ table: string; from: string; to: string; on_delete: string; on_update: string }>>(`PRAGMA foreign_key_list("${table}")`);
+    for (const [column, parent] of [['purchase_receipt_id', 'purchase_receipts'], ...actorColumns.map(column => [column, 'users'])]) {
+      if (!keys.some(key => key.from === column && key.table === parent && key.to === 'id'
+        && key.on_delete === 'RESTRICT' && key.on_update === 'CASCADE')) {
+        throw new Error(`PURCHASE_QUALITY_PAYABLE_FOREIGN_KEY_REQUIRED:${table}.${column}`);
+      }
+    }
+  }
 
   await createTableIfMissing(report, 'shipment_receipts', `
     CREATE TABLE "shipment_receipts" (

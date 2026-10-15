@@ -7,7 +7,75 @@ const plain = value => JSON.parse(JSON.stringify(value));
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fields = ['id', 'receiptNo', 'purchaseOrderId', 'quantity', 'acceptedQuantity', 'rejectedQuantity', 'unit', 'batchNo',
   'stockEntryRef', 'discrepancyReason', 'note', 'receivedBy', 'receivedAt', 'createdAt'];
-const receipt = row => Object.fromEntries(fields.map(field => [field, row[field]]));
+const controlFields = ['supplierBatchNo', 'batchId', 'payableAmountNative', 'payableAmountBase', 'payableSnapshotJson', 'incomingQualityPlanJson'];
+const receipt = (row, controlled = false) => Object.fromEntries([...fields, ...(controlled ? controlFields : [])].map(field => [field,
+  controlled && ['payableAmountNative', 'payableAmountBase'].includes(field) ? moneyText(row[field]) : row[field]]));
+function moneyText(value) {
+  assert(value !== null && value !== undefined && typeof value !== 'boolean');
+  const n = Number(value); assert(Number.isFinite(n) && n >= 0 && Number.isSafeInteger(Math.round(n * 100)) && Number(n.toFixed(2)) === n);
+  return n.toFixed(2);
+}
+const cents = value => BigInt(moneyText(value).replace('.', ''));
+const roundRatio = (n, d) => { assert(n >= 0n && d > 0n); return n / d + (n % d * 2n >= d ? 1n : 0n); };
+function decimal(value) {
+  const match = /^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(String(value)); assert(match, 'Exact decimal evidence is required');
+  const fraction = match[2] || '', scale = fraction.length - Number(match[3] || 0), digits = BigInt(match[1] + fraction);
+  assert(Number.isSafeInteger(scale) && Math.abs(scale) <= 324);
+  return scale >= 0 ? { n: digits, d: 10n ** BigInt(scale) } : { n: digits * 10n ** BigInt(-scale), d: 1n };
+}
+function micro(value) {
+  const r = decimal(value); assert.equal(r.n * 1000000n % r.d, 0n); const n = r.n * 1000000n / r.d;
+  assert(n <= BigInt(Number.MAX_SAFE_INTEGER)); return n;
+}
+function verifyControlledSources(snapshot, r, facts) {
+  const p = JSON.parse(r.payableSnapshotJson), q = JSON.parse(r.incomingQualityPlanJson), b = p.binding;
+  exactKeys(p, ['schema','allocationPolicy','purchaseOrderId','receiptNo','supplierBatchNo','batchNo','receivedBy','binding','source','allocation','currency','baseCurrency','rateDirection']);
+  assert.equal(p.schema, 'purchase-receipt-payable/v1'); assert.equal(p.allocationPolicy, 'cumulative_received_target_less_actual_posted/v1');
+  for (const field of ['purchaseOrderId','receiptNo','supplierBatchNo','batchNo','receivedBy']) assert.equal(p[field], r[field]);
+  exactKeys(b, ['revision','supplierId','materialId','unit','quantity','price','currency','exchangeRate']);
+  positiveId(b.supplierId); positiveId(b.materialId); assert.equal(b.revision, facts.expectedRevision); assert.equal(b.unit, r.unit);
+  assert.equal(p.currency, b.currency); assert.equal(p.baseCurrency, 'CNY'); assert.equal(p.rateDirection, 'foreign_per_CNY');
+  exactKeys(q, ['schema','binding','plan']); assert.equal(q.schema, 'purchase-incoming-quality/v1'); assert.deepEqual(q.binding, b);
+  assert(q.plan.specificationRef.length >= 3 && q.plan.specificationRevision.length >= 1);
+  assert(Array.isArray(q.plan.characteristics) && q.plan.characteristics.length > 0 && q.plan.characteristics.some(c => c.required));
+  assert.equal(new Set(q.plan.characteristics.map(c => c.code)).size, q.plan.characteristics.length);
+  assert(q.plan.characteristics.every(c => c.code && c.name && c.testMethod));
+  exactKeys(p.source, ['sourceAuditId','approvalAuditId','supplierPayableBasisJson']); positiveId(p.source.sourceAuditId); positiveId(p.source.approvalAuditId);
+  assert(p.source.approvalAuditId > p.source.sourceAuditId);
+  const writer = snapshot.audits.find(a => a.id === p.source.sourceAuditId), approval = snapshot.audits.find(a => a.id === p.source.approvalAuditId);
+  assert(writer && approval); positiveId(writer.userId); positiveId(approval.userId); assert.notEqual(writer.userId, approval.userId);
+  assert.equal(writer.resource, 'purchase_order'); assert.equal(writer.resourceId, r.purchaseOrderId);
+  const w = JSON.parse(writer.details), a = JSON.parse(approval.details);
+  assert.equal(w.schema, { CREATE:'purchase-create/v1', REVISE:'purchase-revision/v1', CONFIRM_SOURCES:'purchase-source-confirmation/v1' }[writer.action]);
+  assert.equal(Number(w.after.id), r.purchaseOrderId); assert.equal(w.after.status, 'pending');
+  for (const field of Object.keys(b)) assert.equal(field === 'supplierId' ? Number(w.after[field]) : w.after[field], b[field]);
+  assert.equal(w.after.supplierPayableBasisJson, p.source.supplierPayableBasisJson); assert.equal(w.after.incomingQualityPlanJson, r.incomingQualityPlanJson);
+  assert.equal(w.source.revision, b.revision); assert.equal(w.source.supplierPayableHash, hash(p.source.supplierPayableBasisJson));
+  assert.equal(w.source.incomingQualityHash, hash(r.incomingQualityPlanJson));
+  assert.equal(approval.action, 'STATUS_CHANGE'); assert.equal(approval.resource, 'purchase_order'); assert.equal(approval.resourceId, r.purchaseOrderId);
+  assert.equal(a.schema, 'purchase-status/v2'); assert.equal(a.from, 'pending'); assert.equal(a.to, w.source.restoreOperationalStatus || 'approved');
+  assert.equal(a.isSourceApproval, true); assert.equal(a.revision, b.revision); assert.equal(a.sourceAuditId, writer.id);
+  assert.equal(a.supplierPayableHash, w.source.supplierPayableHash); assert.equal(a.incomingQualityHash, w.source.incomingQualityHash);
+  const basis = JSON.parse(p.source.supplierPayableBasisJson), price = decimal(b.price), ordered = micro(b.quantity);
+  assert.equal(basis.schema, 'supplier-payable-basis/v1'); assert.deepEqual(basis.binding, b); assert(ordered > 0n);
+  assert.equal(basis.baseCurrency, 'CNY'); assert.equal(basis.rateDirection, 'foreign_per_CNY');
+  assert(['included_in_price','additional_supplier_tax','none_or_third_party'].includes(basis.terms.taxTreatment)); assert(basis.terms.evidenceRef.length >= 3);
+  if (basis.terms.taxTreatment !== 'additional_supplier_tax') assert.equal(cents(basis.terms.supplierTaxAmount), 0n);
+  const goods = roundRatio(price.n * ordered * 100n, price.d * 1000000n), native = goods + cents(basis.terms.supplierTaxAmount) + cents(basis.terms.supplierChargesAmount);
+  assert.equal(cents(basis.goodsAmountNative), goods); assert.equal(cents(basis.amountNative), native);
+  const rate = decimal(b.exchangeRate); assert(rate.n > 0n); if (b.currency === 'CNY') assert.equal(b.exchangeRate, 1);
+  const base = b.currency === 'CNY' ? native : roundRatio(native * rate.d, rate.n); assert.equal(cents(basis.amountBase), base);
+  exactKeys(p.allocation, ['receivedQuantity','receivedQuantityBefore','receivedQuantityAfter','postedAmountNativeBefore','postedAmountBaseBefore','targetAmountNative','targetAmountBase','amountNative','amountBase']);
+  const prior = snapshot.receipts.filter(row => row.id < r.id), receivedBefore = prior.reduce((sum, row) => sum + micro(row.acceptedQuantity), 0n);
+  const nativeBefore = prior.reduce((sum, row) => sum + cents(row.payableAmountNative), 0n), baseBefore = prior.reduce((sum, row) => sum + cents(row.payableAmountBase), 0n);
+  const received = micro(r.acceptedQuantity), after = receivedBefore + received; assert(after <= ordered);
+  assert.equal(micro(p.allocation.receivedQuantity), received); assert.equal(micro(p.allocation.receivedQuantityBefore), receivedBefore);
+  assert.equal(micro(p.allocation.receivedQuantityAfter), after); assert.equal(cents(p.allocation.postedAmountNativeBefore), nativeBefore); assert.equal(cents(p.allocation.postedAmountBaseBefore), baseBefore);
+  const targetNative = roundRatio(native * after, ordered), targetBase = roundRatio(base * after, ordered);
+  assert.equal(cents(p.allocation.targetAmountNative), targetNative); assert.equal(cents(p.allocation.targetAmountBase), targetBase);
+  assert.equal(cents(p.allocation.amountNative), targetNative - nativeBefore); assert.equal(cents(p.allocation.amountBase), targetBase - baseBefore);
+  assert.equal(cents(r.payableAmountNative), targetNative - nativeBefore); assert.equal(cents(r.payableAmountBase), targetBase - baseBefore);
+}
 const positiveId = value => assert(Number.isSafeInteger(value) && value > 0, 'Persisted identity must be a positive safe integer');
 function exactKeys(value, expected) { assert(value && typeof value === 'object'); assert.deepEqual(Object.keys(value).sort(), [...expected].sort()); }
 function text(value) { if (value === undefined || value === null || value === '') return null; assert.equal(typeof value, 'string'); return value.trim() || null; }
@@ -23,25 +91,34 @@ function requestFacts(orderId, request) {
     discrepancyReason: text(b.discrepancyReason), discrepancyType: b.discrepancyType || 'short_shipped', note: text(b.note) };
 }
 function verifySubmission(snapshot, submission, request) {
-  exactKeys(submission, ['schema', 'key', 'fingerprint', 'auditId', 'receipt']);
-  assert.equal(submission.schema, 'purchase-receipt-submission/v1'); assert.match(submission.key, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$/);
-  assert.equal(submission.key, request.requestKey); positiveId(submission.auditId); exactKeys(submission.receipt, fields);
+  const controlled = submission.schema === 'purchase-receipt-submission/v2';
+  exactKeys(submission, ['schema', 'key', 'fingerprint', 'auditId', 'receipt', ...(controlled ? ['facts'] : [])]);
+  assert(['purchase-receipt-submission/v1','purchase-receipt-submission/v2'].includes(submission.schema)); assert.match(submission.key, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,119}$/);
+  assert.equal(submission.key, request.requestKey); positiveId(submission.auditId); exactKeys(submission.receipt, [...fields, ...(controlled ? controlFields : [])]);
   const r = submission.receipt; positiveId(r.id); positiveId(r.purchaseOrderId); positiveId(r.receivedBy);
   assert(r.receiptNo && r.unit && r.batchNo); assert.equal(new Date(r.receivedAt).toISOString(), r.receivedAt);
   assert.equal(new Date(r.createdAt).toISOString(), r.createdAt);
-  const facts = requestFacts(r.purchaseOrderId, request), fingerprint = hash(JSON.stringify({ schema: 'purchase-receipt-facts/v1', ...facts }));
+  const facts = requestFacts(r.purchaseOrderId, request);
+  if (controlled) {
+    facts.expectedRevision = request.requestBody.expectedRevision; assert(Number.isSafeInteger(facts.expectedRevision) && facts.expectedRevision >= 0);
+    assert(facts.batchNo); assert.equal(micro(facts.quantity), micro(facts.acceptedQuantity) + micro(facts.rejectedQuantity));
+    assert.deepEqual(submission.facts, facts); assert.equal(r.batchNo, `PO-${r.purchaseOrderId}-RCV-${r.receiptNo}`);
+    assert.equal(r.supplierBatchNo, facts.batchNo); if (r.acceptedQuantity > 0) positiveId(r.batchId); else assert.equal(r.batchId, null);
+    verifyControlledSources(snapshot, r, facts);
+  }
+  const fingerprint = hash(JSON.stringify({ schema: controlled ? 'purchase-receipt-facts/v2' : 'purchase-receipt-facts/v1', ...facts }));
   assert.equal(submission.fingerprint, fingerprint); assert.equal(r.receivedBy, facts.receivedBy);
   for (const field of ['quantity', 'acceptedQuantity', 'rejectedQuantity', 'note', 'discrepancyReason']) assert.equal(r[field], facts[field]);
-  if (facts.batchNo !== null) assert.equal(r.batchNo, facts.batchNo);
+  if (!controlled && facts.batchNo !== null) assert.equal(r.batchNo, facts.batchNo);
   if (facts.receivedAt !== null) assert.equal(r.receivedAt, facts.receivedAt);
   assert(r.acceptedQuantity > 0 ? typeof r.stockEntryRef === 'string' && r.stockEntryRef.length > 0 : r.stockEntryRef === null);
   const stored = snapshot.receipts.filter(row => row.id === r.id); assert.equal(stored.length, 1);
-  assert.deepEqual(receipt(stored[0]), r); assert.equal(stored[0].submissionKey, submission.key);
+  assert.deepEqual(receipt(stored[0], controlled), r); assert.equal(stored[0].submissionKey, submission.key);
   assert.equal(stored[0].submissionFingerprint, fingerprint); assert.equal(stored[0].submissionJson, JSON.stringify(submission));
   const audits = snapshot.audits.filter(row => row.id === submission.auditId); assert.equal(audits.length, 1);
   const audit = audits[0]; assert.equal(audit.action, 'CREATE_RECEIPT'); assert.equal(audit.userId, facts.receivedBy);
   assert.equal(audit.resource, 'purchase_order'); assert.equal(audit.resourceId, r.purchaseOrderId);
-  assert.equal(audit.details, JSON.stringify({ schema: 'purchase-receipt-audit/v1', receiptId: r.id, receiptNo: r.receiptNo,
+  assert.equal(audit.details, JSON.stringify({ schema: controlled ? 'purchase-receipt-audit/v2' : 'purchase-receipt-audit/v1', receiptId: r.id, receiptNo: r.receiptNo,
     submissionKeyHash: hash(submission.key), fingerprint, receiptHash: hash(JSON.stringify(r)) }));
   return r;
 }
@@ -61,6 +138,7 @@ function posted(snapshot, order, r, expectedCost) {
   assert.equal(movement.batchNo, r.batchNo); assert.equal(movement.unit, r.unit); assert.equal(movement.quantityDelta, r.acceptedQuantity);
   assert.equal(movement.quantityAfter - movement.quantityBefore, r.acceptedQuantity);
   const batches = snapshot.batches.filter(row => row.batchNo === r.batchNo); assert.equal(batches.length, 1);
+  if (r.batchId !== undefined) { assert.equal(batches[0].id, r.batchId); assert.equal(batches[0].qualityStatus, 'hold'); }
   assert.equal(batches[0].materialId, order.materialId); assert.equal(batches[0].stockQuantity, r.acceptedQuantity);
   const balances = snapshot.balances.filter(row => row.batchNo === r.batchNo); assert.equal(balances.length, 1);
   assert.equal(balances[0].materialId, order.materialId); assert.equal(balances[0].unit, r.unit); assert.equal(balances[0].quantity, r.acceptedQuantity);
@@ -74,7 +152,11 @@ function posted(snapshot, order, r, expectedCost) {
 function bundle(data, snapshot, order) {
   assert.equal(Number(data.purchaseOrder.id), order.id); assert.equal(data.purchaseOrder.quantity, order.quantity);
   assert.equal(data.purchaseOrder.status, order.status); assert.equal(data.purchaseOrder.revision, order.revision);
-  assert.deepEqual(data.receipts, snapshot.receipts.map(receipt));
+  const listed = data.receipts.some(row => Object.hasOwn(row, 'supplierBatchNo'));
+  assert.deepEqual(data.receipts, snapshot.receipts.map(row => ({ ...receipt(row), ...(listed ? {
+    supplierBatchNo: row.supplierBatchNo ?? null, batchId: row.batchId ?? null,
+    payableAmountNative: row.payableAmountNative == null ? null : moneyText(row.payableAmountNative), payableAmountBase: row.payableAmountBase == null ? null : moneyText(row.payableAmountBase),
+  } : {}) })));
   const processed = snapshot.receipts.reduce((sum, r) => sum + r.quantity, 0), accepted = snapshot.receipts.reduce((sum, r) => sum + r.acceptedQuantity, 0);
   assert.deepEqual(data.receiptSummary, { orderedQuantity: order.quantity, processedQuantity: processed, acceptedQuantity: accepted,
     rejectedQuantity: processed - accepted, remainingQuantity: Math.max(0, order.quantity - processed), receiptCount: snapshot.receipts.length });
@@ -135,8 +217,9 @@ function verifyPurchaseReceiptSubmissionProof(input) {
   assert.deepEqual(e.full.receipts[0], e.committed.receipts[0]); assert.deepEqual(e.full.audits.slice(0, e.committed.audits.length), e.committed.audits);
   for (const row of e.full.receipts) posted(e.full, e.full.order, row, 10);
   const remaining = e.full.receipts[1]; assert.notEqual(remaining.submissionKey, owner.requestKey);
-  verifySubmission(e.full, JSON.parse(remaining.submissionJson), { ...owner, requestKey: remaining.submissionKey,
-    requestBody: { ...owner.requestBody, batchNo: remaining.batchNo } });
+  const remainingSubmission = JSON.parse(remaining.submissionJson);
+  verifySubmission(e.full, remainingSubmission, { ...owner, requestKey: remaining.submissionKey,
+    requestBody: { ...owner.requestBody, batchNo: remainingSubmission.schema === 'purchase-receipt-submission/v2' ? remaining.supplierBatchNo : remaining.batchNo } });
   assert.equal(e.full.audits.filter(a => a.action === 'CREATE_RECEIPT').length, 2);
   assert.equal(e.full.receipts.reduce((sum, row) => sum + row.quantity, 0), 2);
   assert.equal(e.full.costs.reduce((sum, row) => sum + row.costAmountDelta, 0), 20);
@@ -160,16 +243,20 @@ function verifyPurchaseReceiptRecoveryProof(input) {
   const receiver = e.actors.find(a => a.job === 'receiver'); assert(receiver); assert.equal(r.actorId, receiver.id); assert.equal(r.orderId, e.orderId);
   assert.equal(r.storageSlot, `ailaoda.purchase-receipt-intent/v1.${encodeURIComponent(String(receiver.id))}.${encodeURIComponent(String(e.orderId))}`);
   assert.deepEqual(r.firstRequest, r.replayRequest); assert.equal(r.firstRequest.instance, 1); assert.equal(r.firstRequest.method, 'POST');
-  assert.deepEqual(r.firstRequest.body, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo });
+  const controlled = r.ownerResponse.body.data.submission.schema === 'purchase-receipt-submission/v2';
+  const expectedRevision = r.beforeOwner.orders[0].revision;
+  assert.deepEqual(r.firstRequest.body, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo,
+    ...(controlled ? { expectedRevision } : {}) });
   const request = { ...r.firstRequest, actorId: receiver.id, purchaseOrderId: e.orderId, requestBody: r.firstRequest.body };
   assert.equal(r.ownerResponse.status, 201); assert.equal(r.ownerResponse.body.success, true); assert.equal(r.ownerResponse.body.data.replayed, false);
   assert.equal(r.replayResponse.status, 201); assert.equal(r.replayResponse.body.success, true); assert.equal(r.replayResponse.body.data.replayed, true);
   assert.deepEqual(r.ownerResponse.body.data.submission, r.replayResponse.body.data.submission);
   assert.equal(typeof r.persistedBeforeRefresh, 'string'); assert.equal(r.persistedAfterRefresh, r.persistedBeforeRefresh);
   const intent = JSON.parse(r.persistedBeforeRefresh); assert.deepEqual(intent, r.intent);
-  exactKeys(intent, ['schema', 'userId', 'orderId', 'key', 'facts']); assert.equal(intent.schema, 'purchase-receipt-intent/v1');
+  exactKeys(intent, ['schema', 'userId', 'orderId', 'key', 'facts']); assert.equal(intent.schema, controlled ? 'purchase-receipt-intent/v2' : 'purchase-receipt-intent/v1');
   assert.equal(intent.userId, String(receiver.id)); assert.equal(intent.orderId, String(e.orderId)); assert.equal(intent.key, r.firstRequest.requestKey);
-  assert.deepEqual(intent.facts, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo, discrepancyReason: '', note: '' });
+  assert.deepEqual(intent.facts, { quantity: 5, acceptedQuantity: 5, rejectedQuantity: 0, batchNo: e.batchNo, discrepancyReason: '', note: '',
+    ...(controlled ? { expectedRevision } : {}) });
   assert.equal(r.refreshed, true); assert.equal(r.refreshDialogError, undefined); assert(Array.isArray(r.refreshDialogs));
   assert(r.refreshDialogs.every(d => d.type === 'beforeunload' && d.accepted === true));
   assert.deepEqual(r.refreshGuard, { inputsDisabled: 6, retryEnabled: true }); assert.deepEqual(r.restoredValues, ['5', '5', '0', e.batchNo, '', '']);

@@ -61,6 +61,9 @@ import { buildBatchTrace, buildEffectiveBomItemsPayload } from '../pages/product
 import { readProductionBatchTrace } from '../services/productionBatchTrace';
 import { PurchaseReceiptDrawer } from '../pages/procurement/PurchaseReceiptDrawer';
 import { createEmptyReceiptForm } from '../pages/procurement/procurementForms';
+import { buildPurchaseSourceInput, purchaseSourceFieldsFrom, newIncomingQualityCharacteristic } from '../pages/procurement/purchaseSourceForm';
+import { PurchaseSourceFields } from '../pages/procurement/PurchaseSourceFields';
+import type { PurchaseOrder } from '../services/procurement.service';
 
 type FrontendUnitTest = {
   name: string;
@@ -68,6 +71,42 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'purchase source form never guesses legacy AP, tax ownership or a passing QA standard',
+    run: () => {
+      const empty = purchaseSourceFieldsFrom({ id: '1', supplierPayableBasisJson: null, incomingQualityPlanJson: null } as PurchaseOrder);
+      assert.equal(empty.taxTreatment, ''); assert.equal(empty.supplierTaxAmount, ''); assert.equal(empty.supplierChargesAmount, '');
+      assert.deepEqual(empty.characteristics, []); assert.throws(() => buildPurchaseSourceInput(empty));
+      for (const raw of ['null', '{}', 'broken', '{"schema":"purchase-incoming-quality/v1","plan":{"characteristics":{}}}']) {
+        assert.doesNotThrow(() => purchaseSourceFieldsFrom({ incomingQualityPlanJson: raw } as PurchaseOrder));
+      }
+    },
+  },
+  {
+    name: 'purchase source form binds explicit supplier-native amounts and exact specification text without landing-cost inference',
+    run: () => {
+      const fields = { taxTreatment: 'additional_supplier_tax' as const, supplierTaxAmount: '10.01', supplierChargesAmount: '0', evidenceRef: 'Signed supplier quote',
+        specificationRef: 'Actual incoming spec', specificationRevision: 'R1', characteristics: [{ ...newIncomingQualityCharacteristic(),
+          code: 'ph', name: 'pH', unit: 'pH', lowerLimit: '6.50000000000001', upperLimit: '7.5', testMethod: 'Calibrated meter' }] };
+      const input = buildPurchaseSourceInput(fields);
+      assert.equal(input.supplierPayableTerms.supplierTaxAmount, 10.01); assert.equal(input.incomingQualityPlan.characteristics[0].lowerLimit, '6.50000000000001');
+      assert.equal(input.incomingQualityPlan.characteristics[0].code, 'PH'); assert.ok(!JSON.stringify(input).includes('landed'));
+      for (const change of [{ supplierTaxAmount: '' }, { supplierTaxAmount: '10.001' }, { supplierChargesAmount: 'Infinity' },
+        { taxTreatment: 'included_in_price' as const }, { characteristics: [] }, { characteristics: [...fields.characteristics, ...fields.characteristics] },
+        { characteristics: [{ ...fields.characteristics[0], required: false }] }, { characteristics: [{ ...fields.characteristics[0], testMethod: '' }] }]) {
+        assert.throws(() => buildPurchaseSourceInput({ ...fields, ...change }));
+      }
+    },
+  },
+  {
+    name: 'purchase source controls expose their native currency and stay inert as a disabled fieldset',
+    run: () => {
+      const fields = purchaseSourceFieldsFrom({ id: '1' } as PurchaseOrder);
+      const markup = renderToStaticMarkup(<PurchaseSourceFields fields={fields} setFields={() => {}} currency="USD" disabled />);
+      assert.match(markup, /<fieldset[^>]*disabled/); assert.match(markup, /供应商其他费用（USD/); assert.match(markup, /QA/);
+      assert.ok(!markup.includes('textarea'), 'actual spec fields must be structured, not raw JSON input');
+    },
+  },
   {
     name: 'barter ledger exposes persisted batch identity even to read-only roles',
     run: () => {

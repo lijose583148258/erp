@@ -1,10 +1,12 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
+const assert = require('node:assert/strict');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const { createConcurrencyApiClient } = require('./lib/concurrency-reconcile-audit-utils.cjs');
 const { createChemicalBomAuditContext } = require('./lib/chemical-bom-audit-utils.cjs');
 const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
+const { explicitPurchaseSources, createApprovedPurchaseFixture, releasePurchaseFixture } = require('./lib/purchase-quality-audit-fixture.cjs');
 
 // Synthetic users and documents only. Run against the isolated cloud sandbox.
 const primaryUrl = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/$/, '');
@@ -211,7 +213,7 @@ async function main() {
     return { evidence: { deniedWriteStatuses: statuses, privateCustomerStatus } };
   });
 
-  await step('buyers_approve_warehouse_receives_raw_material', ['buyer_1', 'buyer_2', 'warehouse_1', 'warehouse_4'], async () => {
+  await step('buyers_approve_warehouse_receives_raw_material', ['buyer_1', 'buyer_2', 'warehouse_1', 'warehouse_4', 'quality'], async () => {
     const name = 'E20-TEST-SUPPLIER-' + runKey;
     const supplier = requireSuccess(await primary.apiFetch('/procurement/suppliers', {
       method: 'POST',
@@ -225,24 +227,43 @@ async function main() {
       request: (endpoint, options) => primary.apiFetch(endpoint, options, person('buyer_1').token),
       code: 'E20-PO-' + runKey, name: rawName,
     });
-    const purchase = requireSuccess(await primary.apiFetch('/procurement/orders', {
-      method: 'POST',
-      data: { supplierId: Number(supplier.id), materialId: Number(material.id), item: rawName,
+    const fixtureActor = job => ({ id: Number(person(job).user.id), token: person(job).token });
+    const fixtureContext = {
+      request: (endpoint, { actor, instance = 0, ...options } = {}) => (instance ? secondary : primary).apiFetch(endpoint, options, actor.token),
+      dataOf: response => requireSuccess(response, 'explicit purchase source / quality fixture'),
+    };
+    const sources = explicitPurchaseSources({ quoteRef: `E20-QUOTE-${runKey}`, specificationRef: `E20-INCOMING-SPEC-${runKey}`,
+      specificationRevision: '1', taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0,
+      characteristics: [{ code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8',
+        testMethod: 'Synthetic retained sample measured with calibrated pH meter', required: true }] });
+    const purchaseFixture = await createApprovedPurchaseFixture(fixtureContext, {
+      buyer: fixtureActor('buyer_1'), approver: fixtureActor('buyer_2'), sources,
+      payload: { supplierId: Number(supplier.id), materialId: Number(material.id), item: rawName,
         quantity: 100, unit: 'kg', price: 4.6, eta: '2026-10-01',
         ...(cases?.items?.length ? { salesOrderId: Number(cases.items[0].order.id), isB2B: true } : {}) },
-    }, person('buyer_1').token), 'create purchase order');
-    requireSuccess(await primary.apiFetch('/procurement/orders/' + purchase.id + '/status', {
-      method: 'PATCH', data: { status: 'approved' },
-    }, person('buyer_2').token), 'approve purchase order');
+    });
+    const purchase = purchaseFixture.approved;
+    const supplierBatchNo = 'E20-PO-BATCH-' + runKey;
     const receipt = requireSuccess(await primary.apiFetch('/procurement/orders/' + purchase.id + '/receipts', {
       headers: { 'Idempotency-Key': `e20-${runKey}-purchase-receipt` },
       method: 'POST', data: { quantity: 100, acceptedQuantity: 95, rejectedQuantity: 5,
-        discrepancyType: 'quality_rejected', discrepancyReason: 'synthetic incoming inspection',
-        batchNo: 'E20-PO-BATCH-' + runKey },
+        discrepancyType: 'quality_rejected', discrepancyReason: 'Five kilograms rejected at door; remaining physical receipt awaits laboratory QC',
+        batchNo: supplierBatchNo, expectedRevision: purchase.revision },
     }, person('warehouse_1').token), 'receive raw material');
     const ledger = await secondary.apiFetch('/warehouses/stock-entries?sourceType=procurement_receipt&limit=100', {}, person('warehouse_4').token);
     if (!ledger.ok || !receipt?.purchaseOrder?.id) throw new Error('purchase receipt or warehouse ledger readback missing');
-    return { evidence: { supplierId: supplier.id, materialId: material.id, purchaseId: purchase.id, receiptCount: receipt.receipts?.length || 0, warehouseLedgerStatus: ledger.status } };
+    const physicalReceipt = receipt.submission?.receipt;
+    assert(physicalReceipt?.id, 'Physical receipt must include its immutable V2 acknowledgement');
+    assert.equal(physicalReceipt.supplierBatchNo, supplierBatchNo);
+    assert.equal(physicalReceipt.batchNo, `PO-${purchase.id}-RCV-${physicalReceipt.receiptNo}`);
+    assert.equal(physicalReceipt.payableAmountNative, '437.00');
+    const quality = await releasePurchaseFixture(fixtureContext, { receiptId: physicalReceipt.id,
+      qcActor: fixtureActor('warehouse_1'), qaActor: fixtureActor('quality'), key: `e20-${runKey}-incoming-qc`,
+      input: { sampleNo: `E20-SAMPLE-${runKey}`, measurements: [{ code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null,
+        instrumentNo: 'E20-SYNTHETIC-PH-METER-1' }], note: 'Actual declared retained-sample fixture measurement, not inferred from physical receipt' },
+      reason: 'Independent QA reviewed the retained-sample result and frozen incoming specification' });
+    return { evidence: { supplierId: supplier.id, materialId: material.id, purchaseId: purchase.id, receiptCount: receipt.receipts?.length || 0,
+      warehouseLedgerStatus: ledger.status, purchaseFixture, receiptSubmission: receipt.submission, quality } };
   });
 
   const productionOutcome = await step('synthetic_chemical_bom_qc_release_and_completion', ['warehouse_2', 'warehouse_3', 'production_1', 'production_2', 'production_3', 'quality'], async () => {

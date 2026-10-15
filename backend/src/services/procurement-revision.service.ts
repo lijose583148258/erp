@@ -4,6 +4,7 @@ import { revisePurchaseOrderSchema } from '../validators/procurement';
 import { calculatePurchaseValuation, mapPurchaseOrder, normalizePurchaseStatus } from './procurement-domain.service';
 import type { TransactionClient } from './stock-movement.types';
 import { purchaseGovernanceSnapshots } from '../domain/purchase-governance';
+import { purchaseSourceMetadata, resolvePurchaseSourceWriter } from './procurement-source-confirmation.service';
 
 export type PurchaseRevisionInput = z.infer<typeof revisePurchaseOrderSchema>;
 
@@ -23,6 +24,11 @@ export async function revisePurchaseOrder(tx: TransactionClient, id: number, raw
   if (!['pending', 'approved'].includes(normalizePurchaseStatus(before.status))) {
     throw new AppError('已发运、收货或取消的采购单不能原地修改，请走调整流程', 409, ErrorCode.CONFLICT);
   }
+  try {
+    if ((await resolvePurchaseSourceWriter(tx, before)).restoreOperationalStatus === 'in_transit') {
+      throw new AppError('PURCHASE_TRANSIT_TERMS_IMMUTABLE', 409, ErrorCode.CONFLICT);
+    }
+  } catch (error) { if (!(error instanceof AppError) || error.message !== 'PURCHASE_SOURCE_CONFIRMATION_REQUIRED') throw error; }
   const valuation = calculatePurchaseValuation({ ...before, quantity: input.quantity, price: input.price, taxAmount: input.taxAmount });
   if (Object.values(valuation).some(value => typeof value === 'number' && !Number.isFinite(value))) {
     throw new AppError('采购金额超出有效范围', 400, ErrorCode.VALIDATION_ERROR);
@@ -57,6 +63,6 @@ export async function revisePurchaseOrder(tx: TransactionClient, id: number, raw
   const after = await tx.purchaseOrder.findUniqueOrThrow({ where: { id }, include: { supplier: true, salesOrder: true } });
   await tx.auditLog.create({ data: { userId: actorId, action: 'REVISE', resource: 'purchase_order', resourceId: id,
     details: JSON.stringify({ schema: 'purchase-revision/v1', reason: input.reason,
-      before: mapPurchaseOrder(before), after: mapPurchaseOrder(after), requiresApproval: true }) } });
+      before: mapPurchaseOrder(before), after: mapPurchaseOrder(after), requiresApproval: true, source: purchaseSourceMetadata(after) }) } });
   return after;
 }

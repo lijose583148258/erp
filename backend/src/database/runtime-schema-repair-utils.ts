@@ -61,6 +61,7 @@ const KNOWN_TABLES = new Set([
   'sales_fulfillment_plans',
   'users',
   'purchase_receipts', 'shipment_receipts', 'receipt_discrepancy_cases',
+  'incoming_quality_checks', 'supplier_payments',
   'receipt_discrepancy_actions', 'receipt_tolerance_rules',
   'barter_settlements', 'barter_items', 'barter_valuation_snapshots',
   'barter_cash_obligations',

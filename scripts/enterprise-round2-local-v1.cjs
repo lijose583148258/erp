@@ -4,12 +4,14 @@ const crypto = require('node:crypto');
 const net = require('node:net');
 const http = require('node:http');
 const { spawn, execFileSync } = require('node:child_process');
+const { ROUND2_PARENT_RUNTIME_MS } = require('./lib/enterprise-round2-supervision.cjs');
+const { killSpawnedProcessTree } = require('./lib/win32-audit-process-guard.cjs');
 const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
 if (process.argv.includes('--customer-cancellation') || process.argv.includes('--unsaved-focus')) process.env.ROUND2_BROWSER = 'true';
-if (cumulative || process.argv.includes('--inventory-browser') || process.argv.includes('--purchase-roles') || process.argv.includes('--authorization-freshness') || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
+if (cumulative || process.argv.includes('--inventory-browser') || process.argv.includes('--purchase-roles') || process.argv.includes('--purchase-quality') || process.argv.includes('--authorization-freshness') || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
@@ -27,7 +29,7 @@ const env = { ...process.env,
   FRONTEND_DIST_DIR: path.join(sandbox, 'frontend'),
   SEARCH_ENDPOINT: '', SEARCH_ENDPOINTS: '', MEILISEARCH_URL: '', REDIS_URL: '',
   AUDIT_PRISMA_PROVIDER: 'sqlite', ROUND2_ALLOW_MUTATIONS: 'true', ROUND2_REPORT_PATH: reportPath,
-  ROUND2_ONLY_CHECK: cumulative ? '' : process.argv.includes('--purchase-cost') ? 'po-stale-edit-conflict' : process.argv.includes('--inventory-browser') ? 'inventory-browser' : process.argv.includes('--purchase-roles') ? 'purchase-browser-readback' : process.argv.includes('--payment-submit') ? 'payment-submit-durable-replay' : process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
+  ROUND2_ONLY_CHECK: cumulative ? '' : process.argv.includes('--purchase-quality') ? 'purchase-partial-receipt-qc-payables' : process.argv.includes('--purchase-cost') ? 'po-stale-edit-conflict' : process.argv.includes('--inventory-browser') ? 'inventory-browser' : process.argv.includes('--purchase-roles') ? 'purchase-browser-readback' : process.argv.includes('--payment-submit') ? 'payment-submit-durable-replay' : process.argv.includes('--payment-event') ? 'payment-event-audit-once' : '',
 };
 try {
   env.ROUND2_COMMIT = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', windowsHide: true, timeout: 5000 }).trim();
@@ -67,11 +69,18 @@ function start(label, args, cwd = root, extraEnv = {}) {
 }
 async function command(label, args, cwd, timeoutMs = 120_000) {
   const child = start(label, args, cwd);
-  const timer = setTimeout(() => child.kill(), timeoutMs);
+  const timer = setTimeout(() => { void stopOwned(child); }, timeoutMs);
   try {
     const result = await child.completion;
     if (result.code !== 0) throw new Error(`${label} failed (${result.code ?? result.signal}); see ${path.join(sandbox, `${label}.log`)}`);
   } finally { clearTimeout(timer); }
+}
+async function stopOwned(child) {
+  if (child.exitCode !== null || child.signalCode) return;
+  // Windows termination does not deliver the wrapper's SIGTERM handler.
+  // Reuse the existing guard for this owned PID and its audit/browser children.
+  await killSpawnedProcessTree(child.pid);
+  child.kill();
 }
 async function freePort() {
   const server = net.createServer();
@@ -92,7 +101,7 @@ async function ready(child, url) {
 async function stop() {
   if (appControl) { appControl.closeAllConnections(); await new Promise(resolve => appControl.close(resolve)); appControl = undefined; }
   const owned = [...children];
-  for (const child of owned) child.kill();
+  await Promise.allSettled(owned.map(stopOwned));
   await Promise.race([Promise.allSettled(owned.map(child => child.completion)), delay(5000)]);
   if (paymentReceiver) { await paymentReceiver.close(); paymentReceiver = undefined; }
 }
@@ -162,14 +171,14 @@ async function main() {
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
       ['customer-cancellation', 'scripts/customer-quantity-cancellation-audit-v1.cjs', cancellationPath, [], [0]],
       ['unsaved-focus', 'scripts/unsaved-changes-browser-audit-v1.cjs', path.join(sandbox, 'unsaved-focus', 'report.json'), [], [0]],
-      ['round2', 'scripts/enterprise-round2-audit-v1.cjs', reportPath, [], [0, 2]],
+      ['round2', 'scripts/enterprise-round2-supervised.cjs', reportPath, [], [0, 2]],
       ['authorization', 'scripts/authorization-dual-node-audit-v1.cjs', authorizationPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
     ]) {
       // A failing prior package must not truncate independent later packages.
       const child = start(label, [path.join(root, script), ...args], root,
         { APP_URL: urls[0], SECONDARY_APP_URL: urls[1], ROUND2_REPORT_PATH: target });
-      const timer = setTimeout(() => child.kill(), label === 'legacy-cash' ? 120000 : label === 'round2' ? 420000 : 300000);
+      const timer = setTimeout(() => { void stopOwned(child); }, label === 'legacy-cash' ? 120000 : label === 'round2' ? ROUND2_PARENT_RUNTIME_MS : 300000);
       try {
         const result = await child.completion;
         if (label === 'unsaved-focus' && result.code === 0) {
@@ -203,10 +212,10 @@ async function main() {
   const reconciliation = process.argv.includes('--payment-reconciliation') || process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser');
   const authorization = process.argv.includes('--authorization-freshness');
   const unsavedFocus = process.argv.includes('--unsaved-focus');
-  const auditScript = unsavedFocus ? 'scripts/unsaved-changes-browser-audit-v1.cjs' : process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-audit-v1.cjs';
+  const auditScript = unsavedFocus ? 'scripts/unsaved-changes-browser-audit-v1.cjs' : process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-supervised.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
-  const timer = setTimeout(() => audit.kill(), 5 * 60_000);
+  const timer = setTimeout(() => { void stopOwned(audit); }, auditScript === 'scripts/enterprise-round2-supervised.cjs' ? ROUND2_PARENT_RUNTIME_MS : 5 * 60_000);
   try {
     const result = await audit.completion;
     process.exitCode = result.code ?? 1;

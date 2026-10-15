@@ -72,6 +72,10 @@ export type FrontendPermission =
   | 'procurement.write'
   | 'procurement.approve'
   | 'procurement.receive'
+  | 'procurement.quality.inspect'
+  | 'procurement.quality.release'
+  | 'procurement.payment.record'
+  | 'procurement.payment.verify'
   | 'procurement.b2b.read'
   | 'materials.read'
   | 'materials.write'
@@ -160,6 +164,10 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'team.read',
     'team.write',
     'authorization.roles.manage',
+    'procurement.quality.inspect',
+    'procurement.quality.release',
+    'procurement.payment.record',
+    'procurement.payment.verify',
     'assets.read',
     'assets.write',
     'production.read',
@@ -245,6 +253,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'production.plan.write',
     'production.execute',
     'production.quality.release',
+    'procurement.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -314,6 +323,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'production.plan.write',
     'production.execute',
     'production.quality.inspect',
+    'procurement.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
@@ -335,6 +345,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'orders.export',
     'orders.payment.record',
     'orders.payment.verify',
+    'procurement.payment.record',
+    'procurement.payment.verify',
     'orders.payment.reversal.request',
     'orders.payment.reversal.review',
     'collections.read',
@@ -392,6 +404,11 @@ export function hasDataScope(userOrRole: CurrentUser | UserRole, scope: string):
 }
 
 export function canOpenModule(userOrRole: CurrentUser | UserRole, moduleId: string): boolean {
+  if (moduleId === 'procurement') {
+    // Quality-only actors use the redacted incoming-QC workspace, not priced PO lists.
+    return can(userOrRole, 'procurement.read') || can(userOrRole, 'procurement.quality.inspect')
+      || can(userOrRole, 'procurement.quality.release');
+  }
   const permission = MENU_PERMISSION_BY_MODULE[moduleId];
   return permission ? can(userOrRole, permission) : false;
 }

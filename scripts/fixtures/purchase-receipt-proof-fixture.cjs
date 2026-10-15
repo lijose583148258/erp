@@ -94,4 +94,79 @@ function purchaseReceiptRecoveryProofFixture() {
     unknownScreenshot: 'synthetic-unknown.png', refreshedScreenshot: 'synthetic-refreshed.png', confirmedScreenshot: 'synthetic-confirmed.png' };
   return copy({ ...e, synthetic: true });
 }
-module.exports = { purchaseReceiptSubmissionProofFixture, purchaseReceiptRecoveryProofFixture };
+// Explicitly synthetic V2 contracts for the independent reader. They are not
+// an upgrade of any real/cloud evidence; runner producers must collect V2 facts.
+function controlledSnapshot(snapshot) {
+  const s = copy(snapshot), order = s.order || s.orders[0];
+  const binding = { revision: order.revision, supplierId: 2, materialId: order.materialId, unit: order.unit,
+    quantity: order.quantity, price: order.price, currency: order.currency || 'CNY', exchangeRate: order.exchangeRate || 1 };
+  const total = Number((binding.quantity * binding.price).toFixed(2));
+  const basis = { schema: 'supplier-payable-basis/v1', binding, terms: { taxTreatment: 'none_or_third_party', supplierTaxAmount: 0,
+    supplierChargesAmount: 0, evidenceRef: `Synthetic explicit quote ${order.id}` }, goodsAmountNative: total, amountNative: total, amountBase: total,
+    baseCurrency: 'CNY', rateDirection: 'foreign_per_CNY' };
+  const quality = { schema: 'purchase-incoming-quality/v1', binding, plan: { specificationRef: `Synthetic explicit specification ${order.id}`,
+    specificationRevision: 'R1', characteristics: [{ code:'PH', name:'pH', valueType:'numeric', unit:null, lowerLimit:'7', upperLimit:'8',
+      targetText:null, testMethod:'Synthetic calibrated meter', required:true, sortOrder:0 }] } };
+  const supplierPayableBasisJson = JSON.stringify(basis), incomingQualityPlanJson = JSON.stringify(quality);
+  const meta = { revision: binding.revision, supplierPayableHash: hash(supplierPayableBasisJson), incomingQualityHash: hash(incomingQualityPlanJson), restoreOperationalStatus:null };
+  Object.assign(order, { supplierId:2, currency:binding.currency, exchangeRate:binding.exchangeRate, supplierPayableBasisJson, incomingQualityPlanJson });
+  const source = { id:1, userId:10, action:binding.revision === 0 ? 'CREATE' : 'REVISE', resource:'purchase_order', resourceId:order.id,
+    details: JSON.stringify({ schema:binding.revision === 0 ? 'purchase-create/v1' : 'purchase-revision/v1', after:{ ...order, status:'pending', updatedAt:date }, source:meta }) };
+  const approval = { id:2, userId:20, action:'STATUS_CHANGE', resource:'purchase_order', resourceId:order.id,
+    details:JSON.stringify({ schema:'purchase-status/v2', revision:binding.revision, from:'pending', to:'approved', isSourceApproval:true,
+      sourceAuditId:1, supplierPayableHash:meta.supplierPayableHash, incomingQualityHash:meta.incomingQualityHash }) };
+  s.audits = [source, approval, ...s.audits.filter(a => a.id > 2)];
+  let received = 0, posted = 0;
+  for (const raw of s.receipts) {
+    const original = JSON.parse(raw.submissionJson), supplierBatchNo = raw.batchNo;
+    const batch = s.batches.find(b => b.batchNo === supplierBatchNo);
+    const ref = raw.stockEntryRef;
+    batch.batchNo = ref; batch.qualityStatus = 'hold';
+    for (const balance of s.balances.filter(b => b.batchNo === supplierBatchNo)) balance.batchNo = ref;
+    for (const entry of s.entries) for (const movement of entry.movements || []) if (movement.batchNo === supplierBatchNo) movement.batchNo = ref;
+    for (const movement of s.movements || []) if (movement.batchNo === supplierBatchNo) movement.batchNo = ref;
+    const after = received + raw.acceptedQuantity, target = Number((total * after / binding.quantity).toFixed(2)), amount = (target - posted).toFixed(2);
+    const payable = { schema:'purchase-receipt-payable/v1', allocationPolicy:'cumulative_received_target_less_actual_posted/v1', purchaseOrderId:order.id,
+      receiptNo:raw.receiptNo, supplierBatchNo, batchNo:ref, receivedBy:raw.receivedBy, binding, source:{ sourceAuditId:1, approvalAuditId:2, supplierPayableBasisJson },
+      allocation:{ receivedQuantity:String(raw.acceptedQuantity), receivedQuantityBefore:String(received), receivedQuantityAfter:String(after),
+        postedAmountNativeBefore:posted.toFixed(2), postedAmountBaseBefore:posted.toFixed(2), targetAmountNative:target.toFixed(2), targetAmountBase:target.toFixed(2), amountNative:amount, amountBase:amount },
+      currency:binding.currency, baseCurrency:'CNY', rateDirection:'foreign_per_CNY' };
+    const r = { ...original.receipt, batchNo:ref, supplierBatchNo, batchId:batch.id, payableAmountNative:amount, payableAmountBase:amount,
+      payableSnapshotJson:JSON.stringify(payable), incomingQualityPlanJson };
+    const facts = { purchaseOrderId:r.purchaseOrderId, receivedBy:r.receivedBy, quantity:r.quantity, acceptedQuantity:r.acceptedQuantity,
+      rejectedQuantity:r.rejectedQuantity, batchNo:supplierBatchNo, receivedAt:null, discrepancyReason:r.discrepancyReason,
+      discrepancyType:'short_shipped', note:r.note, expectedRevision:binding.revision };
+    const fingerprint = hash(JSON.stringify({ schema:'purchase-receipt-facts/v2', ...facts }));
+    const ack = { schema:'purchase-receipt-submission/v2', key:original.key, fingerprint, auditId:original.auditId, facts, receipt:r };
+    Object.assign(raw, r, { submissionFingerprint:fingerprint, submissionJson:JSON.stringify(ack) });
+    const audit = s.audits.find(a => a.id === original.auditId); audit.details = JSON.stringify({ schema:'purchase-receipt-audit/v2', receiptId:r.id, receiptNo:r.receiptNo,
+      submissionKeyHash:hash(ack.key), fingerprint, receiptHash:hash(JSON.stringify(r)) });
+    received = after; posted = target;
+  }
+  return s;
+}
+function controlledBundle(snapshot) {
+  const b = bundle(snapshot);
+  b.receipts = b.receipts.map(row => { const raw = snapshot.receipts.find(r => r.id === row.id);
+    return { ...row, supplierBatchNo:raw.supplierBatchNo, batchId:raw.batchId, payableAmountNative:raw.payableAmountNative, payableAmountBase:raw.payableAmountBase }; });
+  return b;
+}
+function controlledReply(reply, snapshot) {
+  const r = copy(reply);
+  if (r.requestBody) r.requestBody.expectedRevision = (snapshot.order || snapshot.orders[0]).revision;
+  if (r.status === 201) {
+    const raw = snapshot.receipts.find(row => row.id === r.json.data.submission.receipt.id);
+    r.json.data = { ...controlledBundle(snapshot), submission:JSON.parse(raw.submissionJson), replayed:r.json.data.replayed };
+  }
+  return r;
+}
+function controlledPurchaseReceiptSubmissionProofFixture(provider = 'sqlite') {
+  const e = purchaseReceiptSubmissionProofFixture(provider);
+  for (const key of ['before','afterMissing','committed','afterConflicts','full','afterReplay','faultBefore','faultAfter']) e[key] = controlledSnapshot(e[key]);
+  e.original = copy(e.before.order);
+  for (const key of ['missingKey','changed','differentActor']) e[key] = controlledReply(e[key], e.before);
+  e.concurrent = e.concurrent.map(r => controlledReply(r, e.committed)); e.replay = controlledReply(e.replay, e.full);
+  e.auditFailure = controlledReply(e.auditFailure, e.faultBefore);
+  return e;
+}
+module.exports = { purchaseReceiptSubmissionProofFixture, purchaseReceiptRecoveryProofFixture, controlledPurchaseReceiptSubmissionProofFixture };

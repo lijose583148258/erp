@@ -34,6 +34,10 @@ describe('immutable procurement receipt cost history', () => {
     const tx = { stockEntry: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) } } as unknown as TransactionClient;
     expect(await postProcurementReceiptIfMissing(tx, order)).toEqual({ posted: false, sourceRef: 'PO-9' });
   });
+  it('does not turn a full-status shortcut into a physical receipt even with an accountable actor', async () => {
+    const tx = { stockEntry: { findFirst: jest.fn().mockResolvedValue(null) } } as unknown as TransactionClient;
+    await expect(postProcurementReceiptIfMissing(tx, order, 7)).rejects.toThrow('ACTUAL_RECEIPT_REQUIRED');
+  });
 
   it('reads actual historical cents across a shared batch, not current stock or an ideal fraction', async () => {
     const rows = [row(1, 33.33), row(2, 33.33)];

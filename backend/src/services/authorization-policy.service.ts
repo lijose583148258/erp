@@ -6,10 +6,10 @@ import {
   PERMISSION_DEFINITIONS,
   Permission,
   ROLE_POLICIES,
-  isBuiltInRole,
 } from '../permissions/permissionRegistry';
 import { writeRoleAuditLog } from './role-audit.service';
 import { withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
+import { executeRawCompat } from '../utils/raw-sql-compat';
 
 export interface AuthRoleView {
   id: number;
@@ -45,11 +45,6 @@ type RoleRow = {
   updatedAt: string | Date;
 };
 
-type RolePermissionRow = {
-  roleCode: string;
-  permissionCode: string;
-};
-
 const ROLE_CODE_PATTERN = /^[a-z][a-z0-9_:-]{1,49}$/;
 let authorizationSeeded = false;
 let authorizationSeedPromise: Promise<void> | null = null;
@@ -67,6 +62,16 @@ export const MATERIAL_MASTER_PERMISSION_BACKFILL = {
   code: string;
   grants: Record<BuiltInRole, readonly Permission[]>;
 };
+
+export const PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL = {
+  code: '2026-10-14-procurement-quality-payables-separation-v1',
+  grants: {
+    admin: ['procurement.quality.inspect', 'procurement.quality.release', 'procurement.payment.record', 'procurement.payment.verify'],
+    manager: ['procurement.quality.release'],
+    warehouse: ['procurement.quality.inspect'],
+    finance: ['procurement.payment.record', 'procurement.payment.verify'],
+  },
+} as const satisfies { code: string; grants: Partial<Record<BuiltInRole, readonly Permission[]>> };
 
 const toBool = (value: number | boolean) => value === true || value === 1;
 
@@ -138,6 +143,22 @@ async function upsertSystemRoles() {
       where: { code: role },
       select: { dataScopesJson: true },
     });
+    if (!existingRole) {
+      // Create a new system role and its defaults atomically. The provider-neutral
+      // insert claim also prevents a second node from reseeding a role it did not create.
+      await prisma.$transaction(async tx => {
+        const claimed = await executeRawCompat(tx,
+          `INSERT INTO auth_roles(code,name,description,is_system,is_active,data_scopes_json,created_at,updated_at)
+           VALUES(?, ?, ?, TRUE, TRUE, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(code) DO NOTHING`,
+          role, role, `Built-in ${role} role`, JSON.stringify(policy.dataScopes));
+        if (claimed !== 1) return;
+        for (const permissionCode of policy.permissions) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode: role, permissionCode } },
+            create: { roleCode: role, permissionCode }, update: {} });
+        }
+      });
+      continue;
+    }
     await prisma.authRole.upsert({
       where: { code: role },
       create: {
@@ -152,28 +173,12 @@ async function upsertSystemRoles() {
         name: role,
         description: `Built-in ${role} role`,
         isSystem: true,
-        isActive: true,
         dataScopesJson: existingRole?.dataScopesJson || JSON.stringify(policy.dataScopes),
       },
     });
 
-    const existingPermissions = await prisma.authRolePermission.count({
-      where: { roleCode: role },
-    });
-    if (existingPermissions === 0) {
-      await replaceRolePermissions(role, [...policy.permissions]);
-    }
-  }
-}
-
-async function replaceRolePermissions(roleCode: string, permissions: Permission[]) {
-  await prisma.authRolePermission.deleteMany({ where: { roleCode } });
-  for (const permission of permissions) {
-    await prisma.authRolePermission.upsert({
-      where: { roleCode_permissionCode: { roleCode, permissionCode: permission } },
-      create: { roleCode, permissionCode: permission },
-      update: {},
-    });
+    // Existing empty policies are intentional deny-all; defaults belong only to
+    // the role creation transaction, never to restart-time permission repair.
   }
 }
 
@@ -345,6 +350,24 @@ async function applyAuthorizationPolicyMigrations() {
       }
       await tx.authPolicyMigration.upsert({ where: { code: procurementSplitCode },
         create: { code: procurementSplitCode, description: 'Preserve existing procurement.write holders with explicit approval/receipt grants once; subsequent administrator revocations remain effective.' }, update: {} });
+    });
+  }
+
+  if (!(await hasPolicyMigration(PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL.code))) {
+    await prisma.$transaction(async tx => {
+      const claimed = await executeRawCompat(tx,
+        `INSERT INTO auth_policy_migrations(code,description,applied_at)
+         VALUES(?, ?, CURRENT_TIMESTAMP) ON CONFLICT(code) DO NOTHING`,
+        PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL.code,
+        'Add bounded incoming-QC/QA and supplier-payment duties once; preserve custom and revoked policies. Services enforce independent actors.');
+      if (claimed !== 1) return;
+      for (const [roleCode, permissions] of Object.entries(PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL.grants)) {
+        if (await tx.authRolePermission.count({ where: { roleCode } }) === 0) continue;
+        for (const permissionCode of permissions) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode, permissionCode } },
+            create: { roleCode, permissionCode }, update: {} });
+        }
+      }
     });
   }
 

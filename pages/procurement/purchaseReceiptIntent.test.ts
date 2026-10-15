@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { preparePurchaseReceiptIntent, readPurchaseReceiptIntent, clearPurchaseReceiptIntent, purchaseReceiptIntentSlot,
   confirmPurchaseReceiptSubmission, definitivePurchaseReceiptRejection } from './purchaseReceiptIntent';
-import type { PurchaseReceiptSubmission } from '../../services/procurement.service';
+import type { PurchaseReceiptSubmission, ControlledPurchaseReceiptSubmission } from '../../services/procurement.service';
 import { createHash } from 'node:crypto';
 const facts = { quantity: 3, acceptedQuantity: 2, rejectedQuantity: 1, batchNo: 'SUP-1', discrepancyReason: 'Damaged', note: 'Delivery' };
 function storage() { const items = new Map<string, string>(); return { getItem: (k: string) => items.get(k) ?? null,
@@ -51,4 +51,36 @@ test('original facts and receipt/audit identities must match before the next bat
 test('uncertain/identity/corrupt acknowledgement errors never clear the intent', () => {
   for (const code of [undefined, 'PURCHASE_RECEIPT_KEY_CONFLICT', 'PURCHASE_RECEIPT_SUBMISSION_INVALID', 'INTERNAL_ERROR', 'CONFLICT']) assert.equal(definitivePurchaseReceiptRejection(code), false);
   assert.equal(definitivePurchaseReceiptRejection('PURCHASE_RECEIPT_EXCEEDS_REMAINING'), true);
+});
+test('V2 intent freezes the reviewed revision and actual supplier lot across refresh without rebinding to a new PO', () => {
+  const s = storage(), intent = preparePurchaseReceiptIntent(s, '9', '7', { ...facts, expectedRevision: 2 }, make);
+  assert.equal(intent.schema, 'purchase-receipt-intent/v2'); assert.deepEqual(readPurchaseReceiptIntent(s, '9', '7'), intent);
+  assert.throws(() => preparePurchaseReceiptIntent(s, '9', '7', { ...facts, expectedRevision: 3 }, make));
+  assert.throws(() => preparePurchaseReceiptIntent(storage(), '9', '7', { ...facts, expectedRevision: 2, batchNo: '' }, make));
+  assert.throws(() => preparePurchaseReceiptIntent(storage(), '9', '7', { ...facts, expectedRevision: 2, quantity: 3.000001 }, make));
+});
+test('the existing storage slot retains V1 pending intents; upgrading never manufactures a new request', () => {
+  const s = storage(), v1 = preparePurchaseReceiptIntent(s, '9', '7', facts, make);
+  assert.equal(readPurchaseReceiptIntent(s, '9', '7')?.schema, 'purchase-receipt-intent/v1');
+  assert.throws(() => preparePurchaseReceiptIntent(s, '9', '7', { ...facts, expectedRevision: 2 }, make));
+  assert.deepEqual(readPurchaseReceiptIntent(s, '9', '7'), v1);
+});
+test('V2 ACK binds native/base AP, frozen plan, supplier lot and separate internal batch before clearing the original intent', async () => {
+  const s = storage(), intent = preparePurchaseReceiptIntent(s, '9', '7', { ...facts, expectedRevision: 2 }, make);
+  const recorded = { purchaseOrderId: 7, receivedBy: 9, quantity: 3, acceptedQuantity: 2, rejectedQuantity: 1, batchNo: 'SUP-1', receivedAt: null,
+    discrepancyReason: 'Damaged', discrepancyType: 'short_shipped', note: 'Delivery', expectedRevision: 2 };
+  const binding = { revision: 2, unit: 'kg', quantity: 10, price: 20, currency: 'USD', exchangeRate: 0.14, supplierId: 3, materialId: 4 };
+  const payable = { schema: 'purchase-receipt-payable/v1', purchaseOrderId: 7, receiptNo: 'PRC-11', receivedBy: 9, supplierBatchNo: 'SUP-1', batchNo: 'PO-7-RCV-PRC-11',
+    binding, source: { sourceAuditId: 10, approvalAuditId: 11 }, allocation: { receivedQuantity: '2', amountNative: '40.00', amountBase: '285.71' } };
+  const submission: ControlledPurchaseReceiptSubmission = { schema: 'purchase-receipt-submission/v2', key: intent.key,
+    fingerprint: createHash('sha256').update(JSON.stringify({ schema: 'purchase-receipt-facts/v2', ...recorded })).digest('hex'), auditId: 12, facts: recorded,
+    receipt: { id: 11, receiptNo: 'PRC-11', purchaseOrderId: 7, receivedBy: 9, unit: 'kg', ...facts, batchNo: 'PO-7-RCV-PRC-11', supplierBatchNo: 'SUP-1', batchId: 4,
+      stockEntryRef: 'PO-7-RCV-PRC-11', receivedAt: '2026-10-14T00:00:00Z', createdAt: '2026-10-14T00:00:01Z', payableAmountNative: '40.00', payableAmountBase: '285.71',
+      payableSnapshotJson: JSON.stringify(payable), incomingQualityPlanJson: JSON.stringify({ schema: 'purchase-incoming-quality/v1', binding, plan: { characteristics: [{ code: 'PH' }] } }) } };
+  await confirmPurchaseReceiptSubmission(intent, submission);
+  for (const patch of [{ supplierBatchNo: 'OTHER' }, { batchNo: 'SUP-1' }, { batchId: null }, { payableAmountNative: '40.01' },
+    { payableAmountBase: '285.70' }, { payableSnapshotJson: '{}' }, { incomingQualityPlanJson: 'broken' }]) {
+    await assert.rejects(() => confirmPurchaseReceiptSubmission(intent, { ...submission, receipt: { ...submission.receipt, ...patch } }));
+    assert.equal(readPurchaseReceiptIntent(s, '9', '7')?.key, intent.key);
+  }
 });

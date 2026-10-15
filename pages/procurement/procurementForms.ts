@@ -216,12 +216,13 @@ export const validatePurchaseReceiptForm = (
   const remainingQuantity = Number(bundle?.receiptSummary.remainingQuantity ?? order.quantity ?? 0);
 
   if (!Number.isFinite(quantity) || quantity <= 0) errors.quantity = '本次数量必须大于 0';
-  if (!Number.isFinite(acceptedQuantity) || acceptedQuantity < 0) errors.acceptedQuantity = '合格数量不能为负数';
-  if (!Number.isFinite(rejectedQuantity) || rejectedQuantity < 0) errors.rejectedQuantity = '差异数量不能为负数';
+  if (!Number.isFinite(acceptedQuantity) || acceptedQuantity < 0) errors.acceptedQuantity = '实收入库数量不能为负数';
+  if (!Number.isFinite(rejectedQuantity) || rejectedQuantity < 0) errors.rejectedQuantity = '门口拒收数量不能为负数';
+  if (!form.batchNo.trim()) errors.batchNo = '须填写实际供应商批号，系统不会猜供应商批次';
 
   if (Number.isFinite(quantity) && Number.isFinite(acceptedQuantity) && Number.isFinite(rejectedQuantity)
-    && Math.abs(quantity - acceptedQuantity - rejectedQuantity) > 0.000001) {
-    errors.quantity = '本次数量必须等于合格数量与差异数量之和';
+    && Math.round(quantity * 1000000) !== Math.round(acceptedQuantity * 1000000) + Math.round(rejectedQuantity * 1000000)) {
+    errors.quantity = '本次数量须精确等于实收入库与门口拒收数量之和';
   }
   if (Number.isFinite(quantity) && quantity - remainingQuantity > 0.000001) {
     errors.quantity = `本次数量不能超过剩余 ${remainingQuantity}`;
@@ -240,7 +241,7 @@ export const createReceiptFormForOrder = (
     quantity: nextQuantity,
     acceptedQuantity: nextQuantity,
     rejectedQuantity: '0',
-    batchNo: order ? `${order.item}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}` : '',
+    batchNo: '',
     discrepancyReason: '',
     note: '',
   };

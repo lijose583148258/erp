@@ -879,7 +879,7 @@ jobs:
         id: round2_business
         if: ${{ always() && steps.app_readiness.outcome == 'success' }}
         continue-on-error: true
-        timeout-minutes: 8
+        timeout-minutes: 16
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
           ROUND2_BROWSER: "true"

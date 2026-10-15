@@ -21,6 +21,7 @@ import { isMaterialReleaseReadinessError } from '../services/material-release-re
 import { createSupplierRecord } from '../services/procurement-supplier.service';
 import { changePurchaseOrderStatus } from '../services/procurement-status.service';
 import { revisePurchaseOrder } from '../services/procurement-revision.service';
+import { confirmPurchaseSources, getPurchaseSourceState } from '../services/procurement-source-confirmation.service';
 import {
   getB2BStatusForSalesOrder,
   linkPurchaseOrderToSalesOrder,
@@ -30,6 +31,19 @@ import { buildOperationalDataScopeWhere, canUseOperationalDataScope, mergeWhereA
 import { withDbRetry } from '../utils/dbRetry';
 
 const PROCUREMENT_DATA_SCOPE = 'procurement_visible' as const;
+const sourceMessages: Record<string, string> = {
+  PURCHASE_GOVERNANCE_SOURCE_REQUIRED: '须先确认供应商报价及税费归属、来料检验规范，再由另一位审批人确认',
+  PURCHASE_GOVERNANCE_SOURCE_INVALID: '采购来源快照无效，须核对原报价及检验规范',
+  PURCHASE_GOVERNANCE_SOURCE_CHANGED: '采购来源与当前版本不一致，须重新确认并独立审批',
+  PURCHASE_SOURCE_CONFIRMATION_REQUIRED: '当前采购来源缺少有效审计，请通过确认来源补齐；不能沿用旧审批',
+  PURCHASE_INDEPENDENT_APPROVAL_REQUIRED: '当前版本须由来源确认人以外的另一位授权审批人确认',
+  PURCHASE_SOURCE_HISTORY_UNRECONCILED: '已有实收或入库凭证，须先核对历史来源，不能自动补零或改写旧账',
+  PURCHASE_SOURCE_VERSION_CONFLICT: '采购单已更新，请对比最新版本后重新确认；你的输入未覆盖最新记录',
+  PURCHASE_SOURCES_UNCHANGED: '来源没有变化，无需生成冗余版本，请继续独立审批或实际收货',
+  PURCHASE_TRANSIT_TERMS_IMMUTABLE: '采购单已发运，确认来源时不能改写数量、价格或成本',
+  PURCHASE_STATUS_ACTOR_REQUIRED: '采购状态变更必须由已登录的授权人员操作',
+  ACTUAL_RECEIPT_REQUIRED: '请登记实际分批收货及供应商批号；状态同步不能代替仓库实收，也不能自动增加库存',
+};
 
 function getProcurementErrorStatus(error: unknown) {
   return error instanceof AppError ? error.statusCode : 500;
@@ -233,6 +247,7 @@ export class ProcurementController {
         success: true,
         data: {
           purchaseOrder: mapPurchaseOrder(order),
+          sourceState: await getPurchaseSourceState(prisma, order),
           ...receiptBundle,
         },
       });
@@ -252,6 +267,7 @@ export class ProcurementController {
       const result = await withDbRetry(() => prisma.$transaction(tx => createPurchaseReceiptBatch(tx, {
         purchaseOrderId,
         idempotencyKey: req.get('Idempotency-Key'),
+        expectedRevision: req.body.expectedRevision,
         quantity: req.body.quantity,
         acceptedQuantity: req.body.acceptedQuantity,
         rejectedQuantity: req.body.rejectedQuantity,
@@ -288,8 +304,12 @@ export class ProcurementController {
         PURCHASE_ORDER_NOT_APPROVED: '采购单尚未审批，不能收货',
         PURCHASE_ORDER_ALREADY_FULLY_RECEIVED: '采购单已全部处理，不能重复收货',
         PURCHASE_RECEIPT_EXCEEDS_REMAINING: '收货数量超过剩余未处理数量',
-        PURCHASE_RECEIPT_INVALID_QUANTITY: '收货数量必须大于 0，且合格数量/差异数量不能为负数',
-        PURCHASE_RECEIPT_QUANTITY_MISMATCH: '收货数量必须等于合格数量与差异数量之和',
+        PURCHASE_RECEIPT_INVALID_QUANTITY: '收货数量必须大于 0，且实收入库/门口拒收数量不能为负数',
+        PURCHASE_RECEIPT_QUANTITY_MISMATCH: '收货数量必须等于实收入库与门口拒收数量之和',
+        PURCHASE_RECEIPT_SOURCE_FACTS_REQUIRED: '请填写实际供应商批号及所确认的采购版本；实收与拒收数量须精确相等',
+        PURCHASE_RECEIPT_REVISION_CONFLICT: '采购版本已更新，请核对当前来源与审批后再登记新收货',
+        PURCHASE_RECEIPT_BATCH_COLLISION: '内部收货批号已存在，须核对原收货记录，不能合并到已放行批次',
+        PURCHASE_PAYABLE_RECONCILIATION_REQUIRED: '历史实收应付来源未核对，不能猜金额、补零或覆盖旧凭证',
         PURCHASE_RECEIPT_INVALID_DATE: '收货日期格式不正确',
         PURCHASE_RECEIPT_ACTOR_REQUIRED: '实收入库必须由已登录的授权人员操作',
         PURCHASE_RECEIPT_KEY_REQUIRED: '收货登记缺少稳定请求身份，请恢复原表单后再提交',
@@ -303,7 +323,7 @@ export class ProcurementController {
       logger.error('创建采购收货批次失败:', error);
       return res.status(statusCode).json({
         success: false,
-        message: messages[errorKey] || '创建采购收货批次失败',
+        message: messages[errorKey] || sourceMessages[errorKey] || '创建采购收货批次失败',
         errorCode: error instanceof AppError ? errorKey : 'PURCHASE_RECEIPT_INTERNAL_ERROR',
         details,
       });
@@ -316,15 +336,7 @@ export class ProcurementController {
         return rejectProcurementScope(res);
       }
 
-      const order = await prisma.$transaction(tx => createPurchaseOrder(tx, req.body));
-
-      await writeAuditLog({
-        req,
-        action: 'CREATE',
-        resource: 'purchase_order',
-        resourceId: order.id,
-        details: `创建采购单 ${order.id}`,
-      });
+      const order = await prisma.$transaction(tx => createPurchaseOrder(tx, req.body, req.user!.userId));
 
       return res.status(201).json({
         success: true,
@@ -355,6 +367,7 @@ export class ProcurementController {
         PURCHASE_ORDER_INVALID_DATE: '预计到货日期格式不正确',
         PURCHASE_ORDER_INVALID_STATUS: '采购单创建状态不正确',
         PURCHASE_ORDER_DIRECT_RECEIVE_NOT_ALLOWED: '采购入库必须通过收货动作完成，不能在创建时直接设为已收货',
+        PURCHASE_INDEPENDENT_APPROVAL_REQUIRED: '采购来源必须由另一位审批人确认，不能在创建时直接设为已审批或在途',
         SUPPLIER_NOT_FOUND: '供应商不存在',
         SALES_ORDER_NOT_FOUND: '关联销售订单不存在',
         SALES_ORDER_CANCELLED: '已取消销售订单不能关联采购单',
@@ -362,6 +375,7 @@ export class ProcurementController {
       return res.status(statusCode).json({
         success: false,
         message: messages[errorKey] || '创建采购单失败',
+        errorCode: error instanceof AppError ? errorKey : 'PURCHASE_INTERNAL_ERROR',
         details,
       });
     }
@@ -390,12 +404,26 @@ export class ProcurementController {
       ), include: { supplier: true, salesOrder: true } });
       if (!order) return res.status(404).json({ success: false, message: '采购单不存在' });
       const history = await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: order.id,
-        action: { in: ['REVISE', 'STATUS_CHANGE'] } }, orderBy: { id: 'desc' }, take: 100,
+        action: { in: ['CREATE', 'REVISE', 'CONFIRM_SOURCES', 'STATUS_CHANGE'] } }, orderBy: { id: 'desc' }, take: 100,
         select: { id: true, userId: true, action: true, details: true, createdAt: true } });
-      return res.json({ success: true, data: { purchaseOrder: mapPurchaseOrder(order), history } });
+      return res.json({ success: true, data: { purchaseOrder: mapPurchaseOrder(order), sourceState: await getPurchaseSourceState(prisma, order), history } });
     } catch (error) {
       logger.error('读取采购变更记录失败:', error);
       return res.status(500).json({ success: false, message: '读取采购变更记录失败' });
+    }
+  }
+
+  async confirmOrderSources(req: AuthRequest, res: Response) {
+    try {
+      if (!canViewProcurementOrders(req)) return rejectProcurementScope(res);
+      const order = await withDbRetry(() => prisma.$transaction(tx => confirmPurchaseSources(tx, Number(req.params.id), req.body, req.user!.userId)),
+        { label: 'confirmPurchaseOrderSources' });
+      return res.json({ success: true, data: mapPurchaseOrder(order), message: '采购来源已按新版本冻结，须由另一位审批人确认；原发运事实保留' });
+    } catch (error) {
+      logger.error('确认采购来源失败:', error);
+      return res.status(getProcurementErrorStatus(error)).json({ success: false,
+        message: error instanceof AppError ? sourceMessages[error.message] || error.message : '确认采购来源失败',
+        errorCode: error instanceof AppError ? error.message : 'PURCHASE_INTERNAL_ERROR', details: error instanceof AppError ? error.details : undefined });
     }
   }
 
@@ -445,7 +473,9 @@ export class ProcurementController {
       if (error instanceof AppError && error.message === PARTIAL_RECEIPT_ERROR) {
         return res.status(error.statusCode).json({ success: false, message: PARTIAL_RECEIPT_MESSAGE });
       }
-      return res.status(getProcurementErrorStatus(error)).json({ success: false, message: '服务器内部错误' });
+      return res.status(getProcurementErrorStatus(error)).json({ success: false,
+        message: error instanceof AppError ? sourceMessages[error.message] || error.message : '服务器内部错误',
+        errorCode: error instanceof AppError ? error.message : 'PURCHASE_INTERNAL_ERROR' });
     }
   }
 

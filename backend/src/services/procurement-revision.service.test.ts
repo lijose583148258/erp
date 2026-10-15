@@ -2,6 +2,8 @@ import { revisePurchaseOrder } from './procurement-revision.service';
 import { changePurchaseOrderStatus } from './procurement-status.service';
 import { revisePurchaseOrderSchema } from '../validators/procurement';
 import { purchaseGovernanceSnapshots } from '../domain/purchase-governance';
+import { mapPurchaseOrder } from './procurement-domain.service';
+import { purchaseSourceMetadata } from './procurement-source-confirmation.service';
 
 jest.mock('./material-release-readiness.service', () => ({ assertMaterialReleaseReadiness: jest.fn(async () => undefined) }));
 
@@ -14,13 +16,13 @@ const payload = () => ({ expectedRevision: 0, expectedUpdatedAt: original().upda
 function fixture() {
   const before = original();
   const after = { ...before };
-  const tx = { purchaseOrder: { findUnique: jest.fn(async () => before), updateMany: jest.fn(async (input: any) => {
+  const tx = { $executeRawUnsafe: jest.fn(async () => 1), purchaseOrder: { findUnique: jest.fn(async () => before), updateMany: jest.fn(async (input: any) => {
       const { revision, ...data } = input.data;
       Object.assign(after, data, revision ? { revision: before.revision + revision.increment } : {});
       return { count: 1 };
     }),
     findUniqueOrThrow: jest.fn(async () => after) }, purchaseReceipt: { count: jest.fn(async () => 0) },
-    auditLog: { create: jest.fn(async () => ({})) } };
+    auditLog: { create: jest.fn(async () => ({})), findMany: jest.fn(async (): Promise<any[]> => []) } };
   return { tx, before, after };
 }
 
@@ -39,6 +41,12 @@ function governedFixture() {
   const f = fixture();
   Object.assign(f.before, purchaseGovernanceSnapshots(orderBinding(f.before), payableTerms(), qualityPlan()));
   Object.assign(f.after, f.before);
+  const source = { id: 10, userId: 8, resource: 'purchase_order', resourceId: 1, action: 'CREATE',
+    details: JSON.stringify({ schema: 'purchase-create/v1', after: mapPurchaseOrder({ ...f.before, status: 'pending' }), source: purchaseSourceMetadata(f.before) }) };
+  const approval = { id: 11, userId: 9, resource: 'purchase_order', resourceId: 1, action: 'STATUS_CHANGE',
+    details: JSON.stringify({ schema: 'purchase-status/v2', revision: 0, from: 'pending', to: 'approved', isSourceApproval: true,
+      sourceAuditId: 10, supplierPayableHash: purchaseSourceMetadata(f.before).supplierPayableHash, incomingQualityHash: purchaseSourceMetadata(f.before).incomingQualityHash }) };
+  f.tx.auditLog.findMany.mockImplementation(async (args?: any) => args?.where.action === 'STATUS_CHANGE' ? [approval] : [source]);
   return f;
 }
 
@@ -93,14 +101,14 @@ describe('purchase revisions', () => {
     }
   });
   it('approval losing its lock to an edit cannot retry against the new revision', async () => {
-    const { tx, before } = fixture(); before.status = 'pending';
+    const { tx, before } = governedFixture(); before.status = 'pending';
     tx.purchaseOrder.updateMany.mockResolvedValue({ count: 0 });
     tx.purchaseOrder.findUnique.mockResolvedValueOnce(before).mockResolvedValueOnce({ ...before, revision: 1 });
-    await expect(changePurchaseOrderStatus(tx as any, { purchaseOrderId: 1, nextStatus: 'approved', expectedRevision: 0 })).rejects.toMatchObject({ statusCode: 409 });
+    await expect(changePurchaseOrderStatus(tx as any, { purchaseOrderId: 1, nextStatus: 'approved', expectedRevision: 0, createdBy: 9 })).rejects.toMatchObject({ statusCode: 409 });
     expect(tx.purchaseOrder.updateMany).toHaveBeenCalledTimes(1);
   });
   it('idempotent status requests do not generate extra audit rows', async () => {
-    const { tx } = fixture();
+    const { tx } = governedFixture();
     await changePurchaseOrderStatus(tx as any, { purchaseOrderId: 1, nextStatus: 'approved', expectedRevision: 0, createdBy: 9 });
     expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled(); expect(tx.auditLog.create).not.toHaveBeenCalled();
   });

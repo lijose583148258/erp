@@ -3,6 +3,22 @@ const path = require('node:path');
 const assert = require('node:assert/strict');
 const { performance } = require('node:perf_hooks');
 
+function publishRound2Report(reportPath, report, { io = fs, platform = process.platform,
+  wait = ms => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms) } = {}) {
+  io.mkdirSync(path.dirname(reportPath), { recursive: true });
+  const temp = `${reportPath}.${process.pid}.tmp`;
+  io.writeFileSync(temp, `${JSON.stringify(report, null, 2)}\n`);
+  // Windows readers/scanners can briefly hold a rename lease. Keep the last
+  // complete report intact; retry only publication, never a business command.
+  for (let attempt = 0; ; attempt++) {
+    try { io.renameSync(temp, reportPath); return; }
+    catch (error) {
+      if (platform !== 'win32' || !['EPERM', 'EACCES', 'EBUSY'].includes(error.code) || attempt >= 4) throw error;
+      wait(25 * (attempt + 1));
+    }
+  }
+}
+
 function validateCatalog(catalog) {
   assert.equal(catalog.roles.reduce((sum, role) => sum + role.count, 0), 20, 'Exactly 20 workforce positions are required');
   assert.equal(catalog.chains.length, 12, 'Exactly 12 business chains are required');
@@ -51,10 +67,12 @@ function createRound2Runner({ catalog, reportPath, metadata = {} }) {
   const save = () => {
     report.summary = summarize(report, catalog);
     report.status = report.summary.status;
-    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-    const temp = `${reportPath}.${process.pid}.tmp`;
-    fs.writeFileSync(temp, `${JSON.stringify(report, null, 2)}\n`);
-    fs.renameSync(temp, reportPath);
+    publishRound2Report(reportPath, report);
+    if (process.connected && typeof process.send === 'function') process.send({
+      type: 'enterprise-round2-progress/v1', key: report.metadata.supervisionKey,
+      checks: report.checks.map(({ id, status, timeoutMs, startedAt, finishedAt }) => ({ id, status, timeoutMs, startedAt, finishedAt })),
+      finishedAt: report.finishedAt || null,
+    }, () => {});
   };
   const run = async (id, action, { timeoutMs = 60_000 } = {}) => {
     const check = report.checks.find(item => item.id === id);
@@ -121,4 +139,4 @@ async function synchronizedBurst(actors, action, signal) {
   return Promise.all(promises);
 }
 
-module.exports = { validateCatalog, summarize, createRound2Runner, synchronizedBurst };
+module.exports = { validateCatalog, summarize, createRound2Runner, synchronizedBurst, publishRound2Report };

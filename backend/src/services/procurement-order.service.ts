@@ -6,8 +6,8 @@ import {
 } from './procurement-domain.service';
 import type { TransactionClient } from './stock-movement.service';
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
-import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 import { purchaseGovernanceSnapshots } from '../domain/purchase-governance';
+import { purchaseSourceMetadata } from './procurement-source-confirmation.service';
 
 export interface CreatePurchaseOrderInput {
   supplierId?: unknown;
@@ -33,7 +33,7 @@ export interface CreatePurchaseOrderInput {
   incomingQualityPlan?: unknown;
 }
 
-const CREATE_ALLOWED_STATUSES = new Set(['pending', 'approved', 'in_transit', 'cancelled']);
+const CREATE_ALLOWED_STATUSES = new Set(['pending', 'cancelled']);
 
 function toPositiveInteger(value: unknown, code: string) {
   const parsed = Number(value);
@@ -96,13 +96,17 @@ function normalizeCreateStatus(value: unknown) {
   if (status === 'received') {
     throw new AppError('PURCHASE_ORDER_DIRECT_RECEIVE_NOT_ALLOWED', 409, ErrorCode.CONFLICT);
   }
+  if (['approved', 'in_transit'].includes(status)) {
+    throw new AppError('PURCHASE_INDEPENDENT_APPROVAL_REQUIRED', 409, ErrorCode.CONFLICT);
+  }
   if (!CREATE_ALLOWED_STATUSES.has(status)) {
     throw new AppError('PURCHASE_ORDER_INVALID_STATUS', 400, ErrorCode.VALIDATION_ERROR, { status });
   }
   return status;
 }
 
-export async function createPurchaseOrder(tx: TransactionClient, input: CreatePurchaseOrderInput) {
+export async function createPurchaseOrder(tx: TransactionClient, input: CreatePurchaseOrderInput, actorId: number) {
+  if (!Number.isSafeInteger(actorId) || actorId <= 0) throw new AppError('PURCHASE_SOURCE_ACTOR_REQUIRED', 403, ErrorCode.FORBIDDEN);
   const supplierId = toPositiveInteger(input.supplierId, 'PURCHASE_ORDER_INVALID_SUPPLIER_ID');
   const requestedItem = toRequiredText(input.item, 'PURCHASE_ORDER_INVALID_ITEM');
   const quantity = toRequiredPositiveNumber(input.quantity, 'PURCHASE_ORDER_INVALID_QUANTITY');
@@ -126,19 +130,6 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
     productName: requestedItem,
     unit: requestedUnit,
   });
-  if (!['pending', 'cancelled'].includes(initialStatus)) {
-    await assertMaterialReleaseReadiness(tx, {
-      entityType: 'purchase_order',
-      action: 'create_approved',
-      lines: [{
-        lineKey: 'new',
-        rowNumber: 1,
-        materialId: materialIdentity.materialId,
-        displayName: materialIdentity.productName,
-        unit: materialIdentity.unit,
-      }],
-    });
-  }
 
   const supplier = await tx.supplier.findUnique({ where: { id: supplierId } });
   if (!supplier) {
@@ -176,7 +167,7 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
     unit: materialIdentity.unit, quantity, price, currency: valuation.currency, exchangeRate: valuation.exchangeRate },
   input.supplierPayableTerms, input.incomingQualityPlan);
 
-  return tx.purchaseOrder.create({
+  const order = await tx.purchaseOrder.create({
     data: {
       supplierId,
       materialId: materialIdentity.materialId,
@@ -203,4 +194,7 @@ export async function createPurchaseOrder(tx: TransactionClient, input: CreatePu
     },
     include: { supplier: true, salesOrder: true },
   });
+  await tx.auditLog.create({ data: { userId: actorId, action: 'CREATE', resource: 'purchase_order', resourceId: order.id,
+    details: JSON.stringify({ schema: 'purchase-create/v1', after: order, source: purchaseSourceMetadata(order) }) } });
+  return order;
 }

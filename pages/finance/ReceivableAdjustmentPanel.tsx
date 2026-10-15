@@ -105,6 +105,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
   const canCreate = can(currentUser, 'adjustments.write');
   const canPost = can(currentUser, 'adjustments.apply');
   const canReverse = can(currentUser, 'adjustments.reverse');
+  const canReadOrders = can(currentUser, 'orders.read');
   const [activeAdjustmentDesk, setActiveAdjustmentDesk] = useState<AdjustmentDeskTab>('voucher');
   const [reverseRecord, setReverseRecord] = useState<ReceivableAdjustmentRecord | null>(null);
 
@@ -113,7 +114,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
     try {
       const [adjustmentResult, orderResult] = await Promise.all([
         receivableAdjustmentService.getAll({ page: 1, pageSize: 30 }),
-        orderService.getAll(),
+        canReadOrders ? orderService.getAll() : Promise.resolve([]),
       ]);
       setRecords(adjustmentResult.data);
       setOrders(orderResult);
@@ -122,7 +123,7 @@ const ReceivableAdjustmentPanel: React.FC<Props> = ({ onChanged }) => {
     } finally {
       setLoading(false);
     }
-  }, [notify]);
+  }, [canReadOrders, notify]);
 
   useEffect(() => {
     void loadData();

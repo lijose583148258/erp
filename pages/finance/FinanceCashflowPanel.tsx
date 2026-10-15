@@ -47,6 +47,9 @@ const FinanceCashflowPanel: React.FC<FinanceCashflowPanelProps> = ({ data }) => 
           <p className="text-xs font-bold text-slate-600 tracking-wide mt-2">
             {t.cashflowSub || '已过账回款与调整影响'}
           </p>
+          <p data-testid="finance-cashflow-scope" className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
+            范围：客户回款与应收调整；不含供应商外部付款登记，不代表公司完整银行流水或总账净现金流。
+          </p>
         </div>
         <button
           onClick={handleExport}

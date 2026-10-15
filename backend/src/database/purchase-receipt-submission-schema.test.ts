@@ -57,6 +57,7 @@ describe('additive durable purchase receipt submission schema', () => {
       CREATE TABLE users(id INTEGER PRIMARY KEY);
       CREATE TABLE purchase_orders(id INTEGER PRIMARY KEY);
       CREATE TABLE shipments(id INTEGER PRIMARY KEY);
+      CREATE TABLE product_batches(id INTEGER PRIMARY KEY);
       INSERT INTO users VALUES(5); INSERT INTO purchase_orders VALUES(1),(2);`);
     (prisma.$queryRawUnsafe as jest.Mock).mockImplementation(async (sql: string, ...args: unknown[]) => db.prepare(sql).all(...args));
     (prisma.$executeRawUnsafe as jest.Mock).mockImplementation(async (sql: string, ...args: unknown[]) => {
@@ -132,7 +133,9 @@ describe('additive durable purchase receipt submission schema', () => {
     insertReceipt(1, 1, 'conflicting-key'); insertReceipt(2, 1, 'conflicting-key');
     const prior = db.prepare('SELECT * FROM purchase_receipts ORDER BY id').all();
     await expect(repair()).rejects.toThrow(/UNIQUE constraint failed/);
-    expect(db.prepare('SELECT * FROM purchase_receipts ORDER BY id').all()).toEqual(prior);
+    const after = db.prepare('SELECT * FROM purchase_receipts ORDER BY id').all();
+    expect(after.map(row => Object.fromEntries(Object.keys(prior[0]).map(column => [column, row[column]])))).toEqual(prior);
+    for (const row of after) for (const column of Object.keys(row).filter(column => !(column in prior[0]))) expect(row[column]).toBeNull();
     expect(db.prepare('PRAGMA integrity_check').get()).toEqual({ integrity_check: 'ok' });
   });
 
