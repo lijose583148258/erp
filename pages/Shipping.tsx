@@ -9,6 +9,7 @@ import ShippingLogisticsPanel from './shipping/ShippingLogisticsPanel';
 import ShippingAssetModal from './shipping/ShippingAssetModal';
 import ShippingAssetsPanel from './shipping/ShippingAssetsPanel';
 import { useShipping } from './shipping/useShipping';
+import ShipmentSupplementDialog from './shipping/ShipmentSupplementDialog';
 
 type ShippingDeskTab = 'logistics' | 'receipts' | 'ocr' | 'assets' | 'principle';
 
@@ -23,6 +24,7 @@ const Shipping = () => {
         t,
     } = state;
     const [activeDesk, setActiveDesk] = React.useState<ShippingDeskTab>('logistics');
+    const [supplementId, setSupplementId] = React.useState<string | null>(null);
 
     const shippingDeskCopy = React.useMemo(() => {
         if (state.language === 'en') {
@@ -206,6 +208,9 @@ const Shipping = () => {
 
         return (
             <>
+                {canWriteShipping && <button type="button" data-testid={`shipment-supplement-${row.id}`} onClick={event => { event.stopPropagation(); setSupplementId(row.id); }}
+                    className="inline-flex min-h-8 items-center justify-center rounded-xl border border-slate-200 px-2.5 text-xs font-bold dark:border-slate-700">
+                    {state.language === 'en' ? 'Supply details' : state.language === 'vi' ? 'Bổ sung' : '补录资料'}</button>}
                 {row.status === 'pending' && canWriteShipping ? (
                     <button
                         type="button"
@@ -250,10 +255,11 @@ const Shipping = () => {
                 ) : null}
             </>
         );
-    }, [canWriteShipping, handleFileUpload, handleOpenReceiptEvents, handleShipmentStatusUpdate, t]);
+    }, [canWriteShipping, handleFileUpload, handleOpenReceiptEvents, handleShipmentStatusUpdate, t, state.language]);
 
     return (
         <div className="space-y-6">
+            {supplementId && <ShipmentSupplementDialog key={supplementId} shipmentId={supplementId} canWrite={canWriteShipping} onClose={() => setSupplementId(null)} onSaved={() => { void state.loadData(); }} />}
             <input data-testid="shipment-receipt-input" type="file" ref={state.fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={state.onFileChange} />
 
             <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
@@ -331,6 +337,9 @@ const Shipping = () => {
                     onImageUpload={state.handleOcrImageUpload}
                     onParse={state.handleOcrParse}
                     onApply={state.handleApplyOcr}
+                    pendingShipment={state.pendingShipment}
+                    isShipmentSubmitting={state.isShipmentSubmitting}
+                    shipmentStorageError={state.shipmentStorageError}
                     onRemoveImage={state.removeOcrImage}
                     onSelectImage={state.selectImage}
                     onClearAll={state.clearAllImages}
@@ -358,6 +367,7 @@ const Shipping = () => {
                 <>
                     <ShippingLogisticsPanel
                         t={state.t}
+                        language={state.language}
                         shipments={state.shipments}
                         laneStats={state.laneStats}
                         coldChainSeries={state.coldChainSeries}

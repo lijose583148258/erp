@@ -83,7 +83,9 @@ async function purchaseQualityPayablesBrowser({ request, dataOf, prisma, runId, 
     assert.equal(dialogCount, 0); assert(unobscured, `${job} panel is obscured`); await page.screenshot({ path: screenshot, fullPage: true });
     const amounts = ['recorder', 'verifier'].includes(job) ? await page.getByTestId('supplier-payment-amounts').locator(':scope > div').evaluateAll(rows =>
       rows.map(row => ({ label: row.querySelector('dt')?.innerText || '', text: (row.querySelector('dd')?.innerText || '').replace(/\s+/g, ' ').trim() }))) : null;
-    return { job, actorId: people[job].id, instance: ['qa', 'verifier'].includes(job) ? 1 : 0, text, amounts, font, screenshot, dialogCount, unobscured };
+    const amountsScreenshot = amounts ? path.join(folder, `${name}-amounts.png`) : null;
+    if (amountsScreenshot) await page.getByTestId('supplier-payment-amounts').screenshot({ path: amountsScreenshot });
+    return { job, actorId: people[job].id, instance: ['qa', 'verifier'].includes(job) ? 1 : 0, text, amounts, amountsScreenshot, font, screenshot, dialogCount, unobscured };
   };
   try {
     for (const [job, definition] of Object.entries(definitions)) {

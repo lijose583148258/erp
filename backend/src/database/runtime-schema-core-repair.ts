@@ -5,6 +5,23 @@ import {
   SchemaRepairReport,
 } from './runtime-schema-repair-utils';
 
+export const repairShipmentSubmissionSchema = async (report: SchemaRepairReport) => {
+  // Legacy shipments have no provable request identity; never invent one.
+  await addColumnIfMissing(report, 'shipments', 'submission_key', 'TEXT');
+  await addColumnIfMissing(report, 'shipments', 'submission_fingerprint', 'TEXT');
+  await addColumnIfMissing(report, 'shipments', 'submission_json', 'TEXT');
+  await createIndexIfMissing(report, 'shipments_submission_key_key', 'CREATE UNIQUE INDEX "shipments_submission_key_key" ON "shipments"("submission_key")');
+};
+
+export const repairShipmentReservationSchema = async (report: SchemaRepairReport) => {
+  await addColumnIfMissing(report, 'shipments', 'reservation_balance_id', 'INTEGER REFERENCES "stock_balances"("id") ON DELETE RESTRICT ON UPDATE CASCADE');
+  await addColumnIfMissing(report, 'shipments', 'reservation_quantity', 'REAL');
+  await addColumnIfMissing(report, 'shipments', 'reservation_state', 'TEXT');
+  await addColumnIfMissing(report, 'shipments', 'reservation_audit_id', 'INTEGER');
+  await createIndexIfMissing(report, 'shipments_reservation_balance_id_reservation_state_idx',
+    'CREATE INDEX "shipments_reservation_balance_id_reservation_state_idx" ON "shipments"("reservation_balance_id", "reservation_state")');
+};
+
 export const repairCoreSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'orders', 'locked_exchange_rate', 'REAL');
   await addColumnIfMissing(report, 'orders', 'base_amount', 'REAL');
@@ -49,6 +66,8 @@ export const repairCoreSchema = async (report: SchemaRepairReport) => {
   await addColumnIfMissing(report, 'suppliers', 'contacts_json', 'TEXT');
   await addColumnIfMissing(report, 'suppliers', 'addresses_json', 'TEXT');
   await addColumnIfMissing(report, 'shipments', 'signed_receipt_url', 'TEXT');
+  await repairShipmentSubmissionSchema(report);
+  await repairShipmentReservationSchema(report);
 
   await addColumnIfMissing(report, 'purchase_orders', 'currency', `TEXT NOT NULL DEFAULT 'CNY'`);
   await addColumnIfMissing(report, 'purchase_orders', 'revision', 'INTEGER NOT NULL DEFAULT 0');

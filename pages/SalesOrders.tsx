@@ -16,6 +16,7 @@ import SalesOrderShipmentModal from './sales-orders/SalesOrderShipmentModal';
 import SalesFulfillmentPlanModal from './sales-orders/SalesFulfillmentPlanModal';
 import SalesOrderCancellationModal from './sales-orders/SalesOrderCancellationModal';
 import { getEligibleShipmentLines } from './sales-orders/salesOrderShipmentHelpers';
+import { hasShipmentIntent } from '../services/shipmentSubmissionIntent';
 import CollectionActionModal from '../components/collections/CollectionActionModal';
 import { OrderStatus, CommissionStatus, type SalesOrder } from '../types';
 import { useAppContext } from '../app/AppContext';
@@ -354,7 +355,7 @@ const SalesOrders = () => {
                                 )}
                             </>
                         )}
-                        {showFulfillmentActions && can(currentUser, 'shipping.write') && getEligibleShipmentLines(order).length > 0 && (
+                        {showFulfillmentActions && can(currentUser, 'shipping.write') && (getEligibleShipmentLines(order).length > 0 || hasShipmentIntent(String(currentUser.id), `order:${order.id}`)) && (
                             <button type="button" data-testid={`sales-order-ship-${makeSalesOrderTestId(order.id)}`} aria-label={t.quickShip || '快速发货'} onClick={(e) => { e.stopPropagation(); state.handleQuickShip(order); }} className="min-h-11 min-w-11 p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-100" title={t.quickShip || '快速发货'}>
                                 <Truck size={16} />
                             </button>

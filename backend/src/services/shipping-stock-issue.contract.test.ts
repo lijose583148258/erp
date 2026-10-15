@@ -19,6 +19,8 @@ describe('presale dispatch shortage', () => {
   beforeEach(() => jest.clearAllMocks());
   const shipment = { shipmentNo: 'PRESALE-50', productName: 'Resin', materialId: 7, quantity: 50, unit: 'kg' };
   const client = () => ({ stockEntry: { findFirst: jest.fn().mockResolvedValue(null) },
+    shipment: { findUnique: jest.fn().mockResolvedValue({ id: 99, ...shipment, reservationState: null,
+      reservationBalanceId: null, reservationQuantity: null, reservationAuditId: null }) },
     location: { findFirst: jest.fn().mockResolvedValue({ id: 1 }) }, stockBalance: { findFirst: jest.fn().mockResolvedValue(null) },
     productBatch: { findFirst: jest.fn().mockResolvedValue({ qualityStatus: 'released' }) } });
 

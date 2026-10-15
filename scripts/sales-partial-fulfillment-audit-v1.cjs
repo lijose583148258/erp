@@ -203,6 +203,18 @@ async function main(){
   if(!source){const warehouse=dataOf(await request('/warehouses',{method:'POST',data:{code:runId,name:runId,type:'physical'}}));source=dataOf(await request(`/warehouses/${warehouse.id}/locations`,{method:'POST',data:{code:'LOC-FG',name:runId,type:'internal'}}));}
   const batchNo=`${runId}-batch`;
   dataOf(await request('/warehouses/stock-balances',{method:'POST',data:{locationId:Number(source.id),materialId:material.id,productName:material.nameZh,batchNo,quantity:40,unit:'kg',unitCost:10,sourceRef:runId,reason:'isolated partial fulfillment reproduction'}}));
+  if (process.env.ROUND2_SHIPMENT_SUPPLEMENT === 'true') {
+    report.scope = 'Late cross-border shipment information diagnostic; not original20 workforce acceptance';
+    await require('./lib/sales-shipment-supplement-probe.cjs').probeShipmentSupplement({ prisma, request, dataOf, order, original, material, customer, batchNo,
+      runId, password, urls, salesToken: salesLogin.token, adminToken, onLogin: value => { token = value; } }, report);
+    report.status = 'passed'; report.summary = { passedChecks: 1, failedChecks: 0, remainingChecks: 0 }; return;
+  }
+  if (process.env.ROUND2_STOCK_RESERVATION === 'true') {
+    report.scope = 'Released physical stock reservation contention and shared outbound guard; not original20 workforce acceptance';
+    await require('./lib/sales-physical-reservation-probe.cjs').probePhysicalReservation({ prisma, request, dataOf, order, original, material, customer, batchNo,
+      runId, password, urls, salesToken: salesLogin.token, adminToken, onLogin: value => { token = value; } }, report);
+    report.status = 'passed'; report.summary = { passedChecks: 1, failedChecks: 0, remainingChecks: 0 }; return;
+  }
   if (process.env.ROUND2_SHIPMENT_SUBMISSION === 'true') {
     report.scope = 'Actual Shipment unknown-ACK/reload and atomic audit diagnostic; not original full reservation or workforce acceptance';
     await require('./lib/sales-shipment-submission-probe.cjs').probeShipmentSubmission({ prisma, request, dataOf, order, original, material, customer, batchNo,

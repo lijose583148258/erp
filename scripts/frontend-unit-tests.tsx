@@ -53,6 +53,8 @@ import { readStringArrayPreference } from '../components/ui/tablePreferences';
 import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
 import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
 import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
+import { mapShipment, shipmentTemperatureSamples } from '../services/shipmentReadModel';
+import { shipmentOccurrenceChoices } from '../services/shipmentOccurrence';
 import { loadBarterReferenceData } from '../pages/barter/loadBarterReferenceData';
 import { BarterAgreementList } from '../pages/barter/BarterAgreementList';
 import { BarterLedgerPanel } from '../pages/barter/BarterLedgerPanel';
@@ -71,6 +73,31 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'unknown cross-border logistics facts are not replaced with demo batch, route or temperature',
+    run: () => {
+      const unknown = mapShipment({ id: 1, quantity: 30, batchNo: null, route: null, temperature: null });
+      assert.equal(unknown.batchNo, undefined); assert.equal(unknown.route, undefined);
+      assert.equal(unknown.temperature, undefined); assert.equal(unknown.isColdChain, undefined);
+      const known = mapShipment({ id: 2, batchNo: 'REAL', temperature: 0, isColdChain: false, route: 'CN -> VN' });
+      assert.equal(known.batchNo, 'REAL'); assert.equal(known.temperature, 0); assert.equal(known.isColdChain, false); assert.equal(known.route, 'CN -> VN');
+      assert.deepEqual(shipmentTemperatureSamples({ ...unknown, isColdChain: true }), []);
+      assert.deepEqual(shipmentTemperatureSamples({ ...known, isColdChain: true }), [0], 'A single real reading cannot turn into twelve fabricated temperature points');
+    },
+  },
+  {
+    name: 'foreign wall time resolves by event zone, not browser zone; DST ambiguity is explicit and unknown stays unknown',
+    run: () => {
+      assert.deepEqual(shipmentOccurrenceChoices('', 'Asia/Ho_Chi_Minh'), []);
+      const vietnam = shipmentOccurrenceChoices('2026-10-14T23:30', 'Asia/Ho_Chi_Minh');
+      const china = shipmentOccurrenceChoices('2026-10-15T00:30', 'Asia/Shanghai');
+      assert.equal(vietnam[0].occurredAt, '2026-10-14T23:30:00+07:00'); assert.equal(Date.parse(vietnam[0].occurredAt), Date.parse(china[0].occurredAt));
+      assert.deepEqual(shipmentOccurrenceChoices('2026-03-08T02:30', 'America/New_York'), []);
+      assert.deepEqual(shipmentOccurrenceChoices('2026-11-01T01:30', 'America/New_York').map(choice => choice.occurredAt),
+        ['2026-11-01T01:30:00-04:00', '2026-11-01T01:30:00-05:00']);
+      assert.throws(() => shipmentOccurrenceChoices('2026-02-30T12:00', 'Asia/Shanghai'));
+    },
+  },
   {
     name: 'committed root shell removes bootstrap overlay without depending on app-shell.js',
     run: async () => {
@@ -274,7 +301,7 @@ const tests: FrontendUnitTest[] = [
       for (const quantity of ['0', '-1', '3', 'NaN', 'Infinity', '']) {
         assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, quantity }));
       }
-      assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, batchNo: '' }));
+      assert.equal(buildSalesOrderShipmentPayload(order, { ...draft, batchNo: '' }).batchNo, undefined, 'A draft must not invent a batch or block on late information');
       assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, orderItemId: '99' }));
       order.fulfillment.lines[1].unallocatedQuantity = 0;
       assert.deepEqual(getEligibleShipmentLines(order).map(line => line.orderItemId), [11]);
@@ -376,7 +403,10 @@ const tests: FrontendUnitTest[] = [
       assert.ok(hookSource.includes('if (!ocrMaterial)'));
       assert.ok(hookSource.includes('materialId: String(ocrMaterial.id)'));
       assert.ok(panelSource.includes('dataTestId="shipping-ocr-material-input"'));
-      assert.ok(panelSource.includes('disabled={!ocrMaterial}'));
+      assert.ok(panelSource.includes('disabled={!ocrMaterial || Boolean(pendingShipment) || isShipmentSubmitting || Boolean(shipmentStorageError)}'));
+      assert.ok(hookSource.includes('prepareShipmentIntent(localStorage, actor'));
+      assert.ok(hookSource.includes('confirmShipmentSubmission(intent, result)'));
+      assert.ok(!hookSource.includes('shipmentService.create(payload)'));
       assert.ok(auditSource.includes("selectMaterialCombobox(page, 'shipping-ocr-material-input'"));
     },
   },

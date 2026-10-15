@@ -16,7 +16,7 @@ function fixture() {
     (resolveShipmentIdentity as jest.Mock).mockResolvedValue({ orderId: 2, orderItemId: 3, materialId: 4, productName: 'Resin', unit: 'kg', batchNo: 'LOT-1' });
     (canManageShipping as jest.Mock).mockReturnValue(true);
     (getShipmentDetail as jest.Mock).mockResolvedValue(created);
-    const req: any = { user: { userId: 8 }, body: { customerId: 1, orderId: 2, orderItemId: 3, quantity: 40, unit: 'kg' }, ip: '127.0.0.1', get: jest.fn(() => 'test-client') };
+    const req: any = { user: { userId: 8 }, body: { customerId: 1, orderId: 2, orderItemId: 3, quantity: 40, unit: 'kg' }, ip: '127.0.0.1', get: jest.fn(name => name === 'user-agent' ? 'test-client' : undefined) };
     const res: any = { status: jest.fn().mockReturnThis(), json: jest.fn().mockReturnThis() };
     return { created, tx, req, res, controller: new ShippingController() };
 }

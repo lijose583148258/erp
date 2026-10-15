@@ -2,6 +2,7 @@
 import { Box, Camera, CheckCircle, Image as ImageIcon, Plus, X } from 'lucide-react';
 import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 import type { MaterialMaster } from '../../services/material.service';
+import type { ShipmentIntent } from '../../services/shipmentSubmissionIntent';
 
 type Props = {
   t: Record<string, string>;
@@ -21,6 +22,9 @@ type Props = {
   onImageUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onParse: () => void;
   onApply: () => void;
+  pendingShipment?: ShipmentIntent | null;
+  isShipmentSubmitting?: boolean;
+  shipmentStorageError?: string;
   onRemoveImage: (index: number) => void;
   onSelectImage: (index: number) => void;
   onClearAll: () => void;
@@ -46,6 +50,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
   onImageUpload,
   onParse,
   onApply,
+  pendingShipment, isShipmentSubmitting, shipmentStorageError,
   onRemoveImage,
   onSelectImage,
   onClearAll,
@@ -81,6 +86,12 @@ const ShippingOcrPanel: React.FC<Props> = ({
         </div>
       </div>
 
+      {shipmentStorageError && <p role="alert" className="mb-4 rounded-xl bg-rose-50 p-3 text-rose-800">{shipmentStorageError}</p>}
+      {pendingShipment && <div data-testid="shipping-ocr-original-request" role="status" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-900">
+        <p>原发货结果尚未确认，禁止另建。{pendingShipment.facts.productName} · {pendingShipment.facts.quantity} {pendingShipment.facts.unit} · {pendingShipment.facts.batchNo || '未指定批号'}</p>
+        <button type="button" data-testid="shipping-ocr-recover" onClick={onApply} disabled={isShipmentSubmitting}
+          className="mt-2 min-h-11 rounded-xl border border-amber-400 px-3 font-bold disabled:opacity-50">确认原发货请求</button>
+      </div>}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div className="space-y-4">
           <div data-testid="shipping-ocr-upload-card" onClick={() => fileInputRef.current?.click()} className={uploadCardClass}>
@@ -263,7 +274,7 @@ const ShippingOcrPanel: React.FC<Props> = ({
               <button
                 data-testid="shipping-ocr-apply-button"
                 onClick={onApply}
-                disabled={!ocrMaterial}
+                disabled={!ocrMaterial || Boolean(pendingShipment) || isShipmentSubmitting || Boolean(shipmentStorageError)}
  className="w-full py-3 bg-emerald-500 text-white rounded-xl text-xs font-black uppercase tracking-widest shadow-lg shadow-emerald-100 dark:shadow-none hover:bg-emerald-600 transition-colors duration-150 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none motion-reduce:transition-none dark:disabled:bg-slate-700"
               >
                 {ocrMaterial ? t.ocrApply : '请先确认统一物料'}

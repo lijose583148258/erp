@@ -4,12 +4,13 @@ import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
-import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
 import { StockMovementConflictError } from '../services/stock-movement.errors';
-import { resolveShipmentIdentity } from '../services/shipment-material-identity';
+import { createShipmentDraft, findShipmentSubmission, shipmentSubmissionKey, ShipmentSubmissionError } from '../services/shipment-submission.service';
+import { changeShipmentReservation, getShipmentReservation, releasePendingShipmentReservation } from '../services/shipment-stock-reservation.service';
+import { readShipmentSupplement, supplementShipment } from '../services/shipment-supplement.service';
 import { claimShipmentDispatchOrder } from '../services/shipment-order-guard.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { createShippingReceiptEvent } from './shipping-receipt-event.controller';
@@ -35,8 +36,59 @@ const resolveShipmentStatusCode = (message: string) => {
     if (message.startsWith('SHIPMENT_') || message.startsWith('STOCK_MATERIAL_')) return 409;
     return 500;
 };
+async function changeReservation(req: AuthRequest, res: Response, action: 'reserve' | 'release') {
+    try {
+        if (!canManageShipping(req)) return res.status(403).json({ success: false, message: '无权预留或释放实物库存' });
+        const result = await changeShipmentReservation(Number(req.params.id), action, req.body, req.user!.userId);
+        return res.status(result.replayed ? 200 : 201).json({ success: true, data: result });
+    } catch (error) {
+        logger.error('实物预留操作失败:', error);
+        if (error instanceof AppError) return res.status(error.statusCode).json({ success: false, errorCode: error.message, message: error.message, details: error.details });
+        const message = error instanceof Error ? error.message : 'SHIPMENT_RESERVATION_FAILED';
+        return res.status(error instanceof StockMovementConflictError ? 409 : 500).json({ success: false, errorCode: message, message });
+    }
+}
 
 export class ShippingController {
+    async readSupplement(req: AuthRequest, res: Response) {
+        try {
+            const shipment = await prisma.shipment.findUnique({ where: { id: Number(req.params.id) }, include: {
+                customer: { select: { salespersonId: true, poolState: true, segment: true } }, order: { select: { createdBy: true } },
+            } });
+            if (!shipment || !canReadShipment(req, shipment, { includeWarehouseAll: true })) return res.status(404).json({ success: false, message: '发货单不存在' });
+            const result = await readShipmentSupplement(shipment.id);
+            return res.json({ success: true, data: { ...result, shipment: mapShipmentRecord(result.shipment) } });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'SHIPMENT_SUPPLEMENT_FAILED';
+            return res.status(error instanceof StockMovementConflictError ? 409 : 500).json({ success: false, message, errorCode: message });
+        }
+    }
+    async supplement(req: AuthRequest, res: Response) {
+        try {
+            if (!canManageShipping(req)) return res.status(403).json({ success: false, message: '无权补录发货资料' });
+            const result = await supplementShipment(Number(req.params.id), req.body, req.user!.userId);
+            return res.json({ success: true, data: { ...result, shipment: mapShipmentRecord(result.shipment) } });
+        } catch (error) {
+            logger.error('补录发货资料失败:', error);
+            const message = error instanceof Error ? error.message : 'SHIPMENT_SUPPLEMENT_FAILED';
+            return res.status(error instanceof StockMovementConflictError ? (message.endsWith('_NOT_FOUND') ? 404 : 409) : 500)
+                .json({ success: false, message, errorCode: message });
+        }
+    }
+    async reserveStock(req: AuthRequest, res: Response) { return changeReservation(req, res, 'reserve'); }
+    async releaseStock(req: AuthRequest, res: Response) { return changeReservation(req, res, 'release'); }
+    async readReservation(req: AuthRequest, res: Response) {
+        try {
+            const shipment = await prisma.shipment.findUnique({ where: { id: Number(req.params.id) }, include: {
+                customer: { select: { salespersonId: true, poolState: true, segment: true } }, order: { select: { createdBy: true } },
+            } });
+            if (!shipment || !canReadShipment(req, shipment, { includeWarehouseAll: true })) return res.status(404).json({ success: false, message: '发货单不存在' });
+            return res.json({ success: true, data: await getShipmentReservation(shipment.id) });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'SHIPMENT_RESERVATION_FAILED';
+            return res.status(error instanceof StockMovementConflictError ? 409 : 500).json({ success: false, errorCode: message, message });
+        }
+    }
     async getShipments(req: AuthRequest, res: Response) {
         try {
             const { page = 1, pageSize = 20, status, customerId, orderId } = req.query;
@@ -87,59 +139,13 @@ export class ShippingController {
                 return res.status(403).json({ success: false, message: '无权创建或推进出货物流' });
             }
 
-            const { customerId, orderId, orderItemId, materialId, productName, quantity, unit = '件', packageType, carrier, trackingNo, batchNo } = req.body;
-            const normalizedOrderId = orderId ? Number(orderId) : null;
-
-            const shipmentNo = buildBusinessNo('SHP');
-
-            const shipment = await withDbRetry(() => prisma.$transaction(async (tx) => {
-                const identity = await resolveShipmentIdentity(tx, {
-                    customerId: Number(customerId),
-                    orderId: normalizedOrderId,
-                    orderItemId: orderItemId ? Number(orderItemId) : null,
-                    materialId: materialId ? Number(materialId) : null,
-                    productName,
-                    quantity: Number(quantity),
-                    unit,
-                    batchNo: batchNo || null,
-                });
-                const created = await tx.shipment.create({ data: {
-                    shipmentNo,
-                    customerId: Number(customerId),
-                    orderId: identity.orderId,
-                    orderItemId: identity.orderItemId,
-                    materialId: identity.materialId,
-                    productBatchId: identity.productBatchId,
-                    productName: identity.productName,
-                    quantity,
-                    unit: identity.unit,
-                    packageType,
-                    carrier,
-                    trackingNo,
-                    batchNo: identity.batchNo,
-                    status: 'pending',
-                    createdBy: req.user!.userId,
-                }});
-                // A failed audit must roll back the shipment and its order claim.
-                await tx.auditLog.create({
-                    data: {
-                        userId: req.user!.userId,
-                        action: 'CREATE',
-                        resource: 'shipment',
-                        resourceId: created.id,
-                        details: `创建发货单 ${shipmentNo}${normalizedOrderId ? `，关联订单 #${normalizedOrderId}` : ''}`,
-                        ipAddress: req.ip,
-                        userAgent: req.get('user-agent'),
-                    },
-                });
-                return created;
-            }, { isolationLevel: 'Serializable' }), { label: 'createShipment' });
-
-            const shipmentDetail = await getShipmentDetail(shipment.id);
-
-            res.status(201).json({ success: true, data: shipmentDetail ?? shipment, message: '发货单创建成功' });
+            const key = shipmentSubmissionKey(req.get('Idempotency-Key'), req.body.idempotencyKey);
+            const result = await createShipmentDraft(req.body, { userId: req.user!.userId, ipAddress: req.ip, userAgent: req.get('user-agent') }, key);
+            const data = result.submission ? result.shipment : await getShipmentDetail(result.shipment.id) ?? result.shipment;
+            res.status(result.replayed ? 200 : 201).json({ success: true, data, submission: result.submission, replayed: result.replayed, message: '发货单创建成功' });
         } catch (error) {
             logger.error('创建发货单错误:', error);
+            if (error instanceof ShipmentSubmissionError) return res.status(error.status).json({ success: false, message: error.code, errorCode: error.code, details: error.details });
             if (isMaterialReleaseReadinessError(error)) {
                 return res.status(error.statusCode).json({
                     success: false,
@@ -151,6 +157,20 @@ export class ShippingController {
             const message = error instanceof Error ? error.message : 'Failed to create shipment';
             const status = resolveShipmentStatusCode(message);
             res.status(status).json({ success: false, message: status === 500 ? 'Failed to create shipment' : message });
+        }
+    }
+
+    async getSubmission(req: AuthRequest, res: Response) {
+        try {
+            if (!canManageShipping(req)) return res.status(403).json({ success: false, message: '无权确认发货请求' });
+            const key = shipmentSubmissionKey(req.params.key)!;
+            const result = await findShipmentSubmission(key, req.user!.userId);
+            if (!result) return res.status(404).json({ success: false, errorCode: 'SHIPMENT_SUBMISSION_NOT_FOUND' });
+            return res.json({ success: true, data: result.shipment, submission: result.submission, replayed: true });
+        } catch (error) {
+            logger.error('确认发货请求错误:', error);
+            if (error instanceof ShipmentSubmissionError) return res.status(error.status).json({ success: false, message: error.code, errorCode: error.code });
+            return res.status(500).json({ success: false, message: '无法确认原发货请求' });
         }
     }
 
@@ -320,14 +340,25 @@ export class ShippingController {
                     return null;
                 }
 
+                // Use the locked row: a colleague may have supplied the batch
+                // while this request waited. Unbound native drafts cannot issue stock.
+                const currentShipment = (await tx.shipment.findUnique({ where: { id: Number(id) } }))!;
+                if (status === 'in_transit' && currentShipment.submissionKey && !currentShipment.batchNo) {
+                    throw new StockMovementConflictError('SHIPMENT_BATCH_REQUIRED_BEFORE_DISPATCH');
+                }
+
+                if (existingShipment.status === 'pending' && status === 'exception') {
+                    await releasePendingShipmentReservation(tx, Number(id), req.user!.userId);
+                }
+
                 const issueResult = status === 'in_transit'
                     ? await postShippingIssueIfMissing(tx, {
-                        shipmentNo: existingShipment.shipmentNo,
-                        productName: existingShipment.productName,
-                        quantity: Number(existingShipment.quantity || 0),
-                        unit: existingShipment.unit || 'kg',
-                        batchNo: existingShipment.batchNo,
-                        materialId: existingShipment.materialId,
+                        shipmentNo: currentShipment.shipmentNo,
+                        productName: currentShipment.productName,
+                        quantity: Number(currentShipment.quantity || 0),
+                        unit: currentShipment.unit || 'kg',
+                        batchNo: currentShipment.batchNo,
+                        materialId: currentShipment.materialId,
                     }, req.user?.userId || null)
                     : { posted: false, issueStock: null };
 
@@ -352,8 +383,11 @@ export class ShippingController {
                     await syncOrderShipmentState(tx, existingShipment.orderId);
                 }
 
+                await tx.auditLog.create({ data: { userId: req.user!.userId, action: 'STATUS_CHANGE', resource: 'shipment', resourceId: Number(id),
+                    details: `物流状态变更 ${existingShipment.shipmentNo} -> ${status}`, ipAddress: req.ip, userAgent: req.get('user-agent') } });
+
                 return tx.shipment.findUnique({ where: { id: Number(id) } });
-            }), { label: 'updateShipmentStatus' });
+            }, { isolationLevel: 'Serializable' }), { label: 'updateShipmentStatus' });
 
             if (!shipment) {
                 const shipmentDetail = await getShipmentDetail(existingShipment.id);
@@ -361,18 +395,6 @@ export class ShippingController {
             }
 
             const shipmentDetail = await getShipmentDetail(shipment.id);
-
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'STATUS_CHANGE',
-                    resource: 'shipment',
-                    resourceId: shipment.id,
-                    details: `物流状态变更 ${shipment.shipmentNo} -> ${status}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
-            });
 
             res.json({ success: true, data: shipmentDetail ?? shipment, message: '物流状态更新成功' });
         } catch (error) {

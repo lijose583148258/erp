@@ -1,7 +1,20 @@
 ﻿import api, { ApiRequestOptions } from '../utils/api';
 import { Shipment } from '../types';
-import { ApiDataResponse, toApiRecord, toApiRecordArray, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../utils/apiMapping';
+import { ApiDataResponse, toApiRecord, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../utils/apiMapping';
 import { ReceiptDiscrepancyCase, ReceiptDiscrepancyType, mapReceiptDiscrepancyCase } from './receiptDiscrepancy.service';
+import type { ShipmentSubmissionAck, ShipmentSubmissionResult } from './shipmentSubmissionIntent';
+import { mapShipment } from './shipmentReadModel';
+
+export type ShipmentOccurrence = { occurredAt: string; timeZone: string };
+export type ShipmentSupplementPatch = { batchNo?: string; carrier?: string | null; trackingNo?: string | null; dispatchOccurrence?: ShipmentOccurrence | null };
+type SupplementSnapshot = { batchNo: string | null; carrier: string | null; trackingNo: string | null; dispatchOccurrence: ShipmentOccurrence | null };
+export type ShipmentSupplementView = {
+    shipment: Shipment & { createdAt: string; updatedAt: string; reservationAuditId: number | null };
+    versionId: number | null; dispatchOccurrence: ShipmentOccurrence | null;
+    history: Array<{ auditId: number; actorId: number; enteredAt: string; reason: string | null; changedFields: string[];
+        before: SupplementSnapshot; after: SupplementSnapshot }>;
+};
+export type ShipmentSupplementInput = { expectedAuditId: number | null; expectedUpdatedAt: string; patch: ShipmentSupplementPatch; reason?: string };
 
 export interface ShipmentReceiptEvent {
     id: string;
@@ -34,42 +47,6 @@ export interface ShipmentReceiptBundle {
     discrepancyCases: ReceiptDiscrepancyCase[];
     discrepancyCase?: ReceiptDiscrepancyCase | null;
 }
-
-const mapShipment = (value: unknown, index = 0): Shipment => {
-    const item = toApiRecord(value);
-    const routes = ['深圳 -> 河内', '上海 -> 海防', '广州 -> 胡志明'];
-    const route = toStringValue(item.route, routes[index % routes.length]);
-    const isColdChain = item.isColdChain ?? index % 3 === 0;
-    const temperature = item.temperature ?? (isColdChain ? 2 + (index % 4) : 22 + (index % 5));
-    const firstItem = toApiRecordArray(item.items)[0] || {};
-    const productName = toStringValue(item.productName || item.product || firstItem.productName, 'Chemical Goods');
-    const quantity = toNumberValue(item.quantity ?? item.qty);
-
-    return {
-        ...item,
-        id: toStringValue(item.id),
-        orderId: toStringValue(item.orderNo || item.orderId),
-        orderItemId: toOptionalString(item.orderItemId),
-        materialId: toOptionalString(item.materialId),
-        productBatchId: toOptionalString(item.productBatchId),
-        customerId: toOptionalString(item.customerId),
-        customerName: toStringValue(item.customerName || item.customerDisplayName || item.counterpartyName, 'Unknown'),
-        sku: toStringValue(item.sku || item.productSku || firstItem.sku, productName),
-        qty: quantity,
-        quantity,
-        shippedAt: item.shippedAt ? new Date(String(item.shippedAt)).toISOString().split('T')[0] : '-',
-        deliveredAt: item.deliveredAt ? new Date(String(item.deliveredAt)).toISOString().split('T')[0] : undefined,
-        status: toStringValue(item.status, 'pending'),
-        productName,
-        casNo: toOptionalString(item.casNo || item.cas || item.productCasNo || firstItem.casNo),
-        msdsStatus: toStringValue(item.msdsStatus || item.msds_status || (item.msdsUrl || item.msdsDocumentUrl ? 'valid' : 'missing')),
-        msdsUrl: toOptionalString(item.msdsUrl || item.msdsDocumentUrl),
-        route,
-        isColdChain: Boolean(isColdChain),
-        temperature: toNumberValue(temperature),
-        batchNo: toStringValue(item.batchNo, `BATCH-${1000 + index}`),
-    };
-};
 
 const mapReceiptEvent = (value: unknown): ShipmentReceiptEvent => {
     const item = toApiRecord(value);
@@ -122,12 +99,28 @@ export const shipmentService = {
     async getAll(options: ApiRequestOptions = {}): Promise<Shipment[]> {
         const response = await api.get<unknown, ApiDataResponse<unknown[]>>('/shipping', { signal: options.signal });
         const data = response.data || [];
-        return data.map((item: unknown, index: number) => mapShipment(item, index));
+        return data.map((item: unknown) => mapShipment(item));
     },
 
     async create(shipment: Partial<Shipment>): Promise<Shipment> {
         const response = await api.post<unknown, ApiDataResponse<unknown>>('/shipping', shipment);
         return mapShipment(response.data || {});
+    },
+
+    async createSubmission(shipment: Partial<Shipment>, key: string): Promise<ShipmentSubmissionResult> {
+        const response = await api.post<unknown, ApiDataResponse<unknown> & { submission?: ShipmentSubmissionAck; replayed?: boolean }>('/shipping', shipment,
+            { headers: { 'Idempotency-Key': key } });
+        return { shipment: mapShipment(response.data || {}), submission: response.submission, replayed: response.replayed };
+    },
+
+    async findSubmission(key: string): Promise<ShipmentSubmissionResult | null> {
+        try {
+            const response = await api.get<unknown, ApiDataResponse<unknown> & { submission?: ShipmentSubmissionAck }>(`/shipping/submissions/${encodeURIComponent(key)}`);
+            return { shipment: mapShipment(response.data || {}), submission: response.submission, replayed: true };
+        } catch (error) {
+            if ((error as { status?: number }).status === 404) return null;
+            throw error;
+        }
     },
 
     async updateStatus(id: string, status: string, receiptUrl?: string): Promise<Shipment> {
@@ -137,6 +130,17 @@ export const shipmentService = {
         }
         const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/shipping/${id}/status`, payload);
         return mapShipment(response.data || {});
+    },
+
+    async getSupplement(id: string): Promise<ShipmentSupplementView> {
+        const response = await api.get<unknown, ApiDataResponse<ShipmentSupplementView>>(`/shipping/${id}/supplement`);
+        if (!response.data) throw new Error('发货补录资料回读缺失');
+        return response.data;
+    },
+    async supplement(id: string, input: ShipmentSupplementInput): Promise<ShipmentSupplementView> {
+        const response = await api.patch<unknown, ApiDataResponse<ShipmentSupplementView>>(`/shipping/${id}/supplement`, input);
+        if (!response.data) throw new Error('补录结果尚未确认，请重新读取原发货单');
+        return response.data;
     },
 
     async uploadReceipt(id: string, file: File): Promise<Shipment> {

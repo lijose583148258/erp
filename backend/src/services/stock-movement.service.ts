@@ -17,6 +17,7 @@ import { syncProductBatchForOperationalStock } from './stock-movement.product-ba
 import { resolveStockMaterialIdentity } from './stock-movement.material-identity';
 import { assertMaterialReleaseReadiness } from './material-release-readiness.service';
 import { assertStockQualityForIssue } from './stock-quality-issue.service';
+import { assertPhysicalReservationsAfterMovement } from './shipment-stock-reservation.service';
 import { multiplyMoney } from '../utils/money';
 import type {
   PostStockEntryInput,
@@ -324,6 +325,7 @@ export class StockMovementService {
           throw new Error(`Stock balance update failed for ${line.productName} / ${line.batchNo}`);
         }
 
+        await assertPhysicalReservationsAfterMovement(tx, balance, line);
         await assertStockQualityForIssue(tx, input.sourceType, line);
         const batchSync = await syncProductBatchForOperationalStock(tx, input.sourceType, line);
         const explicitCostAmountDelta = line.costAmountDelta ?? (

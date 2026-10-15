@@ -48,10 +48,9 @@ export function buildSalesOrderShipmentPayload(order: SalesOrder, draft: SalesOr
     if (!draft.quantity.trim() || !positiveQuantity(quantity) || quantity > line.unallocatedQuantity) {
         throw new Error(`本次数量必须大于 0，且不超过该行未分配量 ${line.unallocatedQuantity} ${line.unit}。`);
     }
-    if (!draft.batchNo.trim()) throw new Error('请输入实际出库批号，物料身份与 QC 放行状态由服务器校验。');
     return {
         orderId: order.id, orderItemId: String(line.orderItemId), customerId: order.customerId,
         materialId: String(line.materialId), productName: line.productName, unit: line.unit, quantity,
-        batchNo: draft.batchNo.trim(), carrier: draft.carrier?.trim() || undefined, trackingNo: draft.trackingNo?.trim() || undefined,
+        batchNo: draft.batchNo.trim() || undefined, carrier: draft.carrier?.trim() || undefined, trackingNo: draft.trackingNo?.trim() || undefined,
     };
 }

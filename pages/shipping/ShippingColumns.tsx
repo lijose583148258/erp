@@ -145,6 +145,9 @@ export const buildShipmentColumns = (
 export const renderSparkline = (values: number[]) => {
     const width = 160;
     const height = 48;
+    if (values.length < 2) return <svg width={width} height={height} className="block" aria-label="Single temperature snapshot">
+        {values.length === 1 && <circle cx={width / 2} cy={height / 2} r={3} fill="#06b6d4" />}
+    </svg>;
     const max = Math.max(...values);
     const min = Math.min(...values);
     const range = max - min || 1;

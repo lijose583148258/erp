@@ -163,6 +163,7 @@ model StockBalance {
   movements   StockMovement[]
   genealogyInputs BatchGenealogyEdge[] @relation("GenealogyInputStock")
   productionDispositions ProductionDisposition[]
+  shipmentReservations Shipment[]
 
   @@unique([locationId, productName, batchNo])
   @@unique([locationId, materialId, batchNo])

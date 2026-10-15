@@ -3,6 +3,7 @@ import { Shipment, AssetSummary, Customer } from '../../types';
 import { useAppContext } from '../../app/AppContext';
 import { can } from '../../app/permissions';
 import { shipmentService } from '../../services/shipping.service';
+import { shipmentTemperatureSamples } from '../../services/shipmentReadModel';
 import { assetService } from '../../services/asset.service';
 import { customerService } from '../../src/services/customer.service';
 import { isCanceledApiError } from '../../utils/api';
@@ -44,7 +45,7 @@ export const useShipping = () => {
         }
     };
 
-    const ocr = useShippingOcr({ t, notify, customers, setCustomers, setActiveTab, loadData });
+    const ocr = useShippingOcr({ canWrite: canWriteShipping, t, notify, customers, setCustomers, setActiveTab, loadData });
     const assets = useShippingAssets({ t, notify, language, customers, loadData });
 
     useEffect(() => {
@@ -101,16 +102,12 @@ export const useShipping = () => {
     }, [shipments]);
 
     const coldChainSeries = useMemo(() => {
-        const points = 12;
-        return shipments.filter(s => s.isColdChain).map((s, index) => {
-            const base = s.temperature ?? 4;
-            const series = Array.from({ length: points }).map((_, i) => {
-                const drift = Math.sin((i + index) / 2) * 1.2 + (i % 3 === 0 ? 0.6 : -0.3);
-                return Number((base + drift).toFixed(1));
-            });
+        return shipments.flatMap(s => {
+            const series = shipmentTemperatureSamples(s);
+            if (!series.length) return [];
             const max = Math.max(...series);
             const min = Math.min(...series);
-            return { shipment: s, series, max, min };
+            return [{ shipment: s, series, max, min }];
         });
     }, [shipments]);
 
@@ -173,6 +170,9 @@ export const useShipping = () => {
         clearAllImages: ocr.clearAllImages,
         togglePreviewMode: ocr.togglePreviewMode,
         handleApplyOcr: ocr.handleApplyOcr,
+        pendingShipment: ocr.pendingShipment,
+        isShipmentSubmitting: ocr.isShipmentSubmitting,
+        shipmentStorageError: ocr.shipmentStorageError,
         setOcrMaterialQuery: ocr.setOcrMaterialQuery,
         clearOcrMaterial: ocr.clearOcrMaterial,
         selectOcrMaterial: ocr.selectOcrMaterial,

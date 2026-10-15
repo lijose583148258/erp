@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
+import { withShipmentReservationConsumption } from './shipment-stock-reservation.service';
 
 export type ShippingIssueShipment = {
   shipmentNo: string;
@@ -72,7 +73,7 @@ export async function postShippingIssueIfMissing(
   }
 
   const issueStock = await resolveShippingIssueStock(tx, shipment);
-  await StockMovementService.postStockEntry({
+  await withShipmentReservationConsumption(tx, shipment.shipmentNo, issueStock, createdBy || null, () => StockMovementService.postStockEntry({
     sourceType: 'shipping_issue',
     sourceRef: shipment.shipmentNo,
     reason: 'shipment_dispatched',
@@ -86,7 +87,7 @@ export async function postShippingIssueIfMissing(
       quantityDelta: -Number(shipment.quantity || 0),
       unit: shipment.unit || issueStock.unit || 'kg',
     }],
-  }, tx);
+  }, tx));
 
   return { posted: true, issueStock };
 }

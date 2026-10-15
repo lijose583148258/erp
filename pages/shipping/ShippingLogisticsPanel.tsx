@@ -4,6 +4,7 @@ import { renderSparkline } from './ShippingColumns';
 
 type Props = {
     t: Record<string, string>;
+    language?: string;
     shipments: any[];
     laneStats: Array<{ route: string; total: number; coldChain: number; avgTemp: string }>;
     coldChainSeries: Array<{ shipment: any; series: number[]; max: number; min: number }>;
@@ -15,6 +16,7 @@ type Props = {
 
 const ShippingLogisticsPanel: React.FC<Props> = ({
     t,
+    language,
     shipments,
     laneStats,
     coldChainSeries,
@@ -80,7 +82,7 @@ const ShippingLogisticsPanel: React.FC<Props> = ({
                 <div className="flex items-center justify-between mb-6">
                     <div>
                         <h2 className="text-lg font-black text-slate-800 dark:text-white uppercase tracking-widest">{t.coldChainMonitor || '冷链监控'}</h2>
-                        <p className="text-xs text-slate-500 font-bold mt-2">{t.temperatureCurve || '温度曲线与异常快照'}</p>
+                        <p className="text-xs text-slate-500 font-bold mt-2">{language === 'en' ? 'Recorded temperature snapshots; no continuous telemetry' : language === 'vi' ? 'Nhiệt độ đã ghi nhận; chưa có dữ liệu liên tục' : '已录入温度快照；暂无连续监测数据'}</p>
                     </div>
                     <div className="flex items-center gap-2 text-xs font-black text-cyan-600 bg-cyan-50 dark:bg-cyan-900/20 px-3 py-2 rounded-full"><ThermometerSnowflake size={14} />{coldChainSeries.length} {t.records || '记录'}</div>
                     <button type="button" onClick={onGenerateAiInsights} className="px-3 py-2 rounded-xl text-xs font-black uppercase tracking-widest border border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100">AI预警面板</button>

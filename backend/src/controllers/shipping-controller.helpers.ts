@@ -26,8 +26,11 @@ export const SHIPMENT_STATUS_TRANSITIONS: Record<string, string[]> = {
     delivered: [],
 };
 
-export const mapShipmentRecord = (shipment: any) => ({
-    ...shipment,
+export const mapShipmentRecord = (shipment: any) => {
+    // Request identities and frozen ACKs are private to their original actor.
+    const { submissionKey: _key, submissionFingerprint: _fingerprint, submissionJson: _submission, ...publicRecord } = shipment;
+    return ({
+    ...publicRecord,
     quantity: Number(shipment.quantity),
     customerName: shipment.customer ? getCustomerDisplayName(shipment.customer) : '',
     customerNameZh: shipment.customer?.nameZh || null,
@@ -36,7 +39,8 @@ export const mapShipmentRecord = (shipment: any) => ({
     customerDisplayName: shipment.customer ? getCustomerDisplayName(shipment.customer) : '',
     orderNo: shipment.order?.orderNo,
     creatorName: shipment.creator?.username || '',
-});
+    });
+};
 
 type ShipmentReceiptRow = {
     id?: unknown;
