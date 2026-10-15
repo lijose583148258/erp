@@ -2,9 +2,9 @@
 
 ## 当前交付边界
 
-已核对企业云基线为提交 `eaa10df4c994a5c43dac8bac4fcb8d00b31c6bd7`、[运行 38409108569](https://github.com/lijose583148258/erp/actions/runs/38409108569)：累计 66/66，固定第二轮 31/37、6 未完成。下文较早结果保留作历史，不代表当前数字。
+已核对企业云基线为运行源码提交 `22881e9550484ecb2e28130ba1164dbc6b489a3e`、[运行 38671840484](https://github.com/lijose583148258/erp/actions/runs/38671840484)：累计 **67/67**，固定第二轮 **32/37、0 失败、5 未完成，10/12 链**；本地 42/42。绿色 workflow 是完成包的基线模式，不代表完整 37 项完成。下文较早结果保留作历史，不代表当前数字。
 
-采购/QC/应付候选追加 `purchase-quality-payables-v1`，保留全部历史义务，并要求独立重验该项 API、四角色浏览器及两段收货身份的一致性。追加登记不是云端通过；最终同源本地与 PostgreSQL 云端证据齐全前，不晋升正式验收数字。范围与有限收口步骤见 `purchase-quality-payables-v1.md`。
+采购/QC/应付已验收修订 `purchase-quality-payables-v1` 保留全部历史义务，并独立重验该项 API、四角色浏览器及两段收货身份的一致性。实际 PR merge `e03cc8b4` 与 head `22881e9` 的 Git tree 一致。范围、取证边界及剩余义务见 `purchase-quality-payables-v1.md`。
 
 ## 最新已验收状态（2026-10-03）
 
