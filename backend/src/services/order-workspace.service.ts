@@ -10,7 +10,7 @@ import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
 import { buildOrderSearchWhereAsync } from './search.service';
-import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT } from './order-fulfillment.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, addOrderReservationReadback } from './order-fulfillment.service';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
@@ -172,7 +172,7 @@ const getOrderDetailById = async (orderId: number, req?: AuthRequest) => {
         ),
         include: ORDER_DETAIL_INCLUDE,
     });
-    return order ? formatOrderDetail(order) : null;
+    return order ? (await addOrderReservationReadback(prisma, [formatOrderDetail(order)]))[0] : null;
 };
 
 export const OrderWorkspaceService = {
@@ -279,7 +279,7 @@ export const OrderWorkspaceService = {
         }));
 
         return {
-            data: formattedOrders,
+            data: await addOrderReservationReadback(prisma, formattedOrders),
             meta: {
                 page: resolvedPage,
                 pageSize: limit,

@@ -17,6 +17,7 @@ const getMsdsMeta = (row: Shipment, t: Record<string, string>) => {
 export const buildShipmentColumns = (
     t: Record<string, string>,
     canWrite: boolean,
+    language?: string,
 ): Column<Shipment>[] => [
     {
         header: t.shipmentId,
@@ -103,6 +104,10 @@ export const buildShipmentColumns = (
                     }`}
                 >
                     {row.status === 'delivered' ? t.delivered : row.status === 'in_transit' ? t.activeTransit : row.status === 'pending' ? t.dispatchPending : (t.exception || '异常')}
+                </span>
+                <span data-testid={`shipment-reserved-${row.id}`} className="text-xs text-indigo-700 dark:text-indigo-300">
+                    {language === 'en' ? 'Physical hold' : language === 'vi' ? 'Giữ kho' : '实物预留'}: {row.stockReservation && typeof row.stockReservation.activeQuantity === 'number' && Number.isFinite(row.stockReservation.activeQuantity) && row.stockReservation.activeQuantity >= 0
+                        ? `${row.stockReservation.activeQuantity} ${row.unit || ''}` : language === 'en' ? 'Not verified' : language === 'vi' ? 'Chưa xác minh' : '待核实'}
                 </span>
             </div>
         )

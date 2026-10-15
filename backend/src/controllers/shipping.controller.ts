@@ -9,7 +9,7 @@ import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.servi
 import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.service';
 import { StockMovementConflictError } from '../services/stock-movement.errors';
 import { createShipmentDraft, findShipmentSubmission, shipmentSubmissionKey, ShipmentSubmissionError } from '../services/shipment-submission.service';
-import { changeShipmentReservation, getShipmentReservation, releasePendingShipmentReservation } from '../services/shipment-stock-reservation.service';
+import { changeShipmentReservation, getShipmentReservation, releasePendingShipmentReservation, readShipmentReservationViews } from '../services/shipment-stock-reservation.service';
 import { readShipmentSupplement, supplementShipment } from '../services/shipment-supplement.service';
 import { claimShipmentDispatchOrder } from '../services/shipment-order-guard.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
@@ -117,9 +117,10 @@ export class ShippingController {
                 prisma.shipment.count({ where: scopedWhere }),
             ]);
 
+            const views = await readShipmentReservationViews(prisma, shipments);
             res.json({
                 success: true,
-                data: shipments.map(mapShipmentRecord),
+                data: shipments.map(shipment => mapShipmentRecord({ ...shipment, stockReservation: views.get(shipment.id) })),
                 meta: {
                     page: Number(page),
                     pageSize: limit,

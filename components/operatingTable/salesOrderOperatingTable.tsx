@@ -107,7 +107,15 @@ export const createSalesOrderOperatingColumns = (
       <span className="block space-y-1 text-right">
         {row.fulfillment.lines.map(line => <span className="block" key={line.orderItemId}>
           <span className="block text-[11px] text-slate-500">{line.productName}</span>
-          <QuantityCell value={line.dispatchedQuantity} unit={line.unit} /> / <QuantityCell value={line.orderedQuantity} unit={line.unit} />
+          <QuantityCell value={line.dispatchedQuantity} unit={line.unit} precision={6} /> / <QuantityCell value={line.orderedQuantity} unit={line.unit} precision={6} />
+          <span className="block text-[11px] text-indigo-700 dark:text-indigo-300" data-testid={`order-reserved-${row.id}-${line.orderItemId}`}>
+            {text(labels, 'order.fulfillment.reserved', 'Physical hold')}: {line.reservationEvidenceState === 'verified' && typeof line.reservedQuantity === 'number' && Number.isFinite(line.reservedQuantity)
+              ? <QuantityCell value={line.reservedQuantity} unit={line.unit} precision={6} /> : text(labels, 'order.fulfillment.reservationUnknown', 'Not verified')}
+          </span>
+          <span className="block text-[11px] text-slate-600 dark:text-slate-300" data-testid={`order-line-obligation-${row.id}-${line.orderItemId}`}>
+            {text(labels, 'order.fulfillment.accepted', 'Accepted')}: {typeof line.acceptedQuantity === 'number' && Number.isFinite(line.acceptedQuantity) ? <QuantityCell value={line.acceptedQuantity} unit={line.unit} precision={6} /> : '—'}
+            {' · '}{text(labels, 'order.fulfillment.outstanding', 'Still owed')}: {typeof line.outstandingQuantity === 'number' && Number.isFinite(line.outstandingQuantity) ? <QuantityCell value={line.outstandingQuantity} unit={line.unit} precision={6} /> : '—'}
+          </span>
         </span>)}
       </span>
     ) : (

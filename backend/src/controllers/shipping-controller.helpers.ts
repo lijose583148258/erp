@@ -4,6 +4,7 @@ import { queryRawCompat } from '../utils/raw-sql-compat';
 import type { AuthRequest } from '../middleware/auth';
 import type { TransactionClient } from '../services/stock-movement.service';
 import { readOrderFulfillment } from '../services/order-fulfillment.service';
+import { readShipmentReservationViews } from '../services/shipment-stock-reservation.service';
 import {
     buildCustomerDataScopeWhere,
     buildOrderDataScopeWhere,
@@ -221,7 +222,9 @@ export async function getShipmentDetail(shipmentId: number) {
         },
     });
 
-    return shipment ? mapShipmentRecord(shipment) : null;
+    if (!shipment) return null;
+    const views = await readShipmentReservationViews(prisma, [shipment]);
+    return mapShipmentRecord({ ...shipment, stockReservation: views.get(shipment.id) });
 }
 
 export async function syncOrderShipmentState(tx: TransactionClient, orderId: number) {

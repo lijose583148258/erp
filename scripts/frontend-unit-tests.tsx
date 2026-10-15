@@ -52,6 +52,7 @@ import { getMaterialReadinessIssueLabel, parseMaterialReadinessDetails } from '.
 import { readStringArrayPreference } from '../components/ui/tablePreferences';
 import { deriveOrderFulfillmentStatus } from '../utils/orderCommercialState';
 import { createSalesOrderOperatingColumns } from '../components/operatingTable/salesOrderOperatingTable';
+import { QuantityCell } from '../components/operatingTable/BusinessCells';
 import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from '../pages/sales-orders/salesOrderShipmentHelpers';
 import { mapShipment, shipmentTemperatureSamples } from '../services/shipmentReadModel';
 import { shipmentOccurrenceChoices } from '../services/shipmentOccurrence';
@@ -96,6 +97,34 @@ const tests: FrontendUnitTest[] = [
       assert.deepEqual(shipmentOccurrenceChoices('2026-11-01T01:30', 'America/New_York').map(choice => choice.occurredAt),
         ['2026-11-01T01:30:00-04:00', '2026-11-01T01:30:00-05:00']);
       assert.throws(() => shipmentOccurrenceChoices('2026-02-30T12:00', 'Asia/Shanghai'));
+    },
+  },
+  {
+    name: 'sales physical hold readback preserves unknown legacy evidence and unlike units without counting a hold as delivery',
+    run: () => {
+      const labels = JSON.parse(fs.readFileSync(path.resolve('i18n/operatingTable/zh-CN.json'), 'utf8'));
+      const column = createSalesOrderOperatingColumns(labels).find(c => c.key === 'quantityProgress')!;
+      const row: any = { id: 9, fulfillment: { lines: [
+        { orderItemId: 1, productName: 'Resin', unit: 'kg', orderedQuantity: 100, dispatchedQuantity: 0, reservedQuantity: 30, reservationEvidenceState: 'verified' },
+        { orderItemId: 2, productName: 'Catalyst', unit: 'drum', orderedQuantity: 2, dispatchedQuantity: 0, reservedQuantity: null, reservationEvidenceState: 'legacy_unknown' },
+      ] } };
+      const html = renderToStaticMarkup(<>{column.render!(row)}</>);
+      assert.match(html, /order-reserved-9-1/); assert.match(html, /实物预留/); assert.match(html, /30/); assert.match(html, /kg/); assert.match(html, /待核实/);
+      assert.doesNotMatch(html, />102</); assert.equal(row.fulfillment.lines[0].dispatchedQuantity, 0);
+    },
+  },
+  {
+    name: 'chemical quantity display preserves six-place holds and never rounds a whole positive micro-quantity to zero',
+    run: () => {
+      assert.match(renderToStaticMarkup(<QuantityCell value={0.000001} unit="kg" precision={6} />), /0[.,]000001/);
+      assert.match(renderToStaticMarkup(<QuantityCell value={0.0000001} unit="kg" />), /0[.,]0000001/);
+      assert.match(renderToStaticMarkup(<QuantityCell value={1.234567} unit="kg" precision={6} />), /1[.,]234567/);
+      const columns = createSalesOrderOperatingColumns();
+      const html = renderToStaticMarkup(<>{columns.find(c => c.key === 'quantityProgress')!.render!({ id: 1, fulfillment: { lines: [
+        { orderItemId: 1, unit: 'kg', orderedQuantity: 0.000001, dispatchedQuantity: 0, acceptedQuantity: 0, outstandingQuantity: 0.000001,
+          reservedQuantity: 0.000001, reservationEvidenceState: 'verified' },
+      ] } } as never)}</>);
+      assert.match(html, /0[.,]000001/);
     },
   },
   {

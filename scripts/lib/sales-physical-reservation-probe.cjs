@@ -18,6 +18,7 @@ async function probePhysicalReservation(ctx, report) {
     orderId: Number(target.id), orderItemId: Number(line.id), materialId: material.id, productName: material.nameZh, quantity: 30, unit: 'kg', batchNo } }));
   e.shipments = await Promise.all([create(order, original.items[0]), create(second, secondLine)]);
   e.before = await snapshot();
+  if (process.env.ROUND2_RESERVATION_UI === 'true') return require('./shipment-reservation-workspace-probe.cjs').probeReservationWorkspace(ctx, e);
   e.reserveRace = await Promise.all(e.shipments.map((shipment, instance) => request(`/shipping/${shipment.id}/reserve`, {
     method: 'POST', instance, data: { expectedAuditId: null } })));
   e.afterReserve = await snapshot();
@@ -61,6 +62,7 @@ async function probePhysicalReservation(ctx, report) {
   assert.equal(e.qaBlockedDispatch.status, 409); assert.deepEqual(await beforeEffects(), beforeHoldAttempt);
   await prisma.productBatch.update({ where: { batchNo }, data: { qualityStatus: 'not_required' } });
   const trigger = `reservation_consume_fault_${Date.now()}`, pg = process.env.AUDIT_PRISMA_PROVIDER === 'postgresql', beforeAuditFailure = await beforeEffects();
+  e.beforeConsumeAuditFailure = beforeAuditFailure;
   try {
     if (pg) {
       await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic reservation audit failure'; END; $$`);
@@ -72,7 +74,8 @@ async function probePhysicalReservation(ctx, report) {
     await prisma.$executeRawUnsafe(pg ? `DROP TRIGGER IF EXISTS ${trigger} ON audit_logs` : `DROP TRIGGER IF EXISTS ${trigger}`);
     if (pg) await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
   }
-  assert.deepEqual(await beforeEffects(), beforeAuditFailure, 'Consumption audit failure rolls back status, hold, stock, batch and cost together');
+  e.afterConsumeAuditFailure = await beforeEffects();
+  assert.deepEqual(e.afterConsumeAuditFailure, beforeAuditFailure, 'Consumption audit failure rolls back status, hold, stock, batch and cost together');
   // The last free10kg can move while the actual owner dispatches its held30kg.
   e.freeTransferAndOwnDispatch = await Promise.all([
     request(`/warehouses/stock-balances/${balance.id}/transfer`, { method: 'POST', instance: 0,

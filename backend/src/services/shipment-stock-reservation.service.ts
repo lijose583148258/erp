@@ -1,4 +1,4 @@
-import type { Shipment, StockBalance } from '@prisma/client';
+import type { Shipment, StockBalance, AuditLog, Prisma } from '@prisma/client';
 import { z } from 'zod';
 import prisma from '../config/database';
 import { withDbRetry } from '../utils/dbRetry';
@@ -17,6 +17,13 @@ const eventSchema = z.object({ schema: z.literal('shipment-reservation/v1'), act
 type ReservationEvent = z.infer<typeof eventSchema>;
 type ReservationRow = Pick<Shipment, 'id' | 'shipmentNo' | 'quantity' | 'unit' | 'materialId' | 'batchNo' | 'orderId' | 'status'
   | 'reservationState' | 'reservationBalanceId' | 'reservationQuantity' | 'reservationAuditId'>;
+export type ReservationReadRow = Partial<ReservationRow> & { orderItemId?: number | null };
+export type ShipmentReservationView = { state: 'legacy_unknown' | 'needs_review' | 'unreserved' | 'reserved' | 'released' | 'consumed';
+  activeQuantity: number | null; auditId: number | null };
+export const SHIPMENT_RESERVATION_READ_SELECT = { id: true, shipmentNo: true, orderId: true, orderItemId: true,
+  quantity: true, unit: true, materialId: true, batchNo: true, status: true,
+  reservationState: true, reservationBalanceId: true, reservationQuantity: true, reservationAuditId: true,
+} as const satisfies Prisma.ShipmentSelect;
 const conflict = (message: string): never => { throw new StockMovementConflictError(message); };
 const actions = { reserve: 'RESERVE_STOCK', release: 'RELEASE_STOCK', consume: 'CONSUME_RESERVATION' } as const;
 const states = { reserve: 'reserved', release: 'released', consume: 'consumed' } as const;
@@ -29,11 +36,10 @@ export function reservationMicros(value: number, allowBalanceNoise = false): big
     || Math.abs(value - n / 1_000_000) > Number.EPSILON * Math.max(1, Math.abs(value)) * 16) conflict('SHIPMENT_RESERVATION_PRECISION_INVALID');
   return BigInt(n);
 }
-async function readProof(tx: TransactionClient, row: ReservationRow, balance?: StockBalance) {
+function validateProof(row: ReservationRow, audit: AuditLog | null, balance?: StockBalance) {
   if ((!row.reservationState || row.reservationState === 'unreserved') && row.reservationBalanceId === null
     && row.reservationQuantity === null && row.reservationAuditId === null) return null;
   if (!row.reservationAuditId || !row.reservationBalanceId || !row.reservationQuantity) conflict('SHIPMENT_RESERVATION_EVIDENCE_INVALID');
-  const audit = await tx.auditLog.findUnique({ where: { id: row.reservationAuditId! } });
   let json: unknown; try { json = JSON.parse(audit?.details || ''); } catch { conflict('SHIPMENT_RESERVATION_EVIDENCE_INVALID'); }
   const parsed = eventSchema.safeParse(json); if (!parsed.success) conflict('SHIPMENT_RESERVATION_EVIDENCE_INVALID');
   const event = parsed.data!;
@@ -45,6 +51,36 @@ async function readProof(tx: TransactionClient, row: ReservationRow, balance?: S
     || (balance && (balance.id !== event.stockBalanceId || balance.locationId !== event.locationId || balance.materialId !== event.materialId
       || balance.batchNo !== event.batchNo || balance.unit !== event.unit))) conflict('SHIPMENT_RESERVATION_EVIDENCE_INVALID');
   return { ...event, auditId: audit!.id };
+}
+async function readProof(tx: TransactionClient, row: ReservationRow, balance?: StockBalance) {
+  const audit = row.reservationAuditId ? await tx.auditLog.findUnique({ where: { id: row.reservationAuditId } }) : null;
+  return validateProof(row, audit, balance);
+}
+
+// Batch only the exact proof IDs already selected on visible shipments. Order
+// and warehouse readbacks reuse the write guard's validator, not a second truth.
+export async function readShipmentReservationViews(db: Pick<TransactionClient, 'auditLog'>, rows: readonly ReservationReadRow[]) {
+  const ids = [...new Set(rows.map(row => row.reservationAuditId).filter((value): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value > 0))];
+  const audits = new Map((ids.length ? await db.auditLog.findMany({ where: { id: { in: ids } } }) : []).map(a => [a.id, a]));
+  const views = new Map<number, ShipmentReservationView>();
+  for (const row of rows) {
+    if (!Number.isSafeInteger(row.id) || row.id! <= 0) continue;
+    const unknown: ShipmentReservationView = { state: 'legacy_unknown', activeQuantity: null, auditId: null };
+    const invalid: ShipmentReservationView = { state: 'needs_review', activeQuantity: null, auditId: null };
+    if (views.has(row.id!)) { views.set(row.id!, invalid); continue; }
+    if ([row.reservationState, row.reservationBalanceId, row.reservationQuantity, row.reservationAuditId].every(value => value === undefined)) { views.set(row.id!, unknown); continue; }
+    try {
+      const proof = validateProof(row as ReservationRow, audits.get(row.reservationAuditId!) ?? null);
+      if (row.reservationState == null && !proof) { views.set(row.id!, unknown); continue; }
+      if (!['unreserved', 'reserved', 'released', 'consumed'].includes(row.reservationState!) || !Number.isFinite(row.quantity)
+        || row.quantity! <= 0 || (row.reservationState === 'reserved' && row.status !== 'pending')) conflict('SHIPMENT_RESERVATION_EVIDENCE_INVALID');
+      views.set(row.id!, { state: row.reservationState as ShipmentReservationView['state'], activeQuantity: row.reservationState === 'reserved' ? proof!.quantity : 0, auditId: proof?.auditId ?? null });
+    } catch (error) {
+      if (!(error instanceof StockMovementConflictError)) throw error;
+      views.set(row.id!, invalid);
+    }
+  }
+  return views;
 }
 async function lockBalance(tx: TransactionClient, id: number) {
   const changed = await tx.$executeRaw`UPDATE "stock_balances" SET "quantity" = "quantity" WHERE "id" = ${id}`;
@@ -150,7 +186,9 @@ export async function getShipmentReservation(id: number) {
     const row = await tx.shipment.findUnique({ where: { id } });
     if (!row) conflict('SHIPMENT_RESERVATION_NOT_FOUND');
     const reservation = await readProof(tx, row!);
-    return { reservation, state: row!.reservationState ?? 'legacy_unknown', activeQuantity: row!.reservationState === 'reserved' ? row!.reservationQuantity : 0 };
+    return { reservation, state: row!.reservationState ?? 'legacy_unknown', activeQuantity: row!.reservationState === 'reserved' ? row!.reservationQuantity : 0,
+      shipment: { id: row!.id, shipmentNo: row!.shipmentNo, status: row!.status, quantity: row!.quantity, unit: row!.unit,
+        materialId: row!.materialId, batchNo: row!.batchNo } };
   }, { isolationLevel: 'Serializable' });
 }
 

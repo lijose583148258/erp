@@ -162,6 +162,9 @@ async function main() {
     await ready(server, urls[index]);
   }
   if (cumulative) {
+    // Standalone probe flags must not replace the original partial-sales chain.
+    const shipmentFlags = { ROUND2_SHIPMENT_SUBMISSION: 'false', ROUND2_SHIPMENT_SUPPLEMENT: 'false', ROUND2_STOCK_RESERVATION: 'false', ROUND2_RESERVATION_UI: 'false' };
+    Object.assign(env, shipmentFlags);
     const salesPath = path.join(sandbox, 'sales-partial', 'report.json');
     const salesPlanPath = path.join(sandbox, 'sales-plan', 'report.json');
     const cancellationPath = path.join(sandbox, 'customer-cancellation', 'report.json');
@@ -169,8 +172,12 @@ async function main() {
     env.ROUND2_CUSTOMER_CANCELLATION_REPORT = cancellationPath;
     const authorizationPath = path.join(sandbox, 'authorization-dual-node-v1.json');
     const executions = [];
-    for (const [label, script, target, args, allowed] of [
+    for (const [label, script, target, args, allowed, extraEnv = {}] of [
       ['sales-partial', 'scripts/sales-partial-fulfillment-audit-v1.cjs', salesPath, [], [0]],
+      ['shipment-submission', 'scripts/sales-partial-fulfillment-audit-v1.cjs', path.join(sandbox, 'shipment-submission', 'report.json'), [], [0], { ROUND2_SHIPMENT_SUBMISSION: 'true' }],
+      ['shipment-late-information', 'scripts/sales-partial-fulfillment-audit-v1.cjs', path.join(sandbox, 'shipment-late-information', 'report.json'), [], [0], { ROUND2_SHIPMENT_SUPPLEMENT: 'true' }],
+      ['shipment-physical-reservation', 'scripts/sales-partial-fulfillment-audit-v1.cjs', path.join(sandbox, 'shipment-physical-reservation', 'report.json'), [], [0], { ROUND2_STOCK_RESERVATION: 'true' }],
+      ['shipment-reservation-workspace', 'scripts/sales-partial-fulfillment-audit-v1.cjs', path.join(sandbox, 'shipment-reservation-workspace', 'report.json'), [], [0], { ROUND2_STOCK_RESERVATION: 'true', ROUND2_RESERVATION_UI: 'true' }],
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
       ['customer-cancellation', 'scripts/customer-quantity-cancellation-audit-v1.cjs', cancellationPath, [], [0]],
       ['unsaved-focus', 'scripts/unsaved-changes-browser-audit-v1.cjs', path.join(sandbox, 'unsaved-focus', 'report.json'), [], [0]],
@@ -181,10 +188,23 @@ async function main() {
     ]) {
       // A failing prior package must not truncate independent later packages.
       const child = start(label, [path.join(root, script), ...args], root,
-        { APP_URL: urls[0], SECONDARY_APP_URL: urls[1], ROUND2_REPORT_PATH: target });
+        { APP_URL: urls[0], SECONDARY_APP_URL: urls[1], ROUND2_REPORT_PATH: target, ...extraEnv });
       const timer = setTimeout(() => { void stopOwned(child); }, label === 'legacy-cash' ? 120000 : label === 'round2' ? ROUND2_PARENT_RUNTIME_MS : 300000);
       try {
         const result = await child.completion;
+        let shipmentEvidence;
+        if (label.startsWith('shipment-') && result.code === 0) {
+          const assert = require('node:assert/strict'), proof = JSON.parse(fs.readFileSync(target, 'utf8'));
+          const context = JSON.parse(fs.readFileSync(env.REGRESSION_CONTEXT_PATH, 'utf8'));
+          require('./lib/enterprise-regression.cjs').verifyFresh(proof, context, 'sqlite', Date.now());
+          const versions = { 'shipment-submission': ['shipmentSubmission', 'shipment-submission-probe/v2'],
+            'shipment-late-information': ['shipmentSupplement', 'shipment-supplement-probe/v2'],
+            'shipment-physical-reservation': ['physicalReservation', 'physical-reservation-probe/v2'],
+            'shipment-reservation-workspace': ['physicalReservation', 'reservation-workspace-probe/v1'] };
+          const [field, version] = versions[label]; assert.equal(proof.status, 'passed'); assert.equal(proof[field]?.version, version);
+          assert.deepEqual(proof.summary, { passedChecks: 1, failedChecks: 0, remainingChecks: 0 });
+          shipmentEvidence = { report: target, version, sha256: crypto.createHash('sha256').update(JSON.stringify(proof)).digest('hex') };
+        }
         if (label === 'unsaved-focus' && result.code === 0) {
           const assert = require('node:assert/strict');
           const proof = JSON.parse(fs.readFileSync(target, 'utf8'));
@@ -196,7 +216,7 @@ async function main() {
           assert.equal(proof.salesFocusRace.remainingCallbacks, 0);
           assert(proof.salesFocusRace.events.some(e => e.event === 'after-real-dialog-focus' && e.active === 'sales-order-notes'));
         }
-        executions.push({ label, ...result, acceptable: allowed.includes(result.code) });
+        executions.push({ label, ...result, acceptable: allowed.includes(result.code), ...(shipmentEvidence ? { evidence: shipmentEvidence } : {}) });
       }
       catch (error) { executions.push({ label, acceptable: false, error: error.message }); }
       finally { clearTimeout(timer); }

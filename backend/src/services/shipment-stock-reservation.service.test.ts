@@ -5,7 +5,8 @@ jest.mock('./material-release-readiness.service', () => ({ assertMaterialRelease
 import prisma from '../config/database';
 import { assertStockQualityForIssue } from './stock-quality-issue.service';
 import { assertPhysicalReservationsAfterMovement, changeShipmentReservation, getShipmentReservation, reservationMicros,
-  withShipmentReservationConsumption, releasePendingShipmentReservation } from './shipment-stock-reservation.service';
+  withShipmentReservationConsumption, releasePendingShipmentReservation, readShipmentReservationViews } from './shipment-stock-reservation.service';
+import { addOrderReservationReadback } from './order-fulfillment.service';
 
 function fixture() {
   jest.clearAllMocks();
@@ -19,7 +20,7 @@ function fixture() {
     updateMany: jest.fn(async ({ data }) => { Object.assign(row, data); return { count: 1 }; }) },
     order: { findUnique: jest.fn(async () => ({ status: 'confirmed', shipmentHold: false })) }, stockEntry: { findFirst: jest.fn(async () => null) },
     location: { findFirst: jest.fn(async () => ({ id: 6 })) }, stockBalance: { findUnique: jest.fn(async () => balance) },
-    auditLog: { findUnique: jest.fn(async ({ where }) => audits.find(a => a.id === where.id) ?? null), create: jest.fn(async ({ data }) => {
+    auditLog: { findMany: jest.fn(async () => audits), findUnique: jest.fn(async ({ where }) => audits.find(a => a.id === where.id) ?? null), create: jest.fn(async ({ data }) => {
       const audit = { id: audits.length + 100, ...data }; audits.push(audit); return audit;
     }) } };
   (prisma.$transaction as jest.Mock).mockImplementation(async action => {
@@ -89,4 +90,31 @@ test('pending exception releases its hold with an audit, but no physical stock o
 test('legacy NULL is unknown, not a fabricated reservation', async () => {
   const f = fixture(); f.row().reservationState = null;
   expect(await getShipmentReservation(9)).toMatchObject({ state: 'legacy_unknown', reservation: null, activeQuantity: 0 }); expect(f.audits()).toHaveLength(0);
+});
+
+test('shipment list validates hold proofs in one batch; NULL history is unknown, never a made-up zero', async () => {
+  const f = fixture(); await f.reserve();
+  const old = { ...f.row(), id: 10, reservationState: null, reservationBalanceId: null, reservationQuantity: null, reservationAuditId: null };
+  const unreserved = { ...old, id: 11, reservationState: 'unreserved' };
+  const queries = f.tx.auditLog.findUnique.mock.calls.length;
+  const views = await readShipmentReservationViews(f.tx as never, [f.row(), old, unreserved]);
+  expect(views.get(9)).toMatchObject({ state: 'reserved', activeQuantity: 30, auditId: 100 });
+  expect(views.get(10)).toMatchObject({ state: 'legacy_unknown', activeQuantity: null });
+  expect(views.get(11)).toMatchObject({ state: 'unreserved', activeQuantity: 0 });
+  expect(f.tx.auditLog.findMany).toHaveBeenCalledTimes(1); expect(f.tx.auditLog.findUnique).toHaveBeenCalledTimes(queries);
+});
+test('order readback adds a separate audited physical axis, without changing allocation, receipt, or units', async () => {
+  const f = fixture(); await f.reserve();
+  const order: any = { id: 2, shipments: [{ ...f.row(), orderItemId: 21 }], fulfillment: {
+    fullyDelivered: false, fullyResolved: false, needsReview: false, lines: [
+      { orderItemId: 21, unit: 'kg', orderedQuantity: 100, allocatedQuantity: 30, dispatchedQuantity: 0, acceptedQuantity: 0, outstandingQuantity: 100, unallocatedQuantity: 70 },
+      { orderItemId: 22, unit: 'drum', orderedQuantity: 2, allocatedQuantity: 0, dispatchedQuantity: 0, acceptedQuantity: 0, outstandingQuantity: 2, unallocatedQuantity: 2 },
+    ] } };
+  const [result] = await addOrderReservationReadback(f.tx as never, [order]);
+  expect(result.fulfillment.lines[0]).toMatchObject({ reservedQuantity: 30, reservationEvidenceState: 'verified', allocatedQuantity: 30, acceptedQuantity: 0, outstandingQuantity: 100, unit: 'kg' });
+  expect(result.fulfillment.lines[1]).toMatchObject({ reservedQuantity: 0, reservationEvidenceState: 'verified', unit: 'drum' });
+  expect(order.fulfillment.lines[0].reservedQuantity).toBeUndefined();
+  f.audits()[0].details = '{}';
+  const [invalid] = await addOrderReservationReadback(f.tx as never, [order]);
+  expect(invalid.fulfillment.lines[0]).toMatchObject({ reservedQuantity: null, reservationEvidenceState: 'needs_review', outstandingQuantity: 100 });
 });

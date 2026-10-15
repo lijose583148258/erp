@@ -97,6 +97,7 @@ async function probeShipmentSupplement(ctx, report) {
       patch: { trackingNo: 'TRACK-CORRECTED' }, reason: 'Carrier sent corrected customs reference later' };
     const trigger = `shipment_supplement_fault_${Date.now()}`, pg = process.env.AUDIT_PRISMA_PROVIDER === 'postgresql';
     const beforeFault = await all(id);
+    e.beforeAuditFault = beforeFault;
     try {
       if (pg) {
         await prisma.$executeRawUnsafe(`CREATE FUNCTION ${trigger}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'Synthetic supplement audit failure'; END; $$`);
@@ -107,7 +108,7 @@ async function probeShipmentSupplement(ctx, report) {
       await prisma.$executeRawUnsafe(pg ? `DROP TRIGGER IF EXISTS ${trigger} ON audit_logs` : `DROP TRIGGER IF EXISTS ${trigger}`);
       if (pg) await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${trigger}()`);
     }
-    assert.deepEqual(await all(id), beforeFault); e.corrected = await request(`${base}/supplement`, { method: 'PATCH', data: correction }); assert.equal(e.corrected.status, 200);
+    e.afterAuditFault = await all(id); assert.deepEqual(e.afterAuditFault, beforeFault); e.corrected = await request(`${base}/supplement`, { method: 'PATCH', data: correction }); assert.equal(e.corrected.status, 200);
     e.correctedReplay = await request(`${base}/supplement`, { method: 'PATCH', instance: 1, data: correction }); assert.equal(e.correctedReplay.status, 200);
     e.final = await all(id); assert.equal(e.final.audits.filter(a => a.action === 'SUPPLEMENT_SHIPMENT').length, 5);
     assert.deepEqual(e.final.stock, e.afterDispatch.stock);

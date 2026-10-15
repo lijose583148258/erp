@@ -53,11 +53,11 @@ test('rejects missing material or exact item identity, duplicates and mixed-unit
     }
 });
 
-test('rejects an empty, nonpositive, non-finite or excessive quantity and requires a batch', () => {
+test('rejects an empty, nonpositive, non-finite or excessive quantity while allowing a real batch to be supplied later', () => {
     for (const quantity of ['', ' ', '0', '-1', 'NaN', 'Infinity', '61', '60.0000001']) {
         assert.throws(() => buildSalesOrderShipmentPayload(fixture(), { ...draft, quantity }));
     }
-    assert.throws(() => buildSalesOrderShipmentPayload(fixture(), { ...draft, batchNo: ' ' }));
+    assert.equal(buildSalesOrderShipmentPayload(fixture(), { ...draft, batchNo: ' ' }).batchNo, undefined);
     assert.throws(() => buildSalesOrderShipmentPayload(fixture(), { ...draft, orderItemId: '999' }));
 });
 

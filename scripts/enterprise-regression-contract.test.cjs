@@ -297,6 +297,38 @@ test('cloud always replays prior checks, isolates legacy failures and aggregates
   assert.equal(baseline.revisions[0].cloudSteps.length, 22);
 });
 
+test('shipment package is retained in every cumulative replay without replacing original sales or promoting original37', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'enterprise-round2-local-v1.cjs'), 'utf8');
+  for (const id of ['shipment-submission', 'shipment-late-information', 'shipment-physical-reservation', 'shipment-reservation-workspace']) assert(source.includes(`['${id}',`));
+  assert(source.includes("['sales-partial',")); assert(source.includes('Object.assign(env, shipmentFlags)'));
+  assert(source.includes('...extraEnv')); assert(source.includes('verifyFresh(proof, context'));
+  assert(source.includes('assert.equal(proof[field]?.version, version)'));
+  const previous = baseline.revisions.at(-2), current = baseline.revisions.at(-1);
+  assert.equal(current.id, 'shipment-workspace-critical-regression-v1');
+  assert.deepEqual(current.round2Checks, previous.round2Checks); assert.deepEqual(current.independentChecks, previous.independentChecks);
+  assert.deepEqual(current.cloudSteps, [...previous.cloudSteps, 'shipment_workspace']);
+  // The source-evidence job runs before npm install: this contract must keep
+  // using built-ins, like the existing workflow contracts above.
+  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
+  const step = workflow.split('        id: shipment_workspace')[1]?.split('\n      - name:')[0];
+  assert(step); assert(step.includes('continue-on-error: true')); assert(step.includes('always()')); assert(step.includes('timeout 180s env'));
+  assert(step.includes('for probe in submission late-information physical-reservation reservation-workspace'));
+  assert(step.includes('failures=$((failures + 1))')); assert(step.includes('verifyFresh(p,c,"postgresql"'));
+});
+
+test('a failed shipment step cannot become green because continue-on-error changes only its conclusion', () => {
+  const script = path.join(__dirname, 'enterprise-cloud-business-audit-summary-v1.cjs'), source = fs.readFileSync(script, 'utf8');
+  const ids = [...source.matchAll(/^\s*\['([a-z_0-9]+)',/gm)].map(m => m[1]); assert(ids.includes('shipment_workspace'));
+  const steps = Object.fromEntries(ids.map(id => [id, { outcome: 'success', conclusion: 'success' }]));
+  steps.shipment_workspace.outcome = 'failure';
+  const output = path.join(__dirname, '../output/contract/shipment-workspace-failed-step.json');
+  const child = require('node:child_process').spawnSync(process.execPath, [script], { encoding: 'utf8', windowsHide: true,
+    env: { ...process.env, ROUND2_REQUESTED: 'false', ENTERPRISE_CLOUD_BUSINESS_AUDIT_REPORT_PATH: output, BUSINESS_AUDIT_STEPS_JSON: JSON.stringify(steps) } });
+  assert.equal(child.status, 1); const report = JSON.parse(fs.readFileSync(output, 'utf8'));
+  assert.equal(report.status, 'failed'); assert.equal(report.audits.find(a => a.id === 'shipment_workspace').status, 'failed');
+  assert.equal(report.summary.failed, 1); assert.equal(report.summary.passed, ids.length - 1);
+});
+
 const { verifyPurchaseRoleProof } = require('./lib/enterprise-round2-procurement.cjs');
 const { purchaseRoleProofFixture } = require('./fixtures/purchase-role-proof-fixture.cjs');
 test('synthetic PO verifier fixture is valid but not business execution', () => {

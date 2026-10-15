@@ -20,7 +20,7 @@ import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
-import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, OrderFulfillmentIncompleteError } from '../services/order-fulfillment.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, OrderFulfillmentIncompleteError, addOrderReservationReadback } from '../services/order-fulfillment.service';
 import { getOrderFulfillment } from '../utils/orderFulfillment';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
@@ -469,7 +469,7 @@ export class OrderController {
 
             return res.json({
                 success: true,
-                data: orders.map(order => ({ ...order, fulfillment: getOrderFulfillment(order) }))
+                data: (await addOrderReservationReadback(prisma, orders.map(order => ({ ...order, fulfillment: getOrderFulfillment(order) }))))
                     .filter(order => order.fulfillment.hasUnallocated && !order.fulfillment.needsReview),
             } as ApiResponse);
         } catch (error) {

@@ -5,6 +5,7 @@ const expectedAudits = [
   ['cumulative_regression', 'Cumulative completed-package regression (not full acceptance)'],
   ['browser_fonts', 'Chinese font coverage for browser evidence'],
   ['sales_partial_fulfillment', 'Partial sales delivery, remaining obligation and completion guard'],
+  ['shipment_workspace', 'Shipment lost-ACK recovery, late information, physical holds and real warehouse/sales readback'],
   ['customer_quantity_cancellation', 'Customer remainder cancellation with independent finance, immutable originals and concurrency guards'],
   ['sales_fulfillment_plan', 'Purchase-linked replenishment draft, independent approval and source delivery closeout'],
   ['search_readiness', 'Meilisearch initialization, rebuild and readiness'],

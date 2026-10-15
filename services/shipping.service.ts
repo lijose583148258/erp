@@ -15,6 +15,12 @@ export type ShipmentSupplementView = {
         before: SupplementSnapshot; after: SupplementSnapshot }>;
 };
 export type ShipmentSupplementInput = { expectedAuditId: number | null; expectedUpdatedAt: string; patch: ShipmentSupplementPatch; reason?: string };
+export type ShipmentReservationBundle = {
+    state: 'legacy_unknown' | 'unreserved' | 'reserved' | 'released' | 'consumed'; activeQuantity: number;
+    reservation: { schema: 'shipment-reservation/v1'; auditId: number; actorId: number; action: 'reserve' | 'release' | 'consume';
+        shipmentId: number; previousAuditId: number | null; quantity: number; unit: string; batchNo: string; reason: string | null } | null;
+    shipment: { id: number; shipmentNo: string; status: string; quantity: number; unit: string; batchNo: string | null; materialId: number | null };
+};
 
 export interface ShipmentReceiptEvent {
     id: string;
@@ -141,6 +147,21 @@ export const shipmentService = {
         const response = await api.patch<unknown, ApiDataResponse<ShipmentSupplementView>>(`/shipping/${id}/supplement`, input);
         if (!response.data) throw new Error('补录结果尚未确认，请重新读取原发货单');
         return response.data;
+    },
+
+    async getReservation(id: string): Promise<ShipmentReservationBundle> {
+        const response = await api.get<unknown, ApiDataResponse<ShipmentReservationBundle>>(`/shipping/${id}/reservation`);
+        if (!response.data || Number(response.data.shipment?.id) !== Number(id)
+            || !['legacy_unknown', 'unreserved', 'reserved', 'released', 'consumed'].includes(response.data.state)
+            || !Number.isFinite(response.data.activeQuantity) || response.data.activeQuantity < 0
+            || !Number.isFinite(response.data.shipment.quantity) || response.data.shipment.quantity <= 0) throw new Error('预留状态回读未确认');
+        return response.data;
+    },
+    async changeReservation(id: string, action: 'reserve' | 'release', expectedAuditId: number | null, reason?: string): Promise<void> {
+        const response = await api.post<unknown, ApiDataResponse<{ reservation: NonNullable<ShipmentReservationBundle['reservation']> }>>(
+            `/shipping/${id}/${action === 'reserve' ? 'reserve' : 'release-reservation'}`, { expectedAuditId, ...(action === 'release' ? { reason } : {}) });
+        if (!response.data || response.data.reservation?.shipmentId !== Number(id) || response.data.reservation.action !== action
+            || response.data.reservation.previousAuditId !== expectedAuditId) throw new Error('预留回执未确认，请只重新读取原单');
     },
 
     async uploadReceipt(id: string, file: File): Promise<Shipment> {

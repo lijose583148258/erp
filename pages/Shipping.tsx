@@ -10,6 +10,7 @@ import ShippingAssetModal from './shipping/ShippingAssetModal';
 import ShippingAssetsPanel from './shipping/ShippingAssetsPanel';
 import { useShipping } from './shipping/useShipping';
 import ShipmentSupplementDialog from './shipping/ShipmentSupplementDialog';
+import ShipmentReservationDialog from './shipping/ShipmentReservationDialog';
 
 type ShippingDeskTab = 'logistics' | 'receipts' | 'ocr' | 'assets' | 'principle';
 
@@ -25,6 +26,7 @@ const Shipping = () => {
     } = state;
     const [activeDesk, setActiveDesk] = React.useState<ShippingDeskTab>('logistics');
     const [supplementId, setSupplementId] = React.useState<string | null>(null);
+    const [reservationId, setReservationId] = React.useState<string | null>(null);
 
     const shippingDeskCopy = React.useMemo(() => {
         if (state.language === 'en') {
@@ -197,8 +199,8 @@ const Shipping = () => {
     const primaryDiscrepancyCase = state.receiptBundle?.discrepancyCase || discrepancyCases[0] || null;
 
     const shipmentColumns = React.useMemo(
-        () => buildShipmentColumns(t, canWriteShipping),
-        [t, canWriteShipping]
+        () => buildShipmentColumns(t, canWriteShipping, state.language),
+        [t, canWriteShipping, state.language]
     );
 
     const renderShipmentRowActions = React.useCallback((row: Shipment) => {
@@ -208,6 +210,9 @@ const Shipping = () => {
 
         return (
             <>
+                {canWriteShipping && <button type="button" data-testid={`shipment-reservation-${row.id}`} onClick={event => { event.stopPropagation(); setReservationId(row.id); }}
+                    className="inline-flex min-h-8 items-center justify-center rounded-xl border border-indigo-200 px-2.5 text-xs font-bold text-indigo-700 dark:border-indigo-700 dark:text-indigo-300">
+                    {state.language === 'en' ? 'Stock hold' : state.language === 'vi' ? 'Giữ kho' : '库存预留'}</button>}
                 {canWriteShipping && <button type="button" data-testid={`shipment-supplement-${row.id}`} onClick={event => { event.stopPropagation(); setSupplementId(row.id); }}
                     className="inline-flex min-h-8 items-center justify-center rounded-xl border border-slate-200 px-2.5 text-xs font-bold dark:border-slate-700">
                     {state.language === 'en' ? 'Supply details' : state.language === 'vi' ? 'Bổ sung' : '补录资料'}</button>}
@@ -259,6 +264,8 @@ const Shipping = () => {
 
     return (
         <div className="space-y-6">
+            {reservationId && <ShipmentReservationDialog shipmentId={reservationId} canWrite={canWriteShipping} onClose={() => setReservationId(null)} onChanged={() => { void state.loadData(); }}
+                onSupply={() => { setReservationId(null); setSupplementId(reservationId); }} />}
             {supplementId && <ShipmentSupplementDialog key={supplementId} shipmentId={supplementId} canWrite={canWriteShipping} onClose={() => setSupplementId(null)} onSaved={() => { void state.loadData(); }} />}
             <input data-testid="shipment-receipt-input" type="file" ref={state.fileInputRef} className="hidden" accept="image/*,application/pdf" onChange={state.onFileChange} />
 

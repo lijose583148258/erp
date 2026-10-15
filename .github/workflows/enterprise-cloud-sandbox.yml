@@ -19,6 +19,20 @@ on:
     paths:
       - '.github/workflows/enterprise-cloud-sandbox.yml'
       - 'backend/prisma/**'
+      - 'backend/src/services/shipment-*.ts'
+      - 'backend/src/services/shipping*.ts'
+      - 'backend/src/services/order-fulfillment.service.ts'
+      - 'backend/src/services/order-workspace.service.ts'
+      - 'backend/src/controllers/shipping*.ts'
+      - 'backend/src/routes/shipping.routes.ts'
+      - 'pages/Shipping.tsx'
+      - 'pages/shipping/**'
+      - 'services/shipment*.ts'
+      - 'services/shipping.service.ts'
+      - 'components/operatingTable/salesOrderOperatingTable.tsx'
+      - 'scripts/lib/shipment-*.cjs'
+      - 'scripts/lib/sales-shipment-*.cjs'
+      - 'scripts/lib/sales-physical-reservation-probe.cjs'
       - 'backend/src/database/**'
       - 'backend/src/services/backup.service.ts'
       - 'backend/src/services/stock-movement*.ts'
@@ -846,6 +860,40 @@ jobs:
         env:
           ROUND2_ALLOW_MUTATIONS: "true"
         run: node ./scripts/sales-partial-fulfillment-audit-v1.cjs
+
+      - name: Verify shipment recovery, late information and physical reservation workspaces
+        # Every focused shipment branch runs even after another branch fails.
+        # Its explicit process deadline cannot truncate later business packages.
+        # The original partial-sales chain above is still a separate obligation.
+        id: shipment_workspace
+        if: ${{ always() && steps.app_readiness.outcome == 'success' }}
+        continue-on-error: true
+        timeout-minutes: 14
+        env:
+          ROUND2_ALLOW_MUTATIONS: "true"
+          ROUND2_BROWSER: "true"
+        run: |
+          failures=0
+          for probe in submission late-information physical-reservation reservation-workspace; do
+            submission=false; supplement=false; physical=false; workspace=false
+            case "$probe" in
+              submission) submission=true ;;
+              late-information) supplement=true ;;
+              physical-reservation) physical=true ;;
+              reservation-workspace) physical=true; workspace=true ;;
+            esac
+            report="output/audit/shipment-${probe}/report.json"
+            if timeout 180s env ROUND2_SHIPMENT_SUBMISSION="$submission" ROUND2_SHIPMENT_SUPPLEMENT="$supplement" \
+              ROUND2_STOCK_RESERVATION="$physical" ROUND2_RESERVATION_UI="$workspace" ROUND2_REPORT_PATH="$report" \
+              node scripts/sales-partial-fulfillment-audit-v1.cjs \
+              && node -e 'const fs=require("node:fs"),assert=require("node:assert/strict");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const c=JSON.parse(fs.readFileSync(process.env.REGRESSION_CONTEXT_PATH,"utf8"));require("./scripts/lib/enterprise-regression.cjs").verifyFresh(p,c,"postgresql",Date.now());assert.equal(p.status,"passed");assert.deepEqual(p.summary,{passedChecks:1,failedChecks:0,remainingChecks:0});' "$report"; then
+              echo "Shipment probe ${probe}: passed"
+            else
+              failures=$((failures + 1))
+              echo "Shipment probe ${probe}: failed; continuing independent probes"
+            fi
+          done
+          test "$failures" -eq 0
 
       - name: Verify customer remainder cancellation and independent finance
         id: customer_quantity_cancellation
