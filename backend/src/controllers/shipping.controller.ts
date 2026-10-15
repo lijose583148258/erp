@@ -103,7 +103,7 @@ export class ShippingController {
                     unit,
                     batchNo: batchNo || null,
                 });
-                return tx.shipment.create({ data: {
+                const created = await tx.shipment.create({ data: {
                     shipmentNo,
                     customerId: Number(customerId),
                     orderId: identity.orderId,
@@ -120,21 +120,22 @@ export class ShippingController {
                     status: 'pending',
                     createdBy: req.user!.userId,
                 }});
+                // A failed audit must roll back the shipment and its order claim.
+                await tx.auditLog.create({
+                    data: {
+                        userId: req.user!.userId,
+                        action: 'CREATE',
+                        resource: 'shipment',
+                        resourceId: created.id,
+                        details: `创建发货单 ${shipmentNo}${normalizedOrderId ? `，关联订单 #${normalizedOrderId}` : ''}`,
+                        ipAddress: req.ip,
+                        userAgent: req.get('user-agent'),
+                    },
+                });
+                return created;
             }, { isolationLevel: 'Serializable' }), { label: 'createShipment' });
 
             const shipmentDetail = await getShipmentDetail(shipment.id);
-
-            await prisma.auditLog.create({
-                data: {
-                    userId: req.user!.userId,
-                    action: 'CREATE',
-                    resource: 'shipment',
-                    resourceId: shipment.id,
-                    details: `创建发货单 ${shipmentNo}${normalizedOrderId ? `，关联订单 #${normalizedOrderId}` : ''}`,
-                    ipAddress: req.ip,
-                    userAgent: req.get('user-agent'),
-                },
-            });
 
             res.status(201).json({ success: true, data: shipmentDetail ?? shipment, message: '发货单创建成功' });
         } catch (error) {
