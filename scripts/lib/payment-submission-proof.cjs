@@ -4,6 +4,13 @@ const crypto = require('node:crypto');
 const { assertCjkRasterEvidence } = require('./browser-cjk-font-guard.cjs');
 function verifyPaymentSubmissionProof(e, provider) {
   assert.equal(e.provider, provider); assert.equal(e.browserErrors.length, 0);
+  const boot = e.bootstrapRecovery; assert.equal(boot.version, 'bootstrap-script-failure/v1');
+  assert.match(boot.mainEntryPath, /^\/assets\/index-[^/]+\.js$/); assert.equal(boot.cases.length, 2);
+  for (const [index, kind, blockedPath] of [[0, 'legacy-script', '/app-shell.js'], [1, 'main-entry', boot.mainEntryPath]]) {
+    const row = boot.cases[index]; assert.equal(row.kind, kind); assert.equal(row.blockedPath, blockedPath);
+    assert.deepEqual(row.failedScriptPaths, [blockedPath]); assert.equal(row.readyState, 'complete'); assert(row.screenshot);
+    assert.equal(row.loadingCount, index); assert(index === 0 ? row.rootChildren > 0 : row.rootChildren === 0);
+  }
   assert(Number.isSafeInteger(e.orderId) && e.orderId > 0); assert(e.elapsedMs >= 16000);
   const receipt = e.originalReceipt;
   assert.equal(receipt.requestKey, e.key); assert.equal(receipt.orderId, e.orderId); assert.equal(receipt.amount, 300);

@@ -10,12 +10,14 @@ const { setTimeout: delay } = require('node:timers/promises');
 
 const root = path.resolve(__dirname, '..');
 const cumulative = process.argv.includes('--cumulative');
+const procurementBrowser = process.argv.includes('--procurement-browser');
+if (procurementBrowser) process.env.ROUND2_BROWSER = 'true';
 if (process.argv.includes('--customer-cancellation') || process.argv.includes('--unsaved-focus')) process.env.ROUND2_BROWSER = 'true';
 if (cumulative || process.argv.includes('--inventory-browser') || process.argv.includes('--purchase-roles') || process.argv.includes('--purchase-quality') || process.argv.includes('--authorization-freshness') || process.argv.includes('--sales-plan') || process.argv.includes('--payment-event') || process.argv.includes('--payment-submit') || process.argv.includes('--payment-reversal-browser')) process.env.ROUND2_BROWSER = 'true';
 const sandbox = path.join(root, 'output', 'round2', `${Date.now()}-${crypto.randomBytes(4).toString('hex')}`);
 fs.mkdirSync(sandbox, { recursive: true });
 const db = path.join(sandbox, 'runtime.db');
-const reportPath = path.join(sandbox, 'enterprise-round2-v1.json');
+const reportPath = procurementBrowser ? path.join(sandbox, 'procurement-browser', 'procurement-audit-report-v1.json') : path.join(sandbox, 'enterprise-round2-v1.json');
 const children = new Set();
 let paymentReceiver, appControl;
 let appRestartGeneration = 0;
@@ -107,6 +109,7 @@ async function stop() {
 }
 async function main() {
   console.log(`Isolated Round2 evidence: ${sandbox}`);
+  env.PROCUREMENT_BROWSER_OUTPUT_DIR = path.join(sandbox, 'procurement-browser');
   await command('build', [path.join(root, 'backend/node_modules/typescript/bin/tsc')], path.join(root, 'backend'));
   if (env.ROUND2_BROWSER === 'true') await command('build-frontend', [path.join(root, 'node_modules/vite/bin/vite.js'), 'build', '--configLoader', 'native', '--outDir', env.FRONTEND_DIST_DIR], root, 180000);
   env.ROUND2_BUILT_AT = new Date().toISOString();
@@ -171,6 +174,7 @@ async function main() {
       ['sales-plan', 'scripts/sales-fulfillment-plan-audit-v1.cjs', salesPlanPath, [], [0]],
       ['customer-cancellation', 'scripts/customer-quantity-cancellation-audit-v1.cjs', cancellationPath, [], [0]],
       ['unsaved-focus', 'scripts/unsaved-changes-browser-audit-v1.cjs', path.join(sandbox, 'unsaved-focus', 'report.json'), [], [0]],
+      ['procurement-browser', 'scripts/procurement-browser-audit-v1.cjs', path.join(sandbox, 'procurement-browser', 'procurement-audit-report-v1.json'), [], [0]],
       ['round2', 'scripts/enterprise-round2-supervised.cjs', reportPath, [], [0, 2]],
       ['authorization', 'scripts/authorization-dual-node-audit-v1.cjs', authorizationPath, [], [0]],
       ['legacy-cash', 'scripts/barter-cash-legacy-upgrade-audit.cjs', env.REGRESSION_LEGACY_PATH, ['--fixture'], [0]],
@@ -212,7 +216,7 @@ async function main() {
   const reconciliation = process.argv.includes('--payment-reconciliation') || process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser');
   const authorization = process.argv.includes('--authorization-freshness');
   const unsavedFocus = process.argv.includes('--unsaved-focus');
-  const auditScript = unsavedFocus ? 'scripts/unsaved-changes-browser-audit-v1.cjs' : process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-supervised.cjs';
+  const auditScript = procurementBrowser ? 'scripts/procurement-browser-audit-v1.cjs' : unsavedFocus ? 'scripts/unsaved-changes-browser-audit-v1.cjs' : process.argv.includes('--customer-cancellation') ? 'scripts/customer-quantity-cancellation-audit-v1.cjs' : authorization ? 'scripts/authorization-dual-node-audit-v1.cjs' : process.argv.includes('--payment-reversal-api') || process.argv.includes('--payment-reversal-browser') ? 'scripts/payment-reversal-api-audit-v1.cjs' : reconciliation ? 'scripts/payment-adjustment-reconciliation-audit-v1.cjs' : process.argv.includes('--sales-plan') ? 'scripts/sales-fulfillment-plan-audit-v1.cjs' : process.argv.includes('--sales-partial') ? 'scripts/sales-partial-fulfillment-audit-v1.cjs' : 'scripts/enterprise-round2-supervised.cjs';
   const audit = start('audit', [path.join(root, auditScript)], root,
     { APP_URL: urls[0], SECONDARY_APP_URL: urls[1] });
   const timer = setTimeout(() => { void stopOwned(audit); }, auditScript === 'scripts/enterprise-round2-supervised.cjs' ? ROUND2_PARENT_RUNTIME_MS : 5 * 60_000);
@@ -221,7 +225,7 @@ async function main() {
     process.exitCode = result.code ?? 1;
     if (!fs.existsSync(reportPath)) throw new Error('Audit terminated without a report');
     const report = JSON.parse(fs.readFileSync(reportPath, 'utf8'));
-    console.log(JSON.stringify(reconciliation || authorization || unsavedFocus ? { status: report.status, scope: report.scope, reportPath }
+    console.log(JSON.stringify(reconciliation || authorization || unsavedFocus || procurementBrowser ? { status: report.status, scope: report.scope, reportPath }
       : { status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
     // A terminated child or unfinished report never becomes green.
     if (!report.finishedAt || report.status !== 'passed') process.exitCode ||= 2;

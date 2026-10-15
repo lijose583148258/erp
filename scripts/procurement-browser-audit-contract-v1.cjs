@@ -86,3 +86,32 @@ for (const token of [
 }
 
 console.log('Procurement Browser Audit Contract: PASS');
+
+const routeTest = require('node:test').test;
+const routeVm = require('node:vm');
+const openSource = entrySource.slice(entrySource.indexOf('async function openProcurement('), entrySource.indexOf('async function createSupplier('));
+routeTest('local and cloud origins normalize the slash before legacy API paths', () => {
+  const declaration = entrySource.match(/^const APP_URL = .+;$/m)?.[0]; assert(declaration);
+  for (const origin of ['http://example.invalid:5001', 'http://example.invalid:5001/']) {
+    assert.equal(routeVm.runInNewContext(`${declaration}\nAPP_URL`, { process: { env: { APP_URL: origin } }, URL }), 'http://example.invalid:5001/');
+  }
+  const batch = entrySource.indexOf('`PO-BATCH-${RUN_ID}`');
+  const quantity = entrySource.indexOf("'purchase-receipt-quantity-input'), String(Number(DATA.purchaseQuantity) + 1)");
+  assert(batch > entrySource.indexOf('async function receivePurchaseOrder(') && batch < quantity,
+    'Quantity rejection must be tested with an explicit real supplier batch, not a second missing field');
+});
+for (const desk of ['suppliers', 'orders']) routeTest(`procurement common route readiness accepts the actual ${desk} desk`, async () => {
+  const body = `采购、供应商与收货 采购职责分流 ${desk === 'suppliers' ? '供应商主数据入口' : '采购订单与到货'}`;
+  const context = { APP_URL: 'http://example.invalid/', TIMEOUTS: { route: 100 }, REQUIRED_ROUTE_COPY: ['采购、供应商与收货', '采购职责分流'],
+    withTimebox: async (_page, _step, _timeout, action) => action(), resolveForcePasswordChange: async () => {},
+    assertNoMojibake() {}, safeScreenshot: async () => 'synthetic-only.png', recordStep() {} };
+  routeVm.runInNewContext(openSource, context);
+  const page = { goto: async () => {}, evaluate: async () => {}, locator: () => ({ innerText: async () => body }),
+    getByTestId: () => ({ isVisible: async () => true }), waitForTimeout: async () => {} };
+  await context.openProcurement(page);
+  page.getByTestId = () => ({ isVisible: async () => false });
+  await assert.rejects(context.openProcurement(page), /procurement route not ready/);
+});
+assert.match(entrySource, /getByText\('供应商主数据入口', \{ exact: true \}\)\.waitFor/);
+assert.match(entrySource, /Promise\.all\(\[page\.reload\([\s\S]*?freshResponse\]/);
+assert.match(entrySource, /assert\.equal\(approved\.status, 'approved'\)/);

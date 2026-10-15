@@ -12,6 +12,9 @@ function paymentSubmissionProofFixture(provider='postgresql') {
   const {idempotencyKey,...facts}=payload;
   const font={missingSignatures:['missing1','missing2'],glyphs:Array.from({length:8},(_,i)=>({signature:`glyph${i}`,inkPixels:10}))};
   return {provider,orderId:9,key:receipts[0].requestKey,elapsedMs:16000,originalReceipt:receipts[0],browserErrors:[],
+    bootstrapRecovery:{version:'bootstrap-script-failure/v1',mainEntryPath:'/assets/index-synthetic.js',cases:[
+      {kind:'legacy-script',blockedPath:'/app-shell.js',failedScriptPaths:['/app-shell.js'],readyState:'complete',loadingCount:0,rootChildren:1,screenshot:'synthetic-bootstrap-legacy.png'},
+      {kind:'main-entry',blockedPath:'/assets/index-synthetic.js',failedScriptPaths:['/assets/index-synthetic.js'],readyState:'complete',loadingCount:1,rootChildren:0,screenshot:'synthetic-bootstrap-main.png'}]},
     burst:Array.from({length:8},(_,i)=>response(receipts[0],i!==0)),responses:[response(receipts[0],false),response(receipts[0],true)],
     verifiedReplay:response(receipts[0],true),before:state(1),twoGenuine:state(2),genuineSecondReceipt:receipts[1],afterVerification:state(2),
     negatives:['changed-amount','changed-method','changed-date','changed-note','changed-payer','changed-proxy','different-principal','missing-key','different-order','pending-capacity'].map(label=>({label,

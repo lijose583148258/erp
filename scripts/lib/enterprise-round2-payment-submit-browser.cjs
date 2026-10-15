@@ -10,6 +10,39 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
   const browser = (await launchBrowserWithGuard({ retryLimit: 1 })).browser;
   const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
   e.browserErrors = []; e.screenshots = [];
+  async function bootstrapFailureReadbacks() {
+    const response = await fetch(`${urls[0]}/`, { signal }); assert.equal(response.status, 200);
+    const html = await response.text();
+    const entry = html.match(/<script\b(?=[^>]*\btype=["']module["'])[^>]*\bsrc=["']([^"']+)["']/)?.[1];
+    assert(entry, 'The real deployed index must identify its main module');
+    const main = new URL(entry, urls[0]); assert.equal(main.origin, new URL(urls[0]).origin);
+    assert.match(main.pathname, /^\/assets\/index-[^/]+\.js$/);
+    const proof = { version: 'bootstrap-script-failure/v1', mainEntryPath: main.pathname, cases: [] };
+    for (const [kind, blockedPath] of [['legacy-script', '/app-shell.js'], ['main-entry', main.pathname]]) {
+      const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
+      const failedScriptPaths = [];
+      page.on('requestfailed', req => { if (req.resourceType() === 'script') failedScriptPaths.push(new URL(req.url()).pathname); });
+      try {
+        await page.route(url => url.origin === main.origin && url.pathname === blockedPath, route => route.abort('failed'));
+        await page.goto(`${urls[0]}/`, { waitUntil: 'load', timeout: 20000 });
+        if (kind === 'legacy-script') {
+          await expect(page.locator('#loading')).toHaveCount(0);
+          const input = page.locator('#root input[type="password"]');
+          await input.click(); await input.fill('bootstrap-probe'); await expect(input).toHaveValue('bootstrap-probe');
+        } else {
+          // The legacy compatibility timer (500ms + 300ms fade) has expired.
+          await page.waitForTimeout(900); await expect(page.locator('#loading')).toBeVisible();
+          await expect(page.locator('#root')).toBeEmpty();
+        }
+        assert.deepEqual(failedScriptPaths, [blockedPath]);
+        const actual = await page.evaluate(() => ({ rootChildren: document.getElementById('root').childElementCount,
+          loadingCount: document.querySelectorAll('#loading').length, readyState: document.readyState }));
+        const screenshot = path.join(folder, `bootstrap-${kind}.png`); await page.screenshot({ path: screenshot });
+        proof.cases.push({ kind, blockedPath, failedScriptPaths, ...actual, screenshot });
+      } finally { await page.close(); }
+    }
+    return proof;
+  }
   async function open(actor, instance, hash) {
     // Route faults must reach the network, not a cached service-worker response.
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
@@ -23,6 +56,7 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' }); await page.locator('#loading').waitFor({ state: 'hidden' }); return page;
   }
   try {
+    e.bootstrapRecovery = await bootstrapFailureReadbacks();
     const sales = await open(actors.sales, 0, 'orders');
     const openRegistration = async () => {
       await sales.getByTestId('sales-desk-payments').click(); await sales.getByTestId('sales-order-search').fill(order.orderNo);

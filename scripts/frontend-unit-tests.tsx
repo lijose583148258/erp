@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { JSDOM } from 'jsdom';
 import { useDialogFocus } from '../app/useDialogFocus';
 import Skeleton, { TableSkeleton } from '../components/Skeleton';
-import { RootErrorFallback } from '../components/ErrorBoundary';
+import ErrorBoundary, { RootErrorFallback } from '../components/ErrorBoundary';
 import PageErrorBoundary, { PageErrorFallback } from '../components/PageErrorBoundary';
 import {
   getBadgeText,
@@ -71,6 +71,29 @@ type FrontendUnitTest = {
 };
 
 const tests: FrontendUnitTest[] = [
+  {
+    name: 'committed root shell removes bootstrap overlay without depending on app-shell.js',
+    run: async () => {
+      const dom = new JSDOM('<!doctype html><div id="loading">bootstrap</div><div id="root"></div>', { url: 'http://localhost/' });
+      const keys = ['window', 'document', 'IS_REACT_ACT_ENVIRONMENT'] as const;
+      const previous = keys.map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)] as const);
+      for (const [key, value] of Object.entries({ window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true }))
+        Object.defineProperty(globalThis, key, { configurable: true, value });
+      const { createRoot } = await import('react-dom/client');
+      const root = createRoot(dom.window.document.getElementById('root')!);
+      try {
+        assert.ok(document.getElementById('loading'), 'An unmounted entry still needs bootstrap feedback');
+        await React.act(async () => root.render(<React.StrictMode><ErrorBoundary><button>Ready</button></ErrorBoundary></React.StrictMode>));
+        assert.equal(document.getElementById('loading'), null);
+        assert.equal(document.querySelector('#root button')?.textContent, 'Ready');
+      } finally {
+        await React.act(async () => root.unmount()); dom.window.close();
+        for (const [key, descriptor] of previous) {
+          if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
+        }
+      }
+    },
+  },
   {
     name: 'purchase source form never guesses legacy AP, tax ownership or a passing QA standard',
     run: () => {

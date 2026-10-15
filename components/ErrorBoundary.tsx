@@ -88,6 +88,12 @@ class ErrorBoundary extends React.Component<Props, State> {
     return { hasError: true, error };
   }
 
+  public componentDidMount() {
+    // The committed React shell (including its error fallback) owns bootstrap
+    // completion. A failed optional classic script must not cover usable UI.
+    document.getElementById('loading')?.remove();
+  }
+
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     reportClientIssue('root-error-boundary', {
       message: error.message,

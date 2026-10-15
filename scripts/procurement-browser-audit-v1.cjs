@@ -12,8 +12,8 @@ const { createProcurementBrowserAuditHelpers } = require('./lib/procurement-brow
 const { ensureReleasedMaterial, selectMaterialCombobox } = require('./lib/material-audit-fixture.cjs');
 const { explicitPurchaseSources, fillPurchaseSourceFields, releasePurchaseFixture } = require('./lib/purchase-quality-audit-fixture.cjs');
 
-const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
+const APP_URL = new URL(process.env.APP_URL || 'http://127.0.0.1:5001/').href;
+const OUTPUT_DIR = process.env.PROCUREMENT_BROWSER_OUTPUT_DIR || path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'procurement-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'procurement-audit-report-v1.json');
 
@@ -32,7 +32,7 @@ const DATA = {
   purchasePrice: '3800',
 };
 
-const REQUIRED_ROUTE_COPY = ['采购、供应商与收货', '供应商主数据入口', '采购职责分流'];
+const REQUIRED_ROUTE_COPY = ['采购、供应商与收货', '采购职责分流'];
 const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
 
 const TIMEOUTS = { login: 15000, route: 20000, fill: 20000, save: 25000, api: 15000, readBack: 15000 };
@@ -203,7 +203,9 @@ async function openProcurement(page) {
     for (let index = 0; index < 30; index += 1) {
       const bodyText = await page.locator('body').innerText();
       const hasHeading = bodyText.includes(REQUIRED_ROUTE_COPY[0]);
-      const hasTabs = bodyText.includes(REQUIRED_ROUTE_COPY[1]) && bodyText.includes(REQUIRED_ROUTE_COPY[2]);
+      const hasTabs = bodyText.includes(REQUIRED_ROUTE_COPY[1])
+        && await page.getByTestId('procurement-desk-suppliers').isVisible()
+        && await page.getByTestId('procurement-desk-orders').isVisible();
       if (hasHeading && hasTabs) {
         assertNoMojibake(bodyText, 'procurement route');
         return;
@@ -220,6 +222,7 @@ async function openProcurement(page) {
 async function createSupplier(page) {
   return withTimebox(page, 'create-procurement-supplier', TIMEOUTS.save, async () => {
     await page.getByTestId('procurement-desk-suppliers').click();
+    await page.getByText('供应商主数据入口', { exact: true }).waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
     await page.getByTestId('save-supplier-button').click();
     const supplierErrorSummary = page.getByTestId('supplier-form-error-summary');
     await supplierErrorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
@@ -402,7 +405,15 @@ async function dispatchPurchaseOrder(page) {
     const orderId = report.purchaseOrder?.id;
     if (!orderId) throw new Error('purchase order id missing before dispatch');
 
-    // The creator's existing browser must read the independent approval before dispatch.
+    // Same-hash navigation does not invalidate the author's old list.
+    const freshResponse = page.waitForResponse(response => response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/procurement/orders', { timeout: TIMEOUTS.readBack });
+    const [, fresh] = await Promise.all([page.reload({ waitUntil: 'domcontentloaded', timeout: TIMEOUTS.route }), freshResponse]);
+    const freshBody = await fresh.json(); assert.equal(fresh.status(), 200, JSON.stringify(freshBody));
+    const approved = unwrapList({ json: freshBody }).find(item => String(item.id) === String(orderId));
+    assert(approved, 'Independently approved PO missing from new author readback'); assert.equal(approved.status, 'approved');
+    assert.equal(approved.revision, report.purchaseOrder.revision);
+    report.purchaseApprovalReadback = { purchaseOrderId: Number(orderId), status: approved.status, revision: approved.revision, freshGet: true };
     await openProcurement(page);
     await page.getByTestId('procurement-desk-orders').click();
     await page.locator(`[data-testid="purchase-order-dispatch-${orderId}"]`).click();
@@ -446,6 +457,8 @@ async function receivePurchaseOrder(page) {
     await page.locator(`[data-testid="purchase-order-receipts-${orderId}"]`).click();
     await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
 
+    // Isolate the quantity error; the governed form no longer invents a batch.
+    await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `PO-BATCH-${RUN_ID}`);
     await replaceInputValue(page.getByTestId('purchase-receipt-quantity-input'), String(Number(DATA.purchaseQuantity) + 1));
     await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
@@ -466,7 +479,6 @@ async function receivePurchaseOrder(page) {
     await replaceInputValue(page.getByTestId('purchase-receipt-quantity-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
-    await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `PO-BATCH-${RUN_ID}`);
     const receiptResponsePromise = page.waitForResponse((response) => (
       response.request().method() === 'POST'
       && response.url().includes(`/procurement/orders/${orderId}/receipts`)

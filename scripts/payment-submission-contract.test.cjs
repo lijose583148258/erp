@@ -2,6 +2,28 @@ const {test}=require('node:test'),assert=require('node:assert/strict'),fs=requir
 const {verifyPaymentSubmissionProof}=require('./lib/payment-submission-proof.cjs');
 const {paymentSubmissionProofFixture}=require('./fixtures/payment-submission-proof-fixture.cjs');
 const read=file=>fs.readFileSync(path.join(__dirname,'..',file),'utf8');
+
+test('legacy shell never removes bootstrap when the main React bundle did not mount', () => {
+  const vm = require('node:vm');
+  for (const mounted of [false, true]) {
+    let load, removed = 0;
+    const loading = { classList: { add() {} }, remove() { removed++; } };
+    vm.runInNewContext(read('public/app-shell.js'), { window: { addEventListener: (name, callback) => { assert.equal(name, 'load'); load = callback; } },
+      document: { getElementById: id => id === 'root' ? { hasChildNodes: () => mounted } : loading }, setTimeout: callback => callback() });
+    load(); assert.equal(removed, mounted ? 1 : 0);
+  }
+});
+
+for (const [label, mutate] of [
+  ['missing bootstrap failure evidence', e => { delete e.bootstrapRecovery; }],
+  ['unexecuted legacy script fault', e => { e.bootstrapRecovery.cases[0].failedScriptPaths = []; }],
+  ['loader still covering mounted UI', e => { e.bootstrapRecovery.cases[0].loadingCount = 1; }],
+  ['main bundle failed but loader hidden', e => { e.bootstrapRecovery.cases[1].loadingCount = 0; }],
+  ['main fault actually tested another script', e => { e.bootstrapRecovery.cases[1].blockedPath = '/app-shell.js'; }],
+]) test(`strict bootstrap recovery rejects ${label}`, () => {
+  const e = paymentSubmissionProofFixture('sqlite'); verifyPaymentSubmissionProof(e, 'sqlite');
+  mutate(e); assert.throws(() => verifyPaymentSubmissionProof(e, 'sqlite'));
+});
 test('strict registration proof accepts SQLite and PostgreSQL fixtures without conflating app and DB restart',()=>{
   for(const provider of ['sqlite','postgresql'])assert.equal(verifyPaymentSubmissionProof(paymentSubmissionProofFixture(provider),provider).registrations,3);
 });
