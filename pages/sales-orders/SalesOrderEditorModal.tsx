@@ -9,6 +9,8 @@ import type { SalesOrderFormData } from './useSalesOrders';
 import type { SalesOrderLineErrors } from './salesOrderFormHelpers';
 import { useUnsavedForm } from '../../app/useUnsavedForm';
 import { useDialogFocus } from '../../app/useDialogFocus';
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 
 type Props = {
     isOpen: boolean;
@@ -126,6 +128,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
     importOrderItemsFromGrid,
     orderLineErrors,
 }) => {
+    const { currentUser } = useAppContext();
     const [isAssistOpen, setIsAssistOpen] = React.useState(false);
     const dialogRef = React.useRef<HTMLDivElement>(null);
     const { requestClose } = useUnsavedForm({
@@ -349,7 +352,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                             actionLabel: t.apply || '应用',
                                         }))}
                                     />
-                                    <MetricPanel
+                                    {can(currentUser, 'assets.read') && <MetricPanel
                                         title={t.inventoryInsightTitle || '库存洞察'}
                                         hint={t.inventoryInsightHint || '录单时同步看可用量、缺口和批次数。'}
                                         tone="emerald"
@@ -357,7 +360,7 @@ const SalesOrderEditorModal: React.FC<Props> = ({
                                             title: insight.productName,
                                             subtitle: `Available ${insight.available} / Shortage ${insight.shortage} / Batches ${insight.batches}`,
                                         }))}
-                                    />
+                                    />}
                                 </div>
                             </div>
                         </div>

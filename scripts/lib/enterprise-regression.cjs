@@ -166,6 +166,16 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     const matches = round2.checks.filter(c => c.id === id); assert.equal(matches.length, 1, 'Missing/duplicate check ID');
     const check = matches[0]; assert.equal(check.status, 'passed', 'Previously passed check regressed or was skipped');
     assert(check.evidence && Object.keys(check.evidence).length, 'Missing read-back evidence');
+    if (id === 'sales-reservation-partial-fulfillment' || id === 'sales-browser-readback') {
+      const source = round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment');
+      assert.equal(source?.status, 'passed', 'Sales UI proof requires its successful same-run shared chain');
+      assert(typeof round2.metadata?.runId === 'string' && round2.metadata.runId.trim(), 'Missing shared sales report run identity');
+      assert.equal(source.evidence.runId, round2.metadata.runId, 'Shared sales source belongs to a different report run');
+      const verifier = require('./enterprise-round2-sales-proof.cjs');
+      if (id === 'sales-reservation-partial-fulfillment') verifier.verifySharedSalesChain(check.evidence, provider);
+      else assert.deepEqual(check.evidence, verifier.verifySharedSalesBrowser(source.evidence, provider),
+        'Sales browser proof must bind the same run, provider, chain and immutable manifest');
+    }
     if (id === 'payment-event-audit-once') require('./payment-event-proof.cjs').verifyPaymentEventProof(check.evidence, provider);
     if (id === 'payment-submit-durable-replay') require('./payment-submission-proof.cjs').verifyPaymentSubmissionProof(check.evidence, provider);
     if (id === 'purchase-browser-readback') require('./enterprise-round2-procurement.cjs').verifyPurchaseRoleProof(check.evidence);

@@ -317,6 +317,7 @@ export const useSalesOrders = () => {
 
     const openEditModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
+        if (!detailedOrder) return;
         setSelectedOrder(detailedOrder);
         setFormData({
             id: detailedOrder.id,
@@ -339,6 +340,7 @@ export const useSalesOrders = () => {
 
     const openHistoryModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
+        if (!detailedOrder) return;
         setSelectedOrder(detailedOrder);
         setHistoryTab('payments');
         setIsHistoryOpen(true);

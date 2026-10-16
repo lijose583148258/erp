@@ -1,6 +1,12 @@
 const assert = require('node:assert/strict');
 const { explicitPurchaseSources, createApprovedPurchaseFixture } = require('./purchase-quality-audit-fixture.cjs');
 
+async function readSupplierPaymentSnapshot(prisma, receiptId) {
+  const rows = await prisma.supplierPayment.findMany({ where: { purchaseReceiptId: receiptId }, orderBy: { id: 'asc' } });
+  const audits = await prisma.auditLog.findMany({ where: { resource: 'supplier_payment', resourceId: { in: rows.map(row => row.id) } }, orderBy: { id: 'asc' } });
+  return { rows, audits };
+}
+
 // Actual dual-node API/database evidence. This is a sub-proof, not the missing
 // whole purchase obligation: scoped role browsers and cumulative/cloud gates
 // must still run before the original fixed37 check may be accepted.
@@ -42,8 +48,7 @@ async function purchaseQualityPayablesApiProbe({ request, dataOf, actors, prisma
       e.qualityStages.push({ label, batch: await prisma.productBatch.findUniqueOrThrow({ where: { id: e.receipt1.submission.receipt.batchId } }), checks,
         audits: await prisma.auditLog.findMany({ where: { resource: 'incoming_quality', resourceId: { in: checks.map(row => row.id) } }, orderBy: { id: 'asc' } }) });
     };
-    const paymentSnapshot = async () => ({ rows: await prisma.supplierPayment.findMany({ where: { purchaseReceiptId: receiptId }, orderBy: { id: 'asc' } }),
-      audits: await prisma.auditLog.findMany({ where: { resource: 'supplier_payment' }, orderBy: { id: 'asc' } }) });
+    const paymentSnapshot = () => readSupplierPaymentSnapshot(prisma, receiptId);
     const bundle = async (instance = 0) => dataOf(await call(`/procurement/receipts/${receiptId}/payments`, actors.finance1, 'GET', undefined, instance));
     e.preQA = await bundle(); assert.equal(e.preQA.paymentEligibility.eligible, false); assert.equal(e.preQA.outstandingAmountNative, '10.01');
     const proposalFacts = (amountNative, flow) => ({ amountNative, currency: 'USD', method: 'bank_transfer', date: '2026-10-14',
@@ -440,4 +445,4 @@ function verifyPurchaseQualityPayablesApiProof(raw) {
   return { receipts: 2, acceptedQuantity: 3, payableAmountNative: '30.03', payableAmountBase: '214.50', verifiedPayments: 3,
     cancelledDrafts: 1, paidAmountNative: '10.01', paidAmountBase: '71.50', requestCount: 45 };
 }
-module.exports = { purchaseQualityPayablesApiProbe, verifyPurchaseQualityPayablesApiProof };
+module.exports = { purchaseQualityPayablesApiProbe, verifyPurchaseQualityPayablesApiProof, readSupplierPaymentSnapshot };

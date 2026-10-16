@@ -31,6 +31,10 @@ function fixture(profile = 'cloud') {
   const barter = require('./fixtures/barter-browser-proof-fixture.cjs').browserFixture();
   round2.checks.find(c => c.id === 'barter-partial-fulfillment').evidence = barter;
   round2.checks.find(c => c.id === 'barter-browser-readback').evidence = require('./lib/enterprise-round2-barter-partial.cjs').assertBarterBrowserChain(barter);
+  const sharedSales = require('./fixtures/shared-sales-proof-fixture.cjs').sharedSalesProofFixture(stamp.provider);
+  round2.metadata = { runId: sharedSales.runId };
+  round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment').evidence = sharedSales;
+  round2.checks.find(c => c.id === 'sales-browser-readback').evidence = require('./lib/enterprise-round2-sales-proof.cjs').verifySharedSalesBrowser(sharedSales, stamp.provider);
   round2.summary = summarize(round2, catalog); round2.status = round2.summary.status;
   const sales = { ...stamp, status: 'passed', stillOwedQuantity: 60, browserCreatedDraft: {}, browserReadbackFault: {}, finalPersisted: {}, finalCostLedger: [], finalReadbacks: [{}, {}] };
   const salesPlan = require('./lib/sales-fulfillment-plan-test-fixture.cjs').salesPlanFixture({ ...stamp, runId: 'current-presale-source' });
@@ -103,6 +107,59 @@ test('baseline replay may pass while full 37-check acceptance remains incomplete
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
     assert.match(result.scope, profile === 'local' ? /cloud baseline still required/ : /Cloud baseline/);
   }
+});
+
+test('shared sales revision appends only the two fixed IDs and retains every prior package', () => {
+  const index = baseline.revisions.findIndex(r => r.id === 'shared-sales-real-role-chain-v1');
+  assert(index > 0);
+  const previous = baseline.revisions[index - 1], current = baseline.revisions[index];
+  assert.deepEqual(current.round2Checks, [...previous.round2Checks, 'sales-reservation-partial-fulfillment', 'sales-browser-readback']);
+  assert.deepEqual(current.independentChecks, previous.independentChecks);
+  assert.deepEqual(current.cloudSteps, previous.cloudSteps);
+  for (const [profile, expected] of [['local', 44], ['cloud', 70]]) {
+    const d = fixture(profile);
+    d.baseline.revisions = d.baseline.revisions.slice(0, index + 1);
+    for (const check of d.reports.round2.checks) check.status = current.round2Checks.includes(check.id) ? 'passed' : 'not_run';
+    d.reports.round2.summary = summarize(d.reports.round2, catalog); d.reports.round2.status = d.reports.round2.summary.status;
+    const result = evaluateRegression(d);
+    assert.equal(result.summary.expected, expected);
+    assert.equal(result.summary.passed, expected);
+    assert.equal(result.fullAcceptanceStatus, 'incomplete');
+  }
+});
+
+for (const [label, mutate, id] of [
+  ['source is a passed summary', d => { d.reports.round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment').evidence = { status: 'passed', runId: d.reports.round2.metadata.runId }; }, 'sales-reservation-partial-fulfillment'],
+  ['source belongs to another run', d => { d.reports.round2.metadata.runId = 'foreign-source-run'; }, 'sales-reservation-partial-fulfillment'],
+  ['missing source report run identity', d => { delete d.reports.round2.metadata.runId; }, 'sales-reservation-partial-fulfillment'],
+  ['source uses another provider', d => { d.reports.round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment').evidence.provider = 'sqlite'; }, 'sales-reservation-partial-fulfillment'],
+  ['source actor is replaced by owner', d => {
+    const e = d.reports.round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment').evidence;
+    e.actions.find(a => a.job === 'sales' && a.method === 'POST' && a.path === '/orders').actorId = e.workforce.actors.find(a => a.job === 'owner').id;
+    require('./fixtures/shared-sales-proof-fixture.cjs').refreshSharedSalesDigest(e);
+  }, 'sales-reservation-partial-fulfillment'],
+  ['source loses real receipt trace', d => {
+    const e = d.reports.round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment').evidence;
+    e.final.shipments[1].receipts = [];
+    require('./fixtures/shared-sales-proof-fixture.cjs').refreshSharedSalesDigest(e);
+  }, 'sales-reservation-partial-fulfillment'],
+  ['browser is only a passed flag', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence = { passed: true }; }, 'sales-browser-readback'],
+  ['source was skipped', d => { d.reports.round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment').status = 'not_run'; }, 'sales-browser-readback'],
+  ['browser run differs', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence.runId = 'another-run'; }, 'sales-browser-readback'],
+  ['browser provider differs', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence.provider = 'sqlite'; }, 'sales-browser-readback'],
+  ['browser chain digest differs', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence.chainDigest = '0'.repeat(64); }, 'sales-browser-readback'],
+  ['browser source digest differs', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence.sourceChainDigest = '0'.repeat(64); }, 'sales-browser-readback'],
+  ['browser manifest digest differs', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence.manifestDigest = '0'.repeat(64); }, 'sales-browser-readback'],
+  ['browser manifest belongs to another PO', d => { d.reports.round2.checks.find(c => c.id === 'sales-browser-readback').evidence.manifest.purchaseOrderId++; }, 'sales-browser-readback'],
+]) test(`shared sales cumulative obligation rejects ${label} and still replays prior packages`, () => {
+  const d = fixture(); mutate(d);
+  d.reports.round2.summary = summarize(d.reports.round2, catalog); d.reports.round2.status = d.reports.round2.summary.status;
+  const result = evaluateRegression(d);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.checks.find(c => c.id === `round2:${id}`).status, 'failed');
+  assert.equal(result.checks.find(c => c.id === 'barter-cash-legacy-upgrade').status, 'passed');
+  assert.equal(result.checks.find(c => c.id === 'round2:purchase-partial-receipt-qc-payables').status, 'passed');
+  assert.equal(result.checks.find(c => c.id === 'round2:payment-event-audit-once').status, 'passed');
 });
 
 for (const [label, mutate] of [
@@ -303,7 +360,9 @@ test('shipment package is retained in every cumulative replay without replacing 
   assert(source.includes("['sales-partial',")); assert(source.includes('Object.assign(env, shipmentFlags)'));
   assert(source.includes('...extraEnv')); assert(source.includes('verifyFresh(proof, context'));
   assert(source.includes('assert.equal(proof[field]?.version, version)'));
-  const previous = baseline.revisions.at(-2), current = baseline.revisions.at(-1);
+  const index = baseline.revisions.findIndex(r => r.id === 'shipment-workspace-critical-regression-v1');
+  assert(index > 0);
+  const previous = baseline.revisions[index - 1], current = baseline.revisions[index];
   assert.equal(current.id, 'shipment-workspace-critical-regression-v1');
   assert.deepEqual(current.round2Checks, previous.round2Checks); assert.deepEqual(current.independentChecks, previous.independentChecks);
   assert.deepEqual(current.cloudSteps, [...previous.cloudSteps, 'shipment_workspace']);

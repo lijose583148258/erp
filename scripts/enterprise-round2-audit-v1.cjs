@@ -31,6 +31,7 @@ const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-
   'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback', 'stock-contention-browser', 'transfer-shipping-browser');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('purchase-partial-receipt-qc-payables');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('sales-reservation-partial-fulfillment', 'sales-browser-readback');
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('barter-browser-readback');
 implemented.push('barter-negative-cash-adjustment');
 implemented.push('bom-revision-freeze');
@@ -434,6 +435,14 @@ async function purchaseQualityPayables(signal) {
     scope: 'Real receipt AP/QC/QA/external supplier-payment API and four least-privilege browser roles; not all20 workforce, refunds, bank execution or full37' };
 }
 
+async function runSharedSales() {
+  const { sharedSalesChain } = require('./lib/enterprise-round2-sales.cjs');
+  const shared = await runner.run('sales-reservation-partial-fulfillment', signal => sharedSalesChain({ request, dataOf, prisma, runId, urls, reportPath,
+    bootstrap: actors.admin, catalog, ensureReleasedMaterial }, signal), { timeoutMs: 240000 });
+  if (shared) await runner.run('sales-browser-readback', () => require('./lib/enterprise-round2-sales-proof.cjs').verifySharedSalesBrowser(shared));
+  else runner.block('sales-browser-readback', 'The same shared150 order role/API/browser chain did not complete; no separate screenshot may replace it');
+}
+
 async function main() {
   try {
     await setup(AbortSignal.timeout(90_000));
@@ -443,7 +452,8 @@ async function main() {
     return;
   }
   if (process.env.ROUND2_ONLY_CHECK) {
-    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'purchase-partial-receipt-qc-payables', 'inventory-browser', 'po-stale-edit-conflict'].includes(process.env.ROUND2_ONLY_CHECK));
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'purchase-partial-receipt-qc-payables', 'inventory-browser', 'po-stale-edit-conflict', 'shared-sales'].includes(process.env.ROUND2_ONLY_CHECK));
+    if (process.env.ROUND2_ONLY_CHECK === 'shared-sales') { await runSharedSales(); return; }
     if (process.env.ROUND2_ONLY_CHECK === 'po-stale-edit-conflict') {
       await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
       return;
@@ -487,6 +497,7 @@ async function main() {
     const proof = require('./lib/customer-quantity-cancellation-proof.cjs').verifyCustomerCancellation(source);
     return { ...proof, sourceRunId: source.runId, sourceReportSha256: crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex') };
   });
+  if (process.env.ROUND2_BROWSER === 'true') await runSharedSales();
   await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
   await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
   if (process.env.ROUND2_BROWSER === 'true') {

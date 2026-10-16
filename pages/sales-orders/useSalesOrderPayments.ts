@@ -17,7 +17,7 @@ type UseSalesOrderPaymentsOptions = {
     setSelectedOrder: Dispatch<SetStateAction<SalesOrder | null>>;
     setPaymentForm: Dispatch<SetStateAction<PaymentForm>>;
     setIsPaymentOpen: Dispatch<SetStateAction<boolean>>;
-    hydrateOrderDetail: (order: SalesOrder) => Promise<SalesOrder>;
+    hydrateOrderDetail: (order: SalesOrder) => Promise<SalesOrder | null>;
     upsertOrder: (order: SalesOrder) => void;
 };
 
@@ -40,6 +40,7 @@ export const useSalesOrderPayments = ({
     const openPaymentModal = async (order: SalesOrder) => {
         if (inFlight.current) return;
         const detailedOrder = await hydrateOrderDetail(order);
+        if (!detailedOrder) return;
         let pending;
         try { pending = readPaymentIntent(window.localStorage, String(currentUser.id), String(detailedOrder.id)); }
         catch (error) { notify('error', (error as Error).message || '无法读取原回款请求身份，未开启新登记。'); return; }

@@ -1,7 +1,23 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { verifyPurchaseQualityPayablesApiProof } = require('./lib/purchase-quality-payables-api-proof.cjs');
+const { verifyPurchaseQualityPayablesApiProof, readSupplierPaymentSnapshot } = require('./lib/purchase-quality-payables-api-proof.cjs');
 const { purchaseQualityPayablesApiProofFixture: fixture } = require('./fixtures/purchase-quality-payables-api-proof-fixture.cjs');
+
+for (const empty of [false, true]) test(`actual audit query stays receipt-owned with unrelated shared-chain payments (${empty ? 'empty' : 'populated'})`, async () => {
+  const e = fixture(), receiptId = e.finalDatabase.rows[0].purchaseReceiptId;
+  const ownRows = empty ? [] : e.finalDatabase.rows;
+  const otherRow = { ...e.finalDatabase.rows[0], id: 9999, purchaseReceiptId: receiptId + 1 };
+  const otherAudit = { ...e.finalDatabase.audits[0], id: 9999, resourceId: otherRow.id };
+  const databaseRows = [...ownRows, otherRow], databaseAudits = [...(empty ? [] : e.finalDatabase.audits), otherAudit];
+  let queries = 0;
+  const prisma = {
+    supplierPayment: { findMany: async query => { queries++; assert.deepEqual(query, { where: { purchaseReceiptId: receiptId }, orderBy: { id: 'asc' } }); return databaseRows.filter(r => r.purchaseReceiptId === query.where.purchaseReceiptId); } },
+    auditLog: { findMany: async query => { queries++; assert.deepEqual(query, { where: { resource: 'supplier_payment', resourceId: { in: ownRows.map(r => r.id) } }, orderBy: { id: 'asc' } }); return databaseAudits.filter(a => a.resource === query.where.resource && query.where.resourceId.in.includes(a.resourceId)); } },
+  };
+  const snapshot = await readSupplierPaymentSnapshot(prisma, receiptId);
+  assert.equal(queries, 2); assert.deepEqual(snapshot, { rows: ownRows, audits: empty ? [] : e.finalDatabase.audits });
+  assert(databaseRows.includes(otherRow) && databaseAudits.includes(otherAudit), 'Isolation must not delete another chain');
+});
 
 for (const provider of ['sqlite', 'postgresql']) test(`synthetic ${provider} API verifier contract, not execution or cloud acceptance`, () => {
   const input = fixture(provider), before = JSON.stringify(input);
