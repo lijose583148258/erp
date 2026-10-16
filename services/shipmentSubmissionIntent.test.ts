@@ -1,12 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { prepareShipmentIntent, readShipmentIntent, clearShipmentIntent, confirmShipmentSubmission, shipmentIntentPayload, hasShipmentIntent, isConfirmedShipmentRejection,
+import { prepareShipmentIntent, readShipmentIntent, clearShipmentIntent, confirmShipmentSubmission, shipmentIntentPayload, hasShipmentIntent, listOrderShipmentIntents, isConfirmedShipmentRejection,
   type ShipmentSubmissionResult } from './shipmentSubmissionIntent';
 
 const input = { customerId: '1', orderId: '2', orderItemId: '3', materialId: '4', productName: 'Resin', quantity: 40, unit: 'kg', batchNo: 'LOT-1' };
 const storage = () => { const map = new Map<string, string>(); return { getItem: (k: string) => map.get(k) ?? null,
-  setItem: (k: string, v: string) => { map.set(k, v); }, removeItem: (k: string) => { map.delete(k); }, map }; };
+  setItem: (k: string, v: string) => { map.set(k, v); }, removeItem: (k: string) => { map.delete(k); },
+  get length() { return map.size; }, key: (index: number) => [...map.keys()][index] ?? null, map }; };
 function fixture() {
   const db = storage(), intent = prepareShipmentIntent(db, '8', 'order:2', input, () => 'original-shipment-request');
   const snapshot = { ...intent.facts, id: 9, shipmentNo: 'SHP-9', productBatchId: 5, createdBy: 8, status: 'pending' as const, createdAt: '2026-10-15T00:00:00.000Z' };
@@ -39,6 +40,42 @@ test('unreliable or corrupt browser storage prevents sending, never silently inv
   const f = fixture(), slot = [...f.db.map.keys()][0]; f.db.map.set(slot, '{}');
   assert.throws(() => readShipmentIntent(f.db, '8', 'order:2'), /损坏/);
   assert.throws(() => prepareShipmentIntent(f.db, '8', 'order:2', input), /损坏/);
+});
+
+test('order enumeration isolates actors, ignores OCR slots and discovers pending without any candidate list', () => {
+  const f = fixture();
+  prepareShipmentIntent(f.db, '7', 'order:2', input, () => 'other-actor-request');
+  prepareShipmentIntent(f.db, '8', 'ocr', input, () => 'original-ocr-request');
+  const later = prepareShipmentIntent(f.db, '8', 'order:12', { ...input, orderId: '12' }, () => 'later-order-request');
+  assert.deepEqual(listOrderShipmentIntents(f.db, '8'), [f.intent, later]);
+  assert.deepEqual(listOrderShipmentIntents(f.db, '9'), []);
+});
+
+test('enumeration refuses corrupt actor-owned content but does not read another actor corruption', () => {
+  const f = fixture(); f.db.setItem('ailaoda.shipment-intent/v1.7.order%3A99', '{}');
+  assert.deepEqual(listOrderShipmentIntents(f.db, '8'), [f.intent]);
+  f.db.setItem([...f.db.map.keys()][0], '{}');
+  assert.throws(() => listOrderShipmentIntents(f.db, '8'), /损坏/);
+});
+
+test('enumeration rejects noncanonical scope, scope-fact mismatch and duplicate identities', () => {
+  for (const name of ['order%3A02', 'order%3A0', 'order%3A%ZZ']) {
+    const f = fixture(); f.db.setItem(`ailaoda.shipment-intent/v1.8.${name}`, JSON.stringify(f.intent));
+    assert.throws(() => listOrderShipmentIntents(f.db, '8'), /损坏/);
+  }
+  const mismatch = fixture(); prepareShipmentIntent(mismatch.db, '8', 'order:12', input, () => 'mismatched-order-request');
+  assert.throws(() => listOrderShipmentIntents(mismatch.db, '8'), /不一致/);
+  const duplicate = fixture(); prepareShipmentIntent(duplicate.db, '8', 'order:12', { ...input, orderId: '12' }, () => duplicate.intent.key);
+  assert.throws(() => listOrderShipmentIntents(duplicate.db, '8'), /不一致/);
+});
+
+test('enumeration fails closed when storage enumeration is unstable or unavailable', () => {
+  const f = fixture();
+  assert.throws(() => listOrderShipmentIntents({ ...f.db, length: -1 }, '8'), /可靠读取/);
+  assert.throws(() => listOrderShipmentIntents({ ...f.db, key: () => null }, '8'), /已变化/);
+  assert.throws(() => listOrderShipmentIntents({ ...f.db, key: () => { throw Error('storage unavailable'); } }, '8'), /unavailable/);
+  let reads = 0;
+  assert.throws(() => listOrderShipmentIntents({ ...f.db, get length() { return ++reads === 1 ? 1 : 2; } }, '8'), /已变化/);
 });
 for (const [field, value] of Object.entries({ key: 'other-shipment-request', actorId: 7, auditId: 0, fingerprint: 'a'.repeat(64), schema: 'wrong' })) {
   test(`ACK rejects altered ${field} and retains original storage`, async () => {

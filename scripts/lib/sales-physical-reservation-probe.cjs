@@ -16,9 +16,29 @@ async function probePhysicalReservation(ctx, report) {
   const secondLine = dataOf(await request(`/orders/${second.id}`)).items[0];
   const create = async (target, line) => dataOf(await request('/shipping', { method: 'POST', data: { customerId: Number(customer.id),
     orderId: Number(target.id), orderItemId: Number(line.id), materialId: material.id, productName: material.nameZh, quantity: 30, unit: 'kg', batchNo } }));
-  e.shipments = await Promise.all([create(order, original.items[0]), create(second, secondLine)]);
   e.before = await snapshot();
-  if (process.env.ROUND2_RESERVATION_UI === 'true') return require('./shipment-reservation-workspace-probe.cjs').probeReservationWorkspace(ctx, e);
+  if (process.env.ROUND2_RESERVATION_UI === 'true') {
+    // Diagnostic setup only: the actual bound shipment writes below must be
+    // performed by the warehouse browser, not silently pre-created by admin.
+    const paid = async target => {
+      onLogin(salesToken);
+      dataOf(await request(`/orders/${target.id}/payment`, { method: 'POST', data: {
+        idempotencyKey: crypto.randomUUID(), amount: target.finalAmount, method: 'bank_transfer', payerName: runId } }));
+      onLogin(adminToken);
+      const payment = dataOf(await request(`/orders/${target.id}`)).paymentRecords.find(row => row.status === 'pending');
+      assert(payment); dataOf(await request(`/orders/${target.id}/payment/${payment.id}/verify`, { method: 'POST' }));
+    };
+    await paid(second);
+    onLogin(salesToken);
+    const last = dataOf(await request('/orders', { method: 'POST', data: { customerId: Number(customer.id),
+      items: [{ materialId: material.id, productName: material.nameZh, quantity: 5, unit: 'kg', unitPrice: 10 }], paymentTerms: 30 } }));
+    onLogin(adminToken); dataOf(await request(`/orders/${last.id}/status`, { method: 'PATCH', data: { status: 'confirmed' } }));
+    await paid(last);
+    const lastLine = dataOf(await request(`/orders/${last.id}`)).items[0];
+    e.dispatchTargets = [{ order, line: original.items[0] }, { order: second, line: secondLine }, { order: last, line: lastLine }];
+    return require('./shipment-reservation-workspace-probe.cjs').probeReservationWorkspace(ctx, e);
+  }
+  e.shipments = await Promise.all([create(order, original.items[0]), create(second, secondLine)]);
   e.reserveRace = await Promise.all(e.shipments.map((shipment, instance) => request(`/shipping/${shipment.id}/reserve`, {
     method: 'POST', instance, data: { expectedAuditId: null } })));
   e.afterReserve = await snapshot();

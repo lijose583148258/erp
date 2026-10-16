@@ -11,6 +11,7 @@ import ShippingAssetsPanel from './shipping/ShippingAssetsPanel';
 import { useShipping } from './shipping/useShipping';
 import ShipmentSupplementDialog from './shipping/ShipmentSupplementDialog';
 import ShipmentReservationDialog from './shipping/ShipmentReservationDialog';
+import ShippingReadyPanel from './shipping/ShippingReadyPanel';
 
 type ShippingDeskTab = 'logistics' | 'receipts' | 'ocr' | 'assets' | 'principle';
 
@@ -194,7 +195,7 @@ const Shipping = () => {
         void openReceiptEvents(shipment);
     }, [openReceiptEvents, switchShippingDesk]);
 
-    const latestReceipt = state.receiptBundle?.receipts?.[0] || null;
+    const latestReceipt = state.receiptBundle?.receipts?.at(-1) || null;
     const discrepancyCases = state.receiptBundle?.discrepancyCases || [];
     const primaryDiscrepancyCase = state.receiptBundle?.discrepancyCase || discrepancyCases[0] || null;
 
@@ -275,6 +276,8 @@ const Shipping = () => {
                     <p className="text-slate-500 font-medium tracking-tight text-sm mt-2">{state.t.allServiceRequests || 'Global Logistics Management System'}</p>
                 </div>
             </div>
+
+            <ShippingReadyPanel onRefresh={signal => state.loadData(signal, true)} onOpenShipment={setReservationId} />
 
             <WorkspaceTaskNavigator
                 eyebrow={shippingDeskCopy.eyebrow}

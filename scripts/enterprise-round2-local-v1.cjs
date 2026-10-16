@@ -200,7 +200,7 @@ async function main() {
           const versions = { 'shipment-submission': ['shipmentSubmission', 'shipment-submission-probe/v2'],
             'shipment-late-information': ['shipmentSupplement', 'shipment-supplement-probe/v2'],
             'shipment-physical-reservation': ['physicalReservation', 'physical-reservation-probe/v2'],
-            'shipment-reservation-workspace': ['physicalReservation', 'reservation-workspace-probe/v2'] };
+            'shipment-reservation-workspace': ['physicalReservation', 'reservation-workspace-probe/v3'] };
           const [field, version] = versions[label]; assert.equal(proof.status, 'passed'); assert.equal(proof[field]?.version, version);
           assert.deepEqual(proof.summary, { passedChecks: 1, failedChecks: 0, remainingChecks: 0 });
           shipmentEvidence = { report: target, version, sha256: crypto.createHash('sha256').update(JSON.stringify(proof)).digest('hex') };

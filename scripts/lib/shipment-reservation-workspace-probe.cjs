@@ -7,8 +7,8 @@ const { ensureUiAuditUser, loginUiAuditUser } = require('./ui-audit-user.cjs');
 
 async function probeReservationWorkspace(ctx, evidence) {
   const { runId, password, urls, prisma, request, dataOf, order, original, material, batchNo, onLogin } = ctx;
-  evidence.scope = 'Real warehouse reservation UI and sales readback; not the original20/final37 acceptance';
-  evidence.version = 'reservation-workspace-probe/v2';
+  evidence.scope = 'Real warehouse order-bound draft, late batch, native recovery, reservation and sales readback; diagnostic setup, not original20/final37 acceptance';
+  evidence.version = 'reservation-workspace-probe/v3';
   const account = { username: `${runId}-warehouse`, password, role: 'warehouse', segment: 'mixed' };
   await ensureUiAuditUser(account);
   const browser = (await launchBrowserWithGuard({ retryLimit: 1 })).browser;
@@ -16,7 +16,7 @@ async function probeReservationWorkspace(ctx, evidence) {
   const sales = await browser.newPage({ viewport: { width: 1440, height: 1000 }, locale: 'en-US', serviceWorkers: 'block' });
   const folder = path.join(path.dirname(process.env.ROUND2_REPORT_PATH), 'reservation-workspace'); fs.mkdirSync(folder, { recursive: true });
   evidence.screenshots = [];
-  const shipment = evidence.shipments[0], id = shipment.id, base = `/shipping/${id}`;
+  let id, base;
   const snapshot = async () => ({ shipment: await prisma.shipment.findUnique({ where: { id } }),
     receipts: await prisma.shipmentReceipt.findMany({ where: { shipmentId: id }, orderBy: { id: 'asc' } }),
     audits: await prisma.auditLog.findMany({ where: { resource: 'shipment', resourceId: id }, orderBy: { id: 'asc' } }),
@@ -29,6 +29,8 @@ async function probeReservationWorkspace(ctx, evidence) {
     const login = await loginUiAuditUser(page, `${urls[0]}/`, { account, storage: { 'ailao.language': 'zh', language: 'zh-CN' } });
     assert.equal(login.user.role, 'warehouse'); evidence.warehouseActor = { id: Number(login.user.id), role: login.user.role };
     await page.goto(`${urls[0]}/#shipping`, { waitUntil: 'domcontentloaded' });
+    await require('./shipment-order-draft-workspace-probe.cjs').probeOrderDraftWorkspace({ ...ctx, page, login, folder }, evidence);
+    id = Number(evidence.shipments[0].id); base = `/shipping/${id}`;
     await expect(page.getByTestId(`shipment-reservation-${id}`)).toBeVisible();
     const salesLogin = await loginUiAuditUser(sales, `${urls[1]}/`, { account: { username: `${runId}-sales`, password, role: 'sales', segment: 'direct' },
       storage: { 'ailao.language': 'zh', language: 'zh-CN' } });
@@ -222,6 +224,10 @@ async function probeReservationWorkspace(ctx, evidence) {
     await expect(page.getByTestId('shipping-receipt-save-button')).toBeDisabled();
     assert.equal(recovery.finalConfirmation.status, 200);
     assert.deepEqual(recovery.finalConfirmation.body.data.submission, recovery.finalOwner.body.data.submission);
+    // Current ledger readback is distinct from the frozen original request ACK.
+    // The API returns chronological rows, so the visible latest receipt must
+    // identify the final event, not silently keep displaying the first receipt.
+    await expect(page.getByText('Latest POD', { exact: true }).locator('..')).toContainText(recovery.finalOwner.body.data.submission.receipt.receiptNo);
     assert.equal(recovery.browserRequests.filter(r => r.method === 'POST').length, finalPosts);
     assert.deepEqual(await snapshot(), recovery.afterFinalOwner);
     await shot(page, 'warehouse-delivered-original-receipt-recovered');

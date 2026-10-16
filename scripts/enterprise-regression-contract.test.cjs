@@ -314,18 +314,30 @@ test('shipment package is retained in every cumulative replay without replacing 
   assert(step); assert(step.includes('continue-on-error: true')); assert(step.includes('always()')); assert(step.includes('timeout 180s env'));
   assert(step.includes('for probe in submission late-information physical-reservation reservation-workspace'));
   assert(step.includes('failures=$((failures + 1))')); assert(step.includes('verifyFresh(p,c,"postgresql"'));
-  assert(source.includes("'reservation-workspace-probe/v2'"));
-  assert(step.includes('"reservation-workspace-probe/v2"')); assert(step.includes('assert.equal(p[field]?.version,version)'));
+  assert(source.includes("'reservation-workspace-probe/v3'"));
+  assert(step.includes('"reservation-workspace-probe/v3"')); assert(step.includes('assert.equal(p[field]?.version,version)'));
 });
 
 test('native receipt recovery stays in the mandatory workspace probe, including rejection correction and micro receipt race', () => {
   const source = fs.readFileSync(path.join(__dirname, 'lib/shipment-reservation-workspace-probe.cjs'), 'utf8');
-  assert(source.includes("evidence.version = 'reservation-workspace-probe/v2'"));
+  assert(source.includes("evidence.version = 'reservation-workspace-probe/v3'"));
   for (const marker of ['recovery.afterAuditFailure', 'recovery.afterConfirmation', 'recovery.finalConfirmation',
     'recovery.staleRefusal', 'recovery.twoNodeReplay', 'evidence.micro.receiptRace', 'evidence.salesAfterPartialReceipt', 'evidence.salesAfterFullReceipt']) assert(source.includes(marker), marker);
   assert(source.includes('page.reload(')); assert(source.includes('CREATE_RECEIPT_EVENT')); assert(source.includes('REJECT_RECEIPT_EVENT'));
   assert(source.includes('assert.deepEqual(recovery.afterConfirmation, recovery.afterOwner'));
   assert(source.includes('assert.deepEqual(await snapshot(), recovery.afterFinalOwner)'));
+});
+
+test('warehouse bound draft and missing-candidate recovery extend the same mandatory workspace instead of admin pre-creation', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'lib/shipment-order-draft-workspace-probe.cjs'), 'utf8');
+  const physical = fs.readFileSync(path.join(__dirname, 'lib/sales-physical-reservation-probe.cjs'), 'utf8');
+  const workspace = fs.readFileSync(path.join(__dirname, 'lib/shipment-reservation-workspace-probe.cjs'), 'utf8');
+  assert(workspace.includes("require('./shipment-order-draft-workspace-probe.cjs').probeOrderDraftWorkspace"));
+  assert(physical.indexOf('probeReservationWorkspace(ctx, e)') < physical.indexOf('e.shipments = await Promise.all'));
+  for (const marker of ['shipping-order-draft-open', 'shipping-order-recover-', 'e.lastBeforeRecovery',
+    'e.missingBatchHold', 'e.supplementAudits', 'e.readbackFailure', 'e.readbackRecovery', "e.actor.permissions.includes('orders.read')", 'assertLogisticsOnly(ready)',
+    'page.reload(', 'assert.deepEqual(e.after, e.before)', 'e.recovery.json.submission']) assert(source.includes(marker), marker);
+  assert(workspace.includes("getByText('Latest POD'"));
 });
 
 test('a failed shipment step cannot become green because continue-on-error changes only its conclusion', () => {

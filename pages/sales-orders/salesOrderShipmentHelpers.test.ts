@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SalesOrder } from '../../types';
-import { buildSalesOrderShipmentPayload, getEligibleShipmentLines } from './salesOrderShipmentHelpers';
+import { buildSalesOrderShipmentPayload, getEligibleShipmentLines, toShipmentDispatchTarget } from './salesOrderShipmentHelpers';
+import { buildShipmentDraftPayload, getEligibleShipmentLines as getDispatchLines, parseShipmentDispatchTarget } from '../../services/shipmentDispatchTarget';
 
 const fixture = () => ({
     id: '7', customerId: '9', status: 'shipped',
@@ -74,4 +75,34 @@ test('preserves a positive micro-quantity remainder without allowing epsilon ove
     Object.assign(order.fulfillment!.lines[0], { orderedQuantity: 0.000001, acceptedQuantity: 0.0000004, unallocatedQuantity: 0.0000006 });
     assert.equal(buildSalesOrderShipmentPayload(order, { ...draft, quantity: '0.0000006' }).quantity, 0.0000006);
     assert.throws(() => buildSalesOrderShipmentPayload(order, { ...draft, quantity: '0.000001' }));
+});
+
+test('SalesOrders adapter strips financial facts and shares the same logistics selection and submission payload', () => {
+    const order = fixture(); order.orderNo = 'SO-7'; order.customerName = '客户';
+    Object.assign(order, { totalAmount: 999, paidAmount: 888 });
+    Object.assign(order.items[0], { unitPrice: 99, amount: 999, totalPrice: 100 });
+    Object.assign(order.fulfillment!.lines[0], { cost: 99 });
+    const fromSales = toShipmentDispatchTarget(order)!;
+    const fromWire = parseShipmentDispatchTarget({
+        id: 7, customerId: 9, customer: { id: 9, name: '客户' }, orderNo: 'SO-7', status: order.status,
+        items: order.items.map(item => ({ id: Number(item.id), materialId: item.materialId,
+            productName: item.productName, quantity: item.quantity, unit: item.unit })), fulfillment: order.fulfillment,
+    })!;
+    assert.deepEqual(fromSales, fromWire);
+    assert(!JSON.stringify(fromSales).match(/unitPrice|totalPrice|totalAmount|paidAmount|cost|amount/));
+    assert.deepEqual(getEligibleShipmentLines(order), getDispatchLines(fromWire));
+    assert.deepEqual(buildSalesOrderShipmentPayload(order, draft), buildShipmentDraftPayload(fromWire, draft));
+    assert.equal(toShipmentDispatchTarget({ ...order, status: 'unknown' } as unknown as SalesOrder), null);
+    assert.equal(toShipmentDispatchTarget({ ...order, customerId: '09' }), null);
+    assert.equal(toShipmentDispatchTarget(undefined), null);
+});
+
+test('adapter never fills a missing status or customer identity and keeps optional display facts absent', () => {
+    const order = fixture();
+    const target = toShipmentDispatchTarget(order)!;
+    assert.equal(target.orderNo, undefined); assert.equal(target.customer.name, undefined);
+    assert.equal(target.status, order.status);
+    for (const key of ['id', 'customerId', 'status']) {
+        assert.equal(toShipmentDispatchTarget({ ...order, [key]: undefined } as unknown as SalesOrder), null);
+    }
 });

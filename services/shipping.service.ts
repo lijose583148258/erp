@@ -5,6 +5,7 @@ import { ReceiptDiscrepancyCase, mapReceiptDiscrepancyCase } from './receiptDisc
 import type { ShipmentSubmissionAck, ShipmentSubmissionResult } from './shipmentSubmissionIntent';
 import { mapShipment } from './shipmentReadModel';
 import type { ReceiptInput, ReceiptSubmissionAck, ReceiptSubmissionResult } from './shipmentReceiptIntent';
+import { parseShipmentDispatchTargets, type ShipmentDispatchTarget } from './shipmentDispatchTarget';
 
 export type ShipmentOccurrence = { occurredAt: string; timeZone: string };
 export type ShipmentSupplementPatch = { batchNo?: string; carrier?: string | null; trackingNo?: string | null; dispatchOccurrence?: ShipmentOccurrence | null };
@@ -105,6 +106,10 @@ const readFileAsDataUrl = (file: File) => new Promise<string>((resolve, reject) 
 });
 
 export const shipmentService = {
+    async getDispatchTargets(options: ApiRequestOptions = {}): Promise<ShipmentDispatchTarget[]> {
+        const response = await api.get<unknown, ApiDataResponse<unknown>>('/orders/shipping-ready?view=dispatch', { signal: options.signal });
+        return parseShipmentDispatchTargets(response.data);
+    },
     async getAll(options: ApiRequestOptions = {}): Promise<Shipment[]> {
         const response = await api.get<unknown, ApiDataResponse<unknown[]>>('/shipping', { signal: options.signal });
         const data = response.data || [];

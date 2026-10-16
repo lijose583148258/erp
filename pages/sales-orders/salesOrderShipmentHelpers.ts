@@ -1,56 +1,30 @@
 import type { SalesOrder, Shipment } from '../../types';
+import { buildShipmentDraftPayload, getEligibleShipmentLines as getDispatchLines, projectShipmentDispatchTarget } from '../../services/shipmentDispatchTarget';
+import type { ShipmentDispatchTarget, ShipmentDraft, ShipmentDraftLine } from '../../services/shipmentDispatchTarget';
 
-export type SalesOrderShipmentLine = {
-    orderItemId: number;
-    materialId: number;
-    productName: string;
-    unit: string;
-    orderedQuantity: number;
-    acceptedQuantity: number;
-    unallocatedQuantity: number;
-};
+export type SalesOrderShipmentLine = ShipmentDraftLine;
+export type SalesOrderShipmentDraft = ShipmentDraft;
 
-const positiveId = (value: unknown) => Number.isSafeInteger(Number(value)) && Number(value) > 0;
-const positiveQuantity = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value > 0;
-const sameUnit = (a: string, b: string) => Boolean(a.trim()) && a.trim().toLowerCase() === b.trim().toLowerCase();
-
-export function getEligibleShipmentLines(order: SalesOrder | null | undefined): SalesOrderShipmentLine[] {
-    if (!order || !positiveId(order.id) || !positiveId(order.customerId)
-        || !['confirmed', 'shipped', 'delivered'].includes(order.status)
-        || !order.fulfillment || order.fulfillment.needsReview || order.fulfillment.fullyDelivered) return [];
-    const items = order.items as Array<SalesOrder['items'][number] & { id?: number | string }>;
-    return order.fulfillment.lines.flatMap(line => {
-        const matching = items.filter(item => Number(item.id) === line.orderItemId);
-        if (matching.length !== 1 || !positiveId(line.orderItemId)
-            || order.fulfillment!.lines.filter(other => other.orderItemId === line.orderItemId).length !== 1) return [];
-        const item = matching[0];
-        if (!positiveId(item.materialId) || !item.productName?.trim() || !sameUnit(item.unit || '', line.unit || '')
-            || !positiveQuantity(line.unallocatedQuantity) || !positiveQuantity(line.orderedQuantity)
-            || line.unallocatedQuantity > line.orderedQuantity || item.quantity !== line.orderedQuantity) return [];
-        return [{ orderItemId: line.orderItemId, materialId: Number(item.materialId), productName: item.productName,
-            unit: item.unit, orderedQuantity: line.orderedQuantity, acceptedQuantity: line.acceptedQuantity,
-            unallocatedQuantity: line.unallocatedQuantity }];
+/** Only logistics facts cross from the full SalesOrders model into Shipping. */
+export function toShipmentDispatchTarget(order: SalesOrder | null | undefined): ShipmentDispatchTarget | null {
+    if (!order) return null;
+    return projectShipmentDispatchTarget({
+        id: order.id, orderNo: order.orderNo, status: order.status, customerId: order.customerId,
+        customer: { id: order.customerId, name: order.customerDisplayName || order.customerName,
+            nameZh: order.customerNameZh, nameEn: order.customerNameEn, nameVi: order.customerNameVi },
+        items: Array.isArray(order.items) ? order.items.map(item => ({
+            id: item.id, materialId: item.materialId, productName: item.productName, quantity: item.quantity, unit: item.unit,
+        })) : order.items,
+        fulfillment: order.fulfillment,
     });
 }
 
-export type SalesOrderShipmentDraft = {
-    orderItemId: string;
-    quantity: string;
-    batchNo: string;
-    carrier?: string;
-    trackingNo?: string;
-};
+export function getEligibleShipmentLines(order: SalesOrder | null | undefined): SalesOrderShipmentLine[] {
+    return getDispatchLines(toShipmentDispatchTarget(order));
+}
 
 export function buildSalesOrderShipmentPayload(order: SalesOrder, draft: SalesOrderShipmentDraft): Partial<Shipment> {
-    const line = getEligibleShipmentLines(order).find(item => String(item.orderItemId) === draft.orderItemId);
-    if (!line) throw new Error('请选择有明确未分配数量的订单行；订单状态或履约证据可能已变化。');
-    const quantity = Number(draft.quantity);
-    if (!draft.quantity.trim() || !positiveQuantity(quantity) || quantity > line.unallocatedQuantity) {
-        throw new Error(`本次数量必须大于 0，且不超过该行未分配量 ${line.unallocatedQuantity} ${line.unit}。`);
-    }
-    return {
-        orderId: order.id, orderItemId: String(line.orderItemId), customerId: order.customerId,
-        materialId: String(line.materialId), productName: line.productName, unit: line.unit, quantity,
-        batchNo: draft.batchNo.trim() || undefined, carrier: draft.carrier?.trim() || undefined, trackingNo: draft.trackingNo?.trim() || undefined,
-    };
+    const target = toShipmentDispatchTarget(order);
+    if (!target) throw new Error('请选择有明确未分配数量的订单行；订单状态或履约证据可能已变化。');
+    return buildShipmentDraftPayload(target, draft);
 }

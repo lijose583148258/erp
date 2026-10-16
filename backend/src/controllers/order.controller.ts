@@ -20,17 +20,15 @@ import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
-import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, OrderFulfillmentIncompleteError, addOrderReservationReadback } from '../services/order-fulfillment.service';
-import { getOrderFulfillment } from '../utils/orderFulfillment';
+import { OrderFulfillmentIncompleteError } from '../services/order-fulfillment.service';
+import { getOrdersForShipment } from '../services/order-shipment-dispatch.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
 import { ReceivableAdjustmentService, getReceivableAdjustmentConflictMessage } from '../services/receivable-adjustment.service';
 import {
-    buildOrderDataScopeWhere,
     canUseCustomerForBusinessWrite,
     canUseOrderForBusinessWrite,
-    mergeWhereAnd,
 } from '../utils/recordAccess';
 import {
     ORDER_STATUS_TRANSITIONS,
@@ -449,28 +447,14 @@ export class OrderController {
      */
     async getAvailableForShipping(req: AuthRequest, res: Response) {
         try {
-            const orders = await prisma.order.findMany({
-                where: mergeWhereAnd(
-                    {
-                        status: { in: ['confirmed', 'shipped', 'delivered'] },
-                        paymentStatus: { in: ['paid', 'partial'] }, // 逻辑要求：部分支付或全款后可发货
-                    },
-                    buildOrderDataScopeWhere(req, { includeFinanceAll: true, includeWarehouseAll: true }),
-                ),
-                select: {
-                    id: true,
-                    orderNo: true,
-                    customer: { select: { id: true, nameZh: true, nameEn: true, nameVi: true } },
-                    items: true,
-                    shipments: { select: ORDER_FULFILLMENT_SHIPMENT_SELECT },
-                    receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
-                }
-            });
+            const view = req.query.view;
+            if (view !== undefined && view !== 'dispatch') {
+                return res.status(400).json({ success: false, errorCode: 'ORDER_SHIPPING_VIEW_INVALID', message: '不支持的待发货订单视图。' });
+            }
 
             return res.json({
                 success: true,
-                data: (await addOrderReservationReadback(prisma, orders.map(order => ({ ...order, fulfillment: getOrderFulfillment(order) }))))
-                    .filter(order => order.fulfillment.hasUnallocated && !order.fulfillment.needsReview),
+                data: await getOrdersForShipment(req, view),
             } as ApiResponse);
         } catch (error) {
             logger.error('获取待发货订单错误:', error);

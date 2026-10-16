@@ -25,7 +25,7 @@ export const useShipping = () => {
 
     const receipts = useShippingReceipts({ t, notify, setShipments, canWrite: canWriteShipping });
 
-    const loadData = async (signal?: AbortSignal) => {
+    const loadData = async (signal?: AbortSignal, requireReadback = false) => {
         try {
             const [s, aSum, cust] = await Promise.all([
                 shipmentService.getAll({ signal }),
@@ -42,6 +42,9 @@ export const useShipping = () => {
             setShipments([]);
             setAssetSummaries([]);
             setCustomers([]);
+            // A confirmed creation must distinguish an unread current ledger
+            // from a successful refresh. Legacy callers retain their behavior.
+            if (requireReadback) throw error;
         }
     };
 

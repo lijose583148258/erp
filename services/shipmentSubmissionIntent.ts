@@ -20,6 +20,33 @@ export function hasShipmentIntent(userId: string, scope: string, getStorage: () 
   try { return getStorage().getItem(slot(userId, scope)) !== null; }
   catch { return true; } // Opening the form explains the storage fault; it cannot submit.
 }
+// Discover the existing per-order slots; no second index can drift from the original request.
+export function listOrderShipmentIntents(storage: IntentStorage & Pick<Storage, 'length' | 'key'>, userId: string): ShipmentIntent[] {
+  const prefix = slot(userId, 'order:').slice(0, -encodeURIComponent('order:').length);
+  const count = storage.length;
+  if (!Number.isSafeInteger(count) || count < 0) throw Error('无法可靠读取原发货请求清单，禁止另建请求。');
+  const found: ShipmentIntent[] = [], keys = new Set<string>();
+  for (let index = 0; index < count; index += 1) {
+    const name = storage.key(index);
+    if (name === null) throw Error('原发货请求清单已变化，请重新读取。');
+    if (!name.startsWith(prefix)) continue;
+    let scope: string;
+    try { scope = decodeURIComponent(name.slice(prefix.length)); }
+    catch { throw Error('原发货请求入口损坏，请先核对发货台账。'); }
+    if (!scope.startsWith('order:')) continue;
+    const orderId = scope.slice('order:'.length);
+    if (!/^[1-9]\d*$/.test(orderId) || !validId(Number(orderId)) || name !== slot(userId, scope)) {
+      throw Error('原发货请求订单身份损坏，禁止另建请求。');
+    }
+    const intent = readShipmentIntent(storage, userId, scope);
+    if (!intent || intent.facts.orderId !== Number(orderId) || !validId(intent.facts.orderItemId) || keys.has(intent.key)) {
+      throw Error('原发货请求与订单不一致，禁止另建请求。');
+    }
+    keys.add(intent.key); found.push(intent);
+  }
+  if (storage.length !== count) throw Error('原发货请求清单已变化，请重新读取。');
+  return found.sort((left, right) => left.facts.orderId! - right.facts.orderId!);
+}
 export function shipmentIntentFacts(input: Partial<Shipment> & { packageType?: string }): ShipmentSubmissionFacts {
   const optionalId = (v: unknown) => v === undefined || v === null || v === '' ? null : Number(v);
   const optionalText = (v: unknown) => v === undefined || v === null ? null : String(v).trim() || null;
