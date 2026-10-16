@@ -886,7 +886,7 @@ jobs:
             if timeout 180s env ROUND2_SHIPMENT_SUBMISSION="$submission" ROUND2_SHIPMENT_SUPPLEMENT="$supplement" \
               ROUND2_STOCK_RESERVATION="$physical" ROUND2_RESERVATION_UI="$workspace" ROUND2_REPORT_PATH="$report" \
               node scripts/sales-partial-fulfillment-audit-v1.cjs \
-              && node -e 'const fs=require("node:fs"),assert=require("node:assert/strict");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const c=JSON.parse(fs.readFileSync(process.env.REGRESSION_CONTEXT_PATH,"utf8"));require("./scripts/lib/enterprise-regression.cjs").verifyFresh(p,c,"postgresql",Date.now());assert.equal(p.status,"passed");assert.deepEqual(p.summary,{passedChecks:1,failedChecks:0,remainingChecks:0});' "$report"; then
+              && node -e 'const fs=require("node:fs"),assert=require("node:assert/strict");const p=JSON.parse(fs.readFileSync(process.argv[1],"utf8"));const c=JSON.parse(fs.readFileSync(process.env.REGRESSION_CONTEXT_PATH,"utf8"));require("./scripts/lib/enterprise-regression.cjs").verifyFresh(p,c,"postgresql",Date.now());const versions={submission:["shipmentSubmission","shipment-submission-probe/v2"],"late-information":["shipmentSupplement","shipment-supplement-probe/v2"],"physical-reservation":["physicalReservation","physical-reservation-probe/v2"],"reservation-workspace":["physicalReservation","reservation-workspace-probe/v2"]};const [field,version]=versions[process.argv[2]];assert.equal(p[field]?.version,version);assert.equal(p.status,"passed");assert.deepEqual(p.summary,{passedChecks:1,failedChecks:0,remainingChecks:0});' "$report" "$probe"; then
               echo "Shipment probe ${probe}: passed"
             else
               failures=$((failures + 1))

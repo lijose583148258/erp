@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { compareReceiptQuantity } from '../utils/receiptQuantity';
 
 const shipmentStatusSchema = z.enum(['pending', 'in_transit', 'delivered', 'exception']);
 const rmaStatusSchema = z.enum(['approved', 'rejected']);
@@ -75,9 +76,9 @@ export const uploadShipmentReceiptSchema = z.object({
 }).strict();
 
 export const createShipmentReceiptEventSchema = z.object({
-  quantity: z.coerce.number().positive(),
-  acceptedQuantity: z.coerce.number().nonnegative().optional(),
-  rejectedQuantity: z.coerce.number().nonnegative().optional(),
+  quantity: z.coerce.number().finite().positive(),
+  acceptedQuantity: z.coerce.number().finite().nonnegative().optional(),
+  rejectedQuantity: z.coerce.number().finite().nonnegative().optional(),
   discrepancyType: receiptDiscrepancyTypeSchema.optional(),
   note: z.string().trim().optional(),
   discrepancyReason: z.string().trim().optional(),
@@ -87,7 +88,7 @@ export const createShipmentReceiptEventSchema = z.object({
 }).strict().superRefine((value, ctx) => {
   const accepted = value.acceptedQuantity ?? value.quantity;
   const rejected = value.rejectedQuantity ?? 0;
-  if (Math.abs((accepted + rejected) - value.quantity) > 0.000001) {
+  if (!Number.isFinite(accepted + rejected) || (Number.isFinite(value.quantity) && compareReceiptQuantity(accepted + rejected, value.quantity) !== 0)) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['quantity'],

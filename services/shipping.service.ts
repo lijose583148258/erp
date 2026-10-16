@@ -1,9 +1,10 @@
 ﻿import api, { ApiRequestOptions } from '../utils/api';
 import { Shipment } from '../types';
 import { ApiDataResponse, toApiRecord, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../utils/apiMapping';
-import { ReceiptDiscrepancyCase, ReceiptDiscrepancyType, mapReceiptDiscrepancyCase } from './receiptDiscrepancy.service';
+import { ReceiptDiscrepancyCase, mapReceiptDiscrepancyCase } from './receiptDiscrepancy.service';
 import type { ShipmentSubmissionAck, ShipmentSubmissionResult } from './shipmentSubmissionIntent';
 import { mapShipment } from './shipmentReadModel';
+import type { ReceiptInput, ReceiptSubmissionAck, ReceiptSubmissionResult } from './shipmentReceiptIntent';
 
 export type ShipmentOccurrence = { occurredAt: string; timeZone: string };
 export type ShipmentSupplementPatch = { batchNo?: string; carrier?: string | null; trackingNo?: string | null; dispatchOccurrence?: ShipmentOccurrence | null };
@@ -33,6 +34,7 @@ export interface ShipmentReceiptEvent {
     signedReceiptUrl?: string | null;
     discrepancyReason?: string | null;
     note?: string | null;
+    receivedBy?: number | null;
     receivedAt?: string;
     createdAt?: string;
 }
@@ -68,6 +70,7 @@ const mapReceiptEvent = (value: unknown): ShipmentReceiptEvent => {
     signedReceiptUrl: toOptionalString(item.signedReceiptUrl) || null,
     discrepancyReason: toOptionalString(item.discrepancyReason) || null,
     note: toOptionalString(item.note) || null,
+    receivedBy: item.receivedBy === null || item.receivedBy === undefined ? null : Number(item.receivedBy),
     };
 };
 
@@ -181,15 +184,18 @@ export const shipmentService = {
         return mapReceiptBundle(response.data || {});
     },
 
-    async createReceiptEvent(id: string, receipt: {
-        quantity: number;
-        acceptedQuantity: number;
-        rejectedQuantity: number;
-        discrepancyType?: ReceiptDiscrepancyType;
-        discrepancyReason?: string;
-        note?: string;
-        file?: File | null;
-    }): Promise<ShipmentReceiptBundle> {
+    async findReceiptSubmission(id: string, key: string): Promise<ReceiptSubmissionResult | null> {
+        try {
+            const response = await api.get<unknown, ApiDataResponse<{ submission?: ReceiptSubmissionAck }>>(`/shipping/${id}/receipts`, { params: { submissionKey: key } });
+            return { ...mapReceiptBundle(response.data || {}), submission: response.data?.submission, replayed: true };
+        } catch (error) {
+            const failure = error as { status?: number; errorCode?: string };
+            if (failure.status === 404 && failure.errorCode === 'SHIPMENT_RECEIPT_SUBMISSION_NOT_FOUND') return null;
+            throw error;
+        }
+    },
+
+    async createReceiptEvent(id: string, receipt: ReceiptInput, key?: string, isCurrent?: () => boolean): Promise<ReceiptSubmissionResult> {
         let filePayload = {};
         if (receipt.file) {
             filePayload = {
@@ -199,7 +205,8 @@ export const shipmentService = {
             };
         }
 
-        const response = await api.post<unknown, ApiDataResponse<unknown>>(`/shipping/${id}/receipt-events`, {
+        if (isCurrent && !isCurrent()) throw new Error('操作人或发货单已变化，未发送原签收。');
+        const response = await api.post<unknown, ApiDataResponse<{ submission?: ReceiptSubmissionAck; replayed?: boolean }>>(`/shipping/${id}/receipt-events`, {
             quantity: receipt.quantity,
             acceptedQuantity: receipt.acceptedQuantity,
             rejectedQuantity: receipt.rejectedQuantity,
@@ -207,7 +214,7 @@ export const shipmentService = {
             discrepancyReason: receipt.discrepancyReason,
             note: receipt.note,
             ...filePayload,
-        });
-        return mapReceiptBundle(response.data || {});
+        }, key ? { headers: { 'Idempotency-Key': key } } : undefined);
+        return { ...mapReceiptBundle(response.data || {}), submission: response.data?.submission, replayed: response.data?.replayed };
     }
 };

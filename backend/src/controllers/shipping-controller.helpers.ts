@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { queryRawCompat } from '../utils/raw-sql-compat';
+import { queryRawCompat, executeRawCompat } from '../utils/raw-sql-compat';
 import type { AuthRequest } from '../middleware/auth';
 import type { TransactionClient } from '../services/stock-movement.service';
 import { readOrderFulfillment } from '../services/order-fulfillment.service';
@@ -131,11 +131,8 @@ export async function claimShipmentReceiptWrite(tx: TransactionClient, shipmentI
     if (!Number.isInteger(normalizedId) || normalizedId <= 0) return false;
 
     // Serialize receipt writes before remaining quantity or legacy full-receipt checks are calculated.
-    const claim = await tx.shipment.updateMany({
-        where: { id: normalizedId },
-        data: { updatedAt: new Date() },
-    });
-    return claim.count === 1;
+    const count = await executeRawCompat(tx, 'UPDATE "shipments" SET "id" = "id" WHERE "id" = ?', normalizedId);
+    return count === 1;
 }
 
 export async function buildShipmentReceiptSummary(tx: TransactionClient, shipment: { id: number; quantity: number }) {

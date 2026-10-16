@@ -524,34 +524,41 @@ const Shipping = () => {
                                     当前角色只能查看签收批次，保存签收和上传凭证需要发货写入权限。
                                 </div>
                             )}
+                            {state.receiptError && <p role="alert" data-testid="shipping-receipt-error" className="mb-4 break-words rounded-xl bg-rose-50 p-3 text-sm text-rose-800 dark:bg-rose-950/50 dark:text-rose-200">{state.receiptError}</p>}
+                            {state.receiptPending && <div role="status" data-testid="shipping-receipt-pending" className="mb-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900 dark:bg-amber-950/50 dark:text-amber-200">
+                                原签收尚待确认，数量与内容已锁定。先只查询原请求，找到回执就恢复，不再新增签收。
+                                {state.receiptCanRetry && <p className="mt-2">服务器尚未找到原请求；点击“重试原签收”仍使用原请求身份和原内容。</p>}
+                                {state.receiptPending.facts.file && <p className="mt-2 break-all">原凭证：{state.receiptPending.facts.file.name}。如需重试，请重新选择同一文件，系统会核对文件内容；本机不保存文件字节。</p>}
+                            </div>}
                             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-                                <FormField dataTestId="shipping-receipt-quantity-input" label="本次数量" value={state.receiptForm.quantity} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, quantity: value, acceptedQuantity: prev.acceptedQuantity || value }))} disabled={!state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'} />
-                                <FormField dataTestId="shipping-receipt-accepted-input" label="正常签收" value={state.receiptForm.acceptedQuantity} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, acceptedQuantity: value }))} disabled={!state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'} />
-                                <FormField dataTestId="shipping-receipt-rejected-input" label="异常数量" value={state.receiptForm.rejectedQuantity} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, rejectedQuantity: value }))} disabled={!state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'} />
+                                <FormField dataTestId="shipping-receipt-quantity-input" label="本次数量" value={state.receiptForm.quantity} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, quantity: value, acceptedQuantity: prev.acceptedQuantity || value }))} disabled={!state.canWriteShipping || state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered'} />
+                                <FormField dataTestId="shipping-receipt-accepted-input" label="正常签收" value={state.receiptForm.acceptedQuantity} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, acceptedQuantity: value }))} disabled={!state.canWriteShipping || state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered'} />
+                                <FormField dataTestId="shipping-receipt-rejected-input" label="异常数量" value={state.receiptForm.rejectedQuantity} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, rejectedQuantity: value }))} disabled={!state.canWriteShipping || state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered'} />
                             </div>
                             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                                <FormField label="异常原因" value={state.receiptForm.discrepancyReason} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, discrepancyReason: value }))} disabled={!state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'} />
+                                <FormField label="异常原因" value={state.receiptForm.discrepancyReason} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, discrepancyReason: value }))} disabled={!state.canWriteShipping || state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered'} />
                                 <label className="block space-y-1.5">
                                     <span className="text-[11px] font-black uppercase tracking-[0.14em] text-slate-500 dark:text-slate-300">签收凭证</span>
                                     <input
                                         data-testid="shipping-receipt-file-input"
+                                        key={`${state.receiptPending?.key || 'draft'}:${state.receiptBundle?.receiptSummary.receiptCount || 0}`}
                                         type="file"
                                         accept="image/*,application/pdf"
-                                        disabled={!state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'}
+                                        disabled={!state.canWriteShipping || state.isReceiptLoading || (state.receiptPending ? !state.receiptCanRetry || !state.receiptPending.facts.file : state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered')}
                                         onChange={(event) => state.handleReceiptFileChange(event.target.files?.[0] || null)}
                                         className="app-control w-full text-xs"
                                     />
                                 </label>
                             </div>
-                            <FormField className="mt-3" as="textarea" rows={3} label="备注" value={state.receiptForm.note} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, note: value }))} disabled={!state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'} />
+                            <FormField className="mt-3" as="textarea" rows={3} label="备注" value={state.receiptForm.note} onChange={(value) => state.setReceiptForm(prev => ({ ...prev, note: value }))} disabled={!state.canWriteShipping || state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered'} />
                             <button
                                 type="button"
                                 data-testid="shipping-receipt-save-button"
                                 onClick={state.handleSubmitReceiptEvent}
-                                disabled={state.isReceiptLoading || !state.canWriteShipping || state.receiptDrawerShipment.status === 'delivered'}
+                                disabled={state.isReceiptLoading || !state.canWriteShipping || (!state.receiptPending && (state.receiptFieldsLocked || state.receiptDrawerShipment.status === 'delivered'))}
                                 className="mt-4 w-full rounded-2xl bg-indigo-600 px-4 py-3 text-xs font-black uppercase tracking-widest text-white shadow-appLift transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                                {state.isReceiptLoading ? '保存中...' : '保存签收批次'}
+                                {state.isReceiptLoading ? '处理中...' : state.receiptPending ? state.receiptCanRetry ? '重试原签收' : '确认原签收' : '保存签收批次'}
                             </button>
                         </div>
 
@@ -567,7 +574,7 @@ const Shipping = () => {
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
                                                 <p className="text-xs font-black text-slate-700 dark:text-slate-100">{receipt.receiptNo}</p>
-                                                <p className="mt-1 text-[11px] font-bold text-slate-400">{receipt.receivedAt || receipt.createdAt || '-'}</p>
+                                                <p className="mt-1 text-[11px] font-bold text-slate-400">系统登记时间：{receipt.receivedAt || receipt.createdAt || '-'}</p>
                                             </div>
                                             <StatusBadge status={receipt.rejectedQuantity > 0 ? 'exception' : 'delivered'} label={receipt.rejectedQuantity > 0 ? '有异常' : '正常'} />
                                         </div>

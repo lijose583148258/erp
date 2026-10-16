@@ -10,6 +10,7 @@ import { postShippingIssueIfMissing } from '../services/shipping-stock-issue.ser
 import { StockMovementConflictError } from '../services/stock-movement.errors';
 import { createShipmentDraft, findShipmentSubmission, shipmentSubmissionKey, ShipmentSubmissionError } from '../services/shipment-submission.service';
 import { changeShipmentReservation, getShipmentReservation, releasePendingShipmentReservation, readShipmentReservationViews } from '../services/shipment-stock-reservation.service';
+import { readShipmentReceiptSubmission, shipmentReceiptSubmissionKey } from '../services/shipment-receipt-submission.service';
 import { readShipmentSupplement, supplementShipment } from '../services/shipment-supplement.service';
 import { claimShipmentDispatchOrder } from '../services/shipment-order-guard.service';
 import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
@@ -236,6 +237,9 @@ export class ShippingController {
                 return res.status(404).json({ success: false, message: '发货单不存在' });
             }
 
+            const receiptKey = shipmentReceiptSubmissionKey(req.query.submissionKey);
+            const submission = receiptKey ? await readShipmentReceiptSubmission(prisma, shipmentId, receiptKey, req.user!.userId) : null;
+            if (receiptKey && !submission) return res.status(404).json({ success: false, message: '原签收请求尚未找到', errorCode: 'SHIPMENT_RECEIPT_SUBMISSION_NOT_FOUND' });
             const [receipts, receiptSummary, discrepancyCases] = await Promise.all([
                 listShipmentReceiptEvents(prisma, shipmentId),
                 buildShipmentReceiptSummary(prisma, { id: shipment.id, quantity: Number(shipment.quantity || 0) }),
@@ -254,11 +258,13 @@ export class ShippingController {
                     receiptSummary,
                     receipts,
                     discrepancyCases: discrepancyCases.items,
+                    ...(submission ? { submission } : {}),
                 },
             });
         } catch (error) {
             logger.error('查询签收批次错误:', error);
-            return res.status(500).json({ success: false, message: '查询签收批次失败' });
+            return res.status(error instanceof AppError ? error.statusCode : 500).json({ success: false, message: error instanceof AppError ? error.message : '查询签收批次失败',
+                ...(error instanceof AppError && error.details && 'rejectedSubmission' in error.details ? { errorCode: error.message, details: error.details } : {}) });
         }
     }
 
