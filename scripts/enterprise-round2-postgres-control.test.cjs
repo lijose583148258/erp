@@ -135,7 +135,7 @@ for (const [name, mutate] of [
   ['unowned volume name', h => { h.rows[0].Mounts[0].Name = 'foreign'; }],
   ['read-only volume', h => { h.rows[0].Mounts[0].RW = false; }],
   ['bind mount instead of owned volume', h => { h.rows[0].Mounts[0].Type = 'bind'; }],
-  ['app database mismatch', h => { h.rows[2].Config.Env[1] = h.rows[2].Config.Env[1].replace('private-fixture-password', 'foreign'); }],
+  ['app database mismatch', h => { h.rows[2].Config.Env[1] = h.rows[2].Config.Env[1].replace('private-fixture-password', 'foreign-fixture-password'); }],
   ['app on wrong database host', h => { h.rows[2].Config.Env[1] = h.rows[2].Config.Env[1].replace('postgres-router', 'postgres'); }],
   ['direct port not published', h => { h.rows[0].HostConfig.PortBindings = {}; }],
   ['stopped application', h => { h.rows[2].State.Running = false; }],
@@ -145,9 +145,18 @@ for (const [name, mutate] of [
   ['replica promoted', h => { h.replica.recovery = false; }],
   ['replica not streaming', h => { h.replica.streaming = false; }],
 ]) test(`refuses ${name} before destructive command`, async () => {
-  const h = harness(mutate); await assert.rejects(h.create());
+  const h = harness(mutate); let rejection;
+  await assert.rejects(h.create(), error => { rejection = error; return true; });
   assert(!h.calls.some(c => ['kill', 'stop', 'start'].includes(c.args[0])));
   assert(h.connections.every(c => c.ended));
+  if (name === 'app database mismatch') {
+    for (const text of [rejection.message, rejection.stack, JSON.stringify(rejection)]) {
+      assert.equal(typeof text, 'string');
+      assert(!text.includes('private-fixture-password'), 'Mismatch failure leaked direct audit password');
+      assert(!text.includes('foreign-fixture-password'), 'Mismatch failure leaked app password');
+    }
+    assert.equal(rejection.message, 'App and direct audit database differ');
+  }
 });
 
 test('cannot kill with a live replica or after app generation changes', async () => {

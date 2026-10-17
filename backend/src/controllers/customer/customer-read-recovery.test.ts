@@ -73,17 +73,28 @@ it.each(['customer', 'address', 'contact', 'stats'])('recovers one P1017 at %s w
 it('bounds consecutive stale-connection attempts and returns 500 rather than partial data', async () => {
   const error = closed(); db.customer.findMany.mockRejectedValue(error);
   const res = response(); await getCustomerById(request(), res as unknown as Response);
-  expect(db.customer.findFirst).toHaveBeenCalledTimes(3);
+  expect(db.customer.findFirst).toHaveBeenCalledTimes(5);
   expect(res.status).toHaveBeenCalledWith(500);
   expect(res.json).toHaveBeenCalledTimes(1);
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
   expect(logger.error).toHaveBeenCalledWith(expect.any(String), error);
 });
 
-it('recovers two stale connections within the fixed three-attempt budget', async () => {
+it('recovers two stale connections without unnecessary additional reads', async () => {
   db.customer.findFirst.mockRejectedValueOnce(closed()).mockRejectedValueOnce(closed());
   const res = response(); await getCustomerById(request(), res as unknown as Response);
   expect(db.customer.findFirst).toHaveBeenCalledTimes(3);
+  expect(res.status).not.toHaveBeenCalled();
+  expect(res.json).toHaveBeenCalledTimes(1);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));
+});
+
+it('recovers four stale connections and preserves access scope on all five customer lookups', async () => {
+  for (let index = 0; index < 4; index += 1) db.customer.findFirst.mockRejectedValueOnce(closed());
+  const res = response(); await getCustomerById(request(), res as unknown as Response);
+  expect(db.customer.findFirst).toHaveBeenCalledTimes(5);
+  for (const [args] of db.customer.findFirst.mock.calls) expect(args.where).toEqual(scopedWhere);
+  expect(db.order.findMany).toHaveBeenCalledTimes(1);
   expect(res.status).not.toHaveBeenCalled();
   expect(res.json).toHaveBeenCalledTimes(1);
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true }));

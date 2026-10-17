@@ -89,7 +89,7 @@ async function createOwnedPostgresControl({ urls, signal }) {
       const appDatabase = new URL(entries[0].slice('DATABASE_URL='.length));
       assert.equal(appDatabase.hostname, 'postgres-router'); assert.equal(appDatabase.port, '5432');
       assert.equal(appDatabase.pathname, database.pathname); assert.equal(appDatabase.username, database.username);
-      assert.equal(appDatabase.password, database.password, 'App and direct audit database differ');
+      assert(appDatabase.password === database.password, 'App and direct audit database differ');
     }
     if (service === 'postgres') {
       // Runtime Ports can disappear while stopped; configured PortBindings

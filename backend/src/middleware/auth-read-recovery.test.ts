@@ -64,9 +64,17 @@ it.each(['user', 'role', 'scope', 'policy'])('recovers a stale %s read before ca
   expect(next).toHaveBeenCalledTimes(1); expect(res.status).not.toHaveBeenCalled();
   expect(req.user?.dataScopes).toEqual(['customers.all']);
 });
+it('recovers four consecutive closed user connections before calling a business handler exactly once', async () => {
+  for (let index = 0; index < 4; index += 1) db.user.findUnique.mockRejectedValueOnce(closed());
+  const { req, res, next } = await request();
+  expect(db.user.findUnique).toHaveBeenCalledTimes(5);
+  expect(next).toHaveBeenCalledTimes(1);
+  expect(res.status).not.toHaveBeenCalled(); expect(res.json).not.toHaveBeenCalled();
+  expect(req.user).toEqual(expect.objectContaining({ userId: 7, role: 'sales', dataScopes: ['customers.all'] }));
+});
 it.each(['user', 'role', 'scope', 'policy'])('bounds persistent %s failure and returns 503, not an invalid credential/role', async point => {
   const read = failRead(point, true), { res, next } = await request();
-  expect(read).toHaveBeenCalledTimes(point === 'scope' ? 4 : 3);
+  expect(read).toHaveBeenCalledTimes(point === 'scope' ? 6 : 5);
   expect(next).not.toHaveBeenCalled(); expect(res.status).toHaveBeenCalledWith(503);
   expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 'AUTH_DATABASE_UNAVAILABLE' }));
 });
