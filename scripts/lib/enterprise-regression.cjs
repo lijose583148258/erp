@@ -6,6 +6,7 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const { summarize, validateCatalog } = require('./enterprise-round2-runner.cjs');
 const catalog = require('../config/enterprise-round2-v1.json');
+const POSTGRESQL_ROUND2_CHECKS = Object.freeze(['database-restart-ambiguous-commit', 'recovery-full-ledger-reconciliation']);
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const headCommit = root => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
 
@@ -58,6 +59,12 @@ function validateBaseline(baseline) {
       assert(!previous || previous[key].every(id => revision[key].includes(id)), `Baseline shrank: ${key}`);
     }
     assert(revision.round2Checks.every(id => known.includes(id)), 'Unknown baseline check');
+    const postgres = revision.postgresqlRound2Checks || [];
+    assert(!Object.hasOwn(revision, 'postgresqlRound2Checks') || Array.isArray(revision.postgresqlRound2Checks), 'Invalid PostgreSQL-only baseline checks');
+    assert.equal(new Set(postgres).size, postgres.length, 'Duplicate PostgreSQL-only baseline check');
+    assert(postgres.every(id => POSTGRESQL_ROUND2_CHECKS.includes(id)), 'Only the two real PostgreSQL recovery checks may be provider-only');
+    assert(!(previous?.postgresqlRound2Checks || []).some(id => !postgres.includes(id)), 'Baseline shrank: postgresqlRound2Checks');
+    assert(!revision.round2Checks.some(id => POSTGRESQL_ROUND2_CHECKS.includes(id)), 'Real PostgreSQL recovery cannot be a SQLite baseline obligation');
     assert(['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'].every(id => revision.independentChecks.includes(id)), 'Core independent checks cannot be removed');
     assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'sales-plan-cancellation', 'authorization-dual-node', 'production-responsibilities'].includes(id)), 'Independent adapters must be implemented explicitly');
     previous = revision;
@@ -148,6 +155,7 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     return { commit: context.commit, sourceHash: currentSourceHash };
   });
   const provider = context?.profile === 'cloud' ? 'postgresql' : 'sqlite';
+  const protectedRound2 = [...(revision?.round2Checks || []), ...(provider === 'postgresql' ? revision?.postgresqlRound2Checks || [] : [])];
   const round2 = reports.round2;
   record('round2-report-integrity', () => {
     verifyFresh(round2, context, provider, now);
@@ -157,15 +165,29 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     assert.equal(round2.checks.length, validateCatalog(catalog).length, 'Missing fixed catalog entries');
     assert.equal(round2.summary.failedChecks, 0, 'New or old Round 2 check failed');
     assert(!round2.checks.some(c => ['running', 'blocked'].includes(c.status)), 'Unfinished/blocked execution');
-    const unprotected = round2.checks.filter(c => c.status === 'passed' && !revision?.round2Checks.includes(c.id)).map(c => c.id);
+    const unprotected = round2.checks.filter(c => c.status === 'passed' && !protectedRound2.includes(c.id)).map(c => c.id);
     assert.equal(unprotected.length, 0, `Review and promote new passed IDs to the baseline: ${unprotected.join(', ')}`);
     return { status: round2.status, remaining: round2.summary.remainingChecks };
   });
-  for (const id of revision?.round2Checks || []) record(`round2:${id}`, () => {
+  for (const id of protectedRound2) record(`round2:${id}`, () => {
     verifyFresh(round2, context, provider, now);
     const matches = round2.checks.filter(c => c.id === id); assert.equal(matches.length, 1, 'Missing/duplicate check ID');
     const check = matches[0]; assert.equal(check.status, 'passed', 'Previously passed check regressed or was skipped');
     assert(check.evidence && Object.keys(check.evidence).length, 'Missing read-back evidence');
+    if (POSTGRESQL_ROUND2_CHECKS.includes(id)) {
+      assert.equal(provider, 'postgresql', 'Real database recovery requires PostgreSQL');
+      const source = round2.checks.find(c => c.id === 'database-restart-ambiguous-commit');
+      assert.equal(source?.status, 'passed', 'Ledger recovery requires its successful same-run database crash chain');
+      assert(typeof round2.metadata?.runId === 'string' && round2.metadata.runId.trim(), 'Missing PostgreSQL recovery report run identity');
+      assert.equal(source.evidence.runId, round2.metadata.runId, 'PostgreSQL recovery source belongs to a different report run');
+      assert.equal(source.evidence.provider, provider, 'PostgreSQL recovery source uses another database provider');
+      const verifier = require('./enterprise-round2-postgres-recovery-proof.cjs');
+      const options = { runId: round2.metadata.runId, priorChecks: round2.checks };
+      verifier.verifyPostgresRecoveryProof(source.evidence, options);
+      if (id === 'recovery-full-ledger-reconciliation') assert.deepEqual(check.evidence,
+        verifier.verifyPostgresLedgerRecovery(source.evidence, options),
+        'Ledger recovery proof must derive from the same crash source and exact prior-check hashes');
+    }
     if (id === 'sales-reservation-partial-fulfillment' || id === 'sales-browser-readback') {
       const source = round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment');
       assert.equal(source?.status, 'passed', 'Sales UI proof requires its successful same-run shared chain');

@@ -23,7 +23,10 @@ function createRound2Supervisor(start, { hardLimitMs = ROUND2_MAX_RUNTIME_MS, id
         if (check.id !== activeId) { activeId = check.id; activeSince = now;
           // The existing payment-reversal browser chain already owns 240s.
           // Supervision must not shorten that runner deadline to the usual 180s.
-          activeBudget = Number.isSafeInteger(check.timeoutMs) && check.timeoutMs > 0 ? Math.min(check.timeoutMs, 240_000) : 180_000; }
+          // The owned PG crash case reserves independent restoration time;
+          // every other case retains the reviewed 240s maximum.
+          const maximum = check.id === 'database-restart-ambiguous-commit' ? 300_000 : 240_000;
+          activeBudget = Number.isSafeInteger(check.timeoutMs) && check.timeoutMs > 0 ? Math.min(check.timeoutMs, maximum) : 180_000; }
         if (now - activeSince >= activeBudget + checkGraceMs) return `round2-check-deadline:${activeId}`;
         return null;
       }

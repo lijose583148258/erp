@@ -23,7 +23,26 @@ test('the existing 240s payment reversal deadline is not shortened by the outer 
   assert.equal(inspect(r, 0), null); assert.equal(inspect(r, 195_000), null);
   assert.equal(inspect(r, 254_999), null); assert.match(inspect(r, 255_000), /^round2-check-deadline:/);
   const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'enterprise-round2-audit-v1.cjs'), 'utf8');
-  for (const match of source.matchAll(/timeoutMs:\s*(\d+)/g)) assert(Number(match[1]) <= 240_000, 'A new longer case needs explicit supervisor review');
+  for (const match of source.matchAll(/timeoutMs:\s*(\d+)/g)) {
+    const owner = source.slice(0, match.index).match(/runner\.run\('([^']+)'/g)?.at(-1);
+    const maximum = owner === "runner.run('database-restart-ambiguous-commit'" ? 300_000 : 240_000;
+    assert(Number(match[1]) <= maximum, 'An unreviewed case cannot extend its deadline');
+  }
+});
+
+test('only the owned PG crash case receives its reviewed 300s including independent cleanup', () => {
+  const inspect = createRound2Supervisor(0), r = report();
+  const check = r.checks.find(c => c.id === 'database-restart-ambiguous-commit');
+  Object.assign(check, { status: 'running', timeoutMs: 300000 });
+  assert.equal(inspect(r, 0), null); assert.equal(inspect(r, 280000), null);
+  assert.equal(inspect(r, 314999), null);
+  assert.equal(inspect(r, 315000), 'round2-check-deadline:database-restart-ambiguous-commit');
+  const ordinary = report(), other = createRound2Supervisor(0);
+  Object.assign(ordinary.checks[0], { status: 'running', timeoutMs: 300000 });
+  assert.equal(other(ordinary, 0), null); assert.match(other(ordinary, 255000), /^round2-check-deadline:/);
+  const source = require('node:fs').readFileSync(require('node:path').join(__dirname, 'enterprise-round2-audit-v1.cjs'), 'utf8');
+  assert.match(source, /elapsed \+ 315000 < ROUND2_MAX_RUNTIME_MS/);
+  assert.equal(ROUND2_MAX_RUNTIME_MS, 15 * 60000);
 });
 test('missing/corrupt report and an inter-case stall remain bounded', () => {
   assert.equal(createRound2Supervisor(0)(null, 90_000), 'round2-no-case-progress');

@@ -55,9 +55,12 @@ Meilisearch application failover. Every destructive harness restores and
 rechecks the original topology before writing a passed report.
 
 The controlled pilot uses `HA_SOAK_DURATION_MS=120000` for a fast two-minute
-resource-growth check. Before unattended production, run the same gate for at
-least eight hours (`HA_SOAK_DURATION_MS=28800000`) and retain the report. A
-24-hour run is preferred after the first real data import.
+resource-growth smoke check, not production-duration evidence. Before unattended
+production, run the same gate for at least 24 uninterrupted hours
+(`HA_SOAK_DURATION_MS=86400000`) after the real initial data import on the approved
+persistent target staging or pilot environment. Retain the release-bound report
+and complete staged seven-day pilot observation with daily reconciliation and
+alert review before expanding to unattended production.
 
 ### Low-cost cloud observation
 
@@ -73,10 +76,51 @@ generated per run and masked rather than derived from the public run identifier.
 
 GitHub-hosted segments reset the runner and service processes between runs.
 Their accumulated duration is useful pilot evidence, but it is not equivalent
-to one uninterrupted eight-hour or 24-hour lifetime. The unattended-production
-gate still requires a continuous run on an approved persistent runner or the
-real multi-node staging environment, followed by a node-loss and automatic
-writer-election drill. No paid model API is required for this observation.
+to one uninterrupted 24-hour lifetime. The unattended-production gate requires
+the continuous target-environment run and staged seven-day observation above,
+plus a node-loss and automatic writer-election drill on the real target
+topology. A short GitHub segment remains smoke or limited observation evidence,
+not formal production admission. No paid model API is required for this
+observation.
+
+## Controlled Release Checklist
+
+These are required operations and evidence boundaries, not a claim that they
+have already been executed or that the current release is production-ready.
+Use the existing release, audit, backup and deployment procedures; this checklist
+does not introduce another platform or broaden the feature scope.
+
+1. Freeze the release commit and immutable artifact. Complete the original
+   20-position, 12-chain, 37-check acceptance and replay every previously accepted
+   package on that same final source. A successful baseline workflow or partial
+   acceptance does not replace the complete business verdict.
+2. Before enabling writes, verify migration behavior, schema compatibility and
+   backward compatibility with the retained previous application artifact.
+   Rehearse the application rollback against the resulting schema; retain
+   additive compatible columns rather than dropping data to make rollback work.
+3. Restore an approved backup into an isolated target, never over the active
+   writer. Reconcile actual business ledgers, including quantities, batches,
+   inventory costs, receivables, payables, payment effects and immutable audit
+   history; recovery of one synthetic marker is insufficient. Record the actual
+   elapsed restore time (RTO) and the actual verified recovery point, and assess
+   them against the agreed recovery objectives without extrapolating a universal
+   zero-loss claim.
+4. Start with one warehouse, one business chain and a small group of real job
+   holders, then increase scope in stages only after reconciliation passes.
+   During the seven-day observation, compare the ledgers daily, review alerts,
+   and confirm no duplicate posting, negative physical stock or bypass of QC
+   quarantine and independent QA release. Preserve each day's release identity
+   and evidence; do not treat smoke traffic as real business participation.
+5. If a stop condition or reconciliation mismatch occurs, stop expanding the
+   pilot, pause affected new postings and preserve logs, database facts and
+   request identities. After new valid vouchers have been posted, prefer rolling
+   back the compatible application while retaining those facts. Never overwrite
+   them with an older backup or delete posted history to obtain a clean report.
+   If compatibility cannot be proved, keep affected posting paused until the
+   recovery path is verified.
+6. Expand only after the complete business verdict, isolated recovery,
+   uninterrupted 24-hour observation, staged seven-day results and real-target
+   failure drills have been reviewed together for the frozen release.
 
 ## Incident Boundaries
 

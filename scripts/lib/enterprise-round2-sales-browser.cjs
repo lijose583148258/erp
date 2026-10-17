@@ -221,6 +221,23 @@ async function createSharedSalesBrowser({ urls, actors, runId, folder, signal })
       await shot(s, s.phase); await drawer.getByRole('button', { name: '关闭', exact: true }).click();
       await expect(drawer).toHaveCount(0); return result;
     }),
+    readReceipt: input => perform('warehouse', `receive-read-${input.shipmentId}`, async s => {
+      const { shipmentId, submission } = input, page = await load(s, 'shipping');
+      assert.equal(Number(submission.shipmentId), Number(shipmentId));
+      assert.equal(Number(submission.actorId), s.actorId);
+      await page.getByTestId(`shipment-receipts-button-${shipmentId}`).click();
+      const drawer = page.getByTestId('shipping-receipt-drawer');
+      const receiptNo = submission.receipt.receiptNo;
+      await expect(drawer.getByText(receiptNo, { exact: true })).toBeVisible();
+      const text = await drawer.innerText();
+      const screenshot = await shot(s, s.phase);
+      const readback = { runId, actorId: s.actorId, job: 'warehouse', instance: s.instance,
+        shipmentId: Number(shipmentId), submission, receiptNo, text, screenshot };
+      (e.warehouseReadbacks ||= []).push(readback);
+      await drawer.getByRole('button', { name: '关闭', exact: true }).click();
+      await expect(drawer).toHaveCount(0);
+      return readback;
+    }),
     salesRead: input => perform('sales', `sales-${input.orderId}-${e.readbacks.length + 1}`, async s => {
       const { orderId, lineId, orderNo, expected } = input, page = await load(s, 'orders');
       for (const key of ['reservedQuantity', 'dispatchedQuantity', 'acceptedQuantity', 'outstandingQuantity', 'orderedQuantity']) assert(Number.isFinite(expected[key]), key);

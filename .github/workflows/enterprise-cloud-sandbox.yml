@@ -65,6 +65,7 @@ on:
       - 'scripts/lib/enterprise-round2-barter*.cjs'
       - 'scripts/lib/enterprise-round2-bom-freeze.cjs'
       - 'scripts/lib/enterprise-round2-production-lot.cjs'
+      - 'scripts/lib/enterprise-round2-postgres-*.cjs'
       - 'scripts/lib/enterprise-round2-qc*.cjs'
       - 'scripts/lib/enterprise-round2-unit-safety.cjs'
       - 'scripts/lib/enterprise-round2-mass-conversion.cjs'
@@ -933,6 +934,7 @@ jobs:
           ROUND2_BROWSER: "true"
           ROUND2_SALES_PLAN_REPORT: output/audit/sales-fulfillment-plan/report.json
           ROUND2_CUSTOMER_CANCELLATION_REPORT: output/audit/customer-quantity-cancellation/report.json
+          ROUND2_POSTGRES_RECOVERY: "true"
         run: npm run audit:enterprise:round2
 
       - name: Exercise PostgreSQL logical backup restore

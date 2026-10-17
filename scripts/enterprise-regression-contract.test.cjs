@@ -6,7 +6,9 @@ const baseline = require('./config/enterprise-regression-baseline-v1.json');
 const catalog = require('./config/enterprise-round2-v1.json');
 const { evaluateRegression, validateBaseline } = require('./lib/enterprise-regression.cjs');
 const { summarize, validateCatalog } = require('./lib/enterprise-round2-runner.cjs');
-const futureId = validateCatalog(catalog).find(id => !baseline.revisions.at(-1).round2Checks.includes(id));
+const postgresIds = ['database-restart-ambiguous-commit', 'recovery-full-ledger-reconciliation'];
+const currentRevision = baseline.revisions.at(-1);
+const futureId = validateCatalog(catalog).find(id => !currentRevision.round2Checks.includes(id) && !(currentRevision.postgresqlRound2Checks || []).includes(id));
 
 function purchaseQualityChainFixture(profile) {
   const api = require('./fixtures/purchase-quality-payables-api-proof-fixture.cjs').purchaseQualityPayablesApiProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite');
@@ -17,7 +19,7 @@ function purchaseQualityChainFixture(profile) {
 function fixture(profile = 'cloud') {
   const context = { version: 'enterprise-regression-run/v1', profile, key: 'unique-current-run', commit: 'a'.repeat(40), sourceHash: 'b'.repeat(64), startedAt: '2026-01-01T00:00:00.000Z' };
   const stamp = { regression: context, startedAt: '2026-01-01T00:00:01.000Z', finishedAt: '2026-01-01T00:00:03.000Z', provider: profile === 'cloud' ? 'postgresql' : 'sqlite' };
-  const protectedIds = baseline.revisions.at(-1).round2Checks;
+  const protectedIds = [...currentRevision.round2Checks, ...(profile === 'cloud' ? currentRevision.postgresqlRound2Checks || [] : [])];
   const round2 = { ...stamp, checks: validateCatalog(catalog).map(id => ({ id, status: protectedIds.includes(id) ? 'passed' : 'not_run',
     startedAt: '2026-01-01T00:00:01.100Z', finishedAt: '2026-01-01T00:00:02.000Z', evidence: id === 'purchase-partial-receipt-qc-payables' ? purchaseQualityChainFixture(profile) : id === 'purchase-browser-readback' ? require('./fixtures/purchase-role-proof-fixture.cjs').purchaseRoleProofFixture() : id === 'payment-event-audit-once' ? require('./fixtures/payment-event-proof-fixture.cjs').paymentEventProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-submit-durable-replay' ? require('./fixtures/payment-submission-proof-fixture.cjs').paymentSubmissionProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') : id === 'payment-duplicate-verification' ? { reconciliation: require('./fixtures/payment-adjustment-proof-fixture.cjs').paymentAdjustmentProofFixture() } : id === 'payment-reversal-browser' ? { version: 'payment-reversal-acceptance/v1', api: require('./fixtures/payment-reversal-api-proof-fixture.cjs').paymentReversalApiProofFixture(), browser: require('./fixtures/payment-reversal-browser-proof-fixture.cjs').paymentReversalBrowserProofFixture(profile === 'cloud' ? 'postgresql' : 'sqlite') } : { readback: true } })) };
   for (const [browserId, sourceId, status] of [
@@ -47,6 +49,15 @@ function fixture(profile = 'cloud') {
     ...require('./lib/sales-fulfillment-plan-proof.cjs').verifyPresaleProof(salesPlan), sourceRunId: salesPlan.runId,
     sourceReportSha256: require('node:crypto').createHash('sha256').update(JSON.stringify(salesPlan)).digest('hex'),
   };
+  if (profile === 'cloud') {
+    // Synthetic typed-verifier fixture only, never a database-crash receipt.
+    const recovery = require('./fixtures/postgres-recovery-proof-fixture.cjs').postgresRecoveryProofFixture({
+      runId: round2.metadata.runId, priorChecks: round2.checks,
+    });
+    round2.checks.find(check => check.id === postgresIds[0]).evidence = recovery;
+    round2.checks.find(check => check.id === postgresIds[1]).evidence = require('./lib/enterprise-round2-postgres-recovery-proof.cjs')
+      .verifyPostgresLedgerRecovery(recovery, { runId: round2.metadata.runId, priorChecks: round2.checks });
+  }
   // Synthetic verifier fixture only; real acceptance comes from HTTP + raw DB.
   const authorization = { ...stamp, version: 'authorization-dual-node/v1', status: 'passed', adminId: 1, actor: { id: 2 },
     commit: context.commit, commitAfter: context.commit, sourceHash: context.sourceHash, sourceHashAfter: context.sourceHash,
@@ -126,6 +137,129 @@ test('shared sales revision appends only the two fixed IDs and retains every pri
     assert.equal(result.summary.passed, expected);
     assert.equal(result.fullAcceptanceStatus, 'incomplete');
   }
+});
+
+test('PostgreSQL recovery revision is append-only and retains every general/independent/cloud obligation', () => {
+  const index = baseline.revisions.findIndex(revision => revision.id === 'postgres-real-crash-ledger-v1');
+  assert.equal(index, baseline.revisions.length - 1);
+  const previous = baseline.revisions[index - 1], current = baseline.revisions[index];
+  for (const field of ['round2Checks', 'independentChecks', 'cloudSteps']) assert.deepEqual(current[field], previous[field]);
+  assert.deepEqual(current.postgresqlRound2Checks, postgresIds);
+  assert.equal(current.round2Checks.length, 34);
+  assert(baseline.revisions.slice(0, index).every(revision => !Object.hasOwn(revision, 'postgresqlRound2Checks')),
+    'Do not retrofit the new provider-only schema into historical revisions');
+  assert.equal(validateBaseline(baseline).id, current.id);
+});
+
+for (const [label, mutate, pattern] of [
+  ['non-array', revision => { revision.postgresqlRound2Checks = 'database-restart-ambiguous-commit'; }, /Invalid PostgreSQL-only/],
+  ['null', revision => { revision.postgresqlRound2Checks = null; }, /Invalid PostgreSQL-only/],
+  ['duplicate', revision => { revision.postgresqlRound2Checks.push(postgresIds[0]); }, /Duplicate PostgreSQL-only/],
+  ['foreign ID', revision => { revision.postgresqlRound2Checks.push('workforce-rbac'); }, /Only the two real PostgreSQL/],
+  ['invented ID', revision => { revision.postgresqlRound2Checks.push('invented'); }, /Only the two real PostgreSQL/],
+  ['provider check moved to generic baseline', revision => { revision.round2Checks.push(postgresIds[0]); }, /cannot be a SQLite baseline/],
+]) test(`PostgreSQL-only baseline schema rejects ${label}`, () => {
+  const data = structuredClone(baseline);
+  mutate(data.revisions.at(-1));
+  assert.throws(() => validateBaseline(data), pattern);
+});
+
+for (const [label, mutate] of [
+  ['remove one', revision => { revision.postgresqlRound2Checks.pop(); }],
+  ['empty list', revision => { revision.postgresqlRound2Checks = []; }],
+  ['remove property', revision => { delete revision.postgresqlRound2Checks; }],
+]) test(`PostgreSQL-only obligations cannot shrink on a later package: ${label}`, () => {
+  const data = structuredClone(baseline), next = structuredClone(data.revisions.at(-1));
+  next.id = 'future-postgres-package'; mutate(next); data.revisions.push(next);
+  assert.throws(() => validateBaseline(data), /Baseline shrank: postgresqlRound2Checks/);
+});
+
+test('PostgreSQL-only revision does not change SQLite obligations or let SQLite claim real database recovery', () => {
+  const data = fixture('local'), result = evaluateRegression(data);
+  assert.equal(result.summary.expected, 44);
+  assert.equal(result.summary.passed, 44);
+  assert.equal(result.status, 'passed');
+  assert(!result.checks.some(check => postgresIds.some(id => check.id === `round2:${id}`)));
+  for (const id of postgresIds) data.reports.round2.checks.find(check => check.id === id).status = 'passed';
+  data.reports.round2.summary = summarize(data.reports.round2, catalog); data.reports.round2.status = data.reports.round2.summary.status;
+  const forged = evaluateRegression(data);
+  assert.equal(forged.status, 'failed');
+  assert.match(forged.checks.find(check => check.id === 'round2-report-integrity').error, /Review and promote/);
+});
+
+test('PostgreSQL-only obligations are mandatory in cloud even when both source checks were not run', () => {
+  const data = fixture();
+  for (const id of postgresIds) data.reports.round2.checks.find(check => check.id === id).status = 'not_run';
+  data.reports.round2.summary = summarize(data.reports.round2, catalog); data.reports.round2.status = data.reports.round2.summary.status;
+  const result = evaluateRegression(data);
+  assert.equal(result.summary.expected, 72);
+  assert.equal(result.status, 'failed');
+  for (const id of postgresIds) assert.equal(result.checks.find(check => check.id === `round2:${id}`).status, 'failed');
+  assert.equal(result.checks.find(check => check.id === 'round2:purchase-partial-receipt-qc-payables').status, 'passed');
+  assert.equal(result.checks.find(check => check.id === 'barter-cash-legacy-upgrade').status, 'passed');
+});
+
+test('current cloud candidate replays 72 obligations with a source-bound derived ledger proof (synthetic contract only)', () => {
+  const data = fixture(), result = evaluateRegression(data);
+  assert.equal(result.summary.expected, 72);
+  assert.equal(result.summary.passed, 72);
+  assert.equal(result.status, 'passed');
+  assert.equal(result.fullAcceptanceStatus, 'incomplete');
+  for (const id of postgresIds) assert.equal(result.checks.find(check => check.id === `round2:${id}`).status, 'passed');
+  const source = data.reports.round2.checks.find(check => check.id === postgresIds[0]).evidence;
+  const derived = data.reports.round2.checks.find(check => check.id === postgresIds[1]).evidence;
+  assert.equal(source.runId, data.reports.round2.metadata.runId);
+  assert.equal(derived.sourceChainDigest, source.chainDigest);
+  assert.equal(source.priorChecks.length, 34);
+});
+
+for (const [label, mutate] of [
+  ['summary-only source', data => {
+    data.reports.round2.checks.find(check => check.id === postgresIds[0]).evidence = {
+      status: 'passed', provider: 'postgresql', runId: data.reports.round2.metadata.runId,
+    };
+  }],
+  ['foreign run', data => {
+    data.reports.round2.checks.find(check => check.id === postgresIds[0]).evidence.runId = 'foreign-run';
+  }],
+  ['foreign provider', data => {
+    data.reports.round2.checks.find(check => check.id === postgresIds[0]).evidence.provider = 'sqlite';
+  }],
+  ['missing report run identity', data => { delete data.reports.round2.metadata.runId; }],
+  ['foreign source with recomputed digest', data => {
+    const source = data.reports.round2.checks.find(check => check.id === postgresIds[0]).evidence;
+    source.runId = 'other-current-looking-run';
+    require('./fixtures/postgres-recovery-proof-fixture.cjs').resignPostgresRecoveryProof(source);
+  }],
+  ['self-reported prior digest with recomputed source digest', data => {
+    const source = data.reports.round2.checks.find(check => check.id === postgresIds[0]).evidence;
+    source.priorChecks[0].evidenceSha256 = '0'.repeat(64);
+    require('./fixtures/postgres-recovery-proof-fixture.cjs').resignPostgresRecoveryProof(source);
+  }],
+  ['source from different raw prior siblings', data => {
+    data.reports.round2.checks.find(check => check.id === 'stock-20-contention').evidence.otherReplay = true;
+  }],
+  ['prior sibling skipped after capture', data => {
+    data.reports.round2.checks.find(check => check.id === 'stock-20-contention').status = 'not_run';
+  }],
+  ['prior sibling replaced with a digest-only summary', data => {
+    data.reports.round2.checks.find(check => check.id === 'stock-20-contention').evidence = { evidenceSha256: 'a'.repeat(64) };
+  }],
+  ['ledger derived from another crash chain', data => {
+    data.reports.round2.checks.find(check => check.id === postgresIds[1]).evidence.sourceChainDigest = '0'.repeat(64);
+  }],
+  ['independent green ledger summary', data => {
+    data.reports.round2.checks.find(check => check.id === postgresIds[1]).evidence = { status: 'passed', tablesUnchanged: true };
+  }],
+]) test(`PostgreSQL typed cumulative obligation rejects ${label} without truncating prior packages`, () => {
+  const data = fixture();
+  for (const id of postgresIds) data.reports.round2.checks.find(check => check.id === id).status = 'passed';
+  mutate(data);
+  data.reports.round2.summary = summarize(data.reports.round2, catalog); data.reports.round2.status = data.reports.round2.summary.status;
+  const result = evaluateRegression(data);
+  assert.equal(result.status, 'failed');
+  assert.equal(result.checks.find(check => check.id === `round2:${postgresIds[1]}`).status, 'failed');
+  assert.equal(result.checks.find(check => check.id === 'barter-cash-legacy-upgrade').status, 'passed');
 });
 
 for (const [label, mutate, id] of [
@@ -312,7 +446,7 @@ test('baseline revisions can only grow; accepted new IDs become mandatory', () =
   next.round2Checks.push(futureId); data.baseline.revisions.push(next);
   assert.equal(evaluateRegression(data).status, 'failed');
   data.reports.round2.checks.find(c => c.id === futureId).status = 'passed';
-  data.reports.round2.summary = summarize(data.reports.round2, catalog);
+  data.reports.round2.summary = summarize(data.reports.round2, catalog); data.reports.round2.status = data.reports.round2.summary.status;
   assert.equal(evaluateRegression(data).status, 'passed');
   next.round2Checks.shift(); assert.throws(() => validateBaseline(data.baseline), /shrank/);
 });

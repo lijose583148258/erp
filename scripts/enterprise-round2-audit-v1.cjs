@@ -15,6 +15,7 @@ const { qcIsolationProbe } = require('./lib/enterprise-round2-qc-isolation.cjs')
 const { densityConversionProbe, assertDensityCostConservation } = require('./lib/enterprise-round2-density-conversion.cjs');
 const { productionDispositionProbe, assertProductionDispositionCostReconciliation } = require('./lib/enterprise-round2-production-disposition.cjs');
 const { readRegressionStamp, verifyFresh } = require('./lib/enterprise-regression.cjs');
+const { ROUND2_MAX_RUNTIME_MS } = require('./lib/enterprise-round2-supervision.cjs');
 
 const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
 const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
@@ -42,6 +43,7 @@ if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback'
 if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay', 'payment-reversal-browser');
 if (process.env.ROUND2_SALES_PLAN_REPORT) implemented.push('presale-with-fulfillment-plan');
 if (process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT) implemented.push('backorder-adjustment-closeout');
+if (process.env.ROUND2_POSTGRES_RECOVERY === 'true') implemented.push('database-restart-ambiguous-commit', 'recovery-full-ledger-reconciliation');
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
@@ -443,6 +445,24 @@ async function runSharedSales() {
   else runner.block('sales-browser-readback', 'The same shared150 order role/API/browser chain did not complete; no separate screenshot may replace it');
 }
 
+async function runPostgresRecovery() {
+  if (process.env.ROUND2_POSTGRES_RECOVERY !== 'true') return;
+  const revision = require('./config/enterprise-regression-baseline-v1.json').revisions.find(row => row.id === 'shared-sales-real-role-chain-v1');
+  assert(revision?.round2Checks.length === 34, 'Keep the reviewed pre-recovery obligations intact');
+  const priorChecks = revision.round2Checks.map(id => runner.report.checks.find(check => check.id === id));
+  const source = await runner.run('database-restart-ambiguous-commit', signal => {
+    // Keep the existing 15m total ceiling. Never stop a database when its full
+    // bounded experiment + independent restoration cannot fit before it.
+    const elapsed = Date.now() - Date.parse(runner.report.startedAt);
+    assert(elapsed >= 0 && elapsed + 315000 < ROUND2_MAX_RUNTIME_MS, 'Insufficient owned PostgreSQL experiment/cleanup budget before the absolute Round2 deadline');
+    return require('./lib/enterprise-round2-postgres-recovery.cjs').postgresRecoveryProbe({ request, dataOf, actors, prisma, runId,
+      urls, reportPath, stockFixture, priorChecks }, signal);
+  }, { timeoutMs: 300000 });
+  if (source) await runner.run('recovery-full-ledger-reconciliation', () =>
+    require('./lib/enterprise-round2-postgres-recovery-proof.cjs').verifyPostgresLedgerRecovery(source, { runId, priorChecks: runner.report.checks }), { timeoutMs: 60000 });
+  else runner.block('recovery-full-ledger-reconciliation', 'Actual owned PostgreSQL crash, original request and cleanup did not reconcile; no independent summary may substitute');
+}
+
 async function main() {
   try {
     await setup(AbortSignal.timeout(90_000));
@@ -558,6 +578,7 @@ async function main() {
     if (lot) await runner.run('genealogy-readback', signal => genealogyReadback(bomContext, lot, signal), { timeoutMs: 90000 });
     else runner.block('genealogy-readback', 'Dual work order reconciliation did not complete');
   }
+  await runPostgresRecovery();
 }
 
 main().catch(error => { runner.report.executionError = String(error.message || error); }).finally(async () => {
