@@ -4,18 +4,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
 const { createRequire } = require('node:module');
-const { escapeLiteral } = require('../backend/node_modules/pg');
 
 const file = path.join(__dirname, 'lib/enterprise-round2-postgres-recovery.cjs');
 const actualRequire = createRequire(file);
 const copy = value => JSON.parse(JSON.stringify(value));
 function harness(env = {}, hooks = {}) {
-  const calls = { controls: 0, api: 0 };
+  const calls = { controls: 0, api: 0, escapedLiterals: [] };
   const module = { exports: {} };
   const context = vm.createContext({ module, exports: module.exports, __dirname: path.dirname(file),
     process: { env }, performance, AbortSignal, URL, Buffer, Date,
     require(name) {
       if (name === 'node:fs') return { ...fs, mkdirSync() {} };
+      // The source gate has no node_modules. Test orchestration/delegation,
+      // not the third-party driver's SQL escaping implementation.
+      if (name === '../../backend/node_modules/pg') return { escapeLiteral(value) {
+        calls.escapedLiterals.push(value); return '__SYNTHETIC_DRIVER_ESCAPED_LITERAL__';
+      } };
       if (name === './ui-audit-user.cjs') return { ensureUiAuditUser: hooks.ensureUiAuditUser || (() => { throw new Error('Must not seed an unowned database'); }) };
       if (name === './enterprise-round2-postgres-control.cjs') return { createOwnedPostgresControl() {
         calls.controls++;
@@ -107,11 +111,12 @@ test('cleanup resets only a previously absent synchronous setting, never RESET A
   assert(restore.client.ended);
 });
 
-test('cleanup restores original auto.conf value with SQL literal escaping instead of effective-value guessing', async () => {
+test('cleanup delegates the unmodified original auto.conf value to the driver literal escaper', async () => {
   const h = harness(), value = 'FIRST 1 ("old\'quoted\\standby")', original = originalSettings(value, true), restore = restoreHarness(original);
   const result = await h.testing.restoreSettings(restore.control, original, AbortSignal.timeout(1000));
   assert.deepEqual(copy(result), original);
-  assert.deepEqual(restore.calls.filter(sql => sql.startsWith('ALTER SYSTEM')), [`ALTER SYSTEM SET synchronous_standby_names = ${escapeLiteral(value)}`]);
+  assert.deepEqual(h.calls.escapedLiterals, [value]);
+  assert.deepEqual(restore.calls.filter(sql => sql.startsWith('ALTER SYSTEM')), ['ALTER SYSTEM SET synchronous_standby_names = __SYNTHETIC_DRIVER_ESCAPED_LITERAL__']);
   assert(restore.client.ended);
 });
 
