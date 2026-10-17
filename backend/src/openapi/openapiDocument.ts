@@ -27,11 +27,24 @@ const writeResponses = {
   '400': { description: 'The request body, params, or query failed validation.' },
   '401': { description: 'Authentication is required or the token is invalid.' },
   '403': { description: 'The authenticated user does not have the required permission.' },
-  '409': { description: 'The operation conflicts with existing business data.' },
+  '409': {
+    description: 'The operation conflicts with existing business data. Controlled posting operations may return row-level material repair details.',
+    content: {
+      'application/json': {
+        schema: {
+          oneOf: [
+            { $ref: '#/components/schemas/ErrorResponse' },
+            { $ref: '#/components/schemas/MaterialReadinessErrorResponse' },
+          ],
+        },
+      },
+    },
+  },
   '500': { description: 'Unexpected server error.' },
 };
 
 const secured = (requiresAuth: boolean) => (requiresAuth ? [{ bearerAuth: [] }] : undefined);
+const pathIdParameter = { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } };
 
 const queryParam = (name: string, schema: Record<string, unknown>, description: string) => ({
   name,
@@ -216,6 +229,75 @@ export const buildOpenApiDocument = () => {
       },
     };
 
+    paths[`${prefix}/procurement/orders`] = {
+      get: {
+        tags: ['Procurement'],
+        summary: 'List purchase orders',
+        description: 'Returns purchase orders visible to the authenticated procurement scope.',
+        security: secured(true),
+        responses: jsonResponse,
+      },
+      post: {
+        tags: ['Procurement'],
+        summary: 'Create a purchase order commitment',
+        description: 'Requires procurement.write; creating approved/in-transit (including confirmed/shipped aliases) also requires procurement.approve. Inventory is not increased until a later receipt, protected by procurement.receive. The legacy B2B status-sync shortcut requires all three responsibilities. Canonical material identity is propagated when materialId is supplied.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ProcurementPurchaseOrderCreateRequest' },
+            },
+          },
+        },
+        responses: {
+          ...writeResponses,
+          '201': { description: 'Purchase order commitment created.' },
+        },
+      },
+    };
+
+    paths[`${prefix}/orders/{id}/fulfillment-plans`] = {
+      get: { tags: ['Orders'], summary: 'Read order-scoped purchase replenishment plans and live fulfillment',
+        description: 'Requires orders.read and order data scope. linked_purchase_only; physicalStockReserved=false; confirmationGateEnforced=false.',
+        security: secured(true), parameters: [pathIdParameter], responses: { ...jsonResponse, '404': { description: 'Order not visible.' } } },
+      post: { tags: ['Orders'], summary: 'Create immutable purchase-linked fulfillment draft',
+        description: 'Requires orders.update and order write scope. Source must be an approved purchase linked to this order with identical material/unit. Freezes source revision. Exact same-actor idempotent replay returns original; changed facts return 409. Does not reserve or add stock, pay money, or enforce a mandatory order confirmation gate.',
+        security: secured(true), parameters: [pathIdParameter], requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/SalesFulfillmentPlanCreate' } } } },
+        responses: { ...writeResponses, '201': { description: 'Draft created or identical request replayed.' }, '404': { description: 'Order not visible.' } } },
+    };
+    for (const action of ['approve', 'close'] as const) {
+      paths[`${prefix}/orders/{id}/fulfillment-plans/{planId}/${action}`] = {
+        post: { tags: ['Orders'], summary: action === 'approve' ? 'Approve an unchanged purchase plan independently' : 'Close plan against source receipts and customer acceptance',
+          description: action === 'approve' ? 'Requires orders.status.manage and order write scope. Creator cannot approve, including admin. Stale timestamps, changed source revisions and excess line/source commitments return 409 under transaction locks.' : 'Requires orders.status.manage and order write scope. Whole order must be fully accepted. Approved/closed commitments must be covered by actual purchase receipts and delivered source batches. Stores immutable receipt/shipment IDs; same-actor/key/reason replay makes no additional postings. No refund, cancellation or substitution is supported.',
+          security: secured(true), parameters: [pathIdParameter, { name: 'planId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+          requestBody: { required: true, content: { 'application/json': { schema: { type: 'object', additionalProperties: false,
+            required: ['reason', action === 'approve' ? 'expectedUpdatedAt' : 'idempotencyKey'], properties: { reason: { type: 'string', minLength: 3, maxLength: 1000 },
+              ...(action === 'approve' ? { expectedUpdatedAt: { type: 'string', format: 'date-time' } } : { idempotencyKey: { type: 'string', minLength: 8, maxLength: 120, pattern: '^[a-zA-Z0-9:_-]+$' } }) } } } } },
+          responses: { ...writeResponses, '404': { description: 'Order or plan not visible.' } } },
+      };
+    }
+    paths[`${prefix}/procurement/orders/{id}`] = {
+      patch: {
+        tags: ['Procurement'], summary: 'Revise unreceived purchase terms with optimistic concurrency',
+        description: 'Requires procurement.write and procurement data scope. Both expectedRevision and expectedUpdatedAt must match. Only pending/approved orders without any receipt can change. Success increments revision, resets approval to pending and atomically records before/after audit. Stale writes return 409; the client must compare, never automatically overwrite. Supplier/material/unit/currency/FX/extra costs are not editable here.',
+        security: secured(true), parameters: [pathIdParameter],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProcurementPurchaseOrderRevisionRequest' } } } },
+        responses: { ...writeResponses, '404': { description: 'Purchase order not found.' } },
+      },
+    };
+    paths[`${prefix}/procurement/orders/{id}/revisions`] = {
+      get: { tags: ['Procurement'], summary: 'Read latest purchase version and up to 100 revision/status audit records',
+        security: secured(true), parameters: [pathIdParameter], responses: { ...jsonResponse, '404': { description: 'Purchase order not visible.' } } },
+    };
+    paths[`${prefix}/procurement/orders/{id}/status`] = {
+      patch: { tags: ['Procurement'], summary: 'Transition a reviewed purchase revision',
+        description: 'expectedRevision is mandatory once revision > 0. Legacy requests without a version may operate only on revision 0. Repeated same-state requests do not add audit events.',
+        security: secured(true), parameters: [pathIdParameter], requestBody: { required: true, content: { 'application/json': { schema: {
+          type: 'object', required: ['status'], properties: { status: { type: 'string', enum: ['pending', 'approved', 'in_transit', 'received', 'cancelled', 'confirmed', 'shipped', 'delivered'] }, expectedRevision: { type: 'integer', minimum: 0 } },
+        } } } }, responses: writeResponses },
+    };
+
     paths[`${prefix}/collections/overdue`] = {
       get: {
         tags: ['Collections'],
@@ -224,6 +306,256 @@ export const buildOpenApiDocument = () => {
         security: secured(true),
         parameters: collectionOverdueParameters,
         responses: paginatedJsonResponse('#/components/schemas/CollectionOverdueListResponse'),
+      },
+    };
+
+    paths[`${prefix}/materials`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'Search canonical material master data',
+        description: 'Exact-first relational search across code, Chinese/English/Vietnamese names, CAS, HS code, and governed aliases. Requires materials.read.',
+        security: secured(true),
+        parameters: [
+          queryParam('q', { type: 'string', maxLength: 160 }, 'Code, name, CAS number, HS code, or multilingual alias.'),
+          queryParam('status', { type: 'string', enum: ['draft', 'active', 'blocked', 'retired'] }, 'Lifecycle status.'),
+          queryParam('category', { type: 'string', enum: ['raw_material', 'finished_good', 'semi_finished', 'packaging', 'consumable', 'service'] }, 'Material category.'),
+          queryParam('limit', { type: 'integer', minimum: 1, maximum: 100, default: 30 }, 'Result limit.'),
+          queryParam('offset', { type: 'integer', minimum: 0, default: 0 }, 'Result offset.'),
+        ],
+        responses: jsonResponse,
+      },
+      post: {
+        tags: ['Materials'],
+        summary: 'Create canonical material master data',
+        description: 'Creates a draft or governed material and its multilingual aliases in one transaction. Requires materials.write.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MaterialWriteRequest' } } },
+        },
+        responses: { ...writeResponses, '201': { description: 'Material created.' } },
+      },
+    };
+
+    paths[`${prefix}/materials/{id}`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'Read canonical material master data',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: { ...jsonResponse, '404': { description: 'Material not found.' } },
+      },
+      patch: {
+        tags: ['Materials'],
+        summary: 'Update canonical material with optimistic concurrency',
+        description: 'The optional expectedUpdatedAt field rejects stale edits with 409. Active materials cannot remain temporary.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MaterialUpdateRequest' } } },
+        },
+        responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/materials/{id}/densities`] = {
+      get: { tags: ['Materials'], summary: 'Read immutable batch density evidence (not conversion authorization)', security: secured(true), parameters: [pathIdParameter], responses: jsonResponse },
+      post: { tags: ['Materials'], summary: 'Create sourced batch density evidence draft', description: 'Requires production.read and materials.write. Exact material/batch/unit identity is frozen; no QC, inventory or cost mutation.', security: secured(true), parameters: [pathIdParameter],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DensityRevisionCreateRequest' } } } }, responses: { ...writeResponses, '201': { description: 'Immutable draft created.' } } },
+    };
+    for (const action of ['approve','retire']) paths[`${prefix}/materials/{id}/densities/{revisionId}/${action}`] = {
+      post: { tags: ['Materials'], summary: 'Independently review or retire batch density evidence', description: 'Requires production.read and materials.govern. Creator cannot self-approve. Approval never releases QC or enables dimensional conversion.', security: secured(true),
+        parameters: [pathIdParameter, { name: 'revisionId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/DensityRevisionReviewRequest' } } } }, responses: { ...writeResponses, '404': { description: 'Revision not found for this material.' } } },
+    };
+    paths[`${prefix}/materials/{id}/packaging`] = {
+      get: { tags: ['Materials'], summary: 'Read immutable packaging revisions', security: secured(true), parameters: [pathIdParameter], responses: jsonResponse },
+      post: {
+        tags: ['Materials'], summary: 'Create an immutable net-mass draft', security: secured(true), parameters: [pathIdParameter],
+        description: 'Requires materials.write and an active non-temporary finished/semi-finished material with matching package unit. No edit or delete endpoint.',
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/PackagingRevisionCreateRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Draft created; independent approval required.' } },
+      },
+    };
+    for (const action of ['approve','retire']) paths[`${prefix}/materials/{id}/packaging/{revisionId}/${action}`] = {
+      post: {
+        tags: ['Materials'], summary: action === 'approve' ? 'Independently approve packaging basis' : 'Retire packaging basis for future work',
+        description: 'Requires materials.govern, expectedUpdatedAt and reason. Creator cannot self-approve. Retirement blocks new BOMs/work orders but never rewrites frozen WIP.',
+        security: secured(true), parameters: [pathIdParameter, { name: 'revisionId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/PackagingRevisionReviewRequest' } } } },
+        responses: { ...writeResponses, '404': { description: 'Revision not found for this material.' } },
+      },
+    };
+
+    paths[`${prefix}/materials/{id}/aliases`] = {
+      post: {
+        tags: ['Materials'],
+        summary: 'Add a governed multilingual alias',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                required: ['alias'],
+                properties: {
+                  alias: { type: 'string', minLength: 1, maxLength: 160 },
+                  language: { type: 'string', enum: ['zh', 'en', 'vi', 'und'] },
+                  aliasType: { type: 'string', enum: ['business', 'supplier', 'customer', 'legacy', 'translation'] },
+                },
+              },
+            },
+          },
+        },
+        responses: { ...writeResponses, '201': { description: 'Alias created.' } },
+      },
+    };
+
+    paths[`${prefix}/materials/governance/backfill-candidates`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'Preview controlled historical BOM material backfill',
+        description: 'Returns exact-only suggestions without writing data. Every candidate includes an item-ID fingerprint so stale previews are rejected. Requires materials.govern.',
+        security: secured(true),
+        parameters: [
+          queryParam('limit', { type: 'integer', minimum: 1, maximum: 50, default: 30 }, 'Source groups per page.'),
+          queryParam('offset', { type: 'integer', minimum: 0, default: 0 }, 'Source-group offset.'),
+        ],
+        responses: jsonResponse,
+      },
+    };
+
+    paths[`${prefix}/materials/governance/backfill`] = {
+      post: {
+        tags: ['Materials'],
+        summary: 'Apply an audited historical BOM material backfill',
+        description: 'Links at most 500 unchanged BOM rows to active, non-temporary, unit-compatible materials in one transaction. Requires materials.govern.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: { 'application/json': { schema: { $ref: '#/components/schemas/MaterialBomBackfillRequest' } } },
+        },
+        responses: { ...writeResponses, '201': { description: 'Governance run applied and audited.' } },
+      },
+    };
+
+    paths[`${prefix}/materials/governance/runs`] = {
+      get: {
+        tags: ['Materials'],
+        summary: 'List historical material governance runs',
+        description: 'Lists applied and rolled-back BOM material governance runs. Requires materials.govern.',
+        security: secured(true),
+        parameters: [
+          queryParam('limit', { type: 'integer', minimum: 1, maximum: 50, default: 30 }, 'Run limit.'),
+          queryParam('offset', { type: 'integer', minimum: 0, default: 0 }, 'Run offset.'),
+        ],
+        responses: jsonResponse,
+      },
+    };
+
+    paths[`${prefix}/materials/governance/runs/{runId}/rollback`] = {
+      post: {
+        tags: ['Materials'],
+        summary: 'Rollback a historical BOM material governance run',
+        description: 'Clears only links that still match the applied target. Any downstream conflict blocks the entire rollback. Requires materials.govern.',
+        security: secured(true),
+        parameters: [{ name: 'runId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/production/boms`] = {
+      post: {
+        tags: ['Production'],
+        summary: 'Create a governed production BOM',
+        description: 'Creates a production BOM with an explicit finished-product shelf-life policy. Requires production.bom.write.',
+        security: secured(true),
+        requestBody: {
+          required: true,
+          content: {
+            'application/json': {
+              schema: { $ref: '#/components/schemas/ProductionBomCreateRequest' },
+            },
+          },
+        },
+        responses: {
+          ...writeResponses,
+          '201': { description: 'The BOM was created and returned with its persisted shelf-life policy.' },
+        },
+      },
+    };
+
+    paths[`${prefix}/production/batches/{batchId}/trace`] = {
+      get: {
+        tags: ['Production'],
+        summary: 'Read the direct batch genealogy and shipment evidence',
+        description: 'Returns the selected batch, direct actual-consumption edges, direct downstream batches, shipments, orders and customers. The response declares scope=direct-one-hop and is not a recall-case workflow. Requires production.read.',
+        security: secured(true),
+        parameters: [{ name: 'batchId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: jsonResponse,
+      },
+    };
+
+    paths[`${prefix}/production/work-orders/{id}/dispositions`] = {
+      get: {
+        tags: ['Production'],
+        summary: 'List immutable physical loss and rework dispositions for a completed work order',
+        description: 'Returns physical stock, batch, carrying-cost, source-scrap, and audit-linked disposition facts. Requires production.read.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        responses: jsonResponse,
+      },
+      post: {
+        tags: ['Production'],
+        summary: 'Post physical scrap or a quarantined rework return',
+        description: 'Only completed work-order output is eligible. Scrap deducts an exact stock balance with carrying cost. Rework may recover only a prior scrap balance and creates a new quarantined batch that still needs QA release. Requires production.execute.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionDispositionRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Disposition posted atomically with stock, cost, and audit evidence.' } },
+      },
+    };
+
+    paths[`${prefix}/production/work-orders/{id}/checks`] = {
+      post: {
+        tags: ['Production'],
+        summary: 'Submit a structured production quality inspection',
+        description: 'Captures actual values against the immutable BOM characteristic snapshot. The server derives pass/fail; the client cannot submit its own result. Requires production.quality.inspect.',
+        security: secured(true),
+        parameters: [{ name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } }],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionQualityInspectionRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Inspection submitted and held for independent review.' } },
+      },
+    };
+
+    paths[`${prefix}/production/work-orders/{id}/checks/{checkId}/review`] = {
+      post: {
+        tags: ['Production'],
+        summary: 'Independently release or reject a production inspection',
+        description: 'Rejects self-review, stale revisions, and release of a failed inspection. Requires production.quality.release.',
+        security: secured(true),
+        parameters: [
+          { name: 'id', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } },
+          { name: 'checkId', in: 'path', required: true, schema: { type: 'integer', minimum: 1 } },
+        ],
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ProductionQualityReviewRequest' } } } },
+        responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/shipping`] = {
+      ...paths[`${prefix}/shipping`],
+      post: {
+        tags: ['Shipping'],
+        summary: 'Create an identity-bound shipment',
+        description: 'Binds the shipment to an exact customer, optional sales-order line, canonical material, and product batch. Identity substitution conflicts are rejected before persistence. Requires shipping.write.',
+        security: secured(true),
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/ShipmentCreateRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Shipment created with resolved identity.' }, '404': { description: 'The linked order item or product batch does not exist.' } },
       },
     };
 
@@ -295,6 +627,18 @@ export const buildOpenApiDocument = () => {
           content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockAdjustmentRequest' } } },
         },
         responses: writeResponses,
+      },
+    };
+
+    paths[`${prefix}/warehouses/stock-balances`] = {
+      ...paths[`${prefix}/warehouses/stock-balances`],
+      post: {
+        tags: ['Warehouse'],
+        summary: 'Post a governed manual stock inbound voucher',
+        description: 'Posts inventory through the stock ledger. Supplying materialId locks product name, base unit, shelf-life policy, balance identity, and generated batch identity to active material master data. Requires warehouse.write.',
+        security: secured(true),
+        requestBody: { required: true, content: { 'application/json': { schema: { $ref: '#/components/schemas/WarehouseStockCreateRequest' } } } },
+        responses: { ...writeResponses, '201': { description: 'Stock inbound voucher posted.' } },
       },
     };
 

@@ -1,5 +1,4 @@
 const fs = require('fs');
-const os = require('os');
 const path = require('path');
 const { spawn } = require('child_process');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');

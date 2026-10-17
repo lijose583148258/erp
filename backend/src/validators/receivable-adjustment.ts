@@ -1,5 +1,13 @@
 import { z } from 'zod';
 
+export const createOrderQuantityCancellationSchema = z.object({
+  orderItemId: z.coerce.number().int().positive(),
+  quantity: z.coerce.number().positive().max(1_000_000_000),
+  expectedUpdatedAt: z.iso.datetime({ offset: true }),
+  idempotencyKey: z.string().trim().min(8).max(120).regex(/^[a-zA-Z0-9:_-]+$/),
+  reason: z.string().trim().min(3).max(1000),
+}).strict();
+
 export const createReceivableAdjustmentSchema = z.object({
   orderId: z.coerce.number().int().positive(),
   customerId: z.coerce.number().int().positive().optional(),

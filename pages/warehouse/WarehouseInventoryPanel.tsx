@@ -117,7 +117,7 @@ export function WarehouseInventoryPanel({
           ))}
         </select>
         <button data-testid="warehouse-inventory-query-button" onClick={() => queryInventory()}
-          className="flex items-center gap-2 px-5 py-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-2xl font-black text-sm hover:bg-blue-100 active:scale-95 transition-all">
+ className="flex items-center gap-2 px-5 py-3 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-2xl font-black text-sm hover:bg-blue-100 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
           <Filter size={16} /> 查询
         </button>
       </div>
@@ -160,7 +160,7 @@ export function WarehouseInventoryPanel({
                         data-testid={`warehouse-transfer-open-button-${balance.id}`}
                         onClick={() => onOpenTransfer(balance)}
                         disabled={!canWrite || Number(balance.quantity || 0) <= 0}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 transition-all hover:bg-amber-100 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-amber-900/30 dark:text-amber-300"
+ className="inline-flex items-center gap-1.5 rounded-xl bg-amber-50 px-3 py-2 text-xs font-black text-amber-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-40 dark:bg-amber-900/30 dark:text-amber-300"
                       >
                         <ArrowRightLeft size={14} />
                         调拨
@@ -178,10 +178,10 @@ export function WarehouseInventoryPanel({
             <span className="text-xs text-slate-400 font-bold">共 {stockMeta.total} 条</span>
             <div className="flex gap-2">
               <button disabled={stockMeta.page <= 1} onClick={() => queryInventory(stockMeta.page - 1)}
-                className="px-4 py-2 text-xs font-black bg-slate-100 dark:bg-slate-800 rounded-xl disabled:opacity-30 hover:bg-slate-200 active:scale-95 transition-all">上一页</button>
+ className="px-4 py-2 text-xs font-black bg-slate-100 dark:bg-slate-800 rounded-xl disabled:opacity-30 hover:bg-slate-200 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">上一页</button>
               <span className="px-3 py-2 text-xs font-bold text-slate-500">{stockMeta.page} / {stockMeta.totalPages}</span>
               <button disabled={stockMeta.page >= stockMeta.totalPages} onClick={() => queryInventory(stockMeta.page + 1)}
-                className="px-4 py-2 text-xs font-black bg-slate-100 dark:bg-slate-800 rounded-xl disabled:opacity-30 hover:bg-slate-200 active:scale-95 transition-all">下一页</button>
+ className="px-4 py-2 text-xs font-black bg-slate-100 dark:bg-slate-800 rounded-xl disabled:opacity-30 hover:bg-slate-200 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">下一页</button>
             </div>
           </div>
         )}

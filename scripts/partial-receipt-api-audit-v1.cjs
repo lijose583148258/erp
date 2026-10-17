@@ -1,5 +1,8 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
+const assert = require('node:assert/strict');
+const { explicitPurchaseSources, releasePurchaseFixture } = require('./lib/purchase-quality-audit-fixture.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -17,6 +20,10 @@ const DATA = {
   stockQuantity: 16,
   shipmentQuantity: 10,
 };
+const SOURCES = explicitPurchaseSources({ quoteRef: `PART-QUOTE-${RUN_ID}`, specificationRef: `PART-SPEC-${RUN_ID}`,
+  specificationRevision: '1', taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0,
+  characteristics: [{ code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8',
+    testMethod: 'Isolated fixture calibrated pH meter', required: true }] });
 
 const report = {
   appUrl: APP_URL,
@@ -202,7 +209,7 @@ async function countStockEntries(token, sourceType, sourceRef) {
   )).length;
 }
 
-async function runProcurementFlow(manager) {
+async function runProcurementFlow(manager, approver, qc) {
   const supplier = await createSupplier(manager.token);
   recordStep({ step: 'procurement-create-supplier', result: 'passed', supplierId: supplier.id });
 
@@ -214,6 +221,7 @@ async function runProcurementFlow(manager) {
       quantity: DATA.purchaseQuantity,
       unit: 'kg',
       price: 12,
+      ...SOURCES,
       eta: '2026-05-30',
     },
   }, manager.token));
@@ -222,36 +230,41 @@ async function runProcurementFlow(manager) {
 
   const approveOrder = await expectOk('approve purchase order', apiFetch(`/procurement/orders/${order.id}/status`, {
     method: 'PATCH',
-    data: { status: 'approved' },
-  }, manager.token));
+    data: { status: 'approved', expectedRevision: order.revision },
+  }, approver.token));
   assertEqual(approveOrder.json.data.status, 'approved', 'purchase order approve status');
   recordStep({ step: 'procurement-approve-order', result: 'passed', orderId: order.id });
 
   const mismatchReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
-    data: { quantity: 3, acceptedQuantity: 2, rejectedQuantity: 0 },
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-mismatch` },
+    data: { quantity: 3, acceptedQuantity: 2, rejectedQuantity: 0, batchNo: `PART-BAD-${RUN_ID}`, expectedRevision: order.revision },
   }, manager.token);
   assertEqual(mismatchReceipt.status, 400, 'mismatched receipt quantities must be blocked');
 
   const negativeReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
-    data: { quantity: -1, acceptedQuantity: -1, rejectedQuantity: 0 },
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-negative` },
+    data: { quantity: -1, acceptedQuantity: -1, rejectedQuantity: 0, batchNo: `PART-BAD-${RUN_ID}`, expectedRevision: order.revision },
   }, manager.token);
   assertEqual(negativeReceipt.status, 400, 'negative receipt quantity must be blocked');
 
   const zeroReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
-    data: { quantity: 0, acceptedQuantity: 0, rejectedQuantity: 0 },
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-zero` },
+    data: { quantity: 0, acceptedQuantity: 0, rejectedQuantity: 0, batchNo: `PART-BAD-${RUN_ID}`, expectedRevision: order.revision },
   }, manager.token);
   assertEqual(zeroReceipt.status, 400, 'zero receipt quantity must be blocked');
 
   const invalidDateReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-invalid-date` },
     data: {
       quantity: 1,
       acceptedQuantity: 1,
       rejectedQuantity: 0,
       receivedAt: 'not-a-date',
+      batchNo: `PART-BAD-${RUN_ID}`, expectedRevision: order.revision,
     },
   }, manager.token);
   assertEqual(invalidDateReceipt.status, 400, 'invalid receipt date must be blocked');
@@ -280,11 +293,13 @@ async function runProcurementFlow(manager) {
 
   const receiptOne = await expectOk('create first purchase receipt', apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-first` },
     data: {
       quantity: 4,
       acceptedQuantity: 4,
       rejectedQuantity: 0,
       batchNo: `${DATA.purchaseItem}-B1`,
+      expectedRevision: order.revision,
       note: 'first partial receipt',
     },
   }, manager.token));
@@ -294,18 +309,20 @@ async function runProcurementFlow(manager) {
 
   const blockedLegacyReceive = await apiFetch(`/procurement/orders/${order.id}/status`, {
     method: 'PATCH',
-    data: { status: 'received' },
+    data: { status: 'received', expectedRevision: order.revision },
   }, manager.token);
   assertEqual(blockedLegacyReceive.status, 409, 'legacy full receive after partial receipt must be blocked');
   recordStep({ step: 'procurement-block-legacy-full-receive', result: 'passed', status: blockedLegacyReceive.status });
 
   const receiptTwo = await expectOk('create second purchase receipt', apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-second` },
     data: {
       quantity: 6,
       acceptedQuantity: 5,
       rejectedQuantity: 1,
       batchNo: `${DATA.purchaseItem}-B2`,
+      expectedRevision: order.revision,
       discrepancyReason: 'short accepted sample',
       note: 'second partial receipt with rejected quantity',
     },
@@ -319,14 +336,33 @@ async function runProcurementFlow(manager) {
 
   const overReceipt = await apiFetch(`/procurement/orders/${order.id}/receipts`, {
     method: 'POST',
-    data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0 },
+    headers: { 'Idempotency-Key': `partial-${RUN_ID}-over` },
+    data: { quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `PART-OVER-${RUN_ID}`, expectedRevision: order.revision },
   }, manager.token);
   assertEqual(overReceipt.status, 409, 'purchase over receipt must be blocked');
   recordStep({ step: 'procurement-block-over-receipt', result: 'passed', status: overReceipt.status });
 
-  const batchOneBalance = await readStockBalance(manager.token, DATA.purchaseItem, `${DATA.purchaseItem}-B1`, 'LOC-RAW');
-  const batchTwoBalance = await readStockBalance(manager.token, DATA.purchaseItem, `${DATA.purchaseItem}-B2`, 'LOC-RAW');
+  const firstCommitted = receiptOne.json.data.submission.receipt, secondCommitted = receiptTwo.json.data.submission.receipt;
+  assert.equal(firstCommitted.supplierBatchNo, `${DATA.purchaseItem}-B1`);
+  assert.equal(secondCommitted.supplierBatchNo, `${DATA.purchaseItem}-B2`);
+  assert.notEqual(firstCommitted.batchNo, secondCommitted.batchNo);
+  const qualityEvidence = [];
+  for (const receipt of [firstCommitted, secondCommitted]) {
+    assert.equal(receipt.batchNo, `PO-${order.id}-RCV-${receipt.receiptNo}`);
+    qualityEvidence.push(await releasePurchaseFixture({
+      request: (endpoint, { actor, ...options } = {}) => apiFetch(endpoint, options, actor.token),
+      dataOf: response => { assert(response.ok, JSON.stringify(response.json)); return response.json.data; },
+    }, { receiptId: receipt.id, qcActor: { ...qc, id: qc.user.id }, qaActor: { ...approver, id: approver.user.id },
+      key: `partial-${RUN_ID}-qc-${receipt.id}`, input: { sampleNo: `PART-SAMPLE-${RUN_ID}-${receipt.id}`, measurements: [
+        { code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null, instrumentNo: 'PARTIAL-AUDIT-PH-1' },
+      ] }, reason: 'Independent QA reviewed actual partial delivery measurements' }));
+  }
+  const batchOneBalance = await readStockBalance(manager.token, DATA.purchaseItem, firstCommitted.batchNo, 'LOC-RAW');
+  const batchTwoBalance = await readStockBalance(manager.token, DATA.purchaseItem, secondCommitted.batchNo, 'LOC-RAW');
+  assertNumber(batchOneBalance, 4, 'first delivery actual stock quantity');
+  assertNumber(batchTwoBalance, 5, 'second delivery actual stock quantity');
   assertNumber(batchOneBalance + batchTwoBalance, 9, 'purchase accepted stock quantity');
+  assertNumber(Number(firstCommitted.payableAmountNative) + Number(secondCommitted.payableAmountNative), 108, 'only actual received goods register supplier AP');
 
   const stockEntryRefs = receiptTwo.json.data.receipts
     .map((item) => item.stockEntryRef)
@@ -345,7 +381,7 @@ async function runProcurementFlow(manager) {
     stockEntryRefs,
   });
 
-  return { supplierId: supplier.id, purchaseOrderId: order.id, stockEntryRefs };
+  return { supplierId: supplier.id, purchaseOrderId: order.id, stockEntryRefs, qualityEvidence };
 }
 
 async function runShippingFlow(manager, sales) {
@@ -473,11 +509,16 @@ async function runShippingFlow(manager, sales) {
 
 async function run() {
   try {
-    const manager = await login('manager', 'manager123');
-    const sales = await login('sales', 'sales123');
+    const accounts = await ensureUiAuditAccounts('partial_receipt', ['manager', 'sales', 'warehouse']);
+    const independent = await ensureUiAuditAccounts('partial_receipt_qa', ['manager']);
+    const manager = await login(accounts.manager.username, accounts.manager.password);
+    const sales = await login(accounts.sales.username, accounts.sales.password);
+    const approver = await login(independent.manager.username, independent.manager.password);
+    const qc = await login(accounts.warehouse.username, accounts.warehouse.password);
+    assert.notEqual(manager.user.id, approver.user.id);
     recordStep({ step: 'login-users', result: 'passed', managerId: manager.user.id, salesId: sales.user.id });
 
-    report.procurement = await runProcurementFlow(manager);
+    report.procurement = await runProcurementFlow(manager, approver, qc);
     report.shipping = await runShippingFlow(manager, sales);
     report.status = 'passed';
   } catch (error) {

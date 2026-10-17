@@ -23,6 +23,8 @@ export function useDialogFocus(
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
     const focusTimer = window.setTimeout(() => {
+      // An editor may already be focused before this deferred callback runs.
+      if (!dialog || dialog.contains(document.activeElement)) return;
       const target = dialog?.querySelector<HTMLElement>('[data-autofocus]')
         || dialog?.querySelector<HTMLElement>(FOCUSABLE_SELECTOR);
       (target || dialog)?.focus();

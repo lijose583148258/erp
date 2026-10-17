@@ -74,7 +74,7 @@ export function WarehouseTransferDialog({
             type="button"
             data-testid="warehouse-transfer-close"
             onClick={handleClose}
-            className="rounded-2xl bg-slate-100 p-2 text-slate-400 transition-all hover:bg-slate-200 hover:text-slate-700 active:scale-95 dark:bg-slate-800 dark:hover:text-white"
+ className="rounded-2xl bg-slate-100 p-2 text-slate-400 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none hover:bg-slate-200 hover:text-slate-700 dark:bg-slate-800 dark:hover:text-white"
             aria-label="关闭库存调拨弹窗"
           >
             <X size={18} />
@@ -132,7 +132,7 @@ export function WarehouseTransferDialog({
               }}
               aria-invalid={Boolean(transferErrors.toLocationId)}
               aria-describedby={transferErrors.toLocationId ? destinationErrorId : undefined}
-              className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white ${transferErrors.toLocationId ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`}
+ className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white ${transferErrors.toLocationId ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`}
             >
               <option value={0}>-- 选择目标库位 --</option>
               {targetLocations.map(location => (
@@ -160,7 +160,7 @@ export function WarehouseTransferDialog({
               }}
               aria-invalid={Boolean(transferErrors.quantity)}
               aria-describedby={transferErrors.quantity ? quantityErrorId : undefined}
-              className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white ${transferErrors.quantity ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`}
+ className={`w-full rounded-xl border bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:bg-slate-800 dark:text-white ${transferErrors.quantity ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20' : 'border-slate-200 dark:border-slate-700'}`}
             />
             {transferErrors.quantity ? (
               <p id={quantityErrorId} className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{transferErrors.quantity}</p>
@@ -174,7 +174,7 @@ export function WarehouseTransferDialog({
               onChange={event => setTransferForm(form => ({ ...form, note: event.target.value }))}
               placeholder="例如：生产领料预转、库位整理、批次换区"
               rows={3}
-              className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-all focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
+ className="w-full resize-none rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-bold text-slate-700 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none focus:border-transparent focus:ring-2 focus:ring-amber-500 dark:border-slate-700 dark:bg-slate-800 dark:text-white"
             />
           </div>
         </div>
@@ -200,7 +200,7 @@ export function WarehouseTransferDialog({
             data-testid="warehouse-transfer-cancel"
             onClick={handleClose}
             disabled={transferSaving}
-            className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-black text-slate-600 transition-all hover:bg-slate-200 active:scale-95 disabled:opacity-50 dark:bg-slate-800"
+ className="flex-1 rounded-xl bg-slate-100 py-3 text-sm font-black text-slate-600 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none hover:bg-slate-200 disabled:opacity-50 dark:bg-slate-800"
           >
             取消
           </button>
@@ -209,7 +209,7 @@ export function WarehouseTransferDialog({
             data-testid="warehouse-transfer-submit-button"
             onClick={onSubmit}
             disabled={transferSaving || !canWrite}
-            className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 py-3 text-sm font-black text-white shadow-lg shadow-orange-500/30 transition-all hover:shadow-xl active:scale-95 disabled:cursor-not-allowed disabled:opacity-70"
+ className="flex-1 rounded-xl bg-gradient-to-r from-amber-500 to-orange-600 py-3 text-sm font-black text-white shadow-lg shadow-orange-500/30 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none hover:shadow-xl disabled:cursor-not-allowed disabled:opacity-70"
           >
             {transferSaving ? '调拨处理中...' : '确认调拨'}
           </button>

@@ -147,8 +147,8 @@ export const useCollectionCenterDerivedLists = ({
   const sortedLedger = useMemo(() => [...ledger].sort((a, b) => {
     if (ledgerSort === 'amount_desc') return b.amount - a.amount;
     if (ledgerSort === 'pending_first') {
-      const aPending = a.status === 'verified' ? 0 : 1;
-      const bPending = b.status === 'verified' ? 0 : 1;
+      const aPending = a.status === 'pending' ? 1 : 0;
+      const bPending = b.status === 'pending' ? 1 : 0;
       if (bPending !== aPending) return bPending - aPending;
     }
     return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();

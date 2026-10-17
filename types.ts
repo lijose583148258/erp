@@ -55,6 +55,8 @@ export type OrderFulfillmentStatus =
   | 'pending_release'
   | 'ready_to_ship'
   | 'in_transit'
+  | 'partially_delivered'
+  | 'resolved_with_cancellation'
   | 'delivered'
   | 'cancelled';
 
@@ -188,6 +190,8 @@ export interface ExtraItem {
 
 export interface PaymentRecord {
   id: string;
+  /** Stable identity of a registration intent across uncertain retries. */
+  submissionKey?: string;
   orderId?: string;
   date: string;
   amount: number;
@@ -202,7 +206,7 @@ export interface PaymentRecord {
   payerName?: string;
   note?: string;
   recordedBy?: string;
-  status: 'pending' | 'verified';
+  status: 'pending' | 'verified' | 'reversed' | 'unknown';
   createdByRole?: UserRole;
   milestoneId?: string;
 }
@@ -229,6 +233,9 @@ export interface CollectionPromiseSnapshot {
 }
 
 export interface SalesOrderItem {
+  /** Persisted line identity; absent for unsaved order drafts. */
+  id?: number | string;
+  materialId?: number | null;
   sku: string;
   productName: string;
   packagingSpec: string;
@@ -286,6 +293,18 @@ export interface SalesOrder {
   status: OrderStatus;
   paymentStatus: 'unpaid' | 'partial' | 'paid' | 'overdue';
   fulfillmentStatus?: OrderFulfillmentStatus;
+  fulfillment?: {
+    fullyDelivered: boolean;
+    fullyResolved?: boolean;
+    hasCancelledQuantity?: boolean;
+    needsReview: boolean;
+    lines: Array<{ orderItemId: number; productName: string; unit: string; orderedQuantity: number;
+      allocatedQuantity: number; dispatchedQuantity: number; acceptedQuantity: number; cancelledQuantity?: number;
+      reservedQuantity?: number | null; reservationEvidenceState?: 'verified' | 'legacy_unknown' | 'needs_review';
+      outstandingQuantity: number; unallocatedQuantity: number }>;
+  };
+  receivableAdjustments?: Array<{ id: number; adjustmentNo: string; adjustmentType: string; status: string;
+    orderItemId?: number | null; cancelledQuantity?: number | null; amount: number; reason: string; requestKey?: string | null }>;
   financialStatus?: OrderFinancialStatus;
   commissionAmount?: number;
   commissionRateSubmitted?: number;
@@ -332,6 +351,9 @@ export interface Shipment {
   id: string;
   shipmentNo?: string;
   orderId: string;
+  orderItemId?: string;
+  materialId?: string;
+  productBatchId?: string;
   orderNo?: string;
   customerId?: string;
   customerName: string;
@@ -356,6 +378,8 @@ export interface Shipment {
   isColdChain?: boolean;
   temperature?: number;
   batchNo?: string;
+  stockReservation?: { state: 'legacy_unknown' | 'needs_review' | 'unreserved' | 'reserved' | 'released' | 'consumed';
+    activeQuantity: number | null; auditId: number | null };
 }
 
 export interface Contract {

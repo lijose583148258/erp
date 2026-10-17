@@ -1,8 +1,10 @@
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
-import { queryRawCompat } from '../utils/raw-sql-compat';
+import { queryRawCompat, executeRawCompat } from '../utils/raw-sql-compat';
 import type { AuthRequest } from '../middleware/auth';
 import type { TransactionClient } from '../services/stock-movement.service';
+import { readOrderFulfillment } from '../services/order-fulfillment.service';
+import { readShipmentReservationViews } from '../services/shipment-stock-reservation.service';
 import {
     buildCustomerDataScopeWhere,
     buildOrderDataScopeWhere,
@@ -18,8 +20,6 @@ export const getCustomerDisplayName = (customer: {
     nameVi?: string | null;
 }) => customer.nameZh || customer.nameEn || customer.nameVi || customer.name || '';
 
-const ACTIVE_SHIPMENT_STATUSES = new Set(['in_transit', 'delivered']);
-
 export const SHIPMENT_STATUS_TRANSITIONS: Record<string, string[]> = {
     pending: ['in_transit', 'exception'],
     in_transit: ['exception'],
@@ -27,8 +27,11 @@ export const SHIPMENT_STATUS_TRANSITIONS: Record<string, string[]> = {
     delivered: [],
 };
 
-export const mapShipmentRecord = (shipment: any) => ({
-    ...shipment,
+export const mapShipmentRecord = (shipment: any) => {
+    // Request identities and frozen ACKs are private to their original actor.
+    const { submissionKey: _key, submissionFingerprint: _fingerprint, submissionJson: _submission, ...publicRecord } = shipment;
+    return ({
+    ...publicRecord,
     quantity: Number(shipment.quantity),
     customerName: shipment.customer ? getCustomerDisplayName(shipment.customer) : '',
     customerNameZh: shipment.customer?.nameZh || null,
@@ -37,7 +40,8 @@ export const mapShipmentRecord = (shipment: any) => ({
     customerDisplayName: shipment.customer ? getCustomerDisplayName(shipment.customer) : '',
     orderNo: shipment.order?.orderNo,
     creatorName: shipment.creator?.username || '',
-});
+    });
+};
 
 type ShipmentReceiptRow = {
     id?: unknown;
@@ -127,11 +131,8 @@ export async function claimShipmentReceiptWrite(tx: TransactionClient, shipmentI
     if (!Number.isInteger(normalizedId) || normalizedId <= 0) return false;
 
     // Serialize receipt writes before remaining quantity or legacy full-receipt checks are calculated.
-    const claim = await tx.shipment.updateMany({
-        where: { id: normalizedId },
-        data: { updatedAt: new Date() },
-    });
-    return claim.count === 1;
+    const count = await executeRawCompat(tx, 'UPDATE "shipments" SET "id" = "id" WHERE "id" = ?', normalizedId);
+    return count === 1;
 }
 
 export async function buildShipmentReceiptSummary(tx: TransactionClient, shipment: { id: number; quantity: number }) {
@@ -218,29 +219,26 @@ export async function getShipmentDetail(shipmentId: number) {
         },
     });
 
-    return shipment ? mapShipmentRecord(shipment) : null;
+    if (!shipment) return null;
+    const views = await readShipmentReservationViews(prisma, [shipment]);
+    return mapShipmentRecord({ ...shipment, stockReservation: views.get(shipment.id) });
 }
 
 export async function syncOrderShipmentState(tx: TransactionClient, orderId: number) {
-    const [order, shipments] = await Promise.all([
-        tx.order.findUnique({
-            where: { id: orderId },
-            select: { id: true, status: true },
-        }),
-        tx.shipment.findMany({
-            where: { orderId },
-            select: { status: true },
-        }),
-    ]);
-
-    if (!order || order.status === 'cancelled') {
-        return;
-    }
+    // Serialize different shipment writers on their shared order before reading
+    // the aggregate. Otherwise the last partial receipt can leave stale status.
+    const claim = await tx.order.updateMany({
+        where: { id: orderId, status: { notIn: ['cancelled', 'completed'] } },
+        data: { updatedAt: new Date() },
+    });
+    if (claim.count !== 1) return;
+    const order = await tx.order.findUniqueOrThrow({ where: { id: orderId }, select: { status: true } });
+    const fulfillment = await readOrderFulfillment(tx, orderId);
 
     let nextStatus = order.status;
-    if (shipments.length > 0 && shipments.every((shipment: { status: string }) => shipment.status === 'delivered')) {
+    if (fulfillment.fullyDelivered) {
         nextStatus = 'delivered';
-    } else if (shipments.some((shipment: { status: string }) => ACTIVE_SHIPMENT_STATUSES.has(shipment.status))) {
+    } else if (fulfillment.hasDispatched || fulfillment.hasAccepted || order.status === 'delivered') {
         nextStatus = 'shipped';
     }
 

@@ -2,6 +2,8 @@ import {
   SchemaRepairReport,
   createIndexIfMissing,
   createTableIfMissing,
+  addColumnIfMissing,
+  ensureTriggerDefinition,
 } from './runtime-schema-repair-utils';
 
 export const repairReceivableSchema = async (report: SchemaRepairReport) => {
@@ -36,6 +38,30 @@ export const repairReceivableSchema = async (report: SchemaRepairReport) => {
       CONSTRAINT "receivable_adjustments_reversed_by_fkey" FOREIGN KEY ("reversed_by") REFERENCES "users" ("id") ON DELETE SET NULL ON UPDATE CASCADE
     )
   `);
+
+  await addColumnIfMissing(report, 'receivable_adjustments', 'order_item_id',
+    'INTEGER REFERENCES "order_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE');
+  await addColumnIfMissing(report, 'receivable_adjustments', 'cancelled_quantity',
+    'REAL');
+  await addColumnIfMissing(report, 'receivable_adjustments', 'request_key',
+    'TEXT');
+  await addColumnIfMissing(report, 'receivable_adjustments', 'request_fingerprint',
+    'TEXT');
+  await createIndexIfMissing(report, 'receivable_adjustments_request_key_key', 'CREATE UNIQUE INDEX "receivable_adjustments_request_key_key" ON "receivable_adjustments"("request_key")');
+  await createIndexIfMissing(report, 'receivable_adjustments_order_item_id_idx', 'CREATE INDEX "receivable_adjustments_order_item_id_idx" ON "receivable_adjustments"("order_item_id")');
+  // Prisma-created SQLite tables already contain the columns but not CHECK
+  // clauses. Enforce the same invariant for fresh installs and old upgrades.
+  for (const event of ['INSERT', 'UPDATE']) {
+    const name = `receivable_adjustments_quantity_cancellation_${event.toLowerCase()}`;
+    await ensureTriggerDefinition(report, name, `CREATE TRIGGER "${name}" BEFORE ${event} ON "receivable_adjustments"
+      WHEN NOT (
+        (NEW."adjustment_type" = 'order_quantity_cancellation' AND NEW."order_item_id" IS NOT NULL
+          AND NEW."cancelled_quantity" IS NOT NULL AND NEW."cancelled_quantity" > 0 AND NEW."cancelled_quantity" < 1e999
+          AND NEW."request_key" IS NOT NULL AND NEW."request_fingerprint" IS NOT NULL)
+        OR (NEW."adjustment_type" <> 'order_quantity_cancellation' AND NEW."order_item_id" IS NULL
+          AND NEW."cancelled_quantity" IS NULL AND NEW."request_key" IS NULL AND NEW."request_fingerprint" IS NULL)
+      ) BEGIN SELECT RAISE(ABORT, 'RECEIVABLE_QUANTITY_CANCELLATION_INVALID'); END`);
+  }
 
   await createIndexIfMissing(
     report,

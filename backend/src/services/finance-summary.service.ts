@@ -3,6 +3,16 @@ import { AuthRequest } from '../middleware/auth';
 import { AdjustmentService } from './adjustment.service';
 import { CollectionService } from './collection.service';
 import {
+  addMoney,
+  calculateRatio,
+  compareMoney,
+  maxMoney,
+  multiplyMoney,
+  prorateMoney,
+  roundMoney,
+  subtractMoney,
+} from '../utils/money';
+import {
   COLLECTION_DUE_SOON_DAYS,
   buildOrderWhere,
   buildPaymentWhere,
@@ -114,7 +124,7 @@ const toNumber = (value: unknown): number => {
   return Number.isFinite(normalized) ? normalized : 0;
 };
 
-const resolveBaseAmount = (input: {
+export const resolveBaseAmount = (input: {
   amount: unknown;
   baseAmount?: unknown;
   exchangeRate?: unknown;
@@ -132,14 +142,14 @@ const resolveBaseAmount = (input: {
     exchangeRate > 0;
 
   if (hasBaseAmount && Number.isFinite(directBaseAmount) && !looksLikeLegacyZeroBase) {
-    return directBaseAmount;
+    return roundMoney(directBaseAmount);
   }
 
   if (exchangeRate > 0) {
-    return amount * exchangeRate;
+    return multiplyMoney(amount, exchangeRate);
   }
 
-  return amount;
+  return roundMoney(amount);
 };
 
 const resolveOrderBaseAmount = (order: {
@@ -152,7 +162,7 @@ const resolveOrderBaseAmount = (order: {
   exchangeRate: order.lockedExchangeRate,
 });
 
-const resolvePortionBaseAmount = (input: {
+export const resolvePortionBaseAmount = (input: {
   portionAmount: unknown;
   totalAmount: unknown;
   totalBaseAmount?: unknown;
@@ -170,7 +180,7 @@ const resolvePortionBaseAmount = (input: {
     totalAmount !== 0;
 
   if (hasTotalBaseAmount && Number.isFinite(totalBaseAmount) && !looksLikeLegacyZeroBase && totalAmount > 0) {
-    return totalBaseAmount * (portionAmount / totalAmount);
+    return prorateMoney(totalBaseAmount, portionAmount, totalAmount);
   }
 
   return resolveBaseAmount({
@@ -299,9 +309,9 @@ export class FinanceSummaryService {
 
     const orderMetrics = orders.map(order => {
       const totalAmount = toNumber(order.finalAmount);
-      const effectiveReceivableAmount = Math.max(
+      const effectiveReceivableAmount = maxMoney(
         0,
-        totalAmount - toNumber(order.receivableAdjustmentAmount),
+        subtractMoney(totalAmount, toNumber(order.receivableAdjustmentAmount)),
       );
       const totalBaseAmount = resolveOrderBaseAmount({
         finalAmount: order.finalAmount,
@@ -333,19 +343,19 @@ export class FinanceSummaryService {
       };
     });
 
-    const totalRevenue = orderMetrics.reduce((sum, metric) => sum + metric.totalBaseAmount, 0);
-    const totalReceived = orderMetrics.reduce((sum, metric) => sum + metric.receivedBaseAmount, 0);
-    const totalReceivable = orderMetrics.reduce((sum, metric) => sum + metric.outstandingBaseAmount, 0);
+    const totalRevenue = addMoney(...orderMetrics.map(metric => metric.totalBaseAmount));
+    const totalReceived = addMoney(...orderMetrics.map(metric => metric.receivedBaseAmount));
+    const totalReceivable = addMoney(...orderMetrics.map(metric => metric.outstandingBaseAmount));
     const commissionPendingAmount = orders.reduce((sum, order) => {
       const pending = order.commissionStatus !== 'paid' && Number(order.commissionAmount || 0) > 0;
-      return sum + (pending ? Number(order.commissionAmount || 0) : 0);
+      return addMoney(sum, pending ? Number(order.commissionAmount || 0) : 0);
     }, 0);
 
     const paymentStatusBreakdown = orderMetrics.reduce<Record<string, { count: number; amount: number }>>((acc, metric) => {
       const key = metric.order.paymentStatus || 'unpaid';
       acc[key] = acc[key] || { count: 0, amount: 0 };
       acc[key].count += 1;
-      acc[key].amount += metric.outstandingBaseAmount;
+      acc[key].amount = addMoney(acc[key].amount, metric.outstandingBaseAmount);
       return acc;
     }, {});
 
@@ -359,9 +369,12 @@ export class FinanceSummaryService {
       const period = monthKey(metric.order.createdAt);
       if (!trendMap[period]) return;
       const overdueDays = getOverdueDays(metric.order.createdAt, metric.order.paymentTerms, now);
-      trendMap[period].revenue += metric.totalBaseAmount;
-      trendMap[period].outstanding += metric.outstandingBaseAmount;
-      trendMap[period].overdue += overdueDays > 0 ? metric.outstandingBaseAmount : 0;
+      trendMap[period].revenue = addMoney(trendMap[period].revenue, metric.totalBaseAmount);
+      trendMap[period].outstanding = addMoney(trendMap[period].outstanding, metric.outstandingBaseAmount);
+      trendMap[period].overdue = addMoney(
+        trendMap[period].overdue,
+        overdueDays > 0 ? metric.outstandingBaseAmount : 0,
+      );
       trendMap[period].orderCount += 1;
     });
 
@@ -370,11 +383,11 @@ export class FinanceSummaryService {
       const period = monthKey(new Date(dt));
       if (!trendMap[period]) return;
       if (record.status === 'verified') {
-        trendMap[period].received += resolveBaseAmount({
+        trendMap[period].received = addMoney(trendMap[period].received, resolveBaseAmount({
           amount: record.amount,
           baseAmount: record.baseAmount,
           exchangeRate: record.exchangeRate,
-        });
+        }));
       }
     });
 
@@ -404,21 +417,21 @@ export class FinanceSummaryService {
         nextActionAt: order.customer.nextActionAt ? order.customer.nextActionAt.toISOString() : null,
       };
 
-      entry.revenue += metric.totalBaseAmount;
-      entry.received += metric.receivedBaseAmount;
-      entry.receivable += outstanding;
-      entry.overdue += overdue;
+      entry.revenue = addMoney(entry.revenue, metric.totalBaseAmount);
+      entry.received = addMoney(entry.received, metric.receivedBaseAmount);
+      entry.receivable = addMoney(entry.receivable, outstanding);
+      entry.overdue = addMoney(entry.overdue, overdue);
       entry.creditHold = entry.creditHold || order.customer.creditHold;
       entry.shipmentHold = entry.shipmentHold || order.customer.shipmentHold;
-      entry.paymentRate = entry.revenue > 0 ? entry.received / entry.revenue : 0;
+      entry.paymentRate = calculateRatio(entry.received, entry.revenue);
       customerMap.set(order.customer.id, entry);
     });
 
     const topCustomers = Array.from(customerMap.values())
       .sort((a, b) => {
-        if (b.overdue !== a.overdue) return b.overdue - a.overdue;
-        if (b.receivable !== a.receivable) return b.receivable - a.receivable;
-        return b.revenue - a.revenue;
+        if (compareMoney(b.overdue, a.overdue) !== 0) return compareMoney(b.overdue, a.overdue);
+        if (compareMoney(b.receivable, a.receivable) !== 0) return compareMoney(b.receivable, a.receivable);
+        return compareMoney(b.revenue, a.revenue);
       })
       .slice(0, 10);
 
@@ -448,7 +461,7 @@ export class FinanceSummaryService {
         totalReceivable,
         overdueAmount: orderMetrics.reduce((sum, metric) => {
           const overdueDays = getOverdueDays(metric.order.createdAt, metric.order.paymentTerms, now);
-          return sum + (overdueDays > 0 ? metric.outstandingBaseAmount : 0);
+          return addMoney(sum, overdueDays > 0 ? metric.outstandingBaseAmount : 0);
         }, 0),
         dueSoonAmount: orderMetrics.reduce((sum, metric) => {
           const outstanding = metric.outstandingBaseAmount;
@@ -457,9 +470,9 @@ export class FinanceSummaryService {
           }
           const dueDate = getDueDate(metric.order.createdAt, metric.order.paymentTerms);
           const dueSoonLimit = new Date(now.getTime() + COLLECTION_DUE_SOON_DAYS * 24 * 60 * 60 * 1000);
-          return dueDate.getTime() <= dueSoonLimit.getTime() ? sum + outstanding : sum;
+          return dueDate.getTime() <= dueSoonLimit.getTime() ? addMoney(sum, outstanding) : sum;
         }, 0),
-        paymentRate: totalRevenue > 0 ? totalReceived / totalRevenue : 0,
+        paymentRate: calculateRatio(totalReceived, totalRevenue),
         commissionPendingAmount,
         pendingVerificationCount: snapshot.pendingVerificationCount,
         openPromiseCount: snapshot.openPromiseCount,
@@ -467,7 +480,7 @@ export class FinanceSummaryService {
         openDisputeCount: snapshot.openDisputeCount,
         creditHoldCustomerCount: snapshot.creditHoldCustomerCount,
         shipmentHoldOrderCount: snapshot.shipmentHoldOrderCount,
-        adjustmentNetAmount: Number(financeAdjustmentSummary.amountDelta || 0),
+        adjustmentNetAmount: roundMoney(financeAdjustmentSummary.amountDelta || 0),
         adjustmentCount: financeAdjustmentSummary.total,
       },
       paymentStatusBreakdown,
@@ -475,26 +488,26 @@ export class FinanceSummaryService {
         (acc, metric) => {
           const overdueDays = getOverdueDays(metric.order.createdAt, metric.order.paymentTerms, now);
           if (overdueDays <= 0) {
-            acc.current += metric.outstandingBaseAmount;
+            acc.current = addMoney(acc.current, metric.outstandingBaseAmount);
             return acc;
           }
           if (overdueDays <= 7) {
-            acc['1_7'] += metric.outstandingBaseAmount;
+            acc['1_7'] = addMoney(acc['1_7'], metric.outstandingBaseAmount);
             return acc;
           }
           if (overdueDays <= 15) {
-            acc['8_15'] += metric.outstandingBaseAmount;
+            acc['8_15'] = addMoney(acc['8_15'], metric.outstandingBaseAmount);
             return acc;
           }
           if (overdueDays <= 30) {
-            acc['16_30'] += metric.outstandingBaseAmount;
+            acc['16_30'] = addMoney(acc['16_30'], metric.outstandingBaseAmount);
             return acc;
           }
           if (overdueDays <= 60) {
-            acc['31_60'] += metric.outstandingBaseAmount;
+            acc['31_60'] = addMoney(acc['31_60'], metric.outstandingBaseAmount);
             return acc;
           }
-          acc['60_plus'] += metric.outstandingBaseAmount;
+          acc['60_plus'] = addMoney(acc['60_plus'], metric.outstandingBaseAmount);
           return acc;
         },
         { current: 0, '1_7': 0, '8_15': 0, '16_30': 0, '31_60': 0, '60_plus': 0 },

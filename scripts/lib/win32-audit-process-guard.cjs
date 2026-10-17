@@ -14,7 +14,7 @@ function killSpawnedProcessTree(pid) {
     }
 
     // Guardrail: audit scripts may only terminate the launcher process they spawned.
-    execFile('taskkill.exe', ['/pid', String(numericPid), '/t', '/f'], { windowsHide: true }, () => resolve());
+    execFile('taskkill.exe', ['/pid', String(numericPid), '/t', '/f'], { windowsHide: true, timeout: 10000 }, () => resolve());
   });
 }
 

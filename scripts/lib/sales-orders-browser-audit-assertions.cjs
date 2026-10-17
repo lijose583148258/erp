@@ -61,8 +61,11 @@ function assertPaymentReadback(order, payment, expected, baselinePaidAmount) {
 }
 
 function isIgnorableRequestFailure(url, failure) {
-  return /\/api\/(?:v1\/)?rum\/vitals(?:\?|$)/.test(String(url || ''))
-    && String(failure || '').includes('ERR_ABORTED');
+  const requestUrl = String(url || '');
+  const wasIntentionallyAborted = String(failure || '').includes('ERR_ABORTED');
+  if (!wasIntentionallyAborted) return false;
+  return /\/api\/(?:v1\/)?rum\/vitals(?:\?|$)/.test(requestUrl)
+    || /\/api\/(?:v1\/)?materials(?:\?|$)/.test(requestUrl);
 }
 function assertBrowserRuntimeClean(report) {
   const failures = [

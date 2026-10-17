@@ -47,6 +47,8 @@ export interface CollectionActionPermissions {
   canManageDispute: boolean;
   canManageHold: boolean;
   canVerifyPayment: boolean;
+  canRequestPaymentReversal: boolean;
+  canReviewPaymentReversal: boolean;
 }
 
 export interface CollectionCenterState {
@@ -173,6 +175,8 @@ export const useCollectionCenterState = (): CollectionCenterState => {
     canManageDispute: can(currentUser, 'collections.dispute.write'),
     canManageHold: can(currentUser, 'collections.hold.manage') && hasDataScope(currentUser, 'finance_visible'),
     canVerifyPayment: can(currentUser, 'orders.payment.verify') && hasDataScope(currentUser, 'finance_visible'),
+    canRequestPaymentReversal: can(currentUser, 'orders.payment.reversal.request') && hasDataScope(currentUser, 'finance_visible'),
+    canReviewPaymentReversal: can(currentUser, 'orders.payment.reversal.review') && hasDataScope(currentUser, 'finance_visible'),
   }), [currentUser]);
 
   const loadData = useCallback(async (options: CollectionLoadOptions = {}) => {

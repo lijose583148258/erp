@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import SpreadsheetWorkbook from '../infrastructure/spreadsheet-workbook';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import {
@@ -10,6 +10,7 @@ import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
 import { buildOrderSearchWhereAsync } from './search.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, addOrderReservationReadback } from './order-fulfillment.service';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
@@ -47,6 +48,7 @@ const ORDER_DETAIL_INCLUDE = {
     items: true,
     shipments: {
         select: {
+            ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
             id: true,
             shipmentNo: true,
             status: true,
@@ -96,8 +98,10 @@ const ORDER_DETAIL_INCLUDE = {
     receivableAdjustments: {
         orderBy: { createdAt: 'desc' as const },
         select: {
+            ...ORDER_FULFILLMENT_CANCELLATION_SELECT,
             id: true,
             adjustmentNo: true,
+              requestKey: true,
             adjustmentType: true,
             amount: true,
             status: true,
@@ -168,7 +172,7 @@ const getOrderDetailById = async (orderId: number, req?: AuthRequest) => {
         ),
         include: ORDER_DETAIL_INCLUDE,
     });
-    return order ? formatOrderDetail(order) : null;
+    return order ? (await addOrderReservationReadback(prisma, [formatOrderDetail(order)]))[0] : null;
 };
 
 export const OrderWorkspaceService = {
@@ -227,8 +231,11 @@ export const OrderWorkspaceService = {
                     notes: true,
                     createdAt: true,
                     updatedAt: true,
+                    items: true,
+                    receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
                     shipments: {
                         select: {
+                            ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
                             status: true,
                             shippedAt: true,
                             deliveredAt: true,
@@ -272,7 +279,7 @@ export const OrderWorkspaceService = {
         }));
 
         return {
-            data: formattedOrders,
+            data: await addOrderReservationReadback(prisma, formattedOrders),
             meta: {
                 page: resolvedPage,
                 pageSize: limit,
@@ -351,8 +358,11 @@ export const OrderWorkspaceService = {
                 creator: { select: { username: true } },
                 contract: { select: { contractNo: true } },
                 _count: { select: { items: true } },
+                items: true,
+                receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
                 shipments: {
                     select: {
+                        ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
                         status: true,
                         shippedAt: true,
                         deliveredAt: true,
@@ -367,7 +377,7 @@ export const OrderWorkspaceService = {
             orderBy: { createdAt: 'desc' },
         });
 
-        const workbook = new ExcelJS.Workbook();
+        const workbook = new SpreadsheetWorkbook();
         const worksheet = workbook.addWorksheet('Orders');
 
         worksheet.columns = [

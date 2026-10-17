@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { StockMovementService, type TransactionClient } from './stock-movement.service';
+import { withShipmentReservationConsumption } from './shipment-stock-reservation.service';
 
 export type ShippingIssueShipment = {
   shipmentNo: string;
@@ -7,6 +8,7 @@ export type ShippingIssueShipment = {
   quantity: number;
   unit: string;
   batchNo?: string | null;
+  materialId?: number | null;
 };
 
 async function hasShippingIssuePosted(tx: TransactionClient, shipmentNo: string) {
@@ -33,9 +35,10 @@ async function resolveShippingIssueStock(tx: TransactionClient, shipment: Shippi
 
   const where: Prisma.StockBalanceWhereInput = {
     locationId: finishedGoodsLocation.id,
-    productName: shipment.productName,
     quantity: { gte: quantity },
   };
+  if (shipment.materialId) where.materialId = shipment.materialId;
+  else where.productName = shipment.productName;
   if (shipment.batchNo) where.batchNo = shipment.batchNo;
 
   const stock = await tx.stockBalance.findFirst({
@@ -45,6 +48,16 @@ async function resolveShippingIssueStock(tx: TransactionClient, shipment: Shippi
   });
   if (!stock) {
     throw new Error(`No available stock for shipment ${shipment.shipmentNo}: ${shipment.productName}${shipment.batchNo ? ` / ${shipment.batchNo}` : ''}`);
+  }
+
+  const productBatch = await tx.productBatch.findFirst({
+    where: stock.materialId
+      ? { materialId: stock.materialId, batchNo: stock.batchNo }
+      : { productName: stock.productName, batchNo: stock.batchNo },
+    select: { qualityStatus: true },
+  });
+  if (productBatch && ['hold', 'quarantine', 'pending_qc'].includes(productBatch.qualityStatus)) {
+    throw new Error(`STOCK_MATERIAL_BATCH_NOT_RELEASED:${stock.batchNo}:${productBatch.qualityStatus}`);
   }
 
   return stock;
@@ -60,7 +73,7 @@ export async function postShippingIssueIfMissing(
   }
 
   const issueStock = await resolveShippingIssueStock(tx, shipment);
-  await StockMovementService.postStockEntry({
+  await withShipmentReservationConsumption(tx, shipment.shipmentNo, issueStock, createdBy || null, () => StockMovementService.postStockEntry({
     sourceType: 'shipping_issue',
     sourceRef: shipment.shipmentNo,
     reason: 'shipment_dispatched',
@@ -68,12 +81,13 @@ export async function postShippingIssueIfMissing(
     createdBy: createdBy || null,
     lines: [{
       locationId: issueStock.locationId,
+      materialId: issueStock.materialId,
       productName: issueStock.productName,
       batchNo: issueStock.batchNo,
       quantityDelta: -Number(shipment.quantity || 0),
       unit: shipment.unit || issueStock.unit || 'kg',
     }],
-  }, tx);
+  }, tx));
 
   return { posted: true, issueStock };
 }

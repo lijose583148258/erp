@@ -3,8 +3,8 @@ import Layout from './components/Layout';
 import Login from './components/Login';
 import ForcePasswordChange from './components/ForcePasswordChange';
 import ToastStack from './components/app/ToastStack';
-import ClickSpark from './components/app/ClickSpark';
 import CommandPalette from './components/CommandPalette';
+import { MaterialReadinessRepairPanel } from './components/materials/MaterialReadinessRepairPanel';
 import { AppContext } from './app/AppContext';
 // Canonical app shell entry: keep explicit .tsx to avoid accidental resolution to legacy `.ts` files.
 import { useAppShell } from './app/useAppShell.tsx';
@@ -37,6 +37,7 @@ const App: React.FC = () => {
             ) : shell.currentUser.mustChangePassword ? (
                 <>
                     <ToastStack notifications={shell.notifications} onDismiss={shell.dismissNotification} />
+                    <MaterialReadinessRepairPanel />
                     <ForcePasswordChange
                         language={shell.language}
                         username={shell.currentUser.name}
@@ -46,8 +47,8 @@ const App: React.FC = () => {
                 </>
             ) : (
                 <>
-                    <ClickSpark />
                     <ToastStack notifications={shell.notifications} onDismiss={shell.dismissNotification} />
+                    <MaterialReadinessRepairPanel />
                     <CommandPalette
                         isOpen={shell.isCommandPaletteOpen}
                         onClose={() => shell.setIsCommandPaletteOpen(false)}
@@ -55,7 +56,7 @@ const App: React.FC = () => {
                     />
                     <Layout activeTab={shell.activeTab} setActiveTab={shell.setActiveTab} onLogout={shell.handleLogout}>
                         <Suspense fallback={<div className="min-h-[50vh] flex items-center justify-center text-slate-600 font-black">正在加载...</div>}>
-                            <div className="animate-in fade-in zoom-in-95 duration-500 min-h-full pb-32 lg:pb-0">
+                            <div className="min-h-full pb-32 lg:pb-0">
                                 {shell.content}
                             </div>
                         </Suspense>

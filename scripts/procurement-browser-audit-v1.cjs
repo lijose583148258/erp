@@ -1,16 +1,19 @@
 const fs = require('fs');
 const path = require('path');
+const assert = require('node:assert/strict');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
 const {
   ensureDir,
   safeScreenshot: captureScreenshot,
   withTimebox: runWithTimebox,
 } = require('./lib/audit-utils.cjs');
 const { createProcurementBrowserAuditHelpers } = require('./lib/procurement-browser-audit-helpers.cjs');
+const { ensureReleasedMaterial, selectMaterialCombobox } = require('./lib/material-audit-fixture.cjs');
+const { explicitPurchaseSources, fillPurchaseSourceFields, releasePurchaseFixture } = require('./lib/purchase-quality-audit-fixture.cjs');
 
-const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
+const APP_URL = new URL(process.env.APP_URL || 'http://127.0.0.1:5001/').href;
+const OUTPUT_DIR = process.env.PROCUREMENT_BROWSER_OUTPUT_DIR || path.join(process.cwd(), 'output', 'playwright');
 const SHOT_DIR = path.join(OUTPUT_DIR, 'procurement-audit-v1');
 const REPORT_PATH = path.join(OUTPUT_DIR, 'procurement-audit-report-v1.json');
 
@@ -24,11 +27,12 @@ const DATA = {
   customerName: `PO-CUS-${RUN_ID}`,
   aliasText: `Trade ${RUN_ID}`,
   purchaseItem: `PO-ITEM-${RUN_ID}`,
+  materialCode: `PO-MAT-${RUN_ID}`,
   purchaseQuantity: '18',
   purchasePrice: '3800',
 };
 
-const REQUIRED_ROUTE_COPY = ['采购、供应商与收货', '供应商主数据入口', '采购职责分流'];
+const REQUIRED_ROUTE_COPY = ['采购、供应商与收货', '采购职责分流'];
 const FORBIDDEN_MOJIBAKE = ['undefined', '\ufffd', '\u951f\u91d1\u62f7'];
 
 const TIMEOUTS = { login: 15000, route: 20000, fill: 20000, save: 25000, api: 15000, readBack: 15000 };
@@ -44,6 +48,8 @@ const report = {
 };
 
 let authToken = '';
+let auditAccount = null;
+let approverSession = null;
 
 function recordStep(entry) {
   report.steps.push({ at: new Date().toISOString(), ...entry });
@@ -66,6 +72,7 @@ const {
   captureScreenshot,
   forbiddenMojibake: FORBIDDEN_MOJIBAKE,
   getAuthToken: () => authToken,
+  getAuditAccount: () => auditAccount,
   loginUiAuditUser,
   readBackTimeout: TIMEOUTS.readBack,
   recordStep,
@@ -196,7 +203,9 @@ async function openProcurement(page) {
     for (let index = 0; index < 30; index += 1) {
       const bodyText = await page.locator('body').innerText();
       const hasHeading = bodyText.includes(REQUIRED_ROUTE_COPY[0]);
-      const hasTabs = bodyText.includes(REQUIRED_ROUTE_COPY[1]) && bodyText.includes(REQUIRED_ROUTE_COPY[2]);
+      const hasTabs = bodyText.includes(REQUIRED_ROUTE_COPY[1])
+        && await page.getByTestId('procurement-desk-suppliers').isVisible()
+        && await page.getByTestId('procurement-desk-orders').isVisible();
       if (hasHeading && hasTabs) {
         assertNoMojibake(bodyText, 'procurement route');
         return;
@@ -213,6 +222,7 @@ async function openProcurement(page) {
 async function createSupplier(page) {
   return withTimebox(page, 'create-procurement-supplier', TIMEOUTS.save, async () => {
     await page.getByTestId('procurement-desk-suppliers').click();
+    await page.getByText('供应商主数据入口', { exact: true }).waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
     await page.getByTestId('save-supplier-button').click();
     const supplierErrorSummary = page.getByTestId('supplier-form-error-summary');
     await supplierErrorSummary.waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
@@ -306,7 +316,7 @@ async function createPurchaseOrder(page) {
     await page.getByTestId('b2b-toggle').click();
     await selectOptionByValue(page.getByTestId('linked-sales-order-select'), report.salesOrder.id);
     await selectOptionByValue(page.getByTestId('purchase-supplier-select'), report.supplier.id);
-    await page.getByTestId('purchase-item-input').fill(DATA.purchaseItem);
+    await selectMaterialCombobox(page, 'purchase-item-input', DATA.materialCode, DATA.purchaseItem);
     await page.getByTestId('purchase-quantity-input').fill(DATA.purchaseQuantity);
     await page.getByTestId('purchase-price-input').fill(DATA.purchasePrice);
     await verifyNavigationWarning(page, DATA.purchaseItem, 'purchase-order-unsaved-navigation-warning');
@@ -328,9 +338,35 @@ async function createPurchaseOrder(page) {
       id: String(order.id),
       status: order.status,
       salesOrderRef: order.salesOrderRef,
+      revision: order.revision,
     };
+    report.purchaseCreatorId = Number(await page.evaluate(() => JSON.parse(window.localStorage.getItem('user')).id));
 
     await page.locator(`[data-testid="purchase-order-card-${order.id}"]`).waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+  });
+}
+
+async function confirmPurchaseSources(page) {
+  return withTimebox(page, 'confirm-procurement-sources-browser', TIMEOUTS.save, async () => {
+    const id = report.purchaseOrder.id;
+    const sources = explicitPurchaseSources({ quoteRef: `PO-BROWSER-QUOTE-${RUN_ID}`, specificationRef: `PO-BROWSER-SPEC-${RUN_ID}`,
+      specificationRevision: '1', taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0,
+      characteristics: [{ code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8',
+        testMethod: 'Synthetic retained sample measured with calibrated pH meter', required: true }] });
+    await page.getByTestId(`purchase-order-revise-${id}`).click();
+    await page.getByTestId('purchase-revision-dialog').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
+    await fillPurchaseSourceFields(page, sources);
+    await page.getByTestId('purchase-source-reason').fill('采购员明确供应商原币报价与必检项目，等待另一位采购员独立审批');
+    const responsePromise = page.waitForResponse(response => response.request().method() === 'POST'
+      && new URL(response.url()).pathname.endsWith(`/procurement/orders/${id}/confirm-sources`), { timeout: TIMEOUTS.save });
+    await page.getByTestId('purchase-source-confirm').click();
+    const response = await responsePromise, body = await response.json();
+    assert.equal(response.status(), 200, JSON.stringify(body));
+    assert.equal(body.data.revision, report.purchaseOrder.revision + 1);
+    report.purchaseOrder.revision = body.data.revision;
+    report.sourceConfirmation = { actorId: report.purchaseCreatorId, request: response.request().postDataJSON(), response: body, sources };
+    await page.getByTestId('purchase-source-state').filter({ hasText: /等待另一位审批人/ }).waitFor({ timeout: TIMEOUTS.readBack });
+    await page.getByTestId('purchase-revision-close').click();
   });
 }
 
@@ -339,7 +375,16 @@ async function approvePurchaseOrder(page) {
     const orderId = report.purchaseOrder?.id;
     if (!orderId) throw new Error('purchase order id missing before approve');
 
+    assert(approverSession && Number(approverSession.user.id) !== report.purchaseCreatorId, 'Browser approval must use another actual person');
+    await page.getByTestId('procurement-desk-orders').click();
+    const approvalResponsePromise = page.waitForResponse(response => response.request().method() === 'PATCH'
+      && new URL(response.url()).pathname.endsWith(`/procurement/orders/${orderId}/status`), { timeout: TIMEOUTS.save });
     await page.locator(`[data-testid="purchase-order-approve-${orderId}"]`).click();
+    const approvalResponse = await approvalResponsePromise, approvalBody = await approvalResponse.json();
+    assert.equal(approvalResponse.status(), 200, JSON.stringify(approvalBody));
+    assert.equal(approvalResponse.request().postDataJSON().expectedRevision, report.purchaseOrder.revision);
+    report.purchaseApproval = { actorId: Number(approverSession.user.id), sourceAuthorId: report.purchaseCreatorId,
+      browser: true, request: approvalResponse.request().postDataJSON(), response: approvalBody };
     let order = null;
     for (let index = 0; index < 20; index += 1) {
       const apiPayload = await apiFetch(page, '/procurement/orders?pageSize=50');
@@ -360,6 +405,17 @@ async function dispatchPurchaseOrder(page) {
     const orderId = report.purchaseOrder?.id;
     if (!orderId) throw new Error('purchase order id missing before dispatch');
 
+    // Same-hash navigation does not invalidate the author's old list.
+    const freshResponse = page.waitForResponse(response => response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/procurement/orders', { timeout: TIMEOUTS.readBack });
+    const [, fresh] = await Promise.all([page.reload({ waitUntil: 'domcontentloaded', timeout: TIMEOUTS.route }), freshResponse]);
+    const freshBody = await fresh.json(); assert.equal(fresh.status(), 200, JSON.stringify(freshBody));
+    const approved = unwrapList({ json: freshBody }).find(item => String(item.id) === String(orderId));
+    assert(approved, 'Independently approved PO missing from new author readback'); assert.equal(approved.status, 'approved');
+    assert.equal(approved.revision, report.purchaseOrder.revision);
+    report.purchaseApprovalReadback = { purchaseOrderId: Number(orderId), status: approved.status, revision: approved.revision, freshGet: true };
+    await openProcurement(page);
+    await page.getByTestId('procurement-desk-orders').click();
     await page.locator(`[data-testid="purchase-order-dispatch-${orderId}"]`).click();
     let order = null;
     for (let index = 0; index < 20; index += 1) {
@@ -401,6 +457,8 @@ async function receivePurchaseOrder(page) {
     await page.locator(`[data-testid="purchase-order-receipts-${orderId}"]`).click();
     await page.getByTestId('purchase-receipt-drawer').waitFor({ state: 'visible', timeout: TIMEOUTS.readBack });
 
+    // Isolate the quantity error; the governed form no longer invents a batch.
+    await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `PO-BATCH-${RUN_ID}`);
     await replaceInputValue(page.getByTestId('purchase-receipt-quantity-input'), String(Number(DATA.purchaseQuantity) + 1));
     await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
@@ -421,7 +479,6 @@ async function receivePurchaseOrder(page) {
     await replaceInputValue(page.getByTestId('purchase-receipt-quantity-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-accepted-input'), DATA.purchaseQuantity);
     await replaceInputValue(page.getByTestId('purchase-receipt-rejected-input'), '0');
-    await replaceInputValue(page.getByTestId('purchase-receipt-batch-input'), `PO-BATCH-${RUN_ID}`);
     const receiptResponsePromise = page.waitForResponse((response) => (
       response.request().method() === 'POST'
       && response.url().includes(`/procurement/orders/${orderId}/receipts`)
@@ -431,6 +488,11 @@ async function receivePurchaseOrder(page) {
     if (!receiptResponse.ok()) {
       throw new Error(`purchase receipt create failed: ${receiptResponse.status()} ${await receiptResponse.text()}`);
     }
+    const receiptBody = await receiptResponse.json();
+    assert.equal(receiptResponse.request().postDataJSON().expectedRevision, report.purchaseOrder.revision);
+    assert.equal(receiptBody.data.submission.schema, 'purchase-receipt-submission/v2');
+    assert.equal(receiptBody.data.submission.receipt.supplierBatchNo, `PO-BATCH-${RUN_ID}`);
+    report.receiptSubmission = receiptBody.data.submission;
 
     let bundle = null;
     for (let index = 0; index < 20; index += 1) {
@@ -461,9 +523,34 @@ async function receivePurchaseOrder(page) {
       receiptNo: receipt.receiptNo,
       stockEntryRef: receipt.stockEntryRef,
       batchNo: receipt.batchNo,
+      supplierBatchNo: receipt.supplierBatchNo,
+      payableAmountNative: receipt.payableAmountNative,
       acceptedQuantity: Number(receipt.acceptedQuantity || 0),
       rejectedQuantity: Number(receipt.rejectedQuantity || 0),
     };
+  });
+}
+
+async function inspectAndReleasePurchase(page) {
+  return withTimebox(page, 'incoming-quality-independent-api', TIMEOUTS.save, async () => {
+    const receipt = report.receiptSubmission.receipt;
+    assert.equal(receipt.batchNo, `PO-${report.purchaseOrder.id}-RCV-${receipt.receiptNo}`);
+    assert.equal(receipt.payableAmountNative, '68400.00');
+    const before = await apiFetch(page, `/procurement/receipts/${receipt.id}/quality`);
+    assert(before.ok, JSON.stringify(before)); assert.equal(before.json.data.receipt.qualityStatus, 'hold');
+    const quality = await releasePurchaseFixture({
+      request: (endpoint, { actor, ...options } = {}) => {
+        // This human-flow fixture targets one browser origin, not the dual-node audit.
+        const httpOptions = { ...options }; delete httpOptions.instance;
+        return apiFetch(page, endpoint, { ...httpOptions, headers: { ...(options.headers || {}), Authorization: `Bearer ${actor.token}` } });
+      },
+      dataOf: response => { assert(response.ok, JSON.stringify(response)); return response.json.data; },
+    }, { receiptId: receipt.id, qcActor: { id: report.purchaseCreatorId, token: authToken },
+      qaActor: { id: Number(approverSession.user.id), token: approverSession.token }, key: `po-browser-${RUN_ID}-qc`,
+      input: { sampleNo: `PO-BROWSER-SAMPLE-${RUN_ID}`, measurements: [{ code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null,
+        instrumentNo: 'PO-BROWSER-SYNTHETIC-PH-1' }], note: 'Explicit retained-sample fixture, not fabricated from receipt acceptance' },
+      reason: 'Independent QA reviewed the frozen standard and actual declared measurements' });
+    report.incomingQuality = { ...quality, scope: 'supplemental API QC/QA; purchase approval and physical receiving are browser operations' };
   });
 }
 
@@ -541,6 +628,8 @@ async function run() {
   let browser;
   let page = null;
   try {
+    const accounts = await ensureUiAuditAccounts('procurement_browser', ['admin', 'manager']);
+    auditAccount = accounts.admin;
     const launched = await launchBrowserWithGuard({
       recordStep,
       retryLimit: 1,
@@ -550,15 +639,30 @@ async function run() {
     report.launcher = launched.launcher;
     page = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
     await seedLoginState(page);
+    report.material = await ensureReleasedMaterial({
+      request: (endpoint, options) => apiFetch(page, endpoint, options),
+      code: DATA.materialCode,
+      name: DATA.purchaseItem,
+      unit: 'kg',
+      category: 'raw_material',
+    });
     await ensureReceiptLocation(page);
     await ensureLinkedSalesOrder(page);
     await openProcurement(page);
     await createSupplier(page);
     await createPurchaseOrder(page);
-    await approvePurchaseOrder(page);
+    await confirmPurchaseSources(page);
+    const approverPage = await browser.newPage({ viewport: { width: 1440, height: 1100 } });
+    approverSession = await loginUiAuditUser(approverPage, APP_URL, { account: accounts.manager,
+      defaultStorage: { 'ailao.activeTab': 'procurement', 'ailao.language': 'zh', language: 'zh-CN', currency: 'CNY' } });
+    await openProcurement(approverPage);
+    await approvePurchaseOrder(approverPage);
+    recordStep({ step: 'procurement-independent-approval-browser', result: 'passed', evidence: await safeScreenshot(approverPage, 'independent-approval'),
+      authorId: report.purchaseCreatorId, approverId: Number(approverSession.user.id), revision: report.purchaseOrder.revision });
     await dispatchPurchaseOrder(page);
     await receivePurchaseOrder(page);
     await verifyProcurementReceipt(page);
+    await inspectAndReleasePurchase(page);
     recordStep({
       step: 'procurement-final-evidence',
       result: 'passed',

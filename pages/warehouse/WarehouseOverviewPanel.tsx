@@ -34,7 +34,7 @@ export function WarehouseOverviewPanel({
         )}
         {warehouses.map(warehouse => (
           <button key={warehouse.id} onClick={() => setSelectedWarehouse(warehouse)}
-            className={`w-full text-left p-5 rounded-[20px] transition-all border ${selectedWarehouse?.id === warehouse.id
+ className={`w-full text-left p-5 rounded-[20px] transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none border ${selectedWarehouse?.id === warehouse.id
               ? 'bg-gradient-to-br from-amber-50 to-orange-50 dark:from-amber-950/30 dark:to-orange-950/30 border-amber-200 dark:border-amber-800 shadow-lg shadow-amber-500/10'
               : 'bg-white/70 dark:bg-slate-900/70 border-white/40 dark:border-slate-800 hover:shadow-md'}`}>
             <div className="flex items-center justify-between mb-2">
@@ -68,7 +68,7 @@ export function WarehouseOverviewPanel({
               </div>
               <button data-testid="warehouse-location-create-open" onClick={openCreateLocation}
                 disabled={!canWrite}
-                className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 active:scale-95 transition-all disabled:cursor-not-allowed disabled:opacity-40">
+ className="flex items-center gap-2 px-4 py-2.5 bg-blue-50 dark:bg-blue-900/30 text-blue-600 rounded-xl font-black text-xs hover:bg-blue-100 dark:hover:bg-blue-900/50 transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-40">
                 <Plus size={14} /> 新增库位
               </button>
             </div>
@@ -89,7 +89,7 @@ export function WarehouseOverviewPanel({
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {selectedWarehouse.locations.map(location => (
-                <div key={location.id} className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl rounded-[20px] p-5 border border-white/40 dark:border-slate-800 shadow-sm hover:shadow-md transition-all">
+ <div key={location.id} className="bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl rounded-[20px] p-5 border border-white/40 dark:border-slate-800 shadow-sm hover:shadow-md transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
                   <div className="flex items-center gap-3 mb-4">
                     <div className={`w-9 h-9 rounded-[12px] flex items-center justify-center text-sm font-black
                       ${location.type === 'production' ? 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-600' :

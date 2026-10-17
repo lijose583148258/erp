@@ -26,13 +26,15 @@ if (!exists('backend/src/services/search.service.ts')) {
   add('P1', 'backend/src/services/search.service.ts', 'Search service boundary is missing.');
 } else {
   const service = read('backend/src/services/search.service.ts');
-  for (const token of ['normalizeSearchTerm', 'buildCustomerSearchWhere', 'buildOrderSearchWhere', 'buildCustomerSearchWhereAsync', 'buildOrderSearchWhereAsync', 'MeilisearchProvider', 'upsertDocuments', 'waitForTask', 'attributesToRetrieve', 'MEILISEARCH_API_KEY', 'getSearchStatus', 'SEARCH_DRIVER', 'SEARCH_ENDPOINT', 'recordSearchMetric']) {
+  for (const token of ['normalizeSearchTerm', 'buildCustomerSearchWhere', 'buildOrderSearchWhere', 'buildCustomerSearchWhereAsync', 'buildOrderSearchWhereAsync', 'MeilisearchProvider', 'ensureIndex', 'getIndexStats', 'upsertDocuments', 'deleteAllDocuments', 'setExternalSearchReady', 'waitForTask', 'attributesToRetrieve', 'MEILISEARCH_API_KEY', 'getSearchStatus', 'SEARCH_DRIVER', 'SEARCH_ENDPOINT', 'recordSearchMetric']) {
     if (!service.includes(token)) add('P1', 'backend/src/services/search.service.ts', `Missing search boundary token: ${token}`);
   }
 }
 
 for (const [file, token, message] of [
   ['backend/src/services/search-index.service.ts', 'reindexAll', 'External search must provide a full reindex recovery path.'],
+  ['backend/src/services/search-index.service.ts', 'initialize', 'External search indexes must be initialized and verified during application startup.'],
+  ['backend/src/services/search-index.service.ts', 'waitForIndexReadiness', 'External search readiness must verify indexed document counts.'],
   ['backend/src/services/search-index.service.ts', 'scheduleCustomerSync', 'Customer writes must schedule external index synchronization.'],
   ['backend/src/services/search-index.service.ts', 'scheduleOrderSync', 'Order writes must schedule external index synchronization.'],
   ['backend/src/controllers/customer/customer-write.controller.ts', 'SearchIndexService.scheduleCustomerSync', 'Customer mutations must schedule search index synchronization.'],
@@ -82,11 +84,11 @@ if (!metrics.includes('recordSearchMetric')) add('P2', 'backend/src/middleware/m
 
 const server = requireIncludes(
   'backend/src/server.ts',
-  'getSearchStatus()',
+  'SearchIndexService.getStatus()',
   'P2',
-  'Health responses should expose search boundary status.',
+  'Health and readiness responses should expose initialized search boundary status.',
 );
-if (!server.includes("from './services/search.service'")) add('P2', 'backend/src/server.ts', 'Server should import search status from the search service boundary.');
+if (!server.includes("from './services/search-index.service'")) add('P2', 'backend/src/server.ts', 'Server should import initialized search status from the search-index service boundary.');
 
 if (!exists('backend/src/services/search.service.test.ts')) {
   add('P2', 'backend/src/services/search.service.test.ts', 'Search service unit tests are missing.');

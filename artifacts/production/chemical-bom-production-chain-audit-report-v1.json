@@ -1,0 +1,287 @@
+{
+  "name": "Chemical BOM Production Chain Audit",
+  "version": "v1",
+  "startTime": "2026-07-26T08:44:46.292Z",
+  "status": "passed",
+  "steps": [
+    {
+      "name": "login_admin",
+      "status": "passed",
+      "time": "2026-07-26T08:44:46.630Z",
+      "appUrl": "http://127.0.0.1:5001"
+    },
+    {
+      "name": "bootstrap_warehouse_locations",
+      "status": "passed",
+      "time": "2026-07-26T08:44:46.676Z",
+      "warehouseCode": "WH-MAIN",
+      "locationCodes": [
+        "LOC-RAW",
+        "LOC-FG",
+        "LOC-WIP",
+        "LOC-SCRAP"
+      ]
+    },
+    {
+      "name": "seed_raw_material_stock",
+      "status": "passed",
+      "time": "2026-07-26T08:44:46.896Z",
+      "materialCount": 10,
+      "rawLocationId": 1
+    },
+    {
+      "name": "create_chemical_bom",
+      "status": "passed",
+      "time": "2026-07-26T08:44:46.913Z",
+      "bomId": 17,
+      "bomNo": "BOM-1785055486903-6AD46D66E7",
+      "productName": "CHEM-GLUE-BOM-1785055486896",
+      "itemCount": 10
+    },
+    {
+      "name": "read_back_bom_and_code_confidentiality",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.131Z",
+      "itemCount": 10,
+      "codeOnlyCount": 10
+    },
+    {
+      "name": "create_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.151Z",
+      "workOrderId": 2,
+      "workOrderNo": "WO-1785055487141-75987931B8",
+      "workOrderStatus": "planned"
+    },
+    {
+      "name": "preview_consumption",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.171Z",
+      "previewLineCount": 10,
+      "firstLine": {
+        "materialName": "CHEM-1785055486677-01",
+        "requiredQty": 10.1,
+        "shortageQty": 0,
+        "pickList": [
+          {
+            "stockBalanceId": 12,
+            "locationId": 1,
+            "locationName": "主仓库 - 原料区",
+            "batchNo": "CHEM-1785055486677-01-BATCH",
+            "availableQty": 50,
+            "deductQty": 10.1
+          }
+        ]
+      }
+    },
+    {
+      "name": "incomplete_completion_blocked",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.187Z",
+      "message": "CHEM-1785055486677-01 consumption is below expected: expected 10.100 kg, actual 1.000 kg, tolerance 3%; CHEM-1785055486677-02 has no confirmed consumption record; CHEM-1785055486677-03 has no confirmed consumption record; CHEM-1785055486677-04 has no confirmed consumption record; CHEM-1785055486677-05 has no confirmed consumption record; CHEM-1785055486677-06 has no confirmed consumption record; CHEM-1785055486677-07 has no confirmed consumption record; CHEM-1785055486677-08 has no confirmed consumption record; CHEM-1785055486677-09 has no confirmed consumption record; CHEM-1785055486677-10 has no confirmed consumption record",
+      "issueCount": 10,
+      "issueTypes": [
+        "quantity_under",
+        "missing_material",
+        "missing_material",
+        "missing_material",
+        "missing_material",
+        "missing_material",
+        "missing_material",
+        "missing_material",
+        "missing_material",
+        "missing_material"
+      ]
+    },
+    {
+      "name": "complete_work_order",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.335Z",
+      "workOrderId": 2,
+      "returnedWorkOrderStatus": "completed",
+      "httpStatus": 200,
+      "batchId": null
+    },
+    {
+      "name": "read_back_work_order_and_batch",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.361Z",
+      "workOrderId": 2,
+      "batchId": 22,
+      "batchNo": "WO-2-BATCH-1785055487227-65E02EE8D8",
+      "productionDate": "2026-07-26T08:44:47.227Z",
+      "expiryDate": "2027-07-26T08:44:47.227Z",
+      "shelfLifeDays": 365
+    },
+    {
+      "name": "read_back_raw_material_deduction",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.461Z",
+      "checkedCount": 10,
+      "sample": [
+        {
+          "code": "CHEM-1785055486677-01",
+          "deductedQuantity": 10.1,
+          "quantity": 39.9
+        },
+        {
+          "code": "CHEM-1785055486677-02",
+          "deductedQuantity": 10.1,
+          "quantity": 39.9
+        },
+        {
+          "code": "CHEM-1785055486677-03",
+          "deductedQuantity": 10.1,
+          "quantity": 39.9
+        }
+      ]
+    },
+    {
+      "name": "read_back_finished_goods_stock",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.474Z",
+      "locationId": 2,
+      "batchNo": "WO-2-BATCH-1785055487227-65E02EE8D8",
+      "quantity": 100
+    },
+    {
+      "name": "read_back_stock_entries",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.492Z",
+      "consumptionEntryCount": 1,
+      "outputEntryCount": 1,
+      "consumptionSourceRef": "WO-1785055487141-75987931B8"
+    },
+    {
+      "name": "read_back_cost_ledger",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.504Z",
+      "batchId": 22,
+      "totalQuantityDelta": 100,
+      "totalCostAmountDelta": 1453.3,
+      "currentUnitCost": 14.53,
+      "rowCount": 1
+    },
+    {
+      "name": "final_summary_read_back",
+      "status": "passed",
+      "time": "2026-07-26T08:44:47.516Z",
+      "bomCount": 17,
+      "workOrderCount": 2,
+      "batchCount": 22,
+      "totalProducedQuantity": 200,
+      "totalLossQuantity": 0
+    }
+  ],
+  "evidence": {
+    "warehouseCode": "WH-MAIN",
+    "locations": [
+      {
+        "code": "LOC-RAW",
+        "name": "原料区",
+        "id": 1
+      },
+      {
+        "code": "LOC-FG",
+        "name": "成品区",
+        "id": 2
+      },
+      {
+        "code": "LOC-WIP",
+        "name": "半成品区",
+        "id": 3
+      },
+      {
+        "code": "LOC-SCRAP",
+        "name": "废料区",
+        "id": 4
+      }
+    ],
+    "bomId": 17,
+    "bomNo": "BOM-1785055486903-6AD46D66E7",
+    "workOrderId": 2,
+    "workOrderNo": "WO-1785055487141-75987931B8",
+    "batchId": 22,
+    "batchNo": "WO-2-BATCH-1785055487227-65E02EE8D8",
+    "batchProductionDate": "2026-07-26T08:44:47.227Z",
+    "batchExpiryDate": "2027-07-26T08:44:47.227Z",
+    "verifiedShelfLifeDays": 365,
+    "incompleteBlocked": true,
+    "incompleteIssues": [
+      {
+        "type": "quantity_under",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-01",
+        "expected": 10.1,
+        "actual": 1,
+        "unit": "kg",
+        "toleranceRate": 0.03,
+        "message": "CHEM-1785055486677-01 consumption is below expected: expected 10.100 kg, actual 1.000 kg, tolerance 3%"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-02",
+        "message": "CHEM-1785055486677-02 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-03",
+        "message": "CHEM-1785055486677-03 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-04",
+        "message": "CHEM-1785055486677-04 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-05",
+        "message": "CHEM-1785055486677-05 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-06",
+        "message": "CHEM-1785055486677-06 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-07",
+        "message": "CHEM-1785055486677-07 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-08",
+        "message": "CHEM-1785055486677-08 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-09",
+        "message": "CHEM-1785055486677-09 has no confirmed consumption record"
+      },
+      {
+        "type": "missing_material",
+        "severity": "blocking",
+        "material": "CHEM-1785055486677-10",
+        "message": "CHEM-1785055486677-10 has no confirmed consumption record"
+      }
+    ],
+    "bomLineCount": 10,
+    "previewLineCount": 10,
+    "rawMaterialDeductionCount": 10,
+    "consumptionEntryCount": 1,
+    "outputEntryCount": 1,
+    "finishedGoodsCostLedgerRows": 1,
+    "finishedGoodsCostAmount": 1453.3
+  },
+  "gaps": [],
+  "finishedAt": "2026-07-26T08:44:47.516Z",
+  "elapsedMs": 1223
+}

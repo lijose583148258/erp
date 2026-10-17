@@ -32,6 +32,7 @@ export interface AssetTransaction {
 
 export interface ProductBatch {
     id: number;
+    materialId?: number | null;
     batchNo: string;
     productName: string;
     productionDate: string;
@@ -43,6 +44,7 @@ export interface ProductBatch {
     notes?: string | null;
     remainingDays?: number;
     status?: 'expired' | 'expiring' | 'healthy';
+    qualityStatus?: 'not_required' | 'pending_qc' | 'hold' | 'released' | 'quarantined';
 }
 
 export interface ProductBatchPaginationMeta {
@@ -132,6 +134,7 @@ export const assetService = {
 
     async createBatch(data: {
         batchNo?: string;
+        materialId: number;
         productName: string;
         productionDate: string;
         expiryDate: string;

@@ -15,8 +15,14 @@ export type BarterSettlementMode = 'barter' | 'mixed' | 'cash_top_up' | 'cash_re
 export type BarterSettlementStatus = 'draft' | 'quoted' | 'approved' | 'posted' | 'reversed' | 'closed';
 export type BarterAgreementStatus = 'draft' | 'active' | 'partial' | 'completed' | 'closed' | 'terminated';
 
+export interface BarterCashObligation {
+  id: number; amount: number; currency: string; status: string; ownerId: number;
+  paymentReference?: string | null; paymentDate?: string | null; resolvedBy?: number | null;
+}
+
 export interface BarterItem {
   id?: number;
+  materialId?: number | null;
   side: BarterSide;
   itemName: string;
   specification?: string | null;
@@ -32,6 +38,7 @@ export interface BarterItem {
 }
 
 export interface BarterSettlement {
+  cashObligation?: BarterCashObligation | null;
   id: number;
   settlementNo: string;
   agreementId?: number | null;
@@ -65,6 +72,7 @@ export interface BarterSettlement {
 }
 
 export interface BarterAgreement {
+  hasPendingRefund?: boolean;
   id: number;
   agreementNo: string;
   counterpartyType: BarterCounterpartyType;
@@ -202,6 +210,7 @@ const mapBarterItem = (value: unknown): BarterItem => {
   return {
     ...item,
     id: item.id == null ? undefined : toNumberValue(item.id),
+    materialId: item.materialId == null ? null : toNumberValue(item.materialId),
     side: toBarterSide(item.side),
     itemName: toStringValue(item.itemName || item.name),
     specification: toNullableString(item.specification),
@@ -222,10 +231,17 @@ const toApiRecordList = (value: unknown): ApiRecord[] =>
 
 const mapSettlement = (value: unknown): BarterSettlement => {
   const item = toApiRecord(value);
+  const cash = toApiRecord(item.cashObligation);
   return {
     ...item,
     id: toNumberValue(item.id),
     settlementNo: toStringValue(item.settlementNo),
+    cashObligation: item.cashObligation == null ? null : {
+      id: toNumberValue(cash.id), amount: toNumberValue(cash.amount), currency: toStringValue(cash.currency),
+      status: toStringValue(cash.status), ownerId: toNumberValue(cash.ownerId),
+      paymentReference: toNullableString(cash.paymentReference), paymentDate: toNullableString(cash.paymentDate),
+      resolvedBy: toNullableNumber(cash.resolvedBy),
+    },
     agreementId: toNullableNumber(item.agreementId),
     agreementNo: toNullableString(item.agreementNo),
     batchIndex: toNullableNumber(item.batchIndex),
@@ -263,6 +279,7 @@ const mapAgreement = (value: unknown): BarterAgreement => {
     ...item,
     id: toNumberValue(item.id),
     agreementNo: toStringValue(item.agreementNo),
+    hasPendingRefund: item.hasPendingRefund === true,
     counterpartyType: toCounterpartyType(item.counterpartyType),
     counterpartyName: toStringValue(item.counterpartyName),
     customerId: toNullableNumber(item.customerId),
@@ -336,6 +353,10 @@ const mapSettlementList = (value: unknown): BarterListResponse => {
 };
 
 export const barterService = {
+  async recordRefund(id: number, payload: { amount: number; currency: string; requestKey: string; paymentReference: string; paymentDate: string; note: string }) {
+    const response = await api.post<unknown, ApiDataResponse<BarterCashObligation>>(`/barter/settlements/${id}/refund`, payload);
+    return response.data;
+  },
   async getSummary(options: ApiRequestOptions = {}): Promise<BarterSummary> {
     const response = await api.get<unknown, ApiDataResponse<unknown>>('/barter/summary', { signal: options.signal });
     return mapSummary(response.data);

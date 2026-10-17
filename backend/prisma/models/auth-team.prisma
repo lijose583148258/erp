@@ -18,6 +18,10 @@ model User {
   customers     Customer[]
   orders        Order[]
   orderImportBatches OrderImportBatch[]
+  paymentSubmissions PaymentSubmission[]
+  paymentReversalsRequested PaymentReversalRequest[] @relation("PaymentReversalRequester")
+  paymentReversalsReviewed PaymentReversalRequest[] @relation("PaymentReversalReviewer")
+  paymentReversalsPosted PaymentReversal[] @relation("PaymentReversalPoster")
   samples       Sample[]
   shipments     Shipment[]
   rmas          Rma[]
@@ -28,7 +32,10 @@ model User {
   adjustmentsApproved AdjustmentRecord[] @relation("AdjustmentApprover")
   productionBomsCreated ProductionBom[] @relation("ProductionBomCreator")
   productionWorkOrdersCreated ProductionWorkOrder[] @relation("ProductionWorkOrderCreator")
+  productionQualityInspections ProductionQualityCheck[] @relation("ProductionQualityInspector")
+  productionQualityReviews ProductionQualityCheck[] @relation("ProductionQualityReviewer")
   inventoryCostLedgersCreated InventoryCostLedger[] @relation("InventoryCostLedgerCreator")
+  productionDispositionsCreated ProductionDisposition[] @relation("ProductionDispositionCreator")
   stockEntriesCreated StockEntry[] @relation("StockEntryCreator")
   collectionPromises CollectionPromise[]
   collectionDisputes CollectionDispute[]
@@ -39,7 +46,14 @@ model User {
   receivableAdjustmentsPosted ReceivableAdjustment[] @relation("ReceivableAdjustmentPoster")
   receivableAdjustmentsReversed ReceivableAdjustment[] @relation("ReceivableAdjustmentReverser")
   purchaseReceiptsReceived PurchaseReceipt[] @relation("PurchaseReceiptReceiver")
+  incomingQualityInspections IncomingQualityCheck[] @relation("IncomingQualityInspector")
+  incomingQualityReviews IncomingQualityCheck[] @relation("IncomingQualityReviewer")
+  supplierPaymentsSubmitted SupplierPayment[] @relation("SupplierPaymentSubmitter")
+  supplierPaymentsVerified SupplierPayment[] @relation("SupplierPaymentVerifier")
   shipmentReceiptsReceived ShipmentReceipt[] @relation("ShipmentReceiptReceiver")
+  fulfillmentPlansCreated SalesFulfillmentPlan[] @relation("SalesFulfillmentPlanCreator")
+  fulfillmentPlansApproved SalesFulfillmentPlan[] @relation("SalesFulfillmentPlanApprover")
+  fulfillmentPlansClosed SalesFulfillmentPlan[] @relation("SalesFulfillmentPlanCloser")
 
   @@map("users")
 }
@@ -118,6 +132,10 @@ model AuditLog {
 
   // 关联
   user            User      @relation(fields: [userId], references: [id])
+  reversalRequestAudit PaymentReversalRequest? @relation("PaymentReversalRequestAudit")
+  reversalOriginalAudits PaymentReversalRequest[] @relation("PaymentReversalOriginalAudit")
+  reversalReviewAudit PaymentReversalRequest? @relation("PaymentReversalReviewAudit")
+  reversalPostingAudit PaymentReversal? @relation("PaymentReversalPostingAudit")
 
   @@index([userId])
   @@index([action])

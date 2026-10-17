@@ -177,9 +177,10 @@ async function createApprovedPurchaseOrder(token, supplierId, productName, quant
   return order;
 }
 
-async function createPurchaseReceipt(token, orderId, data) {
+async function createPurchaseReceipt(token, orderId, data, requestKey) {
   return apiFetch(`/procurement/orders/${orderId}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': requestKey },
     data,
   }, token);
 }
@@ -248,7 +249,7 @@ async function runAllowTolerance(manager) {
     discrepancyType: 'short_shipped',
     discrepancyReason: 'allow tolerance test',
     note: 'allow tolerance audit',
-  }));
+  }, `tolerance-${RUN_ID}-allow`));
   const discrepancyCase = receipt.json.data.discrepancyCase;
   assertEqual(discrepancyCase.status, 'resolved', 'allow tolerance should auto resolve');
   assertEqual(discrepancyCase.toleranceAction, 'allow', 'allow tolerance action');
@@ -290,7 +291,7 @@ async function runBlockTolerance(manager) {
     discrepancyType: 'short_shipped',
     discrepancyReason: 'block tolerance test',
     note: 'block tolerance audit',
-  });
+  }, `tolerance-${RUN_ID}-block`);
   assertEqual(blocked.status, 409, 'block tolerance should reject receipt');
   const readback = await readPurchaseReceipts(manager.token, order.id);
   assertEqual(readback.receipts.length, 0, 'blocked receipt must not persist purchase receipt rows');
@@ -320,7 +321,7 @@ async function runManualDefault(manager) {
     discrepancyType: 'short_shipped',
     discrepancyReason: 'manual default test',
     note: 'manual default tolerance audit',
-  }));
+  }, `tolerance-${RUN_ID}-manual`));
   const discrepancyCase = receipt.json.data.discrepancyCase;
   assertEqual(discrepancyCase.status, 'pending', 'manual default should stay pending');
   assertEqual(discrepancyCase.toleranceAction, 'manual_review', 'manual default action');

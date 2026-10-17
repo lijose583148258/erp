@@ -40,7 +40,7 @@ export const ModuleHero: React.FC<Props> = ({ eyebrow, title, description, actio
         {stats.map((stat, index) => (
           <div key={index} className="rounded-[24px] border border-slate-100 bg-white/80 p-4 dark:border-slate-800 dark:bg-slate-900/70">
             <div className="flex items-center justify-between gap-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.18em] text-slate-400">{stat.label}</p>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-slate-400">{stat.label}</p>
               {stat.icon ? <div className={`rounded-2xl p-3 ${statToneClass[stat.tone || 'slate']}`}>{stat.icon}</div> : null}
             </div>
             <div className="mt-3 text-3xl font-black tracking-tighter text-slate-900 dark:text-white">{stat.value}</div>

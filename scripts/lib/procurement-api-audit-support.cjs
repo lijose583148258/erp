@@ -194,8 +194,15 @@ async function apiFetch(endpoint, options = {}, token = '') {
     return customer;
   }
   
-  async function verifyProcurementReceipt(token, purchaseOrderId, productName, expectedQuantity) {
-    const sourceRef = `PO-${purchaseOrderId}`;
+  async function verifyProcurementReceipt(token, purchaseOrderId, productName, expectedQuantity, committedReceipt = null) {
+    // Historical V1 evidence may use PO-id. New callers must supply the actual
+    // immutable receipt; supplier lot labels are not inventory batch identities.
+    const sourceRef = committedReceipt ? committedReceipt.stockEntryRef : `PO-${purchaseOrderId}`;
+    if (committedReceipt && (Number(committedReceipt.purchaseOrderId) !== Number(purchaseOrderId)
+      || committedReceipt.batchNo !== sourceRef
+      || sourceRef !== `PO-${purchaseOrderId}-RCV-${committedReceipt.receiptNo}`)) {
+      throw new Error('实际采购收货凭证与内部库存批次不一致');
+    }
   
     const balanceResponse = await apiFetch(
       `/warehouses/stock-balances?productName=${encodeURIComponent(productName)}&batchNo=${encodeURIComponent(sourceRef)}&pageSize=100`,
@@ -209,8 +216,8 @@ async function apiFetch(endpoint, options = {}, token = '') {
       String(item.productName) === String(productName) && String(item.batchNo) === sourceRef
     ));
     const totalQuantity = balances.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
-    if (totalQuantity < Number(expectedQuantity)) {
-      throw new Error(`采购入库库存不足，期望至少 ${expectedQuantity}，实际 ${totalQuantity}`);
+    if (Math.abs(totalQuantity - Number(expectedQuantity)) > 0.000001) {
+      throw new Error(`采购入库库存不一致，期望 ${expectedQuantity}，实际 ${totalQuantity}`);
     }
     const rawLocation = balances.find((item) => String(item.locationCode || '') === 'LOC-RAW');
     if (!rawLocation) {

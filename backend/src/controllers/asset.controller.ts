@@ -6,6 +6,8 @@ import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
 import { AuthRequest } from '../middleware/auth';
 import { StockMovementService } from '../services/stock-movement.service';
+import { resolveStockMaterialIdentity } from '../services/stock-movement.material-identity';
+import { assertMaterialReleaseReadiness, isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import type { TransactionClient } from '../services/stock-movement.types';
 import {
     buildCustomerDataScopeWhere,
@@ -32,6 +34,7 @@ const canManageAssetInventory = (req: AuthRequest) => canUseOperationalDataScope
 
 type ProductBatchRequestBody = {
     batchNo?: unknown;
+    materialId?: unknown;
     productName?: unknown;
     productionDate?: unknown;
     expiryDate?: unknown;
@@ -353,7 +356,7 @@ export class AssetController {
                 return rejectAssetScope(res);
             }
 
-            const { batchNo, productName, productionDate, expiryDate, storageTemp, isColdChain, stockQuantity, unit, notes } = req.body as ProductBatchRequestBody;
+            const { batchNo, materialId, productName, productionDate, expiryDate, storageTemp, isColdChain, stockQuantity, unit, notes } = req.body as ProductBatchRequestBody;
 
             if (!productName || !productionDate || !expiryDate || stockQuantity === undefined || !unit) {
                 return res.status(400).json({ success: false, message: '缺少必要参数' });
@@ -371,16 +374,34 @@ export class AssetController {
             const resolvedBatchNo = toOptionalText(batchNo) || buildBusinessNo('BATCH');
 
             const created = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                await assertMaterialReleaseReadiness(tx, {
+                    entityType: 'product_batch',
+                    entityId: resolvedBatchNo,
+                    action: 'create',
+                    lines: [{
+                        lineKey: resolvedBatchNo,
+                        rowNumber: 1,
+                        materialId: Number(materialId),
+                        displayName: String(productName),
+                        unit: String(unit),
+                    }],
+                });
+                const identity = await resolveStockMaterialIdentity(tx, {
+                    materialId: Number(materialId),
+                    productName: String(productName),
+                    unit: String(unit),
+                });
                 const batch = await tx.productBatch.create({
                     data: {
+                        materialId: identity.materialId,
                         batchNo: resolvedBatchNo,
-                        productName: String(productName),
+                        productName: identity.productName,
                         productionDate: new Date(String(productionDate)),
                         expiryDate: new Date(String(expiryDate)),
                         storageTemp: toOptionalText(storageTemp),
                         isColdChain: Boolean(isColdChain),
                         stockQuantity: 0,
-                        unit: String(unit),
+                        unit: identity.unit,
                         notes: toOptionalText(notes)
                     }
                 });
@@ -395,6 +416,7 @@ export class AssetController {
                         createdBy: req.user?.userId || null,
                         lines: [{
                             locationId,
+                            materialId: batch.materialId,
                             productName: batch.productName,
                             batchNo: batch.batchNo,
                             quantityDelta: initialQuantity,
@@ -415,6 +437,14 @@ export class AssetController {
             res.status(201).json({ success: true, data: created });
         } catch (error) {
             logger.error('Create product batch error:', error);
+            if (isMaterialReleaseReadinessError(error)) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: '批次必须关联已发布的统一物料后才能建立。',
+                    errorCode: error.message,
+                    details: error.details,
+                });
+            }
             const message = error instanceof Error ? error.message : '创建批次失败';
             res.status(error instanceof Error ? getAssetStatusCode(message) : 500).json({ success: false, message });
         }

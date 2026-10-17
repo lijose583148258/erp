@@ -213,7 +213,7 @@ async function createOrder(token, customerId) {
 async function recordPayment(token, orderId) {
   const response = await apiFetch(`/orders/${orderId}/payment`, {
     method: 'POST',
-    data: {
+    data: { idempotencyKey: require('node:crypto').randomUUID(),
       amount: 120,
       method: 'cash',
       payerName: 'collection-action-audit',

@@ -5,6 +5,7 @@ import { reportClientIssue } from '../utils/clientIssue';
 interface Props {
   children: React.ReactNode;
   pageId?: string;
+  fallback?: React.ReactNode;
 }
 
 interface State {
@@ -95,6 +96,7 @@ class PageErrorBoundary extends React.Component<Props, State> {
 
   public render() {
     if (this.state.hasError) {
+      if (this.props.fallback !== undefined) return this.props.fallback;
       return (
         <PageErrorFallback
           pageId={this.props.pageId}

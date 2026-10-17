@@ -74,14 +74,38 @@ model Notification {
 
 model BusinessEvent {
   id            Int      @id @default(autoincrement())
+  eventKey      String?  @unique @map("event_key")
   eventType     String   @map("event_type")
   aggregateType String   @map("aggregate_type")
   aggregateId   String   @map("aggregate_id")
   payloadJson   String?  @map("payload_json")
   createdAt     DateTime @default(now()) @map("created_at")
+  deliveries    BusinessEventDelivery[]
 
   @@index([eventType, createdAt])
   @@map("business_events")
+}
+
+// Delivery receipts are mutable; the committed business event is not.
+model BusinessEventDelivery {
+  id             Int           @id @default(autoincrement())
+  eventId        Int           @map("event_id")
+  event          BusinessEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+  channel        String
+  destinationKey String        @map("destination_key")
+  status         String        @default("pending")
+  attempts       Int           @default(0)
+  nextAttemptAt  DateTime      @default(now()) @map("next_attempt_at")
+  leaseToken     String?       @map("lease_token")
+  leaseExpiresAt DateTime?     @map("lease_expires_at")
+  deliveredAt    DateTime?     @map("delivered_at")
+  lastErrorCode  String?       @map("last_error_code")
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  @@unique([eventId, channel, destinationKey])
+  @@index([status, nextAttemptAt])
+  @@index([status, leaseExpiresAt])
+  @@map("business_event_deliveries")
 }
 
 model AlertRule {

@@ -3,8 +3,16 @@ import type {
   BarterPreviewResult,
   CreateBarterSettlementInput,
 } from './barter.types';
-
-export const roundMoney = (value: number) => Number(value.toFixed(2));
+import {
+  addMoney,
+  calculateRatio,
+  maxMoney,
+  minMoney,
+  multiplyMoney,
+  roundMoney,
+  subtractMoney,
+  type DecimalInput,
+} from '../../utils/money';
 
 export const computeItemValue = (item: BarterItemInput): number => {
   if (item.marketValue !== undefined && item.marketValue !== null) {
@@ -15,7 +23,42 @@ export const computeItemValue = (item: BarterItemInput): number => {
   const unitPrice = Number(item.unitPrice || 0);
   const qualityFactor = item.qualityFactor === undefined || item.qualityFactor === null ? 1 : Number(item.qualityFactor);
   const lossFactor = item.lossFactor === undefined || item.lossFactor === null ? 1 : Number(item.lossFactor);
-  return roundMoney(quantity * unitPrice * qualityFactor * lossFactor);
+  return multiplyMoney(quantity, unitPrice, qualityFactor, lossFactor);
+};
+
+type BarterPostingAmount = { offsetAmount: DecimalInput };
+type BarterFinancialSettlement = {
+  status: string;
+  cashDifference?: DecimalInput;
+  offsetPostings: BarterPostingAmount[];
+};
+
+export const calculatePostedBarterTotals = (
+  settlements: BarterFinancialSettlement[],
+) => settlements.reduce((totals, settlement) => {
+  if (settlement.status !== 'posted') return totals;
+  return {
+    totalOffset: addMoney(
+      totals.totalOffset,
+      ...settlement.offsetPostings.map(posting => posting.offsetAmount),
+    ),
+    totalCashDifference: addMoney(totals.totalCashDifference, settlement.cashDifference),
+  };
+}, { totalOffset: 0, totalCashDifference: 0 });
+
+export const calculateBarterAgreementProgress = (
+  agreedOffsetAmountInput: DecimalInput,
+  settlements: BarterFinancialSettlement[],
+) => {
+  const agreedOffsetAmount = roundMoney(agreedOffsetAmountInput);
+  const { totalOffset: executedOffsetAmount } = calculatePostedBarterTotals(settlements);
+  const remainingOffsetAmount = maxMoney(0, subtractMoney(agreedOffsetAmount, executedOffsetAmount));
+  return {
+    agreedOffsetAmount,
+    executedOffsetAmount,
+    remainingOffsetAmount,
+    completionRatio: Math.min(calculateRatio(executedOffsetAmount, agreedOffsetAmount), 1),
+  };
 };
 
 export function previewBarterSettlement(
@@ -25,15 +68,15 @@ export function previewBarterSettlement(
     ...item,
     marketValue: computeItemValue(item),
   }));
-  const totalPartyAValue = items.filter(item => item.side === 'our').reduce((sum, item) => sum + Number(item.marketValue), 0);
-  const totalPartyBValue = items.filter(item => item.side === 'counterparty').reduce((sum, item) => sum + Number(item.marketValue), 0);
-  const cashDifference = roundMoney(totalPartyAValue - totalPartyBValue);
+  const totalPartyAValue = addMoney(...items.filter(item => item.side === 'our').map(item => item.marketValue));
+  const totalPartyBValue = addMoney(...items.filter(item => item.side === 'counterparty').map(item => item.marketValue));
+  const cashDifference = subtractMoney(totalPartyAValue, totalPartyBValue);
   return {
     totalPartyAValue: roundMoney(totalPartyAValue),
     totalPartyBValue: roundMoney(totalPartyBValue),
     cashDifference,
     settlementMode: input.settlementMode || 'mixed',
-    suggestedOffsetAmount: roundMoney(Math.min(totalPartyAValue || 0, totalPartyBValue || 0)),
+    suggestedOffsetAmount: minMoney(totalPartyAValue, totalPartyBValue),
     items,
   };
 }

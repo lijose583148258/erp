@@ -19,11 +19,19 @@ export const syncProductBatchForOperationalStock = async (
 
   const batch = await tx.productBatch.findUnique({
     where: { batchNo: line.batchNo },
-    select: { id: true, productName: true, stockQuantity: true },
+    select: { id: true, materialId: true, productName: true, stockQuantity: true },
   });
 
-  if (batch && batch.productName !== line.productName) {
+  if (batch && line.materialId && batch.materialId && batch.materialId !== line.materialId) {
+    throw new Error(`Product batch ${line.batchNo} belongs to material ${batch.materialId}, not ${line.materialId}`);
+  }
+
+  if (batch && !line.materialId && batch.productName !== line.productName) {
     throw new Error(`Product batch ${line.batchNo} belongs to ${batch.productName}, not ${line.productName}`);
+  }
+
+  if (batch && line.materialId && !batch.materialId && batch.productName !== line.productName) {
+    throw new Error(`Legacy product batch ${line.batchNo} must be governed before assigning material ${line.materialId}`);
   }
 
   if (!batch) {
@@ -31,12 +39,21 @@ export const syncProductBatchForOperationalStock = async (
       throw new Error(`Product batch not found for outbound stock: ${line.productName} / ${line.batchNo}`);
     }
 
+    const governedShelfLifeDays = Number(line.shelfLifeDays || 0);
+    if (line.materialId && (!Number.isInteger(governedShelfLifeDays) || governedShelfLifeDays < 1 || governedShelfLifeDays > 3650)) {
+      throw new Error(`STOCK_MATERIAL_SHELF_LIFE_REQUIRED:${line.materialId}`);
+    }
+    const expiryDurationMs = line.materialId
+      ? governedShelfLifeDays * 24 * 60 * 60 * 1000
+      : DEFAULT_BATCH_SHELF_LIFE_MS;
+
     const created = await tx.productBatch.create({
       data: {
+        materialId: line.materialId || null,
         batchNo: line.batchNo,
         productName: line.productName,
         productionDate: new Date(),
-        expiryDate: new Date(Date.now() + DEFAULT_BATCH_SHELF_LIFE_MS),
+        expiryDate: new Date(Date.now() + expiryDurationMs),
         stockQuantity: line.quantityDelta,
         unit: line.unit || 'kg',
         isColdChain: false,
@@ -51,8 +68,6 @@ export const syncProductBatchForOperationalStock = async (
     };
   }
 
-  const quantityBefore = Number(batch.stockQuantity || 0);
-
   if (line.quantityDelta < 0) {
     const updated = await tx.productBatch.updateMany({
       where: {
@@ -61,6 +76,8 @@ export const syncProductBatchForOperationalStock = async (
       },
       data: {
         stockQuantity: { decrement: Math.abs(line.quantityDelta) },
+        materialId: line.materialId || batch.materialId,
+        productName: line.productName,
         unit: line.unit || 'kg',
       },
     });
@@ -68,10 +85,16 @@ export const syncProductBatchForOperationalStock = async (
     if (updated.count !== 1) {
       throw new Error(`Insufficient product batch stock for ${line.productName} / ${line.batchNo}`);
     }
+    // The first read can predate another writer. This transaction now owns the
+    // row lock; derive the ledger boundary from the persisted post-update value.
+    const persisted = await tx.productBatch.findUniqueOrThrow({
+      where: { id: batch.id }, select: { stockQuantity: true },
+    });
+    const quantityAfter = Number(persisted.stockQuantity);
     return {
       batchId: batch.id,
-      quantityBefore,
-      quantityAfter: quantityBefore + line.quantityDelta,
+      quantityBefore: quantityAfter - line.quantityDelta,
+      quantityAfter,
     };
   }
 
@@ -79,13 +102,15 @@ export const syncProductBatchForOperationalStock = async (
     where: { id: batch.id },
     data: {
       stockQuantity: { increment: line.quantityDelta },
+      materialId: line.materialId || batch.materialId,
+      productName: line.productName,
       unit: line.unit || 'kg',
     },
     select: { id: true, stockQuantity: true },
   });
   return {
     batchId: updated.id,
-    quantityBefore,
+    quantityBefore: Number(updated.stockQuantity || 0) - line.quantityDelta,
     quantityAfter: Number(updated.stockQuantity || 0),
   };
 };

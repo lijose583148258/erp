@@ -74,6 +74,7 @@ const parseContacts = (value: unknown): Contact[] => {
 export interface PurchaseOrder {
   id: string;
   supplierId: string;
+  materialId?: string;
   supplierName: string;
   supplierNameZh?: string;
   supplierNameEn?: string;
@@ -101,6 +102,43 @@ export interface PurchaseOrder {
   isB2B?: boolean;
   createdAt?: string;
   updatedAt?: string;
+  revision?: number;
+  supplierPayableBasisJson?: string | null;
+  incomingQualityPlanJson?: string | null;
+}
+export interface SupplierPayableTerms {
+  taxTreatment: 'included_in_price' | 'additional_supplier_tax' | 'none_or_third_party';
+  supplierTaxAmount: number; supplierChargesAmount: number; evidenceRef: string;
+}
+export interface IncomingQualityPlan {
+  specificationRef: string; specificationRevision: string;
+  characteristics: Array<{ code: string; name: string; valueType: 'numeric' | 'text'; unit: string | null;
+    lowerLimit: string | null; upperLimit: string | null; targetText: string | null; testMethod: string; required: boolean; sortOrder: number }>;
+}
+export interface PurchaseSourceState {
+  state: 'pending_approval' | 'approved' | 'confirmation_required' | 'history_unreconciled';
+  restoreOperationalStatus: 'in_transit' | null;
+}
+export interface PurchaseSourceConfirmationInput {
+  expectedRevision: number; expectedUpdatedAt: string; reason: string;
+  supplierPayableTerms: SupplierPayableTerms; incomingQualityPlan: IncomingQualityPlan;
+}
+
+export interface PurchaseRevisionInput {
+  expectedRevision: number;
+  expectedUpdatedAt: string;
+  quantity: number;
+  price: number;
+  taxAmount: number;
+  eta: string;
+  reason: string;
+}
+export interface PurchaseRevisionHistory {
+  id: number;
+  userId: number;
+  action: string;
+  details: string;
+  createdAt: string;
 }
 
 export interface PurchaseReceipt {
@@ -117,6 +155,7 @@ export interface PurchaseReceipt {
   note?: string | null;
   receivedAt?: string;
   createdAt?: string;
+  supplierBatchNo?: string | null; batchId?: number | null; payableAmountNative?: string | null; payableAmountBase?: string | null;
 }
 
 export interface PurchaseReceiptSummary {
@@ -134,7 +173,25 @@ export interface PurchaseReceiptBundle {
   receipts: PurchaseReceipt[];
   discrepancyCases: ReceiptDiscrepancyCase[];
   discrepancyCase?: ReceiptDiscrepancyCase | null;
+  submission?: PurchaseReceiptSubmission;
+  replayed?: boolean;
+  sourceState?: PurchaseSourceState;
 }
+
+export interface LegacyPurchaseReceiptSubmission {
+  schema: 'purchase-receipt-submission/v1'; key: string; fingerprint: string; auditId: number;
+  receipt: { id: number; receiptNo: string; purchaseOrderId: number; quantity: number; acceptedQuantity: number;
+    rejectedQuantity: number; unit: string; batchNo: string; stockEntryRef: string | null;
+    discrepancyReason: string | null; note: string | null; receivedBy: number; receivedAt: string; createdAt: string };
+}
+export interface ControlledPurchaseReceiptSubmission {
+  schema: 'purchase-receipt-submission/v2'; key: string; fingerprint: string; auditId: number;
+  facts: { purchaseOrderId: number; receivedBy: number; quantity: number; acceptedQuantity: number; rejectedQuantity: number;
+    batchNo: string; receivedAt: string | null; discrepancyReason: string | null; discrepancyType: string; note: string | null; expectedRevision: number };
+  receipt: LegacyPurchaseReceiptSubmission['receipt'] & { supplierBatchNo: string; batchId: number | null; payableAmountNative: string;
+    payableAmountBase: string; payableSnapshotJson: string; incomingQualityPlanJson: string };
+}
+export type PurchaseReceiptSubmission = LegacyPurchaseReceiptSubmission | ControlledPurchaseReceiptSubmission;
 
 export interface Supplier {
   id: string;
@@ -215,6 +272,7 @@ const mapOrder = (value: unknown): PurchaseOrder => {
   ...item,
   id: toStringValue(item.id),
   supplierId: toStringValue(item.supplierId),
+  materialId: toOptionalString(item.materialId) || '',
   supplierName: toStringValue(item.supplierName),
   supplierNameZh: toOptionalString(item.supplierNameZh),
   supplierNameEn: toOptionalString(item.supplierNameEn),
@@ -236,6 +294,7 @@ const mapOrder = (value: unknown): PurchaseOrder => {
   landedUnitCost: toNumberValue(item.landedUnitCost),
   eta: toStringValue(item.eta),
   status: (item.status || 'pending') as PurchaseOrder['status'],
+  revision: toNumberValue(item.revision),
   salesOrderRef: toStringValue(item.salesOrderRef),
   salesOrderId: toOptionalString(item.salesOrderId) || '',
   isB2B: Boolean(item.isB2B),
@@ -284,6 +343,7 @@ const mapReceiptBundle = (value: unknown): PurchaseReceiptBundle => {
   receipts: toUnknownArray(item.receipts).map(mapReceipt),
   discrepancyCases: toUnknownArray(item.discrepancyCases).map(mapReceiptDiscrepancyCase),
   discrepancyCase: item.discrepancyCase ? mapReceiptDiscrepancyCase(item.discrepancyCase) : null,
+  sourceState: item.sourceState as PurchaseSourceState | undefined,
   };
 };
 
@@ -297,6 +357,7 @@ export const procurementService = {
   async createOrder(order: Partial<PurchaseOrder>): Promise<PurchaseOrder> {
     const payload = {
       supplierId: Number(order.supplierId),
+      materialId: order.materialId ? Number(order.materialId) : undefined,
       supplierName: order.supplierName,
       supplierNameZh: order.supplierNameZh,
       supplierNameEn: order.supplierNameEn,
@@ -324,9 +385,24 @@ export const procurementService = {
     return mapOrder(response.data);
   },
 
-  async updateOrderStatus(id: string, status: PurchaseOrder['status']): Promise<PurchaseOrder> {
-    const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/status`, { status });
+  async updateOrderStatus(id: string, status: PurchaseOrder['status'], expectedRevision?: number): Promise<PurchaseOrder> {
+    const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/status`, { status, expectedRevision });
     return mapOrder(response.data);
+  },
+
+  async reviseOrder(id: string, input: PurchaseRevisionInput): Promise<PurchaseOrder> {
+    const response = await api.patch<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}`, input);
+    return mapOrder(response.data);
+  },
+
+  async confirmOrderSources(id: string, input: PurchaseSourceConfirmationInput): Promise<PurchaseOrder> {
+    const response = await api.post<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/confirm-sources`, input);
+    return mapOrder(response.data);
+  },
+
+  async getOrderRevisions(id: string): Promise<{ purchaseOrder: PurchaseOrder; sourceState: PurchaseSourceState; history: PurchaseRevisionHistory[] }> {
+    const response = await api.get<unknown, ApiDataResponse<{ purchaseOrder: unknown; sourceState: PurchaseSourceState; history: PurchaseRevisionHistory[] }>>(`/procurement/orders/${id}/revisions`);
+    return { purchaseOrder: mapOrder(response.data.purchaseOrder), sourceState: response.data.sourceState, history: response.data.history };
   },
 
   async getOrderReceipts(id: string): Promise<PurchaseReceiptBundle> {
@@ -335,6 +411,7 @@ export const procurementService = {
   },
 
   async createReceipt(id: string, receipt: {
+    expectedRevision?: number;
     quantity: number;
     acceptedQuantity: number;
     rejectedQuantity: number;
@@ -342,9 +419,11 @@ export const procurementService = {
     batchNo?: string;
     discrepancyReason?: string;
     note?: string;
-  }): Promise<PurchaseReceiptBundle> {
-    const response = await api.post<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/receipts`, receipt);
-    return mapReceiptBundle(response.data);
+  }, key: string): Promise<PurchaseReceiptBundle> {
+    const response = await api.post<unknown, ApiDataResponse<unknown>>(`/procurement/orders/${id}/receipts`, receipt,
+      { headers: { 'Idempotency-Key': key } });
+    const raw = toApiRecord(response.data);
+    return { ...mapReceiptBundle(raw), submission: raw.submission as PurchaseReceiptSubmission | undefined, replayed: raw.replayed === true };
   },
 
   async getAllSuppliers(search = '', options: ApiRequestOptions = {}): Promise<Supplier[]> {

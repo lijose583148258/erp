@@ -6,11 +6,13 @@ import {
   COLLECTION_MAX_PAGE_SIZE,
   buildOrderWhere,
   buildPaymentWhere,
+  calculateMilestoneAmounts,
   getCollectionActionPlan,
   getDunningLevel,
   getDueDate,
   getOutstandingAmount,
 } from './collection/collection.helpers';
+import { compareMoney } from '../utils/money';
 
 export interface CollectionLedgerRecord {
   id: number;
@@ -315,9 +317,9 @@ export class CollectionQueryService {
       .map(order => {
         const dueDate = getDueDate(order.createdAt, order.paymentTerms);
         const outstanding = getOutstandingAmount(
-          Number(order.finalAmount),
-          Number(order.paidAmount),
-          Number(order.receivableAdjustmentAmount),
+          order.finalAmount,
+          order.paidAmount,
+          order.receivableAdjustmentAmount,
         );
         const daysOverdue = Math.max(0, Math.ceil((now.getTime() - dueDate.getTime()) / COLLECTION_DAY_MS));
         const actionPlan = getCollectionActionPlan(daysOverdue);
@@ -351,7 +353,7 @@ export class CollectionQueryService {
           contractTitle: order.contract?.title || null,
         };
       })
-      .filter(order => order.outstanding > 0 && order.daysOverdue > 0)
+      .filter(order => compareMoney(order.outstanding, 0) > 0 && order.daysOverdue > 0)
       .filter(order => {
         if (searchTerms.length === 0) return true;
         const haystack = getOverdueSearchHaystack(order);
@@ -359,7 +361,9 @@ export class CollectionQueryService {
       })
       .sort((a, b) => {
         if (b.daysOverdue !== a.daysOverdue) return b.daysOverdue - a.daysOverdue;
-        if (b.outstanding !== a.outstanding) return b.outstanding - a.outstanding;
+        if (compareMoney(b.outstanding, a.outstanding) !== 0) {
+          return compareMoney(b.outstanding, a.outstanding);
+        }
         return b.orderId - a.orderId;
       });
 
@@ -491,10 +495,12 @@ export class CollectionQueryService {
     });
 
     return milestones.map(milestone => {
-      const targetAmount = milestone.amount !== null
-        ? Number(milestone.amount)
-        : Number(milestone.contract.totalAmount) * Number(milestone.percentage) / 100;
-      const paidAmount = milestone.paymentRecords.reduce((sum, payment) => sum + Number(payment.amount), 0);
+      const { targetAmount, paidAmount, remainingAmount } = calculateMilestoneAmounts({
+        explicitAmount: milestone.amount,
+        contractTotalAmount: milestone.contract.totalAmount,
+        percentage: milestone.percentage,
+        verifiedPayments: milestone.paymentRecords,
+      });
 
       return {
         id: milestone.id,
@@ -502,7 +508,7 @@ export class CollectionQueryService {
         percentage: Number(milestone.percentage),
         targetAmount,
         paidAmount,
-        remainingAmount: Math.max(0, targetAmount - paidAmount),
+        remainingAmount,
         dueDate: milestone.dueDate,
         status: milestone.status,
         notes: milestone.notes,

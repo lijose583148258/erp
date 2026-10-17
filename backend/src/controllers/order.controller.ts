@@ -7,21 +7,28 @@ import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
 import { OrderWorkspaceService } from '../services/order-workspace.service';
 import { OrderUpdateRejectedError, OrderUpdateService } from '../services/order-update.service';
-import { buildOrderItemsAndTotals } from '../services/order-item-normalization';
+import {
+    buildOrderItemsAndTotals,
+    calculateOrderFinalAmount,
+} from '../services/order-item-normalization';
+import { resolveOrderItemMaterialIdentities } from '../services/order-item-material-identity';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { compareMoney } from '../utils/money';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
 import { publishWebhookEvent } from '../services/webhook.service';
 import { writeOrderAuditLog } from '../services/order-audit.service';
 import { compareAndSetOrderStatus } from '../services/order-status-transition.service';
+import { OrderFulfillmentIncompleteError } from '../services/order-fulfillment.service';
+import { getOrdersForShipment } from '../services/order-shipment-dispatch.service';
+import { isMaterialReleaseReadinessError } from '../services/material-release-readiness.service';
 import { exportOrders as exportOrderRows, importOrders as importOrderRows } from './order-io.controller';
 import { recordOrderPayment, verifyOrderPayment } from './order-payment.controller';
+import { ReceivableAdjustmentService, getReceivableAdjustmentConflictMessage } from '../services/receivable-adjustment.service';
 import {
-    buildOrderDataScopeWhere,
     canUseCustomerForBusinessWrite,
     canUseOrderForBusinessWrite,
-    mergeWhereAnd,
 } from '../utils/recordAccess';
 import {
     ORDER_STATUS_TRANSITIONS,
@@ -40,6 +47,21 @@ class OrderCreationRejectedError extends Error {
 }
 
 export class OrderController {
+    async createQuantityCancellation(req: AuthRequest, res: Response) {
+        try {
+            const data = await ReceivableAdjustmentService.createOrderQuantityCancellation(Number(req.params.id), req.body, req);
+            return res.status(201).json({ success: true, data });
+        } catch (error) {
+            const message = getReceivableAdjustmentConflictMessage(error);
+            if (message && error instanceof Error) return res.status(error.message === 'ORDER_CANCELLATION_NOT_FOUND' ? 404 : 409)
+                .json({ success: false, errorCode: error.message, message });
+            if ((error as { code?: string })?.code === 'P2002') return res.status(409).json({ success: false,
+                errorCode: 'ORDER_CANCELLATION_IDEMPOTENCY_CONFLICT', message: '请求身份已使用，请回读原申请。' });
+            logger.error('Create order quantity cancellation failed:', error);
+            return res.status(500).json({ success: false, message: '取消申请未确认，请回读后重试同一请求。' });
+        }
+    }
+
     async getOrders(req: AuthRequest, res: Response) {
         try {
             const result = await OrderWorkspaceService.getOrders(
@@ -106,8 +128,8 @@ export class OrderController {
             const orderNo = buildBusinessNo('ORD');
             const { orderItems, totalAmount } = buildOrderItemsAndTotals(items);
 
-            const finalAmount = totalAmount - Number(discountAmount);
-            if (finalAmount < 0) {
+            const finalAmount = calculateOrderFinalAmount(totalAmount, Number(discountAmount));
+            if (compareMoney(finalAmount, 0) < 0) {
                 return res.status(400).json({
                     success: false,
                     message: '折扣金额不能超过订单总额。',
@@ -115,6 +137,7 @@ export class OrderController {
             }
 
             const createdOrder = await withDbRetry(() => prisma.$transaction(async (tx) => {
+                const governedOrderItems = await resolveOrderItemMaterialIdentities(tx, orderItems);
                 // Serialize credit decisions for one customer before reading exposure.
                 // Rejections throw so this row touch is rolled back with the attempt.
                 const customer = await tx.customer.update({
@@ -166,7 +189,7 @@ export class OrderController {
                         status: 'pending',
                         contractId: contractId ? Number(contractId) : null,
                         createdBy: req.user!.userId,
-                        items: { create: orderItems },
+                        items: { create: governedOrderItems },
                     },
                     include: {
                         items: true,
@@ -344,11 +367,11 @@ export class OrderController {
                 }
             }
 
-            const transitioned = await compareAndSetOrderStatus(prisma, {
+            const transitioned = await prisma.$transaction(tx => compareAndSetOrderStatus(tx, {
                 orderId: Number(id),
                 expectedStatus: existing.status,
                 targetStatus,
-            });
+            }));
             if (!transitioned) {
                 return res.status(409).json({
                     success: false,
@@ -387,6 +410,19 @@ export class OrderController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Update order status error:', error);
+            if (error instanceof OrderFulfillmentIncompleteError) {
+                return res.status(error.statusCode).json({ success: false, errorCode: error.message,
+                    message: '订单仍有待交数量或履约证据待核对，不能标为全部交付或结案。', details: error.details });
+            }
+            if (isMaterialReleaseReadinessError(error)) {
+                return res.status(error.statusCode).json({
+                    success: false,
+                    message: '订单仍可继续保存为草稿；确认前请先修复未关联、未发布或单位不一致的物料行。',
+                    errorCode: error.message,
+                    details: error.details,
+                    timestamp: new Date().toISOString(),
+                } as ApiResponse);
+            }
             return res.status(500).json({
                 success: false,
                 message: '服务器内部错误',
@@ -411,25 +447,14 @@ export class OrderController {
      */
     async getAvailableForShipping(req: AuthRequest, res: Response) {
         try {
-            const orders = await prisma.order.findMany({
-                where: mergeWhereAnd(
-                    {
-                        status: 'confirmed',
-                        paymentStatus: { in: ['paid', 'partial'] }, // 逻辑要求：部分支付或全款后可发货
-                    },
-                    buildOrderDataScopeWhere(req, { includeFinanceAll: true, includeWarehouseAll: true }),
-                ),
-                select: {
-                    id: true,
-                    orderNo: true,
-                    customer: { select: { id: true, nameZh: true, nameEn: true, nameVi: true } },
-                    items: true,
-                }
-            });
+            const view = req.query.view;
+            if (view !== undefined && view !== 'dispatch') {
+                return res.status(400).json({ success: false, errorCode: 'ORDER_SHIPPING_VIEW_INVALID', message: '不支持的待发货订单视图。' });
+            }
 
             return res.json({
                 success: true,
-                data: orders,
+                data: await getOrdersForShipment(req, view),
             } as ApiResponse);
         } catch (error) {
             logger.error('获取待发货订单错误:', error);
@@ -461,20 +486,21 @@ export class OrderController {
                 return res.status(403).json({ success: false, message: '无权结案该订单。' });
             }
 
-            // H2修复：业务校验 — 必须全款且物流已发或已签收
-            if (!['shipped', 'delivered'].includes(order.status) || order.paymentStatus !== 'paid') {
+            // An entirely cancelled remainder may have no shipment. The locked
+            // quantity check below still requires every obligation to be resolved.
+            if (!['confirmed', 'shipped', 'delivered'].includes(order.status) || order.paymentStatus !== 'paid') {
                 return res.status(400).json({
                     success: false,
-                    message: '只有已发货或已签收且已全额回款的订单才能结案。',
+                    message: '订单须已确认、应收已结清且交付义务全部解决后才能结案。',
                 });
             }
 
-            const completed = await compareAndSetOrderStatus(prisma, {
+            const completed = await withDbRetry(() => prisma.$transaction(tx => compareAndSetOrderStatus(tx, {
                 orderId: Number(id),
                 expectedStatus: order.status,
                 targetStatus: 'completed',
                 requiredWhere: { paymentStatus: 'paid' },
-            });
+            })), { label: 'completeOrder' });
             if (!completed) {
                 return res.status(409).json({
                     success: false,
@@ -513,6 +539,10 @@ export class OrderController {
             });
         } catch (error) {
             logger.error('订单结案失败:', error);
+            if (error instanceof OrderFulfillmentIncompleteError) {
+                return res.status(error.statusCode).json({ success: false, errorCode: error.message,
+                    message: '订单仍有待交数量或履约证据待核对，不能提前结案。', details: error.details });
+            }
             return res.status(500).json({ success: false, message: '服务器内部错误' });
         }
     }

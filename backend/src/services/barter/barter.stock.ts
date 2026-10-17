@@ -1,4 +1,5 @@
 import { StockMovementService, type StockMovementLineInput, type StockSourceType, type TransactionClient } from '../stock-movement.service';
+import { addMoney, prorateMoney, subtractMoney } from '../../utils/money';
 
 const BARTER_RECEIPT_LOCATION_CODE = 'LOC-RAW';
 const BARTER_ISSUE_LOCATION_CODE = 'LOC-FG';
@@ -12,11 +13,13 @@ const normalizeStockName = (value: unknown, fallback: string) => {
 
 type BarterStockItem = {
   id: number;
+  materialId?: number | null;
   side?: string | null;
   itemName?: string | null;
   sourceDocument?: string | null;
   quantity?: number | string | null;
   unit?: string | null;
+  marketValue?: number | null;
 };
 
 type BarterStockSettlement = {
@@ -43,6 +46,7 @@ const buildBarterStockLine = (
   settlementId: number,
 ): StockMovementLineInput => ({
   locationId,
+  materialId: item.materialId ?? null,
   productName: normalizeStockName(item.itemName, `barter-item-${item.id}`),
   batchNo: normalizeStockName(item.sourceDocument, `BARTER-${settlementId}-${String(item.side || 'item').toUpperCase()}-${item.id}`),
   quantityDelta,
@@ -78,6 +82,12 @@ export const postBarterStockEntries = async (
   }
 
   if (receiptLines.length > 0) {
+    const receiptItems = (settlement.items || []).filter(item => item.side === 'counterparty' && Number(item.quantity || 0) > 0);
+    receiptLines.forEach((line, index) => {
+      const value = receiptItems[index].marketValue;
+      if (value == null || !Number.isFinite(value) || value < 0) throw new Error('Barter receipt requires an approved valuation');
+      line.costAmountDelta = value;
+    });
     await StockMovementService.postStockEntry({
       sourceType: 'barter_receipt',
       sourceRef,
@@ -87,6 +97,17 @@ export const postBarterStockEntries = async (
       lines: receiptLines,
     }, tx);
   }
+};
+
+export const allocateBarterReversalCosts = (quantities: number[], originalCost: number): number[] => {
+  const total = quantities.reduce((sum, quantity) => sum + Math.abs(quantity), 0);
+  if (!total) throw new Error('Cannot reverse a zero-quantity barter valuation');
+  let remaining = subtractMoney(0, originalCost);
+  return quantities.map((quantity, index) => {
+    const amount = index === quantities.length - 1 ? remaining : prorateMoney(-originalCost, Math.abs(quantity), total);
+    remaining = subtractMoney(remaining, amount);
+    return amount;
+  });
 };
 
 export const postBarterStockReversalEntries = async (
@@ -103,10 +124,12 @@ export const postBarterStockReversalEntries = async (
       status: 'posted',
     },
     select: {
+      entryNo: true,
       sourceType: true,
       movements: {
         select: {
           locationId: true,
+          materialId: true,
           productName: true,
           batchNo: true,
           unit: true,
@@ -117,16 +140,26 @@ export const postBarterStockReversalEntries = async (
     },
     orderBy: { id: 'asc' },
   });
-  const originalMovements = originalEntries.flatMap(entry =>
-    entry.movements.map(movement => ({
-      sourceType: entry.sourceType,
-      locationId: movement.locationId,
-      productName: movement.productName,
-      batchNo: movement.batchNo,
-      unit: movement.unit,
-      quantityDelta: movement.quantityDelta,
-    })),
-  );
+  const originalMovements: Array<typeof originalEntries[number]['movements'][number] & { sourceType: string; reversalCost: number }> = [];
+  for (const entry of originalEntries) {
+    for (const batchNo of new Set(entry.movements.map(movement => movement.batchNo))) {
+      const movements = entry.movements.filter(movement => movement.batchNo === batchNo);
+      const batch = await tx.productBatch.findUnique({ where: { batchNo }, select: { id: true } });
+      const valuation = batch ? await tx.inventoryCostLedger.findMany({
+        where: { batchId: batch.id, sourceRef: entry.entryNo },
+        select: { quantityDelta: true, costAmountDelta: true },
+      }) : [];
+      const originalQuantity = movements.reduce((sum, movement) => sum + movement.quantityDelta, 0);
+      const valuedQuantity = valuation.reduce((sum, row) => sum + row.quantityDelta, 0);
+      // Historical postings without cost evidence need an explicit reconciliation,
+      // not a fabricated reversal using today's unit cost.
+      if (!valuation.length || Math.abs(originalQuantity - valuedQuantity) > 0.000001) {
+        throw new Error(`BARTER_COST_REVERSAL_REQUIRES_RECONCILIATION:${entry.entryNo}:${batchNo}`);
+      }
+      const costs = allocateBarterReversalCosts(movements.map(movement => movement.quantityDelta), addMoney(...valuation.map(row => row.costAmountDelta)));
+      movements.forEach((movement, index) => originalMovements.push({ ...movement, sourceType: entry.sourceType, reversalCost: costs[index] }));
+    }
+  }
 
   if (originalMovements.length === 0) {
     return;
@@ -134,10 +167,12 @@ export const postBarterStockReversalEntries = async (
 
   const groups: Record<string, Array<{
     locationId: number;
+    materialId: number | null;
     productName: string;
     batchNo: string;
     quantityDelta: number;
     unit: string;
+    costAmountDelta: number;
   }>> = {};
 
   for (const movement of originalMovements) {
@@ -150,10 +185,12 @@ export const postBarterStockReversalEntries = async (
     }
     groups[reversalType].push({
       locationId: Number(movement.locationId),
+      materialId: movement.materialId == null ? null : Number(movement.materialId),
       productName: String(movement.productName || ''),
       batchNo: String(movement.batchNo || ''),
       quantityDelta: -Number(movement.quantityDelta || 0),
       unit: String(movement.unit || 'kg'),
+      costAmountDelta: movement.reversalCost,
     });
   }
 

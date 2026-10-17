@@ -1,6 +1,8 @@
 const path = require('path');
 const { createAuditRuntime, ensureDir } = require('./lib/audit-runtime-utils.cjs');
 const { loginAdmin, seedBusinessChain } = require('./lib/collection-human-flow-seed.cjs');
+const { applyAuditDatabaseContext } = require('./lib/audit-runtime-context.cjs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/?$/, '/');
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -8,9 +10,7 @@ const REPORT_PATH = path.join(OUTPUT_DIR, 'collection-concurrency-reconcile-audi
 const RUN_ID = `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${process.pid}_${Math.random().toString(36).slice(2, 7)}`;
 const STEP_TIMEOUT_MS = 30_000;
 const REQUEST_TIMEOUT_MS = 20_000;
-const ADMIN = { username: 'admin', password: 'admin123' };
-
-process.env.DATABASE_URL = process.env.DATABASE_URL || 'file:D:/AilaoDaRuntime/stable.db';
+applyAuditDatabaseContext(process.env);
 const { PrismaClient } = require(path.join(process.cwd(), 'backend', 'node_modules', '@prisma', 'client'));
 
 const report = {
@@ -237,7 +237,8 @@ async function main() {
   ensureDir(OUTPUT_DIR);
   const prisma = new PrismaClient();
   try {
-    const admin = await loginAdmin(runtime, { admin: ADMIN, stepTimeoutMs: STEP_TIMEOUT_MS });
+    const accounts = await ensureUiAuditAccounts('collection_concurrency', ['admin']);
+    const admin = await loginAdmin(runtime, { admin: accounts.admin, stepTimeoutMs: STEP_TIMEOUT_MS });
     const seed = await seedBusinessChain(runtime, { token: admin.token, prisma, runId: RUN_ID, testData, report, stepTimeoutMs: STEP_TIMEOUT_MS });
     report.seeded = { ...report.seeded, orderId: seed.order.id, paymentId: seed.paymentId };
     await auditConcurrentSync(admin.token);

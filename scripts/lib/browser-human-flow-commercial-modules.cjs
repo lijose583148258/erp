@@ -40,6 +40,7 @@ function createCommercialHumanFlowModules({
   TIMEOUTS,
   getBodyText,
   openHash,
+  recordStep,
   safeScreenshot,
   waitForVisibleText,
   withTimeout,

@@ -1,7 +1,53 @@
+import { readProductionBatchTrace, type ProductionBatchTrace } from './productionBatchTrace';
+export type { ProductionBatchTrace } from './productionBatchTrace';
 import api, { ApiRequestOptions } from '../utils/api';
 
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
+export type ProductionDensityUse = {
+  densityRevisionId: number;
+  temperatureC: string;
+  pressureKpaAbs: string;
+  compositionReference: string;
+};
+export type ProductionConsumptionRecord = {
+  stockBalanceId: number;
+  quantity: number;
+  densityUse?: ProductionDensityUse;
+};
+
+export interface ProductionQualityCharacteristic {
+  id: number;
+  bomId: number;
+  code: string;
+  name: string;
+  valueType: 'numeric' | 'text';
+  unit: string | null;
+  lowerLimit: string | null;
+  upperLimit: string | null;
+  targetText: string | null;
+  testMethod: string | null;
+  required: boolean;
+  sortOrder: number;
+}
+
+export interface ProductionQualityMeasurement {
+  id: number;
+  characteristicId: number | null;
+  characteristicCode: string;
+  characteristicName: string;
+  valueType: 'numeric' | 'text';
+  unit: string | null;
+  lowerLimit: string | null;
+  upperLimit: string | null;
+  targetText: string | null;
+  measuredNumeric: string | null;
+  measuredText: string | null;
+  result: 'pass' | 'fail';
+  testMethod: string | null;
+  instrumentNo: string | null;
+  note: string | null;
+}
 
 export interface ProductionSummary {
   bomCount: number;
@@ -20,10 +66,13 @@ export interface ProductionSummary {
 
 export interface ProductionBomItem {
   id?: number;
+  materialId?: number | null;
   materialName: string;
   materialCode?: string | null;
   ingredientRole?: string | null;
   dosageMode?: string | null;
+  densityRevisionId?: number | null;
+  densitySnapshotJson?: string | null;
   percentage?: number | null;
   quantityPerUnit: number;
   unit: string;
@@ -36,14 +85,18 @@ export interface ProductionBomItem {
 }
 
 export interface ProductionBom {
+  packagingRevisionId?: number | null;
+  packagingSnapshotJson?: string | null;
   id: number;
   bomNo: string;
+  materialId?: number | null;
   productName: string;
   version: string;
   bomType?: string;
   status?: string;
   formulationMode?: string | null;
   outputUnit: string;
+  shelfLifeDays: number | null;
   standardBatchSize?: number | null;
   batchSizeUnit?: string | null;
   density?: number | null;
@@ -56,6 +109,7 @@ export interface ProductionBom {
   createdBy: number;
   creator?: { id: number; username: string; role: string } | null;
   items: ProductionBomItem[];
+  qualityCharacteristics: ProductionQualityCharacteristic[];
   workOrders?: Array<{
     id: number;
     workOrderNo: string;
@@ -86,11 +140,21 @@ export interface ProductionQualityCheck {
   id: number;
   workOrderId: number;
   checkNo: string;
+  revision: number;
+  status: 'legacy_recorded' | 'submitted' | 'released' | 'rejected';
   result: ProductionQualityResult;
+  disposition: 'legacy' | 'hold' | 'released' | 'quarantine';
+  sampleNo: string | null;
   defectRate: number | null;
   note: string | null;
   checkedBy: string | null;
+  inspectorUserId: number | null;
   checkedAt: string | null;
+  reviewedBy: string | null;
+  reviewedByUserId: number | null;
+  reviewedAt: string | null;
+  reviewNote: string | null;
+  measurements: ProductionQualityMeasurement[];
   createdAt: string;
   updatedAt: string;
 }
@@ -100,6 +164,7 @@ export interface ProductionWorkOrder {
   workOrderNo: string;
   bomId: number | null;
   batchId: number | null;
+  materialId?: number | null;
   productName: string;
   targetQuantity: number;
   producedQuantity: number;
@@ -110,16 +175,57 @@ export interface ProductionWorkOrder {
   actualStartAt: string | null;
   actualEndAt: string | null;
   note: string | null;
+  densitySnapshotJson?: string | null;
   createdBy: number;
-  bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string } | null;
-  productBatch?: { id: number; batchNo: string; productName: string; stockQuantity: number; unit: string } | null;
+  bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null; qualityCharacteristics: ProductionQualityCharacteristic[] } | null;
+  productBatch?: {
+    id: number;
+    materialId?: number | null;
+    batchNo: string;
+    productName: string;
+    productionDate: string | null;
+    expiryDate: string | null;
+    stockQuantity: number;
+    qualityStatus?: string;
+    unit: string;
+  } | null;
   steps: ProductionStep[];
   qualityChecks: ProductionQualityCheck[];
   createdAt: string;
   updatedAt: string;
 }
 
+export interface ProductionDisposition {
+  id: number;
+  dispositionNo: string;
+  workOrderId: number;
+  workOrderNo: string | null;
+  batchId: number;
+  batchNo: string | null;
+  productName: string | null;
+  qualityStatus: string | null;
+  stockBalanceId: number;
+  locationId: number | null;
+  locationCode: string | null;
+  locationName: string | null;
+  dispositionType: 'scrap' | 'rework_return';
+  sourceDispositionId: number | null;
+  quantity: number;
+  unit: string;
+  costAmount: number;
+  reworkedQuantity: number;
+  reworkedCostAmount: number;
+  reason: string;
+  note: string | null;
+  status: string;
+  createdAt: string;
+}
+
 export const productionService = {
+  async getBatchTrace(batchId: number, options: ApiRequestOptions = {}): Promise<ProductionBatchTrace> {
+    const response = await api.get<any, { success: boolean; data: ProductionBatchTrace }>(`/production/batches/${batchId}/trace`, { signal: options.signal });
+    return readProductionBatchTrace(batchId, response);
+  },
   async getSummary(options: ApiRequestOptions = {}): Promise<ProductionSummary> {
     const response = await api.get<any, { success: boolean; data: ProductionSummary }>('/production/summary', { signal: options.signal });
     return response.data;
@@ -131,12 +237,15 @@ export const productionService = {
   },
 
   async createBom(data: {
+    packagingRevisionId?: number | null;
+    materialId?: number | null;
     productName: string;
     version?: string | null;
     bomType?: string | null;
     status?: string | null;
     formulationMode?: string | null;
     outputUnit: string;
+    shelfLifeDays: number;
     standardBatchSize?: number | null;
     batchSizeUnit?: string | null;
     density?: number | null;
@@ -145,6 +254,18 @@ export const productionService = {
     effectiveTo?: string | null;
     processJson?: string | null;
     qualitySpecJson?: string | null;
+    qualityCharacteristics?: Array<{
+      code: string;
+      name: string;
+      valueType?: 'numeric' | 'text';
+      unit?: string | null;
+      lowerLimit?: string | number | null;
+      upperLimit?: string | number | null;
+      targetText?: string | null;
+      testMethod?: string | null;
+      required?: boolean;
+      sortOrder?: number;
+    }>;
     notes?: string | null;
     items?: ProductionBomItem[];
   }): Promise<ProductionBom> {
@@ -178,7 +299,26 @@ export const productionService = {
     return response.data;
   },
 
-  async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: { stockBalanceId: number; quantity: number }[]): Promise<ProductionWorkOrder> {
+  async getWorkOrderDispositions(id: number, options: ApiRequestOptions = {}): Promise<ProductionDisposition[]> {
+    const response = await api.get<any, { success: boolean; data: ProductionDisposition[] }>(`/production/work-orders/${id}/dispositions`, { signal: options.signal });
+    return response.data || [];
+  },
+
+  async createWorkOrderDisposition(id: number, data: {
+    type: 'scrap' | 'rework_return';
+    quantity: number;
+    reason: string;
+    note?: string | null;
+    idempotencyKey: string;
+    stockBalanceId?: number | null;
+    sourceDispositionId?: number | null;
+    destinationLocationId?: number | null;
+  }): Promise<ProductionDisposition> {
+    const response = await api.post<any, { success: boolean; data: ProductionDisposition }>(`/production/work-orders/${id}/dispositions`, data);
+    return response.data;
+  },
+
+  async updateWorkOrderStatus(id: number, status: ProductionWorkOrderStatus, consumptionRecords?: ProductionConsumptionRecord[]): Promise<ProductionWorkOrder> {
     const response = await api.patch<any, { success: boolean; data: ProductionWorkOrder }>(`/production/work-orders/${id}/status`, { status, consumptionRecords });
     return response.data;
   },
@@ -188,8 +328,24 @@ export const productionService = {
     return response.data;
   },
 
-  async createQualityCheck(id: number, data: { result: ProductionQualityResult; defectRate?: number | null; note?: string | null; checkedBy?: string | null }): Promise<ProductionQualityCheck> {
+  async createQualityCheck(id: number, data: {
+    sampleNo: string;
+    defectRate?: number | null;
+    note?: string | null;
+    measurements: Array<{
+      characteristicId: number;
+      measuredNumeric?: string | number | null;
+      measuredText?: string | null;
+      instrumentNo?: string | null;
+      note?: string | null;
+    }>;
+  }): Promise<ProductionQualityCheck> {
     const response = await api.post<any, { success: boolean; data: ProductionQualityCheck }>(`/production/work-orders/${id}/checks`, data);
+    return response.data;
+  },
+
+  async reviewQualityCheck(id: number, checkId: number, data: { decision: 'release' | 'reject'; reviewNote: string }): Promise<ProductionQualityCheck> {
+    const response = await api.post<any, { success: boolean; data: ProductionQualityCheck }>(`/production/work-orders/${id}/checks/${checkId}/review`, data);
     return response.data;
   },
 };

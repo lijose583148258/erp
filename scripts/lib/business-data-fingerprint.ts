@@ -78,6 +78,7 @@ export const businessFingerprintMetricSpecs: BusinessFingerprintMetricSpec[] = [
   { table: 'barter_valuation_snapshots', sums: ['reference_price'] },
   { table: 'barter_offset_postings', sums: ['offset_amount'] },
   { table: 'barter_reversal_logs' },
+  { table: 'barter_cash_obligations' },
   { table: 'adjustment_records', sums: ['quantity_delta', 'amount_delta'] },
   { table: 'receivable_adjustments', sums: ['amount', 'exchange_rate', 'base_amount'] },
 ];

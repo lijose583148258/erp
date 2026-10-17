@@ -118,9 +118,10 @@ async function patchStatus(token, orderId, status) {
   return response.json?.data;
 }
 
-async function createReceipt(token, orderId, payload) {
+async function createReceipt(token, orderId, payload, requestKey) {
   const response = await apiFetch(`/procurement/orders/${orderId}/receipts`, {
     method: 'POST',
+    headers: { 'Idempotency-Key': requestKey },
     data: payload,
   }, token);
   return {
@@ -221,14 +222,14 @@ async function run() {
         rejectedQuantity: 0,
         batchNo: `PARTIAL-A-${RUN_ID}`,
         note: 'partial receipt race A',
-      }),
+      }, `partial-race-${RUN_ID}-a`),
       createReceipt(manager.token, order.id, {
         quantity: 6,
         acceptedQuantity: 6,
         rejectedQuantity: 0,
         batchNo: `PARTIAL-B-${RUN_ID}`,
         note: 'partial receipt race B',
-      }),
+      }, `partial-race-${RUN_ID}-b`),
     ]);
     const raceSuccessCount = raceResults.filter(item => item.ok).length;
     const raceConflictCount = raceResults.filter(item => item.status === 409).length;
@@ -256,7 +257,7 @@ async function run() {
       rejectedQuantity: 0,
       batchNo: `PARTIAL-C-${RUN_ID}`,
       note: 'partial receipt remaining quantity',
-    });
+    }, `partial-race-${RUN_ID}-remaining`);
     if (!remainingReceipt.ok) {
       fail(`Remaining partial receipt failed: ${remainingReceipt.status}`, { response: remainingReceipt.body });
     }

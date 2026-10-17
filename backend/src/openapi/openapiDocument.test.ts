@@ -2,6 +2,16 @@ import { buildOpenApiDocument } from './openapiDocument';
 import { API_ROUTE_MODULES } from '../routes/apiRegistry';
 
 describe('OpenAPI contract foundation', () => {
+  it('documents bounded purchase plans without inventing reservation or refund support', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      expect(document.paths[`${prefix}/orders/{id}/fulfillment-plans`]?.post?.responses['201']).toBeDefined();
+      expect(document.paths[`${prefix}/orders/{id}/fulfillment-plans/{planId}/approve`]?.post?.description).toContain('Creator cannot approve');
+      expect(document.paths[`${prefix}/orders/{id}/fulfillment-plans/{planId}/close`]?.post?.description).toContain('No refund');
+    }
+    expect(document.components.schemas.SalesFulfillmentPlanCreate.properties.fulfillmentOption.enum).toEqual(['linked_purchase']);
+    expect(document.components.schemas.SalesFulfillmentPlanCreate.properties.plannedQuantity.exclusiveMinimum).toBe(true);
+  });
   const jsonSchemaRef = (response: Record<string, unknown> | undefined) => {
     const content = response?.content as Record<string, { schema?: unknown }> | undefined;
     return content?.['application/json']?.schema;
@@ -138,6 +148,144 @@ describe('OpenAPI contract foundation', () => {
     expect(document.components.schemas.CollectionOverdueListResponse).toBeDefined();
   });
 
+  it('documents the row-level canonical material repair contract', () => {
+    const document = buildOpenApiDocument() as any;
+    expect(document.components.schemas.MaterialReadinessIssue.properties.reason.enum)
+      .toContain('missing_material_id');
+    expect(document.components.schemas.MaterialReadinessErrorResponse.properties.errorCode.enum)
+      .toEqual(['MATERIAL_RELEASE_REQUIRED']);
+    expect(document.paths['/api/v1/warehouses/stock-balances'].post.responses['409'].content['application/json'].schema)
+      .toEqual(expect.objectContaining({
+        oneOf: expect.arrayContaining([
+          { $ref: '#/components/schemas/MaterialReadinessErrorResponse' },
+        ]),
+      }));
+  });
+
+  it('requires an explicit shelf-life policy when creating a production BOM', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const createBom = document.paths[`${prefix}/production/boms`]?.post;
+      expect((createBom?.requestBody?.content as any)?.['application/json']?.schema).toEqual({
+        $ref: '#/components/schemas/ProductionBomCreateRequest',
+      });
+      expect(createBom?.responses['201']).toBeDefined();
+    }
+
+    expect(document.components.schemas.ProductionBomCreateRequest.required)
+      .toEqual(['productName', 'outputUnit', 'shelfLifeDays', 'items']);
+    expect(document.components.schemas.ProductionBomCreateRequest.properties.shelfLifeDays)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, maximum: 3650 }));
+    expect(document.components.schemas.ProductionBomCreateRequest.properties.materialId)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, nullable: true }));
+  });
+
+  it('documents the bounded batch genealogy evidence endpoint', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const trace = document.paths[`${prefix}/production/batches/{batchId}/trace`]?.get;
+      expect(trace).toBeDefined();
+      expect(trace?.parameters?.[0]).toEqual(expect.objectContaining({ name: 'batchId', in: 'path', required: true }));
+      expect(trace?.description).toContain('scope=direct-one-hop');
+      expect(trace?.security).toBeDefined();
+    }
+  });
+
+  it('documents structured inspection and independent release contracts', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const submit = document.paths[`${prefix}/production/work-orders/{id}/checks`]?.post;
+      const review = document.paths[`${prefix}/production/work-orders/{id}/checks/{checkId}/review`]?.post;
+      expect((submit?.requestBody?.content as any)?.['application/json']?.schema).toEqual({ $ref: '#/components/schemas/ProductionQualityInspectionRequest' });
+      expect((review?.requestBody?.content as any)?.['application/json']?.schema).toEqual({ $ref: '#/components/schemas/ProductionQualityReviewRequest' });
+      expect(submit?.description).toContain('server derives pass/fail');
+      expect(review?.description).toContain('self-review');
+    }
+    expect(document.components.schemas.ProductionQualityInspectionRequest.required).toEqual(['sampleNo', 'measurements']);
+    expect(document.components.schemas.ProductionQualityReviewRequest.required).toEqual(['decision', 'reviewNote']);
+  });
+
+  it('documents physical scrap and quarantined rework, not a generic adjustment shortcut', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const route = document.paths[`${prefix}/production/work-orders/{id}/dispositions`];
+      expect(route?.get?.description).toContain('physical stock');
+      expect((route?.post?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/ProductionDispositionRequest' });
+      expect(route?.post?.description).toContain('quarantined');
+    }
+    expect(document.components.schemas.ProductionDispositionRequest.required)
+      .toEqual(['type', 'quantity', 'reason', 'idempotencyKey']);
+  });
+
+  it('documents identity-bound manual stock inbound and shipment creation', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      const inbound = document.paths[`${prefix}/warehouses/stock-balances`]?.post;
+      const shipment = document.paths[`${prefix}/shipping`]?.post;
+      expect((inbound?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/WarehouseStockCreateRequest' });
+      expect((shipment?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/ShipmentCreateRequest' });
+      expect(shipment?.responses['409']).toBeDefined();
+      expect(shipment?.responses['404']).toBeDefined();
+    }
+    expect(document.components.schemas.WarehouseStockCreateRequest.properties.materialId).toBeDefined();
+    expect(document.components.schemas.ShipmentCreateRequest.properties.orderItemId).toBeDefined();
+    expect(document.components.schemas.ShipmentCreateRequest.properties.materialId).toBeDefined();
+  });
+
+  it('documents canonical material search, lifecycle writes, and BOM linkage', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const materials = document.paths[`${prefix}/materials`];
+      const material = document.paths[`${prefix}/materials/{id}`];
+      const aliases = document.paths[`${prefix}/materials/{id}/aliases`];
+      expect(materials?.get?.parameters?.map(parameter => parameter.name))
+        .toEqual(expect.arrayContaining(['q', 'status', 'category', 'limit', 'offset']));
+      expect((materials?.post?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/MaterialWriteRequest' });
+      expect((material?.patch?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/MaterialUpdateRequest' });
+      expect(aliases?.post?.responses['201']).toBeDefined();
+    }
+
+    expect(document.components.schemas.ProductionBomItemRequest.properties.materialId)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1 }));
+    expect(document.components.schemas.Material).toBeDefined();
+    expect(document.components.schemas.MaterialAlias).toBeDefined();
+  });
+
+  it('documents canonical material identity on purchase-order creation', () => {
+    const document = buildOpenApiDocument();
+
+    for (const prefix of ['/api', '/api/v1']) {
+      const createOrder = document.paths[`${prefix}/procurement/orders`]?.post;
+      expect((createOrder?.requestBody?.content as any)?.['application/json']?.schema)
+        .toEqual({ $ref: '#/components/schemas/ProcurementPurchaseOrderCreateRequest' });
+      expect(createOrder?.responses['201']).toBeDefined();
+    }
+
+    expect(document.components.schemas.ProcurementPurchaseOrderCreateRequest.required)
+      .toEqual(['supplierId', 'item', 'quantity', 'unit', 'price', 'eta']);
+    expect(document.components.schemas.ProcurementPurchaseOrderCreateRequest.properties.materialId)
+      .toEqual(expect.objectContaining({ type: 'integer', minimum: 1, nullable: true }));
+  });
+
+  it('documents purchase revision preconditions and both review routes', () => {
+    const document = buildOpenApiDocument();
+    for (const prefix of ['/api', '/api/v1']) {
+      expect(document.paths[`${prefix}/procurement/orders/{id}`]?.patch?.responses['409']).toBeDefined();
+      expect(document.paths[`${prefix}/procurement/orders/{id}/revisions`]?.get?.security).toBeDefined();
+      expect(document.paths[`${prefix}/procurement/orders/{id}/status`]?.patch?.description).toContain('revision > 0');
+    }
+    const schema = document.components.schemas.ProcurementPurchaseOrderRevisionRequest;
+    expect(schema.additionalProperties).toBe(false);
+    expect(schema.required).toEqual(['expectedRevision', 'expectedUpdatedAt', 'quantity', 'price', 'taxAmount', 'eta', 'reason']);
+  });
+
   it('resolves every local schema reference after composing the document', () => {
     const document = buildOpenApiDocument();
     const schemaNames = new Set(Object.keys(document.components.schemas));
@@ -162,4 +310,30 @@ describe('OpenAPI contract foundation', () => {
     visit(document);
     expect(Array.from(unresolved)).toEqual([]);
   });
+});
+
+
+it('documents controlled packaging without writable frozen snapshots',()=>{
+  const d=buildOpenApiDocument();
+  for(const p of ['/api','/api/v1']) {
+    expect(d.paths[p+'/materials/{id}/packaging'].post?.responses['201']).toBeDefined();
+    expect(d.paths[p+'/materials/{id}/packaging/{revisionId}/approve'].post?.responses['409']).toBeDefined();
+    expect(d.paths[p+'/materials/{id}/packaging/{revisionId}/retire'].post?.responses['404']).toBeDefined();
+  }
+  expect(d.components.schemas.ProductionBomItemRequest.properties.dosageMode.enum).toContain('packaging_percentage_v1');
+  expect(d.components.schemas.ProductionBomItemRequest.properties.dosageMode.enum).toContain('density_percentage_v1');
+  expect(d.components.schemas.ProductionBomItemRequest.properties.densityRevisionId.minimum).toBe(1);
+  expect(d.components.schemas.ProductionBomItemRequest.properties).not.toHaveProperty('densitySnapshotJson');
+  expect(d.components.schemas.ProductionBomCreateRequest.properties.packagingRevisionId.minimum).toBe(1);
+  expect(d.components.schemas.ProductionBomCreateRequest.properties).not.toHaveProperty('packagingSnapshotJson');
+  expect(d.components.schemas.PackagingRevisionReviewRequest.required).toEqual(['expectedUpdatedAt','reason']);
+});
+
+it('documents density evidence as distinct from stock conversion or QC release',()=>{
+  const d=buildOpenApiDocument();for(const p of ['/api','/api/v1']){
+    expect(d.paths[p+'/materials/{id}/densities'].post?.responses['201']).toBeDefined();
+    expect(d.paths[p+'/materials/{id}/densities/{revisionId}/approve'].post?.description).toContain('never releases QC');
+  }
+  expect(d.components.schemas.DensityRevisionCreateRequest.required).toContain('pressureKpaAbs');
+  expect(d.components.schemas.ProductionBomCreateRequest.properties.density.description).toContain('never');
 });

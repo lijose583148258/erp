@@ -3,6 +3,7 @@ import { SalesOrder, OrderStatus, CommissionStatus, PaymentRecord, HistoryLog, C
 import { ApiDataResponse, toApiRecord, toApiRecordArray, toNumberValue, toOptionalString, toStringValue, toUnknownArray } from '../../utils/apiMapping';
 import { decorateSalesOrder } from '../../utils/orderCommercialState';
 import { buildSalesOrderUpdatePayload, mapSalesOrderItem } from './order.mapping';
+import { mapPaymentRecordStatus } from './payment-record-status';
 
 const normalizeDate = (value: unknown) => {
     if (!value) return '';
@@ -26,7 +27,7 @@ const mapPaymentRecord = (value: unknown): PaymentRecord => {
     payerName: toOptionalString(record.payerName),
     note: toOptionalString(record.note),
     recordedBy: toOptionalString(record.recordedBy || record.verifiedBy),
-    status: String(record.status || '').toLowerCase() === 'verified' ? 'verified' : 'pending',
+    status: mapPaymentRecordStatus(record.status),
     createdByRole: record.createdByRole as PaymentRecord['createdByRole'],
     milestoneId: toOptionalString(record.milestoneId),
     };
@@ -91,7 +92,7 @@ const mapOrderResponse = (value: unknown): SalesOrder => {
         id: toStringValue(item.id),
         orderNo: toOptionalString(item.orderNo),
         contractId: toOptionalString(item.contractId),
-        customerId: toStringValue(item.customerId),
+        customerId: toStringValue(item.customerId ?? customer.id),
         customerName,
         customerNameZh,
         customerNameEn,
@@ -215,7 +216,9 @@ export const orderService = {
     },
 
     async recordPayment(orderId: string, payment: PaymentRecord): Promise<SalesOrder> {
+        if (!payment.submissionKey) throw new Error('回款登记缺少稳定请求身份。');
         const response = await api.post<unknown, ApiDataResponse<unknown>>(`/orders/${orderId}/payment`, {
+            idempotencyKey: payment.submissionKey,
             amount: payment.amount,
             method: payment.method,
             date: payment.date,

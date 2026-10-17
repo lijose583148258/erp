@@ -218,7 +218,7 @@ async function run() {
     }
     const deniedSalesPayment = await apiFetch(`/orders/${managerOrder.id}/payment`, {
       method: 'POST',
-      data: { amount: 1, method: 'cash', note: `sales should not pay manager order ${RUN_ID}` },
+      data: { idempotencyKey: require('node:crypto').randomUUID(), amount: 1, method: 'cash', note: `sales should not pay manager order ${RUN_ID}` },
     }, sales.token);
     if (deniedSalesPayment.status !== 403) {
       throw new Error(`销售跨人录入回款应为 403，实际 ${deniedSalesPayment.status}`);
