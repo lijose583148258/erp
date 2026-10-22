@@ -47,6 +47,9 @@ if (process.env.ROUND2_POSTGRES_RECOVERY === 'true') implemented.push('database-
 const actors = {};
 runner.report.regression = readRegressionStamp();
 let prisma;
+let workforce;
+const workforceActions = [];
+let workforceOperations;
 
 async function request(endpoint, { actor = actors.admin, instance = 0, method = 'GET', data, signal, headers = {} } = {}) {
   const signals = [AbortSignal.timeout(20_000), ...(signal ? [signal] : [])];
@@ -57,7 +60,14 @@ async function request(endpoint, { actor = actors.admin, instance = 0, method = 
   const raw = await response.text();
   let json;
   try { json = JSON.parse(raw); } catch { json = { message: raw.slice(0, 300) }; }
-  return { ok: response.ok, status: response.status, json };
+  const result = { ok: response.ok, status: response.status, json };
+  if (workforce?.actors.some(person => person.id === actor?.id) && !endpoint.startsWith('/auth/')) {
+    workforceActions.push({ actorId: actor.id, role: actor.role, instance, method, path: endpoint,
+      sent: data === undefined ? null : JSON.parse(JSON.stringify(data)),
+      key: Object.entries(headers).find(([name]) => name.toLowerCase() === 'idempotency-key')?.[1] || null,
+      status: response.status, json: JSON.parse(JSON.stringify(json)) });
+  }
+  return result;
 }
 function dataOf(result, statuses = [200, 201]) {
   assert(statuses.includes(result.status), `HTTP ${result.status}: ${JSON.stringify(result.json)}`);
@@ -92,6 +102,15 @@ async function setup(signal) {
   }
   // Cross-instance token readiness, before measuring business writes.
   dataOf(await request('/warehouses', { instance: 1, signal }));
+  if (process.env.ROUND2_BROWSER === 'true') {
+    // ONE cohort for this entire run. Bootstrap and the separate twenty-user
+    // warehouse load cohort remain fixtures, never workforce participation.
+    workforce = await require('./lib/enterprise-round2-workforce.cjs').createWorkforce({
+      request: (endpoint, { auth, ...options } = {}) => request(endpoint,
+        { ...options, actor: auth ? { token: auth } : null, signal }),
+      dataOf, bootstrapToken: actors.admin.token, runId: `${runId}-workforce`, password, catalog,
+    });
+  }
 }
 
 async function stockFixture(label, signal, { valued = true } = {}) {
@@ -164,34 +183,39 @@ async function stockContention(signal) {
       && JSON.stringify(after.balances) === JSON.stringify(state.balances);
     evidence.replayStatus = replay.status;
   }
-  return verify(requirements, evidence);
+  verify(requirements, evidence);
+  if (workforce) evidence.workforce = await require('./lib/enterprise-round2-stock-workforce.cjs').stockWorkforceProbe(
+    { workforce, request, dataOf, prisma, runId, urls }, evidence, signal);
+  return evidence;
 }
 
-async function customer(signal) {
-  return dataOf(await request('/customers', { actor: actors.sales, method: 'POST', signal, data: {
+async function customer(signal, person = actors.sales) {
+  return dataOf(await request('/customers', { actor: person, method: 'POST', signal, data: {
     name: `${runId}-${crypto.randomBytes(3).toString('hex')}`, creditLimit: 100000, termsDays: 30,
-    segment: 'direct', poolState: 'private', salespersonId: actors.sales.id,
+    segment: 'direct', poolState: 'private', salespersonId: person.id,
     contactName: 'Synthetic round2', contactPhone: '0900000000',
   } }));
 }
-async function shipment(fixture, signal, quantity = 60) {
-  const buyer = await customer(signal);
-  return dataOf(await request('/shipping', { actor: actors.stock0, method: 'POST', signal, data: {
+async function shipment(fixture, signal, quantity = 60, { salesperson = actors.sales, warehouse = actors.stock0 } = {}) {
+  const buyer = await customer(signal, salesperson);
+  return dataOf(await request('/shipping', { actor: warehouse, method: 'POST', signal, data: {
     customerId: buyer.id, materialId: fixture.material.id, productName: fixture.material.nameZh,
     quantity, unit: 'kg', batchNo: fixture.batchNo, carrier: 'Round2 synthetic',
   } }));
 }
 async function transferShipping(signal) {
   const fixture = await stockFixture('transfer-ship', signal);
-  const delivery = await shipment(fixture, signal);
+  const warehouse = workforce ? [workforce.byJob.warehouse[1], workforce.byJob.warehouse[2]] : [actors.stock0, actors.stock1];
+  const salesperson = workforce?.byJob.sales[1] || actors.sales;
+  const delivery = await shipment(fixture, signal, 60, { salesperson, warehouse: warehouse[1] });
   const requestId = `${runId}-compete`;
-  const responses = await synchronizedBurst([actors.stock0, actors.stock1], async actor => {
-    const transfer = actor.id === actors.stock0.id;
+  const responses = await synchronizedBurst(warehouse, async actor => {
+    const transfer = actor.id === warehouse[0].id;
     const result = await request(transfer ? `/warehouses/stock-balances/${fixture.stock.id}/transfer` : `/shipping/${delivery.id}/status`, {
       actor, instance: transfer ? 0 : 1, method: transfer ? 'POST' : 'PATCH', signal,
       data: transfer ? { toLocationId: fixture.destination.id, quantity: 60, requestId } : { status: 'in_transit' },
     });
-    return { status: result.status, operation: transfer ? 'transfer' : 'shipping', message: result.json?.message };
+    return { actorId: actor.id, role: actor.role, status: result.status, operation: transfer ? 'transfer' : 'shipping', message: result.json?.message };
   }, signal);
   const state = await readStock(fixture, signal);
   const persisted = await prisma.shipment.findUnique({ where: { id: delivery.id } });
@@ -209,17 +233,19 @@ async function transferShipping(signal) {
 }
 
 async function shippingCost(signal) {
+  const warehouse = workforce?.byJob.warehouse[2] || actors.stock0;
+  const shipmentPeople = { salesperson: workforce?.byJob.sales[1] || actors.sales, warehouse };
   const fixture = await stockFixture('ship-cost', signal);
-  const delivery = await shipment(fixture, signal);
-  dataOf(await request(`/shipping/${delivery.id}/status`, { actor: actors.stock0, method: 'PATCH', signal, data: { status: 'in_transit' } }));
+  const delivery = await shipment(fixture, signal, 60, shipmentPeople);
+  dataOf(await request(`/shipping/${delivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } }));
   const state = await readStock(fixture, signal);
-  const finalDelivery = await shipment(fixture, signal, 40);
-  dataOf(await request(`/shipping/${finalDelivery.id}/status`, { actor: actors.stock0, method: 'PATCH', signal, data: { status: 'in_transit' } }));
+  const finalDelivery = await shipment(fixture, signal, 40, shipmentPeople);
+  dataOf(await request(`/shipping/${finalDelivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } }));
   const depleted = await readStock(fixture, signal);
   const unvalued = await stockFixture('ship-unvalued', signal, { valued: false });
-  const unvaluedDelivery = await shipment(unvalued, signal);
+  const unvaluedDelivery = await shipment(unvalued, signal, 60, shipmentPeople);
   const unvaluedBefore = await readStock(unvalued, signal);
-  const denied = await request(`/shipping/${unvaluedDelivery.id}/status`, { actor: actors.stock0, method: 'PATCH', signal, data: { status: 'in_transit' } });
+  const denied = await request(`/shipping/${unvaluedDelivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } });
   const unvaluedAfter = await readStock(unvalued, signal);
   const deniedShipment = await prisma.shipment.findUnique({ where: { id: unvaluedDelivery.id } });
   return verify({
@@ -295,6 +321,8 @@ async function paymentVerification(signal) {
 }
 
 async function barterFixture(label, unequal, signal, { agreement: createAgreement = false, currency = 'CNY' } = {}) {
+  const salesperson = workforce?.byJob.sales[2] || actors.sales;
+  const approver = workforce?.byJob.owner[0] || actors.admin;
   const our = await stockFixture(label, signal);
   const incoming = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
     code: `${runId}-${label}-raw`, name: `${runId}-${label}-raw`, category: 'raw_material', unit: 'kg' });
@@ -302,8 +330,8 @@ async function barterFixture(label, unequal, signal, { agreement: createAgreemen
   let raw = warehouses.flatMap(wh => wh.locations || []).find(loc => loc.code === 'LOC-RAW');
   if (!raw) raw = dataOf(await request(`/warehouses/${our.destination.warehouseId}/locations`, { method: 'POST', signal,
     data: { code: 'LOC-RAW', name: 'Round2 raw material', type: 'internal' } }));
-  const buyer = await customer(signal);
-  const order = dataOf(await request('/orders', { actor: actors.sales, method: 'POST', signal, data: {
+  const buyer = await customer(signal, salesperson);
+  const order = dataOf(await request('/orders', { actor: salesperson, method: 'POST', signal, data: {
     customerId: buyer.id, items: [{ materialId: our.material.id, productName: our.material.nameZh, quantity: 10, unit: 'kg', unitPrice: 20 }], paymentTerms: 30,
   } }));
   const receivedBatch = `${runId}-${label}-incoming`;
@@ -315,19 +343,24 @@ async function barterFixture(label, unequal, signal, { agreement: createAgreemen
       { side: 'counterparty', materialId: incoming.id, itemName: incoming.nameZh, unit: 'kg', quantity: 20, unitPrice: unequal === 'negative' ? 12.5 : unequal ? 7.5 : 10, sourceDocument: receivedBatch },
     ],
   };
-  const agreement = createAgreement ? dataOf(await request('/barter/agreements', { actor: actors.sales, method: 'POST', signal, data: payload })) : null;
+  const agreement = createAgreement ? dataOf(await request('/barter/agreements', { actor: salesperson, method: 'POST', signal, data: payload })) : null;
   const settlement = dataOf(await request(agreement ? `/barter/agreements/${agreement.id}/batches` : '/barter/settlements', {
-    actor: actors.sales, method: 'POST', signal, data: agreement ? { items: payload.items, note: runId } : payload,
+    actor: salesperson, method: 'POST', signal, data: agreement ? { items: payload.items, note: runId } : payload,
   }));
-  dataOf(await request(`/barter/settlements/${settlement.id}/approve`, { actor: actors.admin, method: 'PATCH', signal, data: { note: runId } }));
+  dataOf(await request(`/barter/settlements/${settlement.id}/approve`, { actor: approver, method: 'PATCH', signal, data: { note: runId } }));
   return { our, incoming: { material: incoming, batchNo: receivedBatch }, settlement, order, agreement, offset: unequal === 'negative' ? 200 : unequal ? 150 : 200 };
+}
+function financialDutyContext() {
+  if(!workforce)return {};
+  return {workforce,paymentActors:{sales:workforce.byJob.sales[2],requester:workforce.byJob.receivables[0],reviewer:workforce.byJob.owner[0]},
+    barterActors:{sales:workforce.byJob.sales[2],approver:workforce.byJob.owner[0],poster:workforce.byJob.receivables[0],reverser:workforce.byJob.payables[0]}};
 }
 async function readBarter(ctx, signal) {
   const [our, incoming, settlement, order, api] = await Promise.all([
     readStock(ctx.our, signal), readStock(ctx.incoming, signal),
     prisma.barterSettlement.findUnique({ where: { id: ctx.settlement.id }, include: { offsetPostings: true, reversalLogs: true } }),
     prisma.order.findUnique({ where: { id: ctx.order.id }, include: { paymentRecords: true } }),
-    Promise.all(urls.map(async (_, instance) => dataOf(await request(`/barter/settlements/${ctx.settlement.id}`, { actor: actors.finance1, instance, signal })))),
+    Promise.all(urls.map(async (_, instance) => dataOf(await request(`/barter/settlements/${ctx.settlement.id}`, { actor: workforce?.byJob.receivables[0] || actors.finance1, instance, signal })))),
   ]);
   return { our, incoming, settlement, order, api: api.map(row => ({ id: row.id, status: row.status, cashDifference: row.cashDifference })) };
 }
@@ -336,12 +369,13 @@ async function postBarter(ctx, actor, instance, signal) {
 }
 async function barterPosting(signal) {
   const ctx = await barterFixture('barter-post', false, signal);
-  const responses = await synchronizedBurst([actors.finance1, actors.finance2], async actor => {
-    const result = await postBarter(ctx, actor, actor.id === actors.finance1.id ? 0 : 1, signal);
-    return { status: result.status, message: result.json?.message };
+  const posters = workforce ? [workforce.byJob.receivables[0], workforce.byJob.payables[0]] : [actors.finance1, actors.finance2];
+  const responses = await synchronizedBurst(posters, async actor => {
+    const result = await postBarter(ctx, actor, actor.id === posters[0].id ? 0 : 1, signal);
+    return { actorId: actor.id, role: actor.role, status: result.status, message: result.json?.message };
   }, signal);
   const state = await readBarter(ctx, signal);
-  const replay = await postBarter(ctx, actors.finance1, 1, signal);
+  const replay = await postBarter(ctx, posters[0], 1, signal);
   const after = await readBarter(ctx, signal);
   return verify({
     ...stockInvariants(state.our), ...Object.fromEntries(Object.entries(stockInvariants(state.incoming)).map(([key, value]) => [`incoming_${key}`, value])),
@@ -359,7 +393,7 @@ async function barterPosting(signal) {
 }
 async function barterDifference(signal) {
   const ctx = await barterFixture('barter-difference', true, signal);
-  dataOf(await postBarter(ctx, actors.finance1, 0, signal));
+  dataOf(await postBarter(ctx, workforce?.byJob.receivables[0] || actors.finance1, 0, signal));
   const state = await readBarter(ctx, signal);
   return verify({
     sale_valuation_200_incoming_150: cents(state.settlement.totalPartyAValue) === cents(200) && cents(state.settlement.totalPartyBValue) === cents(150),
@@ -371,11 +405,12 @@ async function barterDifference(signal) {
 }
 async function barterReversal(signal) {
   const ctx = await barterFixture('barter-reverse', true, signal);
-  dataOf(await postBarter(ctx, actors.finance1, 0, signal));
+  const posters = workforce ? [workforce.byJob.receivables[0], workforce.byJob.payables[0]] : [actors.finance1, actors.finance2];
+  dataOf(await postBarter(ctx, posters[0], 0, signal));
   const posted = await readBarter(ctx, signal);
-  const responses = await synchronizedBurst([actors.finance1, actors.finance2], async actor => {
-    const result = await request(`/barter/settlements/${ctx.settlement.id}/reverse`, { actor, instance: actor.id === actors.finance1.id ? 0 : 1, method: 'POST', signal, data: { reason: 'Round2 exact reversal' } });
-    return { status: result.status, message: result.json?.message };
+  const responses = await synchronizedBurst(posters, async actor => {
+    const result = await request(`/barter/settlements/${ctx.settlement.id}/reverse`, { actor, instance: actor.id === posters[0].id ? 0 : 1, method: 'POST', signal, data: { reason: 'Round2 exact reversal' } });
+    return { actorId: actor.id, role: actor.role, status: result.status, message: result.json?.message };
   }, signal);
   const state = await readBarter(ctx, signal);
   return verify({
@@ -393,15 +428,17 @@ async function barterReversal(signal) {
 
 async function barterConsumedReversal(signal) {
   const ctx = await barterFixture('barter-consumed', true, signal);
-  dataOf(await postBarter(ctx, actors.finance1, 0, signal));
+  const financier = workforce?.byJob.receivables[0] || actors.finance1;
+  const warehouse = workforce?.byJob.warehouse[2] || actors.stock0;
+  dataOf(await postBarter(ctx, financier, 0, signal));
   const receipt = await readStock(ctx.incoming, signal);
   const raw = receipt.balances[0];
-  dataOf(await request(`/warehouses/stock-balances/${raw.id}/transfer`, { actor: actors.stock0, method: 'POST', signal,
+  dataOf(await request(`/warehouses/stock-balances/${raw.id}/transfer`, { actor: warehouse, method: 'POST', signal,
     data: { toLocationId: ctx.our.source.id, quantity: 20, requestId: `${runId}-barter-consume-transfer` } }));
-  const delivery = await shipment(ctx.incoming, signal, 10);
-  dataOf(await request(`/shipping/${delivery.id}/status`, { actor: actors.stock0, method: 'PATCH', signal, data: { status: 'in_transit' } }));
+  const delivery = await shipment(ctx.incoming, signal, 10, { salesperson: workforce?.byJob.sales[1] || actors.sales, warehouse });
+  dataOf(await request(`/shipping/${delivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } }));
   const before = await readBarter(ctx, signal);
-  const result = await request(`/barter/settlements/${ctx.settlement.id}/reverse`, { actor: actors.finance1, method: 'POST', signal,
+  const result = await request(`/barter/settlements/${ctx.settlement.id}/reverse`, { actor: financier, method: 'POST', signal,
     data: { reason: 'Must reject: part of received goods already consumed by shipment' } });
   const after = await readBarter(ctx, signal);
   return verify({
@@ -417,7 +454,7 @@ async function runInventoryBrowser(id, source) {
   if (process.env.ROUND2_BROWSER !== 'true') return;
   if (!source) { runner.block(id, 'Stock race did not reconcile; no browser pass can be inferred'); return; }
   const { inventoryRaceBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
-  await runner.run(id, signal => inventoryRaceBrowser({ actors, urls, reportPath, runId }, source, signal), { timeoutMs: 120000 });
+  await runner.run(id, signal => inventoryRaceBrowser({ actors, workforce, request, dataOf, urls, reportPath, runId }, source, signal), { timeoutMs: 120000 });
 }
 
 async function purchaseQualityPayables(signal) {
@@ -440,9 +477,17 @@ async function purchaseQualityPayables(signal) {
 async function runSharedSales() {
   const { sharedSalesChain } = require('./lib/enterprise-round2-sales.cjs');
   const shared = await runner.run('sales-reservation-partial-fulfillment', signal => sharedSalesChain({ request, dataOf, prisma, runId, urls, reportPath,
-    bootstrap: actors.admin, catalog, ensureReleasedMaterial }, signal), { timeoutMs: 240000 });
+    bootstrap: actors.admin, catalog, ensureReleasedMaterial, workforce }, signal), { timeoutMs: 240000 });
   if (shared) await runner.run('sales-browser-readback', () => require('./lib/enterprise-round2-sales-proof.cjs').verifySharedSalesBrowser(shared));
   else runner.block('sales-browser-readback', 'The same shared150 order role/API/browser chain did not complete; no separate screenshot may replace it');
+}
+
+function purchaseRevisionContext() {
+  return { request, dataOf, prisma, runId, verify,
+    actors: workforce ? { ...actors, buyer1: workforce.byJob.buyer[0], buyer2: workforce.byJob.buyer[1], sales: workforce.byJob.sales[1] } : actors,
+    ...(workforce ? { workforce, receiptActors: { receivers: [workforce.byJob.warehouse[1], workforce.byJob.warehouse[2]],
+      qc: workforce.byJob.qc[0], qa: workforce.byJob.qa[0] } } : {}),
+  };
 }
 
 async function runPostgresRecovery() {
@@ -455,12 +500,151 @@ async function runPostgresRecovery() {
     // bounded experiment + independent restoration cannot fit before it.
     const elapsed = Date.now() - Date.parse(runner.report.startedAt);
     assert(elapsed >= 0 && elapsed + 315000 < ROUND2_MAX_RUNTIME_MS, 'Insufficient owned PostgreSQL experiment/cleanup budget before the absolute Round2 deadline');
-    return require('./lib/enterprise-round2-postgres-recovery.cjs').postgresRecoveryProbe({ request, dataOf, actors, prisma, runId,
+    return require('./lib/enterprise-round2-postgres-recovery.cjs').postgresRecoveryProbe({ request, dataOf, actors, workforce, prisma, runId,
       urls, reportPath, stockFixture, priorChecks }, signal);
   }, { timeoutMs: 300000 });
   if (source) await runner.run('recovery-full-ledger-reconciliation', () =>
     require('./lib/enterprise-round2-postgres-recovery-proof.cjs').verifyPostgresLedgerRecovery(source, { runId, priorChecks: runner.report.checks }), { timeoutMs: 60000 });
   else runner.block('recovery-full-ledger-reconciliation', 'Actual owned PostgreSQL crash, original request and cleanup did not reconcile; no independent summary may substitute');
+}
+
+async function readWorkforceOperations(signal) {
+  if (!workforce) return;
+  const actor = workforce.byJob.system_admin[0], owner = workforce.byJob.owner[0];
+  const shared = runner.report.checks.find(check => check.id === 'sales-reservation-partial-fulfillment')?.evidence;
+  const evidence = { actorId: actor.id, role: actor.role, nodes: [], denial: null };
+  workforceOperations = evidence;
+  for (const instance of [0, 1]) {
+    const status = await request('/system/status', { actor, instance, signal });
+    const backups = await request('/system/backups', { actor, instance, signal });
+    const auditPath = `/audit?userId=${owner.id}&page=1&pageSize=100`;
+    const audit = await request(auditPath, { actor, instance, signal });
+    evidence.nodes.push({ instance, status, backups, auditPath, audit });
+    const state = dataOf(status); assert(['sqlite-file', 'external'].includes(state.database?.databaseType));
+    assert(Array.isArray(dataOf(backups)), 'Read the existing backup catalog, not a fabricated restore verdict');
+    const logs = dataOf(audit); assert(Array.isArray(logs));
+    if (shared?.manifest?.supplierPaymentId) assert(logs.some(row => row.resource === 'supplier_payment'
+      && row.resourceId === shared.manifest.supplierPaymentId && row.userId === owner.id), 'Administrator must read the actual independently verified supplier payment audit');
+  }
+  // Reuse a real successful request from this run; a nonexistent customer or
+  // unresolved material would not be a valid control for the role boundary.
+  const positives = shared?.actions?.filter(row => row.method === 'POST' && row.path === '/orders'
+    && row.status === 201 && row.json?.success === true && row.json.data?.id === shared.manifest?.orderId) || [];
+  assert.equal(positives.length, 1, 'System administrator denial requires the existing successful shared sales order');
+  const positiveControl = positives[0], sales = workforce.byJob.sales[0];
+  assert.equal(positiveControl.actorId, sales.id); assert.equal(positiveControl.role, sales.role);
+  assert.equal(positiveControl.job, 'sales');
+  assert.equal(positiveControl.sent.customerId, shared.manifest.customerId);
+  assert(Array.isArray(positiveControl.sent.items) && positiveControl.sent.items.length > 0);
+  const current = await request('/auth/me', { actor, instance: 1, signal }), profile = dataOf(current);
+  assert.equal(current.status, 200); assert.equal(profile.id, actor.id);
+  for (const key of ['username', 'role', 'segment']) assert.equal(profile[key], actor.profile[key], `Current administrator ${key}`);
+  assert.equal(profile.isActive, true); assert.equal(profile.mustChangePassword, false);
+  for (const key of ['permissions', 'dataScopes']) {
+    assert(Array.isArray(profile[key])); assert.equal(new Set(profile[key]).size, profile[key].length);
+    assert.deepEqual([...profile[key]].sort(), [...actor.profile[key]].sort(), `Current administrator ${key}`);
+  }
+  assert(!profile.permissions.includes('orders.create') && !profile.permissions.includes('*') && !profile.dataScopes.includes('all'));
+  // createOrder touches the customer for serialization, writes order/items,
+  // then writes a CREATE business audit. HTTP denial logs are not business writes.
+  const snapshot = async () => ({
+    order: await prisma.order.findMany({ orderBy: { id: 'asc' } }),
+    orderItem: await prisma.orderItem.findMany({ orderBy: { id: 'asc' } }),
+    customer: await prisma.customer.findMany({ orderBy: { id: 'asc' } }),
+    auditLog: await prisma.auditLog.findMany({ where: { resource: 'order', action: 'CREATE' }, orderBy: { id: 'asc' } }),
+  });
+  const before = await snapshot();
+  const original = before.order.find(row => row.id === shared.manifest.orderId);
+  assert(original && original.createdBy === sales.id && original.customerId === shared.manifest.customerId);
+  assert(before.customer.some(row => row.id === shared.manifest.customerId && row.status === 'active'));
+  assert(before.orderItem.some(row => row.orderId === original.id));
+  assert.equal(before.auditLog.filter(row => row.resourceId === original.id && row.userId === sales.id).length, 1);
+  const sent = JSON.parse(JSON.stringify(positiveControl.sent));
+  const denied = await request('/orders', { actor, instance: 1, method: 'POST', data: sent, signal });
+  const after = await snapshot();
+  evidence.denial = { actorId: actor.id, instance: 1, method: 'POST', path: '/orders', sent,
+    profileStatus: current.status, profile, positiveControl, status: denied.status, json: denied.json, before, after };
+  assert.equal(denied.status, 403); assert.equal(denied.json.success, false);
+  assert.deepEqual(denied.json.requiredPermissions, ['orders.create']);
+  assert.deepEqual(after, before, 'System administrator denial changed order-create business facts');
+}
+
+function attachWorkforcePreparation() {
+  if (!workforce) return;
+  // Publish only public identities. Never replace a previous proof or failure
+  // while preserving evidence after an interrupted business chain.
+  const preparation = runner.report.workforcePreparation ||= {
+    version: 'enterprise-round2-workforce-preparation/v1',
+    scope: 'Same-cohort business participation evidence; not all20 native-browser acceptance',
+    businessParticipationAccepted: false,
+    actors: workforce.actors.map(({ id, job, index, role, profile, profilesByInstance }) => ({ id, job, index, role, profile, profilesByInstance })),
+  };
+  preparation.actions = workforceActions;
+  preparation.operations = workforceOperations;
+  return preparation;
+}
+
+async function readCurrentWorkforceProfiles(preparation, signal) {
+  // The final read must use the original actors, including sessions refreshed
+  // by PostgreSQL recovery. A 401/403 is evidence, not a stale-profile fallback.
+  for (const person of preparation.actors) {
+    person.currentProfilesByInstance = {};
+    person.currentProfileResponsesByInstance = {};
+  }
+  await Promise.all(workforce.actors.flatMap(actor => [0, 1].map(async instance => {
+    const person = preparation.actors.find(row => row.id === actor.id);
+    let response;
+    try { response = await request('/auth/me', { actor, instance, signal }); }
+    catch (error) { response = { ok: false, status: 0, json: null, error: String(error.message || error) }; }
+    person.currentProfileResponsesByInstance[instance] = response;
+    person.currentProfilesByInstance[instance] = response.status === 200 && response.json?.success === true
+      ? response.json.data || null : null;
+  })));
+}
+
+async function finalizeWorkforceParticipation() {
+  const preparation = attachWorkforcePreparation();
+  if (!preparation || preparation.finalization) return;
+  if (process.env.ROUND2_ONLY_CHECK) {
+    preparation.verificationNotRunReason = 'Single-check diagnostic, not cumulative workforce acceptance';
+    return;
+  }
+  preparation.finalization = { startedAt: new Date().toISOString() };
+  try {
+    await readCurrentWorkforceProfiles(preparation, AbortSignal.timeout(45000));
+    const provider = runner.report.metadata.provider;
+    const priorChecks = runner.report.checks.filter(check => check.id !== 'workforce-rbac');
+    if (provider === 'postgresql' && (priorChecks.length !== 36 || priorChecks.some(check => check.status !== 'passed'))) {
+      preparation.verificationNotRunReason = 'All 36 same-run pre-workforce checks must pass before PostgreSQL workforce acceptance';
+      return;
+    }
+    const verifyParticipation = () => {
+      const proof = require('./lib/enterprise-round2-workforce-proof.cjs').verifyWorkforceParticipation(runner.report,
+        { requirePostgres: provider === 'postgresql' });
+      preparation.verification = proof;
+      return proof;
+    };
+    if (provider === 'postgresql') {
+      const proof = await runner.run('workforce-rbac', verifyParticipation);
+      if (!proof) throw new Error(runner.report.checks.find(check => check.id === 'workforce-rbac').error || 'Workforce participation verification failed');
+      preparation.businessParticipationAccepted = true;
+      runner.report.metadata.scope = 'Verified same-cohort 20-position participation across 12 business chains with selected native-browser evidence; not all20 native-browser coverage';
+    } else {
+      // SQLite proves the available eleven business chains and twenty duties;
+      // it cannot execute the PostgreSQL recovery or promote workforce-rbac.
+      verifyParticipation();
+    }
+  } catch (error) {
+    preparation.verificationError = String(error.message || error);
+    throw error;
+  } finally {
+    preparation.finalization.finishedAt = new Date().toISOString();
+  }
+}
+
+function recordExecutionError(error) {
+  const message = String(error.message || error);
+  runner.report.executionError = runner.report.executionError ? `${runner.report.executionError}; ${message}` : message;
 }
 
 async function main() {
@@ -475,7 +659,7 @@ async function main() {
     assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'purchase-partial-receipt-qc-payables', 'inventory-browser', 'po-stale-edit-conflict', 'shared-sales'].includes(process.env.ROUND2_ONLY_CHECK));
     if (process.env.ROUND2_ONLY_CHECK === 'shared-sales') { await runSharedSales(); return; }
     if (process.env.ROUND2_ONLY_CHECK === 'po-stale-edit-conflict') {
-      await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
+      await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe(purchaseRevisionContext(), signal));
       return;
     }
     assert.equal(process.env.ROUND2_BROWSER, 'true');
@@ -495,11 +679,11 @@ async function main() {
     }
     if (process.env.ROUND2_ONLY_CHECK === 'payment-submit-durable-replay') {
       const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
-      await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+      await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath, ...financialDutyContext() }, signal), { timeoutMs: 180000 });
       return;
     }
     const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
-    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, workforce, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
     return;
   }
   if (process.env.ROUND2_SALES_PLAN_REPORT) await runner.run('presale-with-fulfillment-plan', () => {
@@ -519,10 +703,10 @@ async function main() {
   });
   if (process.env.ROUND2_BROWSER === 'true') await runSharedSales();
   await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
-  await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal));
+  await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe(purchaseRevisionContext(), signal));
   if (process.env.ROUND2_BROWSER === 'true') {
     const { purchaseRevisionBrowser, purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
-    await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+    await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ ...purchaseRevisionContext(), urls, reportPath }, signal), { timeoutMs: 120000 });
     await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
     await runner.run('purchase-partial-receipt-qc-payables', purchaseQualityPayables, { timeoutMs: 180000 });
   }
@@ -531,31 +715,37 @@ async function main() {
   await runner.run('payment-duplicate-verification', paymentVerification);
   if (process.env.ROUND2_BROWSER === 'true') {
     const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
-    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, workforce, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
   }
   if (process.env.ROUND2_BROWSER === 'true') {
     const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
-    await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+    await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath, ...financialDutyContext() }, signal), { timeoutMs: 180000 });
   }
   await runner.run('barter-dual-stock-posting-replay', barterPosting);
   if (process.env.ROUND2_BROWSER === 'true') {
     const { paymentReversalAcceptanceProbe } = require('./lib/enterprise-round2-payment-reversal.cjs');
-    await runner.run('payment-reversal-browser', signal => paymentReversalAcceptanceProbe({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal), { timeoutMs: 240000 });
+    await runner.run('payment-reversal-browser', signal => paymentReversalAcceptanceProbe({ request, dataOf, actors, prisma, runId, urls, reportPath, ...financialDutyContext() }, signal), { timeoutMs: 240000 });
   }
   await runner.run('barter-offset-cash-difference', barterDifference);
   await runner.run('barter-reversal-conservation', barterReversal);
   await runner.run('barter-consumed-receipt-reversal-blocked', barterConsumedReversal);
   const barterPartial = await runner.run('barter-partial-fulfillment', signal => barterPartialFulfillmentProbe({
-    request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial, urls, reportPath,
+    request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial, urls, reportPath, ...financialDutyContext(),
   }, signal), { timeoutMs: 120000 });
   if (process.env.ROUND2_BROWSER === 'true') {
     if (barterPartial) await runner.run('barter-browser-readback', () => assertBarterBrowserChain(barterPartial));
     else runner.block('barter-browser-readback', 'Sales/finance UI chain or inventory/payment reconciliation did not complete');
   }
   await runner.run('barter-negative-cash-adjustment', signal => barterNegativeCashProbe({
-    request, dataOf, actors, prisma, barterFixture, readBarter, runId, urls, reportPath,
+    request, dataOf, actors, prisma, barterFixture, readBarter, runId, urls, reportPath, ...financialDutyContext(),
   }, signal), { timeoutMs: 120000 });
-  const bomContext = { request, dataOf, actors, prisma, runId, ensureReleasedMaterial, urls, reportPath };
+  const bomContext = { request, dataOf, actors, prisma, runId, ensureReleasedMaterial, urls, reportPath,
+    ...(workforce ? { workforce, productionActors: {
+      research: workforce.byJob.research[0], planner: workforce.byJob.production_planner[0],
+      operators: workforce.byJob.production_operator, qc: workforce.byJob.qc[0], qa: workforce.byJob.qa[0],
+      cost: workforce.byJob.cost_accountant[0], warehouse: workforce.byJob.warehouse[1],
+    } } : {}),
+  };
   const frozen = await runner.run('bom-revision-freeze', signal => bomFreezeProbe(bomContext, signal), { timeoutMs: 90000 });
   if (process.env.ROUND2_BROWSER === 'true') {
     if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 90000 });
@@ -579,10 +769,12 @@ async function main() {
     else runner.block('genealogy-readback', 'Dual work order reconciliation did not complete');
   }
   await runPostgresRecovery();
+  await readWorkforceOperations(AbortSignal.timeout(45000));
 }
 
-main().catch(error => { runner.report.executionError = String(error.message || error); }).finally(async () => {
-  if (prisma) await prisma.$disconnect();
+main().catch(recordExecutionError).finally(async () => {
+  try { await finalizeWorkforceParticipation(); } catch (error) { recordExecutionError(error); }
+  try { if (prisma) await prisma.$disconnect(); } catch (error) { recordExecutionError(error); }
   const report = runner.finish();
   console.log(JSON.stringify({ status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
   process.exitCode = report.status === 'passed' ? 0 : report.summary.failedChecks || report.executionError || report.setupError ? 1 : 2;

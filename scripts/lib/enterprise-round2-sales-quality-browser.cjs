@@ -8,7 +8,7 @@ const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 // Concrete QC/QA/AP steps for the same receipt of the shared sales chain.
 // No new fixture, hidden quality update, or fixed2kg report substitution.
 async function createSharedQualityBrowser({ urls, actors, runId, folder, signal }) {
-  const e = { runId, actors: [], browserProfiles: [], actions: [], readbacks: [], screenshots: [] }, pages = {};
+  const e = { runId, actors: [], browserProfiles: [], actions: [], readbacks: [], screenshots: [], loads: [] }, pages = {};
   let browser;
   const abort = () => { if (browser) void browser.close().catch(() => {}); };
   signal?.addEventListener('abort', abort, { once: true });
@@ -27,16 +27,51 @@ async function createSharedQualityBrowser({ urls, actors, runId, folder, signal 
       pages[job] = page; e.actors.push({ job, actorId: actor.id, instance, role: actor.role, profile: actor.profile });
     }
     const page = pages[job], hash = job === 'payables' ? 'financeAnalytics' : 'procurement';
-    const auth = page.waitForResponse(r => new URL(r.url()).pathname === '/api/auth/me' && r.request().method() === 'GET');
-    await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' }); await page.reload({ waitUntil: 'domcontentloaded' });
-    const response = await auth; assert.equal(response.status(), 200); const actual = (await response.json()).data;
-    const profile = user => ({ id: Number(user.id), role: user.role, permissions: [...user.permissions].sort(), dataScopes: [...user.dataScopes].sort() });
-    assert.deepEqual(profile(actual), profile(actor.profile));
-    e.browserProfiles.push({ job, actorId: actor.id, instance, path: '/api/auth/me', status: response.status(), actual: profile(actual) });
-    await page.locator('#loading').waitFor({ state: 'hidden' });
-    const selector = job === 'payables' ? `supplier-payable-open-${receiptId}` : `incoming-quality-select-${receiptId}`;
-    await page.getByTestId(selector).click();
-    return { page, actor, instance };
+    const trace = { job, actorId: actor.id, receiptId, instance, phase: 'initial-navigation', events: [] }; e.loads.push(trace);
+    const scrub = value => Object.values(actors).flatMap(a => [a.token, a.account?.password]).filter(Boolean)
+      .reduce((text, secret) => text.split(secret).join('[redacted]'), String(value)).slice(0, 300);
+    const remember = event => { if (trace.events.length < 40) trace.events.push({ phase: trace.phase, ...event }); };
+    const isAuth = request => { const url = new URL(request.url());
+      return url.origin === new URL(urls[instance]).origin && url.pathname === '/api/auth/me' && request.method() === 'GET'; };
+    const requestFailed = request => { if (isAuth(request)) remember({ event: 'auth-requestfailed', path: '/api/auth/me', error: scrub(request.failure()?.errorText || 'unknown') }); };
+    const pageError = error => remember({ event: 'pageerror', error: scrub(error.message || error) });
+    const navigated = frame => { if (frame === page.mainFrame()) remember({ event: 'navigation', path: new URL(frame.url()).pathname }); };
+    page.on('requestfailed', requestFailed); page.on('pageerror', pageError); page.on('framenavigated', navigated);
+    try {
+      await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' });
+      // Finish the first startup before requesting a separately identifiable
+      // fresh session read; immediate reload can cancel the first auth request.
+      trace.phase = 'initial-startup'; await page.locator('#loading').waitFor({ state: 'hidden' });
+      trace.phase = 'fresh-auth'; const auth = page.waitForRequest(isAuth); void auth.catch(() => {});
+      await page.reload({ waitUntil: 'domcontentloaded' });
+      const response = await (await auth).response(); assert(response, 'Fresh quality auth/me request failed');
+      assert.equal(response.status(), 200); const actual = (await response.json()).data;
+      const profile = user => ({ id: Number(user.id), role: user.role, permissions: [...user.permissions].sort(), dataScopes: [...user.dataScopes].sort() });
+      assert.deepEqual(profile(actual), profile(actor.profile));
+      e.browserProfiles.push({ job, actorId: actor.id, instance, path: '/api/auth/me', status: response.status(), actual: profile(actual) });
+      trace.phase = 'fresh-startup'; await page.locator('#loading').waitFor({ state: 'hidden' });
+      trace.phase = 'receipt-selection';
+      const selector = job === 'payables' ? `supplier-payable-open-${receiptId}` : `incoming-quality-select-${receiptId}`;
+      await page.getByTestId(selector).click(); trace.phase = 'loaded'; return { page, actor, instance };
+    } catch (error) {
+      if (!page.isClosed()) {
+        trace.failure = await page.evaluate(() => {
+          const loading = document.querySelector('#loading');
+          return { path: location.pathname, hash: location.hash,
+            loading: Boolean(loading && getComputedStyle(loading).display !== 'none' && getComputedStyle(loading).visibility !== 'hidden'),
+            login: Boolean(document.querySelector('input[type="password"]')),
+            alerts: [...document.querySelectorAll('[role="alert"]')].slice(0, 2).map(node => node.textContent.slice(0, 300)) };
+        }).catch(() => ({ unavailable: true }));
+        if (trace.failure.alerts) trace.failure.alerts = trace.failure.alerts.map(scrub);
+        const file = path.join(folder, `${job}-${receiptId}-load-FAILED.png`);
+        await page.screenshot({ path: file, fullPage: true }).then(() => {
+          e.screenshots.push({ job, actorId: actor.id, path: file, diagnostic: true, unverified: true, phase: trace.phase });
+        }).catch(() => {});
+      }
+      throw error;
+    } finally {
+      page.off('requestfailed', requestFailed); page.off('pageerror', pageError); page.off('framenavigated', navigated);
+    }
   };
   const shot = async (job, name, selector) => {
     const page = pages[job], target = page.getByTestId(selector);

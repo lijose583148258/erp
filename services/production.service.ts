@@ -1,6 +1,13 @@
 import { readProductionBatchTrace, type ProductionBatchTrace } from './productionBatchTrace';
 export type { ProductionBatchTrace } from './productionBatchTrace';
 import api, { ApiRequestOptions } from '../utils/api';
+import type { ProductBatch } from './asset.service';
+
+// The production projection preserves missing dates; it is not an asset catalog.
+export type ProductionBatchSelection = Omit<ProductBatch, 'productionDate' | 'expiryDate'> & {
+  productionDate: string | null;
+  expiryDate: string | null;
+};
 
 export type ProductionWorkOrderStatus = 'draft' | 'planned' | 'in_progress' | 'qc_pending' | 'completed' | 'cancelled';
 export type ProductionQualityResult = 'pending' | 'pass' | 'fail';
@@ -178,17 +185,7 @@ export interface ProductionWorkOrder {
   densitySnapshotJson?: string | null;
   createdBy: number;
   bom?: { id: number; bomNo: string; productName: string; version: string; outputUnit: string; shelfLifeDays: number | null; qualityCharacteristics: ProductionQualityCharacteristic[] } | null;
-  productBatch?: {
-    id: number;
-    materialId?: number | null;
-    batchNo: string;
-    productName: string;
-    productionDate: string | null;
-    expiryDate: string | null;
-    stockQuantity: number;
-    qualityStatus?: string;
-    unit: string;
-  } | null;
+  productBatch?: ProductionBatchSelection | null;
   steps: ProductionStep[];
   qualityChecks: ProductionQualityCheck[];
   createdAt: string;

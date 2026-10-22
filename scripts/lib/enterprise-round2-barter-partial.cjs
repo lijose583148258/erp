@@ -34,7 +34,15 @@ function assertPartialBarterStage(stage, expected) {
 
 async function barterPartialFulfillmentProbe(ctx, signal) {
   const { request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial } = ctx;
-  const call = async (endpoint, method = 'GET', data, actor = actors.sales, instance = 0) =>
+  const { resolveBarterActors, attestBarterActors, actorSummary, openBarterPage, requestHasBearer } = require('./enterprise-round2-barter-actor-proof.cjs');
+  const people = resolveBarterActors(ctx);
+  // Keep the original built-in browser control separate from the opt-in same20
+  // duties. Dynamic roles are never renamed to built-in sales/finance roles.
+  const browserMode = process.env.ROUND2_BROWSER === 'true';
+  const { sales, approver, poster, reverser } = !ctx.workforce && browserMode
+    ? { ...people, approver: actors.finance1, poster: actors.finance2 } : people;
+  const actorProfiles = await attestBarterActors(ctx, signal);
+  const call = async (endpoint, method = 'GET', data, actor = sales, instance = 0) =>
     dataOf(await request(endpoint, { method, data, actor, instance, signal }));
   const our = await stockFixture('barter-partial', signal);
   const incoming = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
@@ -44,7 +52,7 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     await call(`/warehouses/${our.destination.warehouseId}/locations`, 'POST',
       { code: 'LOC-RAW', name: 'Round2 raw material', type: 'internal' }, actors.admin);
   }
-  const buyer = await customer(signal);
+  const buyer = await customer(signal, sales);
   const order = await call('/orders', 'POST', { customerId: buyer.id, paymentTerms: 30,
     items: [{ materialId: our.material.id, productName: our.material.nameZh, quantity: 100, unit: 'kg', unitPrice: 20 }] });
   const incomingBatch = `${runId}-partial-incoming`;
@@ -55,10 +63,13 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
   let agreement;
   const batches = [];
   const evidence = { scope: '40/60 batches, reversal and replacement; browser mode uses sales agreement/batch UI and separate finance approval/post/reversal UI; fixtures and replay attacks use API',
-    orderId: order.id, stages: [], replays: [], denials: [], roleOperations: [], browserRequests: [], browserErrors: [] };
+    orderId: order.id, stages: [], replays: [], denials: [], roleOperations: [], browserRequests: [], browserErrors: [],
+    ...(ctx.workforce ? { actorMode: 'same-workforce-duties/v1', actorProfiles,
+      barterActors: Object.fromEntries(Object.entries(people).map(([duty, actor]) => [duty, actorSummary(actor)])) } : {}) };
   let browser;
   let page;
   let currentActor;
+  let browserToken;
   const abortBrowser = () => { void browser?.close().catch(() => {}); };
   signal.addEventListener('abort', abortBrowser, { once: true });
   async function openRole(actor, instance) {
@@ -71,27 +82,28 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
       const pathname = new URL(request.url()).pathname;
       if (pathname.startsWith('/api/')) {
         evidence.browserRequests.push(pathname);
-        if (actor.role === 'finance' && pathname === '/api/customers') evidence.browserErrors.push({ actorId: actor.id, message: 'Finance requested unauthorized customers' });
+        if (!(actor.profile || actor.loginUser)?.permissions?.includes('customers.read') && pathname === '/api/customers') {
+          evidence.browserErrors.push({ actorId: actor.id, message: 'Barter duty requested unauthorized customers' });
+        }
       }
     });
     page.on('response', response => {
       if (response.status() >= 400) evidence.browserErrors.push({ actorId: actor.id, url: new URL(response.url()).pathname, status: response.status() });
     });
     page.on('pageerror', error => evidence.browserErrors.push({ actorId: actor.id, message: error.message }));
-    await page.addInitScript(({ token, user }) => {
-      for (const key of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(key, token);
-      for (const key of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
-      localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
-    }, { token: actor.token, user: { ...actor.loginUser, id: String(actor.id), name: actor.job, segment: 'mixed' } });
-    const auth = page.waitForResponse(r => new URL(r.url()).pathname === '/api/auth/me' && r.request().method() === 'GET');
-    await page.goto(`${ctx.urls[instance]}/#barter`);
-    const authenticated = await auth;
-    assert.equal(authenticated.status(), 200);
-    const profile = (await authenticated.json()).data;
-    assert.equal(profile.id, actor.id); assert.equal(profile.role, actor.role);
-    currentActor = { actorId: profile.id, role: profile.role, instance };
-    await page.locator('#loading').waitFor({ state: 'hidden' });
-    if (agreement) await page.getByRole('button').filter({ hasText: agreement.agreementNo }).click();
+    const duty = actor === sales ? 'sales' : actor === approver ? 'approver' : actor === poster ? 'poster' : 'reverser';
+    const session = await openBarterPage({ page, ctx, actor, duty, instance });
+    browserToken = session.token; currentActor = session.identity;
+    if (agreement) {
+      const detail = page.waitForResponse(response => new URL(response.url()).pathname === `/api/barter/agreements/${agreement.id}` && response.request().method() === 'GET');
+      void detail.catch(() => {});
+      await page.getByRole('button').filter({ hasText: agreement.agreementNo }).click();
+      const response = await detail;
+      assert.equal(response.status(), 200);
+      const authorizationVerified = await requestHasBearer(response.request(), browserToken);
+      assert.equal(authorizationVerified, true, 'Barter detail read used a different bearer');
+      currentActor.authorizationVerified = authorizationVerified;
+    }
   }
   async function fillItems(titles, quantity) {
     for (const [title, material, amount, price] of [[titles[0], incoming, quantity * 2, 10], [titles[1], our.material, quantity, 20]]) {
@@ -105,7 +117,9 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     const pending = page.waitForResponse(r => new URL(r.url()).pathname === `/api${endpoint}` && r.request().method() === method);
     await click(); const response = await pending;
     const payload = await response.json();
-    const record = { ...currentActor, action, endpoint, method, httpStatus: response.status(), body: response.request().postDataJSON(), response: payload.data };
+    const authorizationVerified = await requestHasBearer(response.request(), browserToken);
+    assert.equal(authorizationVerified, true, 'Barter operation bearer does not match current actor');
+    const record = { ...currentActor, authorizationVerified, action, endpoint, method, httpStatus: response.status(), body: response.request().postDataJSON(), response: payload.data };
     evidence.roleOperations.push(record);
     assert.equal(response.status(), status, `${action}: ${JSON.stringify(payload)}`);
     return payload.data;
@@ -138,7 +152,11 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     // must still fail that path rather than silently skipping its evidence.
     const { expect } = require('playwright/test');
     const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
-    await openRole(actors.finance1, 1);
+    const reader = ctx.workforce ? poster : actors.finance1;
+    await openRole(reader, 1);
+    // A legacy readback reuses the original approving finance control; the
+    // workforce readback explicitly belongs to AR, never AP.
+    if (ctx.workforce) currentActor.duty = 'poster';
     await page.locator('#loading').waitFor({ state: 'hidden' });
     const card = page.getByRole('button').filter({ hasText: agreement.agreementNo });
     await expect(card).toContainText(status === 'partial' ? '部分完成' : '已完成');
@@ -163,7 +181,7 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
   }
   async function readState() {
     const [readbacks, persisted, paid, ourStock, received] = await Promise.all([
-      Promise.all([0, 1].map(instance => call(`/barter/agreements/${agreement.id}`, 'GET', undefined, actors.finance1, instance))),
+      Promise.all([0, 1].map(instance => call(`/barter/agreements/${agreement.id}`, 'GET', undefined, ctx.workforce ? poster : actors.finance1, instance))),
       prisma.barterAgreement.findUnique({ where: { id: agreement.id }, include: { settlements: { include: { items: true, offsetPostings: true, reversalLogs: true } } } }),
       prisma.order.findUnique({ where: { id: order.id }, include: { paymentRecords: true } }),
       readStock(our, signal), readStock({ material: incoming, batchNo: incomingBatch }, signal),
@@ -192,7 +210,7 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     if (process.env.ROUND2_BROWSER === 'true') {
       // Existing stock is seeded before the UI write. Never manufacture stock for an auto-generated barter batch.
       const { expect } = require('playwright/test');
-      await openRole(actors.sales, 0);
+      await openRole(sales, 0);
       await page.getByRole('tab',{name:/执行批次/}).click();
       await fillItems(['本次对方交付', '本次我方抵扣'], quantity);
       await expect(page.getByRole('button',{name:'创建批次',exact:true})).toBeDisabled();
@@ -214,16 +232,16 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
     } else batch = await call(`/barter/agreements/${agreement.id}/batches`, 'POST', { items: items(quantity), note: `${runId}-${label}` });
     batches.push(batch);
     if (process.env.ROUND2_BROWSER === 'true') {
-      if (batches.length === 1) await deny(`/barter/settlements/${batch.id}/approve`, 'PATCH', { note: 'forbidden sales approval' }, actors.sales, 'quoted');
-      await financeAction(batch, 'approve', actors.finance1, 0);
-      if (batches.length === 1) await deny(`/barter/settlements/${batch.id}/post`, 'POST', { postingAmount: quantity * 20 }, actors.sales, 'approved');
-      await financeAction(batch, 'post', actors.finance2, 1);
-      if (batches.length === 1) await deny(`/barter/settlements/${batch.id}/reverse`, 'POST', { reason: 'forbidden sales reversal' }, actors.sales, 'posted');
+      if (batches.length === 1) await deny(`/barter/settlements/${batch.id}/approve`, 'PATCH', { note: 'forbidden sales approval' }, sales, 'quoted');
+      await financeAction(batch, 'approve', approver, 0);
+      if (batches.length === 1) await deny(`/barter/settlements/${batch.id}/post`, 'POST', { postingAmount: quantity * 20 }, sales, 'approved');
+      await financeAction(batch, 'post', poster, 1);
+      if (batches.length === 1) await deny(`/barter/settlements/${batch.id}/reverse`, 'POST', { reason: 'forbidden sales reversal' }, sales, 'posted');
     } else {
-      await call(`/barter/settlements/${batch.id}/approve`, 'PATCH', { note: label }, actors.admin);
-      await call(`/barter/settlements/${batch.id}/post`, 'POST', { postingAmount: quantity * 20, note: label }, actors.finance1);
+      await call(`/barter/settlements/${batch.id}/approve`, 'PATCH', { note: label }, approver);
+      await call(`/barter/settlements/${batch.id}/post`, 'POST', { postingAmount: quantity * 20, note: label }, poster);
     }
-    const replay = await request(`/barter/settlements/${batch.id}/post`, { actor: actors.finance2, instance: 1, method: 'POST', signal,
+    const replay = await request(`/barter/settlements/${batch.id}/post`, { actor: reverser, instance: 1, method: 'POST', signal,
       data: { postingAmount: quantity * 20, note: label } });
     evidence.replays.push({ batchId: batch.id, status: replay.status });
     assert.equal(replay.status, 409);
@@ -231,7 +249,7 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
   }
   try {
   if (process.env.ROUND2_BROWSER === 'true') {
-    await openRole(actors.sales, 0);
+    await openRole(sales, 0);
     await page.getByLabel('货抵协议客户', { exact: true }).selectOption(String(buyer.id));
     await page.getByLabel('货抵协议对方名称', { exact: true }).fill(buyer.name);
     await page.getByLabel('货抵协议关联订单', { exact: true }).selectOption(String(order.id));
@@ -247,8 +265,8 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
   await snapshot('40 percent posted', 800, 1200, 60, 80, 1, 'partial');
   const second = await postBatch(60, 'partial-second');
   await snapshot('all batches posted', 2000, 0, 0, 200, 2, 'completed');
-  if (process.env.ROUND2_BROWSER === 'true') await financeAction(second, 'reverse', actors.finance2, 1);
-  else await call(`/barter/settlements/${second.id}/reverse`, 'POST', { reason: 'Round2 reverse second batch only' }, actors.finance2, 1);
+  if (process.env.ROUND2_BROWSER === 'true') await financeAction(second, 'reverse', reverser, 1);
+  else await call(`/barter/settlements/${second.id}/reverse`, 'POST', { reason: 'Round2 reverse second batch only' }, reverser, 1);
   const reversed = await snapshot('second batch reversed, first preserved', 800, 1200, 60, 80, 1, 'partial');
   assert.equal(reversed.persisted.settlements.find(row => row.id === second.id).reversalLogs.length, 1);
   await postBatch(60, 'partial-replacement');
@@ -279,6 +297,12 @@ async function barterPartialFulfillmentProbe(ctx, signal) {
 }
 
 function assertBarterBrowserChain(evidence) {
+  const workforce = evidence.actorMode !== undefined || evidence.barterActors !== undefined;
+  let dutyProof;
+  if (workforce) {
+    dutyProof = require('./enterprise-round2-barter-actor-proof.cjs');
+    dutyProof.assertBarterDutyEvidence(evidence);
+  }
   assert.deepEqual(evidence.browserErrors, [], 'Unexpected browser error');
   assert.equal(evidence.stages.length, 4);
   assert.equal(evidence.browser.length, 4);
@@ -291,8 +315,15 @@ function assertBarterBrowserChain(evidence) {
     'create-agreement', 'create-batch', 'approve', 'post', 'create-batch', 'approve', 'post', 'reverse', 'create-batch', 'approve', 'post',
   ]);
   const [creation, first, approval, posting] = evidence.roleOperations;
+  const reverseActor = workforce ? evidence.barterActors.reverser.id : posting.actorId;
   assert.equal(new Set([creation.actorId, approval.actorId, posting.actorId]).size, 3, 'Three independent actors required');
-  assert.equal(creation.role, 'sales'); assert.equal(approval.role, 'finance'); assert.equal(posting.role, 'finance');
+  if (workforce) {
+    dutyProof.assertBarterDutyRecord(creation, evidence.barterActors, 'sales');
+    dutyProof.assertBarterDutyRecord(approval, evidence.barterActors, 'approver');
+    dutyProof.assertBarterDutyRecord(posting, evidence.barterActors, 'poster');
+  } else {
+    assert.equal(creation.role, 'sales'); assert.equal(approval.role, 'finance'); assert.equal(posting.role, 'finance');
+  }
   assert.equal(creation.httpStatus, 201);
   assert.equal(creation.response.id, evidence.agreementId);
   assert.equal(creation.body.orderId, evidence.orderId);
@@ -303,7 +334,9 @@ function assertBarterBrowserChain(evidence) {
   assert.deepEqual(created.map(row => row.body.items.find(item => item.side === 'our').quantity), [40, 60, 60]);
   assert.deepEqual(evidence.replays.map(row => ({ batchId: row.batchId, status: row.status })), created.map(row => ({ batchId: row.response.id, status: 409 })));
   for (const readback of evidence.browser) {
-    assert.equal(readback.actorId, approval.actorId); assert.equal(readback.role, 'finance'); assert.equal(readback.instance, 1);
+    if (workforce) dutyProof.assertBarterDutyRecord(readback, evidence.barterActors, 'poster');
+    else { assert.equal(readback.actorId, approval.actorId); assert.equal(readback.role, 'finance'); }
+    assert.equal(readback.instance, 1);
     assert(readback.screenshot && readback.text);
     for (const item of first.body.items) assert(readback.sourceReadback.includes(item.sourceDocument));
   }
@@ -312,9 +345,11 @@ function assertBarterBrowserChain(evidence) {
     const id = isCreate ? row.response.id : Number(row.endpoint.split('/')[3]);
     const batch = final.settlements.find(item => item.id === id);
     assert(batch, 'UI operation must bind a persisted batch');
-    const actorId = isCreate ? creation.actorId : row.action === 'approve' ? approval.actorId : posting.actorId;
+    const actorId = isCreate ? creation.actorId : row.action === 'approve' ? approval.actorId : row.action === 'reverse' ? reverseActor : posting.actorId;
     assert.equal(row.actorId, actorId);
-    assert.equal(row.role, isCreate ? 'sales' : 'finance');
+    if (workforce) dutyProof.assertBarterDutyRecord(row, evidence.barterActors,
+      isCreate ? 'sales' : row.action === 'approve' ? 'approver' : row.action === 'reverse' ? 'reverser' : 'poster');
+    else assert.equal(row.role, isCreate ? 'sales' : 'finance');
     assert.equal(row.instance, ['post', 'reverse'].includes(row.action) ? 1 : 0);
     assert.equal(row.httpStatus, isCreate ? 201 : 200);
     assert.equal(batch.createdBy, creation.actorId);
@@ -337,7 +372,7 @@ function assertBarterBrowserChain(evidence) {
   const reversed = final.settlements.find(row => row.status === 'reversed');
   assert.equal(reversed.reversalLogs.length, 1);
   assert.equal(reversed.reversalLogs[0].reason, reversal.body.reason);
-  assert.equal(reversed.reversalLogs[0].reversedBy, posting.actorId);
+  assert.equal(reversed.reversalLogs[0].reversedBy, reverseActor);
   assert.equal(final.settlements.find(row => row.id === first.response.id).status, 'posted');
   assert.deepEqual(evidence.denials.map(row => row.state), ['quoted', 'approved', 'posted']);
   for (const denial of evidence.denials) {
@@ -345,7 +380,7 @@ function assertBarterBrowserChain(evidence) {
     assert.equal(denial.actorId, creation.actorId);
     assert.deepEqual(denial.after, denial.before, 'Denied operation changed business state');
   }
-  return { agreementId: evidence.agreementId, orderId: evidence.orderId, actors: [creation.actorId, approval.actorId, posting.actorId],
+  return { agreementId: evidence.agreementId, orderId: evidence.orderId, actors: [creation.actorId, approval.actorId, posting.actorId, ...(workforce ? [reverseActor] : [])],
     operations: evidence.roleOperations, denials: evidence.denials, stages: evidence.stages, browser: evidence.browser };
 }
 

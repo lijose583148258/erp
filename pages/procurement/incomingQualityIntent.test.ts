@@ -225,6 +225,13 @@ async function withQualityWorkspace(actor: string, saved: ReturnType<typeof prep
       const target = dom.window.document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`);
       assert.ok(target, testId); assert.equal(target.disabled, false, testId);
       await React.act(async () => { target.click(); await new Promise(resolve => setTimeout(resolve, 0)); });
+      // React does not await an async event handler. Wait for the actual busy
+      // boundary (or removed success button), including read-back/digest work.
+      const deadline = Date.now() + 2000;
+      while (dom.window.document.querySelector<HTMLButtonElement>(`[data-testid="${testId}"]`)?.disabled) {
+        assert(Date.now() < deadline, `${testId}: action did not settle`);
+        await React.act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+      }
     };
     await click('incoming-quality-select-7');
     await verify(dom.window.document, click, dom.window.localStorage);
@@ -245,6 +252,7 @@ test('DOM recovery freezes exact QC facts; a post-commit read-back conflict neve
     incomingQualityService.get = async () => {
       reads++;
       if (reads === 2) throw Object.assign(Error('read-back corrupted'), { status: 409, errorCode: 'INCOMING_QC_REQUIRED_MEASUREMENT_MISSING' });
+      if (reads === 3) await new Promise(resolve => setTimeout(resolve, 15));
       return bundle;
     };
     incomingQualityService.submit = async (receiptId, request, requestedKey) => {
@@ -259,7 +267,10 @@ test('DOM recovery freezes exact QC facts; a post-commit read-back conflict neve
     assert.ok(document.querySelector('[data-testid="incoming-quality-pending"]'));
     assert.equal(document.querySelector<HTMLInputElement>('[data-testid="incoming-quality-value-PH"]')?.disabled, true);
     await click('incoming-quality-retry');
-    assert.equal(writes, 2); assert.equal(readIncomingQualityIntent(local, '9', '7'), null);
+    assert.equal(writes, 2); assert.equal(readIncomingQualityIntent(local, '9', '7'), null, JSON.stringify({
+      error: document.querySelector('[data-testid="incoming-quality-error"]')?.textContent,
+      retry: document.querySelector<HTMLButtonElement>('[data-testid="incoming-quality-retry"]')?.disabled,
+    }));
     assert.equal(document.querySelector<HTMLInputElement>('[data-testid="incoming-quality-value-PH"]')?.disabled, false);
   });
 });

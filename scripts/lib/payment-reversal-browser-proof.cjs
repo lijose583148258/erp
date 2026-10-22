@@ -146,4 +146,99 @@ function verifyPaymentReversalBrowserProof(e, provider, { allowLegacy = false } 
     transportTraceVerified:!legacy,explicitProfilesVerified:!legacy,legacyEvidence:legacy,synthetic:e.synthetic===true,imagesVisuallyInspected:false,
     scope:'Raw browser/API/database/application-crash evidence only; no database restart, external refund, partial refund or balance carry-forward claim'};
 }
-module.exports={verifyPaymentReversalBrowserProof};
+function verifyPaymentReversalWorkforceProof(w, {people,payables,bootstrapId}) {
+  const {paymentWorkforceProfile}=require('./enterprise-round2-payment-actor-proof.cjs');
+  w=JSON.parse(JSON.stringify(w));assert.equal(w?.version,'payment-reversal-workforce/v1');assert.deepEqual(w.errors,[]);
+  assert.equal(w.actors.length,3);assert.equal(new Set(w.actors.map(row=>row.actorId)).size,3);
+  const origins=new Map();
+  for(const [duty,actor]of Object.entries(people)){
+    const row=one(w.actors,v=>v.duty===duty);assert.equal(row.actorId,actor.id);assert.equal(row.role,actor.role);
+    assert.deepEqual(row.profiles.map(v=>v.instance),[0,1]);for(const read of row.profiles)paymentWorkforceProfile(read.profile,actor);
+    assert.equal(row.nativeProfiles.length,duty==='sales'?0:1);
+    for(const read of row.nativeProfiles){
+      const instance=duty==='requester'?0:1,url=new URL(read.url);assert.equal(read.instance,instance);assert.equal(url.hostname,'127.0.0.1');
+      assert.equal(url.pathname,'/api/auth/me');assert.equal(read.method,'GET');assert.equal(read.actualHTTP,200);iso(read.observedAt);
+      paymentWorkforceProfile(read.profile,actor);origins.set(instance,url.origin);
+    }
+  }
+  assert.notEqual(origins.get(0),origins.get(1));positive(w.orderId);positive(w.paymentId);positive(w.customerId);
+  positive(w.adjustment.id);assert.deepEqual(w.adjustmentResponse.adjustment,w.adjustment);
+  assert.equal(w.adjustmentResponse.effects.finance.orderId,w.orderId);assert.equal(w.adjustmentResponse.effects.finance.paidAmount,350);
+  const [initial,pending,final]=[w.initial,w.afterRequest,w.final],sale=people.sales,ar=people.requester,owner=people.reviewer;
+  for(const [index,state]of [initial,pending,final].entries()){
+    const o=state.order;assert.equal(o.id,w.orderId);assert.equal(o.orderNo,w.orderNo);assert.equal(o.createdBy,sale.id);assert.equal(o.customerId,w.customerId);
+    assert.equal(o.customer.salespersonId,sale.id);assert.equal(o.customer.poolState,'private');assert.equal(o.paidAmount,index<2?350:50);
+    assert.equal(state.payment.id,w.paymentId);assert.equal(state.payment.orderId,w.orderId);assert.equal(state.payment.amount,300);assert.equal(state.payment.verifiedBy,ar.id);
+    assert.equal(state.payment.currency,'CNY');assert.equal(state.payment.status,index<2?'verified':'reversed');
+    assert.equal(state.payment.exchangeRate,1);assert.equal(state.payment.baseAmount,300);assert.equal(state.payment.method,'bank_transfer');assert.equal(state.payment.barterMetadata,null);
+    assert.equal(o.currency,'CNY');assert.equal(o.finalAmount,1000);assert.equal(o.paymentStatus,'partial');assert.equal(o.receivableAdjustmentAmount,0);
+    assert.deepEqual(one(o.paymentRecords),state.payment);
+    assert.equal(state.requests.length,index===0?0:1);assert.equal(state.effects.length,index<2?0:1);
+    assert.equal(state.audits.length,index+1);assert.equal(state.events.length,index<2?1:2);
+    assert.deepEqual(state.adjustments,initial.adjustments);const adjustment=one(state.adjustments);assert.equal(adjustment.id,w.adjustment.id);
+    assert.equal(adjustment.orderId,w.orderId);assert.equal(adjustment.amountDelta,50);assert.equal(adjustment.status,'posted');
+  }
+  assert.equal(w.adjustmentActorId,bootstrapId);assert.equal(w.submissionReceipt.paymentId,w.paymentId);assert.equal(w.submissionReceipt.orderId,w.orderId);
+  assert.equal(w.submissionReceipt.submittedBy,sale.id);assert.equal(w.submissionReceipt.amount,300);
+  assert.equal(w.submissionAudit.id,w.submissionReceipt.auditId);assert.equal(w.submissionAudit.userId,sale.id);
+  assert.equal(w.submissionAudit.action,'PAYMENT_SUBMITTED');assert.equal(w.submissionAudit.resource,'order');assert.equal(w.submissionAudit.resourceId,w.orderId);
+  assert.deepEqual({...final.payment,status:initial.payment.status,updatedAt:initial.payment.updatedAt},initial.payment);
+  assert.deepEqual(pending.payment,initial.payment);
+  const r=one(final.requests),before=one(pending.requests),effect=one(final.effects);
+  assert.equal(r.id,w.requestId);assert.equal(r.paymentId,w.paymentId);assert.equal(r.requestedBy,ar.id);assert.equal(r.reviewedBy,owner.id);assert.equal(r.status,'posted');
+  assert.equal(before.id,r.id);assert.equal(before.status,'pending');assert.equal(before.reviewedBy,null);
+  assert.deepEqual(json(r.originalPaymentJson),facts(initial.payment));
+  assert.equal(r.fingerprint,sha({version:'payment-reversal-request-facts/v1',paymentId:w.paymentId,userId:ar.id,reasonCategory:r.reasonCategory,reason:r.reason,original:r.originalPaymentJson}));
+  assert.equal(r.reviewFingerprint,sha({version:'payment-reversal-review-facts/v1',requestId:r.id,userId:owner.id,decision:'approve',note:r.reviewNote}));
+  assert.equal(effect.paymentId,w.paymentId);assert.equal(effect.requestId,r.id);assert.equal(effect.postedBy,owner.id);assert.equal(effect.amount,-300);
+  assert.equal(effect.currency,'CNY');assert.deepEqual(json(effect.beforeStateJson),{orderId:w.orderId,paidAmount:350,paymentStatus:'partial'});
+  assert.deepEqual(json(effect.afterStateJson),{orderId:w.orderId,paidAmount:50,paymentStatus:'partial'});
+  assert.equal(effect.auditId,r.reviewAuditId);assert.deepEqual(json(effect.receiptJson),json(r.reviewReceiptJson));
+  for(const [action,userId,id]of [['PAYMENT_VERIFIED',ar.id,r.originalAuditId],['PAYMENT_REVERSAL_REQUESTED',ar.id,r.requestAuditId],['PAYMENT_REVERSED',owner.id,r.reviewAuditId]]){
+    const audit=one(final.audits,row=>row.action===action);assert.equal(audit.id,id);assert.equal(audit.userId,userId);assert.equal(audit.resourceId,w.paymentId);
+  }
+  assert.equal(w.nativeWrites.length,2);
+  const expected=[[ar,0,`/api/collections/payments/${w.paymentId}/reversal-requests`,201],[owner,1,`/api/collections/payment-reversal-requests/${r.id}/review`,200]];
+  expected.forEach(([actor,instance,path,status],index)=>{const row=w.nativeWrites[index];assert.equal(row.actorId,actor.id);assert.equal(row.role,actor.role);
+    assert.equal(row.instance,instance);assert.equal(row.method,'POST');assert.equal(row.path,path);assert.equal(row.status,status);assert.equal(row.authorizationMatched,true);
+    assert.equal(row.json.success,true);assert.deepEqual(row.json.data.receipt,json(index?r.reviewReceiptJson:r.requestReceiptJson));
+    assert.deepEqual(row.json.data.request,requestDto(index?r:before));const current=row.json.data.currentOrder;
+    assert.equal(current.id,w.orderId);assert.equal(current.paidAmount,index?50:350);assert.equal(current.createdBy,sale.id);});
+  assert.deepEqual(w.nativeWrites[0].sent,{requestKey:r.requestKey,reasonCategory:r.reasonCategory,reason:r.reason});
+  assert.deepEqual(w.nativeWrites[1].sent,{reviewKey:r.reviewKey,decision:'approve',note:r.reviewNote});
+  const denied=[['payables-cannot-verify-receivable',payables.id,'POST',`/orders/${w.orderId}/payment/${w.paymentId}/verify`,'orders.payment.verify'],
+    ['owner-cannot-request',owner.id,'POST',`/collections/payments/${w.paymentId}/reversal-requests`,'orders.payment.reversal.request'],
+    ['sales-cannot-request',sale.id,'POST',`/collections/payments/${w.paymentId}/reversal-requests`,'orders.payment.reversal.request'],
+    ['requester-cannot-review',ar.id,'POST',`/collections/payment-reversal-requests/${r.id}/review`,'orders.payment.reversal.review'],
+    ['sales-cannot-review',sale.id,'POST',`/collections/payment-reversal-requests/${r.id}/review`,'orders.payment.reversal.review'],
+    ['sales-cannot-read-collections',sale.id,'GET',`/collections/payments/${w.paymentId}/reversal-requests`,'collections.read']];
+  assert.equal(w.denials.length,denied.length);
+  denied.forEach(([label,actorId,method,path,permission],index)=>{const row=w.denials[index];assert.equal(row.label,label);assert.equal(row.actorId,actorId);
+    const actor=[sale,ar,owner,payables].find(person=>person.id===actorId);assert.equal(row.role,actor.role);assert.equal(row.instance,1);
+    assert.equal(row.method,method);assert.equal(row.path,path);assert.equal(row.status,403);assert.equal(row.json.success,false);
+    assert.deepEqual(row.json.requiredPermissions,[permission]);assert.deepEqual(row.after,row.before);
+    if(index===1||index===2){
+      assert.deepEqual(Object.keys(row.sent).sort(),['reason','reasonCategory','requestKey']);uuid(row.sent.requestKey);
+      assert(['registration_error','bank_return'].includes(row.sent.reasonCategory));
+      assert.equal(typeof row.sent.reason,'string');assert(row.sent.reason.trim().length>=5&&row.sent.reason.trim().length<=2000);
+    }else if(index===3||index===4){
+      assert.deepEqual(Object.keys(row.sent).sort(),['decision','note','reviewKey']);uuid(row.sent.reviewKey);assert.equal(row.sent.decision,'approve');
+      assert.equal(typeof row.sent.note,'string');assert(row.sent.note.trim().length>=5&&row.sent.note.trim().length<=2000);
+    }else assert.equal(row.sent,null);
+  });
+  assert.equal(w.denials[0].before.payment.status,'pending');assert.equal(w.denials[1].before.payment.status,'verified');assert.equal(w.denials[1].before.requests.length,0);
+  assert.equal(Number(w.payablesProfile.id),payables.id);assert.equal(w.payablesProfile.role,payables.role);assert.equal(w.payablesProfile.isActive,true);assert.equal(w.payablesProfile.mustChangePassword,false);
+  assert.deepEqual(w.payablesProfile.permissions,payables.profile.permissions);assert.deepEqual(w.payablesProfile.dataScopes,payables.profile.dataScopes);assert(!w.payablesProfile.permissions.includes('orders.payment.verify'));
+  assert.deepEqual(w.readbacks.map(row=>row.instance),[0,1]);for(const read of w.readbacks){assert.equal(read.json.id,w.orderId);assert.equal(read.json.paidAmount,50);assert.equal(read.json.createdBy,sale.id);const p=one(read.json.paymentRecords);assert.equal(p.id,w.paymentId);assert.equal(p.status,'reversed');}
+  const reversed=one(final.events,row=>row.eventKey===`payment.reversed:${w.paymentId}`),payload=json(reversed.payloadJson);
+  assert.equal(payload.data.requestedBy,ar.id);assert.equal(payload.data.reviewedBy,owner.id);assert.equal(payload.data.amount,-300);assert.equal(payload.data.reversalId,effect.id);assert.equal(payload.data.auditId,r.reviewAuditId);
+  assert.deepEqual(w.screenshots.map(row=>row.instance),[0,1]);for(const row of w.screenshots){const actor=row.instance===0?ar:owner,url=new URL(row.url);
+    assert.equal(row.actorId,actor.id);assert.equal(row.role,actor.role);assert.equal(url.origin,origins.get(row.instance));assert.equal(url.hash,'#collections');
+    assert.equal(row.unobscured,true);assert.equal(row.requestButtons,0);assert.equal(row.reviewButtons,0);assertCjkRasterEvidence(row.font);
+    for(const token of [w.orderNo,`原回款 #${w.paymentId}`,'最新订单累计已收：CNY 50.00','CNY -300.00',r.id,effect.id])assert(row.text.includes(token));
+  }
+  return {version:'payment-reversal-workforce-proof/v1',orderId:w.orderId,paymentId:w.paymentId,requestId:r.id,reversalId:effect.id,
+    salesId:sale.id,requesterId:ar.id,reviewerId:owner.id,nativeWrites:2,denials:6,orderPaid:50,
+    scope:'Same20 ordinary native duties with current policies and persisted facts; legacy resilience/control proof is separate, not all12 or cloud acceptance'};
+}
+module.exports={verifyPaymentReversalBrowserProof,verifyPaymentReversalWorkforceProof};

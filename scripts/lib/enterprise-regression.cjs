@@ -6,7 +6,8 @@ const assert = require('node:assert/strict');
 const { execFileSync } = require('node:child_process');
 const { summarize, validateCatalog } = require('./enterprise-round2-runner.cjs');
 const catalog = require('../config/enterprise-round2-v1.json');
-const POSTGRESQL_ROUND2_CHECKS = Object.freeze(['database-restart-ambiguous-commit', 'recovery-full-ledger-reconciliation']);
+const POSTGRESQL_RECOVERY_CHECKS = Object.freeze(['database-restart-ambiguous-commit', 'recovery-full-ledger-reconciliation']);
+const POSTGRESQL_ROUND2_CHECKS = Object.freeze([...POSTGRESQL_RECOVERY_CHECKS, 'workforce-rbac']);
 const sha256 = value => crypto.createHash('sha256').update(value).digest('hex');
 const headCommit = root => execFileSync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8', timeout: 5000, windowsHide: true }).trim();
 
@@ -62,9 +63,9 @@ function validateBaseline(baseline) {
     const postgres = revision.postgresqlRound2Checks || [];
     assert(!Object.hasOwn(revision, 'postgresqlRound2Checks') || Array.isArray(revision.postgresqlRound2Checks), 'Invalid PostgreSQL-only baseline checks');
     assert.equal(new Set(postgres).size, postgres.length, 'Duplicate PostgreSQL-only baseline check');
-    assert(postgres.every(id => POSTGRESQL_ROUND2_CHECKS.includes(id)), 'Only the two real PostgreSQL recovery checks may be provider-only');
+    assert(postgres.every(id => POSTGRESQL_ROUND2_CHECKS.includes(id)), 'PostgreSQL-only baseline adapters must be implemented explicitly');
     assert(!(previous?.postgresqlRound2Checks || []).some(id => !postgres.includes(id)), 'Baseline shrank: postgresqlRound2Checks');
-    assert(!revision.round2Checks.some(id => POSTGRESQL_ROUND2_CHECKS.includes(id)), 'Real PostgreSQL recovery cannot be a SQLite baseline obligation');
+    assert(!revision.round2Checks.some(id => POSTGRESQL_ROUND2_CHECKS.includes(id)), 'PostgreSQL-only evidence cannot be a SQLite baseline obligation');
     assert(['barter-cash-legacy-upgrade', 'sales-partial-fulfillment'].every(id => revision.independentChecks.includes(id)), 'Core independent checks cannot be removed');
     assert(revision.independentChecks.every(id => ['barter-cash-legacy-upgrade', 'sales-partial-fulfillment', 'sales-fulfillment-plan', 'sales-plan-cancellation', 'authorization-dual-node', 'production-responsibilities'].includes(id)), 'Independent adapters must be implemented explicitly');
     previous = revision;
@@ -174,7 +175,7 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
     const matches = round2.checks.filter(c => c.id === id); assert.equal(matches.length, 1, 'Missing/duplicate check ID');
     const check = matches[0]; assert.equal(check.status, 'passed', 'Previously passed check regressed or was skipped');
     assert(check.evidence && Object.keys(check.evidence).length, 'Missing read-back evidence');
-    if (POSTGRESQL_ROUND2_CHECKS.includes(id)) {
+    if (POSTGRESQL_RECOVERY_CHECKS.includes(id)) {
       assert.equal(provider, 'postgresql', 'Real database recovery requires PostgreSQL');
       const source = round2.checks.find(c => c.id === 'database-restart-ambiguous-commit');
       assert.equal(source?.status, 'passed', 'Ledger recovery requires its successful same-run database crash chain');
@@ -187,6 +188,11 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
       if (id === 'recovery-full-ledger-reconciliation') assert.deepEqual(check.evidence,
         verifier.verifyPostgresLedgerRecovery(source.evidence, options),
         'Ledger recovery proof must derive from the same crash source and exact prior-check hashes');
+    }
+    if (id === 'workforce-rbac') {
+      assert.equal(provider, 'postgresql', 'Full workforce participation requires the real PostgreSQL twelfth chain');
+      assert.deepEqual(check.evidence, require('./enterprise-round2-workforce-proof.cjs').verifyWorkforceParticipation(round2),
+        'Workforce proof must derive exactly from the same report, original cohort and all twelve business chains');
     }
     if (id === 'sales-reservation-partial-fulfillment' || id === 'sales-browser-readback') {
       const source = round2.checks.find(c => c.id === 'sales-reservation-partial-fulfillment');
@@ -223,6 +229,14 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
       const source = reports.cancellation; verifyFresh(source, context, provider, now);
       const proof = require('./customer-quantity-cancellation-proof.cjs').verifyCustomerCancellation(source);
       assert.deepEqual(check.evidence, { ...proof, sourceRunId: source.runId, sourceReportSha256: sha256(JSON.stringify(source)) });
+    }
+    if (id === 'stock-20-contention' && check.evidence.workforce) {
+      require('./enterprise-round2-stock-workforce.cjs').verifyStockWorkforce(check.evidence.workforce, check.evidence);
+      const cohort = round2.workforcePreparation?.actors;
+      assert(Array.isArray(cohort), 'Stock observers require the same run-owned workforce');
+      assert.deepEqual(check.evidence.workforce.people, cohort.map(({ id, job, index, role, profile }) => ({ id, job, index, role, profile })),
+        'Stock observation cannot introduce a second cohort');
+      assert.deepEqual(check.evidence.workforce.appUrls, round2.metadata.appUrls, 'Stock observation must use the original nodes');
     }
     if (id === 'stock-contention-browser' || id === 'transfer-shipping-browser') {
       const sourceId = id === 'stock-contention-browser' ? 'stock-20-contention' : 'transfer-shipping-contention';

@@ -129,14 +129,14 @@ test('warehouse, procurement, quality, finance and production grants remain prec
   };
   exact('warehouse', ['orders.shippingReady.read', 'shipping.read', 'shipping.write', 'shipping.receipts.read', 'warehouse.read', 'warehouse.write',
     'warehouse.ledger.read', 'procurement.read', 'procurement.receive', 'procurement.suppliers.read', 'materials.read'], ['warehouse_visible', 'procurement_visible']);
-  exact('owner', ['orders.read', 'orders.payment.verify', 'finance.read', 'procurement.read', 'procurement.approve', 'procurement.payment.verify'], ['finance_visible', 'procurement_visible']);
+  exact('owner', ['orders.read', 'orders.payment.verify', 'finance.read', 'procurement.read', 'procurement.approve', 'procurement.payment.verify', 'collections.read', 'barter.read', 'barter.approve', 'orders.payment.reversal.review'], ['finance_visible', 'procurement_visible']);
   exact('sales_lead', ['orders.read', 'orders.update', 'orders.status.manage', 'orders.complete', 'customers.read', 'materials.read', 'shipping.read', 'shipping.receipts.read'], ['team_customers']);
-  exact('sales', ['orders.read', 'orders.create', 'orders.update', 'orders.payment.record', 'customers.read', 'customers.create', 'customers.update', 'materials.read', 'shipping.read', 'shipping.receipts.read'], ['own_customers']);
+  exact('sales', ['orders.read', 'orders.create', 'orders.update', 'orders.payment.record', 'customers.read', 'customers.create', 'customers.update', 'materials.read', 'shipping.read', 'shipping.receipts.read', 'barter.read', 'barter.write'], ['own_customers']);
   exact('buyer', ['procurement.read', 'procurement.write', 'procurement.approve', 'procurement.suppliers.read', 'materials.read'], ['procurement_visible']);
   exact('qc', ['production.read', 'production.quality.inspect', 'procurement.quality.inspect'], ['warehouse_visible', 'procurement_visible']);
   exact('qa', ['production.read', 'production.quality.release', 'procurement.quality.release'], ['warehouse_visible', 'procurement_visible']);
-  exact('payables', ['finance.read', 'procurement.payment.record'], ['finance_visible', 'procurement_visible']);
-  exact('receivables', ['orders.read', 'orders.payment.record', 'orders.payment.verify', 'finance.read'], ['finance_visible']);
+  exact('payables', ['finance.read', 'procurement.payment.record', 'barter.read', 'barter.post'], ['finance_visible', 'procurement_visible']);
+  exact('receivables', ['orders.read', 'orders.payment.record', 'orders.payment.verify', 'finance.read', 'collections.read', 'barter.read', 'barter.post', 'orders.payment.reversal.request'], ['finance_visible']);
   exact('cost_accountant', ['production.cost.read', 'production.read', 'finance.read', 'warehouse.read', 'warehouse.ledger.read', 'materials.read'], ['finance_visible', 'warehouse_visible']);
   exact('research', ['production.read', 'production.bom.write', 'materials.read'], ['warehouse_visible']);
   exact('production_planner', ['production.read', 'production.plan.write', 'warehouse.read', 'materials.read'], ['warehouse_visible']);
@@ -148,9 +148,14 @@ test('warehouse, procurement, quality, finance and production grants remain prec
     qc: ['procurement.quality.release', 'production.quality.release', 'procurement.read', 'procurement.suppliers.read', 'finance.read'],
     qa: ['procurement.quality.inspect', 'production.quality.inspect', 'procurement.read', 'procurement.suppliers.read', 'finance.read'],
     payables: ['procurement.payment.verify', 'orders.payment.verify', 'orders.payment.record'],
-    receivables: ['procurement.payment.record', 'procurement.payment.verify'],
+    receivables: ['procurement.payment.record', 'procurement.payment.verify', 'orders.payment.reversal.review', 'barter.approve'],
+    sales: ['barter.approve', 'barter.post', 'orders.payment.verify', 'orders.payment.reversal.review'],
+    owner: ['barter.post', 'barter.write', 'orders.payment.reversal.request'],
     system_admin: ['orders.read', 'orders.create', 'procurement.write', 'warehouse.write', 'production.execute', 'authorization.roles.manage', 'team.write'],
   })) for (const permission of denied) assert(!permissions(job).includes(permission), `${job} forbidden grant: ${permission}`);
+  for (const permission of ['collections.read', 'barter.read', 'barter.approve', 'orders.payment.reversal.review']) {
+    assert(permissions('owner').includes(permission), `Independent owner responsibility missing: ${permission}`);
+  }
   assert.notEqual(byJob.buyer[0].id, byJob.buyer[1].id);
   assert.notEqual(byJob.owner[0].id, byJob.buyer[0].id);
   assert.notEqual(byJob.owner[0].id, byJob.buyer[1].id);

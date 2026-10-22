@@ -4,6 +4,7 @@ import { PackagingWorkbench } from './production/PackagingWorkbench';
 import { getBomMassConversionError } from './production/productionBomLineModel';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useAppContext } from '../app/AppContext';
+import { can } from '../app/permissions';
 import { adjustmentService, AdjustmentRecord } from '../services/adjustment.service';
 import { productionService, ProductionBom, ProductionConsumptionRecord, ProductionDisposition, ProductionWorkOrderStatus, ProductionStep } from '../services/production.service';
 import { warehouseService, StockBalanceRecord, WarehouseLocation } from '../services/warehouse.service';
@@ -44,9 +45,10 @@ import {
 } from './production/productionWorkspaceSave';
 
 const ProductionWorkspaceV2 = () => {
-  const { notify, language } = useAppContext();
+  const { notify, language, currentUser, confirmDiscardChanges } = useAppContext();
+  const canExecute = can(currentUser, 'production.execute');
   const {
-    summary, boms, workOrders, batches, adjustments, loading,
+    summary, boms, workOrders, batches, adjustments, loading, canReadBatches,
     bomKeyword, setBomKeyword,
     workOrderKeyword, setWorkOrderKeyword, workOrderFilter, setWorkOrderFilter,
     batchKeyword, setBatchKeyword, batchStatus, setBatchStatus,
@@ -54,6 +56,7 @@ const ProductionWorkspaceV2 = () => {
     selectedBomId, setSelectedBomId, selectedBom,
     selectedWorkOrderId, setSelectedWorkOrderId, selectedWorkOrder,
     selectedBatchId, setSelectedBatchId, selectedBatch,
+    selectedBatchWorkOrder, selectWorkOrderBatch,
     loadData,
   } = useProductionWorkspaceData(notify);
 
@@ -96,8 +99,9 @@ const ProductionWorkspaceV2 = () => {
   );
   const completedBatchWorkOrder = useMemo(() => {
     if (!selectedBatch) return null;
+    if (selectedBatchWorkOrder) return selectedBatchWorkOrder.status === 'completed' ? selectedBatchWorkOrder : null;
     return workOrders.find(item => item.batchId === selectedBatch.id && item.status === 'completed') || null;
-  }, [selectedBatch, workOrders]);
+  }, [selectedBatch, selectedBatchWorkOrder, workOrders]);
   const autoFilledWorkOrderProduct = selectedBom?.productName || selectedBatch?.productName || '';
   useProductionUnsavedFormGuards({
     bomForm,
@@ -120,10 +124,11 @@ const ProductionWorkspaceV2 = () => {
     const loadDispositionContext = async () => {
       setDispositionStockBalances([]);
       setDispositions([]);
+      setDestinationLocations([]);
       setSelectedStockBalanceId(null);
       setSourceDispositionId(null);
       setDestinationLocationId(null);
-      if (!selectedBatch || !completedBatchWorkOrder) return;
+      if (!canExecute || !selectedBatch || !completedBatchWorkOrder) return;
       try {
         const [stockResult, warehouses, posted] = await Promise.all([
           warehouseService.listStockBalances({ batchNo: selectedBatch.batchNo, pageSize: 100 }),
@@ -144,7 +149,7 @@ const ProductionWorkspaceV2 = () => {
     };
     void loadDispositionContext();
     return () => { disposed = true; };
-  }, [completedBatchWorkOrder, notify, selectedBatch]);
+  }, [canExecute, completedBatchWorkOrder, notify, selectedBatch]);
 
   const derived = useProductionWorkspaceDerivedState({
     summary,
@@ -155,6 +160,7 @@ const ProductionWorkspaceV2 = () => {
     selectedBom,
     selectedWorkOrder,
     selectedBatch,
+    selectedBatchWorkOrder,
     bomKeyword,
     bomItems,
     bomStandardBatchSize,
@@ -297,7 +303,9 @@ const ProductionWorkspaceV2 = () => {
 
     const steps = buildWorkOrderStepsPayload(woSteps);
     const resolvedProductName = woProductName.trim();
-    const resolvedBom = boms.find(item => item.productName === resolvedProductName) || selectedBom;
+    const resolvedBom = selectedBom?.productName === resolvedProductName
+      ? selectedBom
+      : boms.find(item => item.productName === resolvedProductName) || selectedBom;
     const resolvedBatch = selectedBatch?.productName === resolvedProductName ? selectedBatch : null;
 
     setWorkOrderFormErrors({});
@@ -522,7 +530,7 @@ const ProductionWorkspaceV2 = () => {
         onRefresh={() => void loadData()}
         items={derived.productionDeskItems}
         activeTab={activeDeskTab}
-        onTabChange={setActiveDeskTab}
+        onTabChange={tab => { if (tab !== activeDeskTab && confirmDiscardChanges()) setActiveDeskTab(tab); }}
       />
 
       {activeDeskTab === 'bom' && <><DensityWorkbench /><DensityConversionWorkbench onCreated={loadData} /><PackagingWorkbench onCreated={loadData} /></>}
@@ -622,6 +630,10 @@ const ProductionWorkspaceV2 = () => {
             setSelectedWorkOrderId={setSelectedWorkOrderId}
             handleWorkOrderStatus={handleWorkOrderStatus}
             selectedWorkOrder={selectedWorkOrder}
+            onOpenWorkOrderBatch={(workOrderId, batchId) => {
+              if (!confirmDiscardChanges()) return;
+              if (selectWorkOrderBatch(workOrderId, batchId)) setActiveDeskTab('batches');
+            }}
             selectedChecks={derived.selectedChecks}
             handleStepAction={handleStepAction}
             qcSampleNo={qcSampleNo}
@@ -645,6 +657,8 @@ const ProductionWorkspaceV2 = () => {
         {activeDeskTab === 'batches' ? (
           <ProductionBatchAdjustmentSection
             batches={batches}
+            canReadBatches={canReadBatches}
+            selectedBatchWorkOrderNo={selectedBatchWorkOrder?.workOrderNo ?? null}
             batchKeyword={batchKeyword}
             setBatchKeyword={setBatchKeyword}
             batchStatus={batchStatus}

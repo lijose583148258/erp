@@ -26,6 +26,7 @@ function harness(env = {}, hooks = {}) {
         if (hooks.createOwnedPostgresControl) return hooks.createOwnedPostgresControl();
         throw new Error('Owned control refused');
       } };
+      if (name === './enterprise-round2-sales-browser.cjs' && hooks.createSharedSalesBrowser) return { createSharedSalesBrowser: hooks.createSharedSalesBrowser };
       return actualRequire(name);
     },
   });
@@ -101,6 +102,83 @@ test('customer creation uses the private refreshed sales session, never the stal
   assert.equal(customerCalls, 1); assert.equal(staleCalls, 0);
   assert.equal(actors.sales.token, 'stale-sales');
   assert.equal(actors.stock0.token, 'stale-stock');
+});
+
+test('existing same-cohort accounts keep credentials and fresh native sessions before the PG baseline', async () => {
+  const original = originalSettings('', false), restore = restoreHarness(original);
+  const make = (job, index, id) => {
+    const role = `r2wf_synthetic_${job}`, profile = { id, role, username: `${role}_${index}`, segment: 'mixed', permissions: [], dataScopes: [] };
+    return { job, index, id, role, token: `old-${id}`, profile, profilesByInstance: { 0: copy(profile), 1: copy(profile) },
+      account: { username: profile.username, password: `private-existing-${id}`, role, segment: 'mixed' } };
+  };
+  const warehouse = make('warehouse', 3, 73), sales = make('sales', 3, 69), lead = make('sales_lead', 1, 66), ar = make('receivables', 1, 81);
+  const workforce = { actors: [warehouse, sales, lead, ar], byJob: { warehouse: [null, null, warehouse], sales: [null, null, sales], sales_lead: [lead], receivables: [ar] } };
+  const publicSnapshots = workforce.actors.map(a => ({ profile: a.profile, profilesByInstance: a.profilesByInstance }));
+  const frozenPublic = copy(publicSnapshots), accounts = workforce.actors.map(a => a.account), credentials = copy(accounts);
+  const calls = [], response = data => ({ status: 200, json: { success: true, data } });
+  let browserPeople, stopped = false, baselineConnections = 0;
+  const h = harness({ ROUND2_POSTGRES_RECOVERY: 'true', AUDIT_PRISMA_PROVIDER: 'postgresql' }, {
+    ensureUiAuditUser: async () => { throw new Error('Existing credentials must not be reset'); },
+    createOwnedPostgresControl: async () => ({ before: {}, connect: async name => {
+      if (name === 'r2_recovery_quiescence' || name === 'r2_recovery_snapshot') baselineConnections++;
+      return restore.client;
+    }, stopReplica: async () => {
+      stopped = true;
+      assert.equal(warehouse.token, 'native-warehouse73'); assert.equal(sales.token, 'native-sales69');
+      assert.equal(calls.filter(c => c.path === '/auth/me').length, 12, 'Both browser sessions and all four duties refresh before the first baseline');
+      throw new Error('Stop after pre-baseline sessions');
+    }, startPrimary: async () => {}, restoreReplica: async () => {}, inspectAfter: async () => ({}), close: async () => {} }),
+    createSharedSalesBrowser: async ({ actors }) => {
+      browserPeople = actors;
+      assert.equal(actors.warehouse, warehouse); assert.equal(actors.sales, sales);
+      return { draft: async () => { actors.warehouse.token = 'native-warehouse73'; return { shipment: { id: 501 + calls.length } }; },
+        reserve: async () => {}, dispatch: async () => {}, salesRead: async () => { actors.sales.token = 'native-sales69'; },
+        evidence: () => ({ actions: [], screenshots: [] }), close: async () => {} };
+    },
+  });
+  const request = async (endpoint, options) => {
+    calls.push({ path: endpoint, actor: options.actor, data: options.data, instance: options.instance || 0 });
+    if (endpoint === '/auth/login') {
+      assert.equal(options.actor, null);
+      const actor = workforce.actors.find(a => a.account.username === options.data.username);
+      assert(actor); assert.equal(options.data.password, actor.account.password);
+      return response({ token: `refreshed-${actor.id}` });
+    }
+    if (endpoint === '/auth/me') return response({ ...options.actor.profile, isActive: true, mustChangePassword: false });
+    if (endpoint === '/customers') { assert.equal(options.actor, sales); assert.equal(options.data.salespersonId, sales.id); return response({ id: 201 }); }
+    if (endpoint === '/orders') { assert.equal(options.actor, sales); return response({ id: 301, orderNo: 'PG-SAME-COHORT' }); }
+    if (endpoint === '/orders/301/status') { assert.equal(options.actor, lead); return response({}); }
+    if (endpoint === '/orders/301/payment') { assert.equal(options.actor, sales); return response({}); }
+    if (endpoint === '/orders/301') { assert.equal(options.actor, ar); return response({ items: [{ id: 401 }], paymentRecords: [{ id: 601, status: 'pending' }] }); }
+    if (endpoint === '/orders/301/payment/601/verify') { assert.equal(options.actor, ar); assert.equal(options.instance, 1); return response({}); }
+    throw new Error(`Unexpected request ${endpoint}`);
+  };
+  const actors = { stock0: { id: 11 }, sales: { id: 12 }, buyer1: { id: 13 }, finance1: { id: 14 } };
+  await assert.rejects(h.postgresRecoveryProbe({ request, dataOf: result => result.json.data, actors, workforce,
+    prisma: { user: { findUniqueOrThrow: async ({ where }) => {
+      const actor = workforce.actors.find(a => a.id === where.id); return { username: actor.account.username, role: actor.role, segment: 'mixed' };
+    } } }, stockFixture: async () => ({ material: { id: 10, nameZh: 'Synthetic' }, batchNo: 'SYNTHETIC' }), priorChecks: [],
+    urls: ['http://synthetic0', 'http://synthetic1'], runId: 'same-cohort', reportPath: path.join(__dirname, '../output/never-written/report.json'),
+  }, AbortSignal.timeout(1000)), error => {
+    assert.equal(error.message, 'Stop after pre-baseline sessions'); assert.equal(error.evidence.cleanup.status, 'passed');
+    assert.equal(error.evidence.workforceActors.version, 'postgres-recovery-workforce-actors/v1');
+    assert.deepEqual(Object.keys(error.evidence.workforceActors.actors).sort(), ['approver', 'receivables', 'sales', 'warehouse']);
+    const publicEvidence = JSON.stringify(error.evidence);
+    for (const actor of workforce.actors) { assert(!publicEvidence.includes(actor.account.password)); assert(!publicEvidence.includes(actor.token)); }
+    return true;
+  });
+  assert(stopped); assert.equal(baselineConnections, 0); assert.equal(browserPeople.warehouse, warehouse);
+  for (const [index, actor] of workforce.actors.entries()) assert.equal(actor.account, accounts[index]);
+  assert.deepEqual(copy(accounts), credentials); assert.deepEqual(copy(publicSnapshots), frozenPublic, 'Earlier public snapshots were not mutated');
+  assert(!calls.some(c => c.actor && Object.values(actors).includes(c.actor)), 'No legacy duty is silently substituted');
+});
+
+test('an incomplete workforce cannot silently fall back to legacy recovery identities', async () => {
+  const h = harness({ ROUND2_POSTGRES_RECOVERY: 'true', AUDIT_PRISMA_PROVIDER: 'postgresql' });
+  await assert.rejects(h.postgresRecoveryProbe({ request() { h.calls.api++; }, actors: {}, workforce: { actors: [], byJob: {} }, priorChecks: [],
+    reportPath: path.join(__dirname, '../output/never-written/report.json'), runId: 'incomplete-workforce' }, AbortSignal.timeout(1000)),
+  error => /Missing existing recovery workforce duty/.test(error.message) && error.evidence.status === 'failed');
+  assert.equal(h.calls.controls, 0); assert.equal(h.calls.api, 0);
 });
 
 test('cleanup resets only a previously absent synchronous setting, never RESET ALL', async () => {

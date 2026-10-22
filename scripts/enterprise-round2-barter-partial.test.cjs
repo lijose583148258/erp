@@ -13,10 +13,11 @@ test('negative-cash probe is discoverable before browser dependencies are instal
 
 test('browser cumulative barter path creates from existing actual lots instead of seeding a generated batch', () => {
   const source=fs.readFileSync(require.resolve('./lib/enterprise-round2-barter-partial.cjs'),'utf8');
-  assert.match(source,/await openRole\(actors.sales, 0\)/);
-  assert.match(source,/await financeAction\(batch, 'approve', actors.finance1, 0\)/);
-  assert.match(source,/await financeAction\(batch, 'post', actors.finance2, 1\)/);
-  assert.match(source,/await financeAction\(second, 'reverse', actors.finance2, 1\)/);
+  assert.match(source,/await openRole\(sales, 0\)/);
+  assert.match(source,/await financeAction\(batch, 'approve', approver, 0\)/);
+  assert.match(source,/await financeAction\(batch, 'post', poster, 1\)/);
+  assert.match(source,/await financeAction\(second, 'reverse', reverser, 1\)/);
+  assert.match(source,/await customer\(signal, sales\)/);
   assert.match(source,/sourceDocument:our.batchNo/);
   assert.match(source,/sourceDocument:incomingBatch/);
   assert.match(source,/await expect\(page.getByRole\('button',\{name:'创建批次',exact:true\}\)\).toBeDisabled\(\)/);

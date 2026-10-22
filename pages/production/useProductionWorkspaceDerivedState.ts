@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { ProductBatch } from '../../services/asset.service';
-import type { ProductionBom, ProductionSummary, ProductionWorkOrder } from '../../services/production.service';
+import type { ProductionBatchSelection, ProductionBom, ProductionSummary, ProductionWorkOrder } from '../../services/production.service';
 import type { BomItemDraft } from './productionBomLineModel';
 import {
   buildBatchTrace,
@@ -21,6 +21,7 @@ export const useProductionWorkspaceDerivedState = ({
   selectedBom,
   selectedWorkOrder,
   selectedBatch,
+  selectedBatchWorkOrder,
   bomKeyword,
   bomItems,
   bomStandardBatchSize,
@@ -33,7 +34,8 @@ export const useProductionWorkspaceDerivedState = ({
   loading: boolean;
   selectedBom: ProductionBom | null;
   selectedWorkOrder: ProductionWorkOrder | null;
-  selectedBatch: ProductBatch | null;
+  selectedBatch: ProductionBatchSelection | null;
+  selectedBatchWorkOrder?: ProductionWorkOrder | null;
   bomKeyword: string;
   bomItems: BomItemDraft[];
   bomStandardBatchSize: string;
@@ -60,7 +62,7 @@ export const useProductionWorkspaceDerivedState = ({
     () => formatBomDraftPreviewWarnings(bomDraftPreviewSummary.rejectedRows),
     [bomDraftPreviewSummary],
   );
-  const batchTrace = useMemo(() => buildBatchTrace(selectedBatch, workOrders), [selectedBatch, workOrders]);
+  const batchTrace = useMemo(() => buildBatchTrace(selectedBatch, selectedBatchWorkOrder ? [selectedBatchWorkOrder] : workOrders), [selectedBatch, selectedBatchWorkOrder, workOrders]);
   const productionDeskItems = useMemo(
     () => buildProductionDeskItems(boms.length, workOrders.length, batches.length),
     [batches.length, boms.length, workOrders.length],

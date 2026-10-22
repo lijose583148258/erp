@@ -90,6 +90,25 @@ have already been executed or that the current release is production-ready.
 Use the existing release, audit, backup and deployment procedures; this checklist
 does not introduce another platform or broaden the feature scope.
 
+### Release freeze and defect decisions
+
+During release closure, accept only fixes needed for the gates below. Defer new
+features, broad refactors, dependency/platform additions and cosmetic redesign.
+Do not reduce the original 20-position / 12-chain / 37-check acceptance scope.
+
+- Release blockers: incorrect or duplicate financial effects, negative physical
+  stock, wrong BOM/batch execution, QC/QA bypass, unauthorized business access,
+  loss of committed facts, failure to recover safely, or a core workflow that
+  cannot be completed with its intended role. These must be closed with evidence.
+- Deferred defects: visual polish and optional usability improvements that do
+  not change business facts, permissions or completion of the released flows.
+  Record their impact and workaround; a data or permission defect is not cosmetic.
+- Repeated intermittent failures stay open until evidence identifies their cause
+  or proves a safe isolation. A later green replay alone does not close them.
+- For each blocker, retain one owner, reproduction/evidence, affected scope and
+  closure criterion in the existing acceptance record. Reuse existing runners;
+  every fix replays prior key chains on the final source, not a second test system.
+
 1. Freeze the release commit and immutable artifact. Complete the original
    20-position, 12-chain, 37-check acceptance and replay every previously accepted
    package on that same final source. A successful baseline workflow or partial

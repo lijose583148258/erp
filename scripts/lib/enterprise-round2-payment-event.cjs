@@ -36,7 +36,17 @@ async function paymentEventAuditProbe(ctx, signal) {
     for (const label of ['订单号', '客户', '方式', '录入时间']) await columns.getByRole('checkbox', { name: `显示列：${label}`, exact: true }).setChecked(false);
     await page.keyboard.press('Escape');
   };
+  const selectPayment = async (page, orderNo, id) => {
+    await page.locator('#loading').waitFor({ state: 'hidden' });
+    await page.getByTestId('collection-tab-ledger').click();
+    await page.getByTestId('collection-ledger-search').fill(orderNo);
+    await showLedgerColumns(page);
+    await page.getByTestId(`collection-ledger-row-${id}`).getByText(`#${id}`, { exact: true }).click();
+    const detail = page.getByTestId(`collection-payment-detail-${id}`);
+    await detail.scrollIntoViewIfNeeded(); return detail;
+  };
   let browser; const pages = []; const frames = [[], []]; let paymentId, orderId;
+  const workforceSessions = [];
   try {
     const customer = dataOf(await request('/customers', { method: 'POST', signal, data: {
       name: `${runId}-event-customer`, nameZh: `${runId}-event-customer`, creditLimit: 100000, termsDays: 30,
@@ -69,15 +79,52 @@ async function paymentEventAuditProbe(ctx, signal) {
         localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
       }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
       await page.goto(`${urls[index]}/#collections`, { waitUntil: 'domcontentloaded' });
-      await page.locator('#loading').waitFor({ state: 'hidden' });
-      await page.getByTestId('collection-tab-ledger').click();
-      await page.getByTestId('collection-ledger-search').fill(order.orderNo);
-      await showLedgerColumns(page);
-      await page.getByTestId(`collection-ledger-row-${paymentId}`).getByText(`#${paymentId}`, { exact: true }).click();
-      const pendingCard = page.getByTestId(`collection-payment-detail-${paymentId}`);
+      const pendingCard = await selectPayment(page, order.orderNo, paymentId);
       await pendingCard.scrollIntoViewIfNeeded(); await expect(pendingCard).toContainText('待核销');
       await expect(page.getByTestId(`collection-ledger-verify-${paymentId}`)).toBeVisible();
       evidence.browser.push({ actorId: actor.id, role: actor.role, instance: index, pendingVisible: true });
+    }
+    if (ctx.workforce) {
+      // Observe this SAME real payment from the run-owned custom AR role.
+      // Keep the two original finance pressure/recovery controls unchanged.
+      const actor = ctx.workforce.byJob.receivables[0];
+      evidence.workforceObserver = { actorId: actor.id, job: actor.job, role: actor.role, instance: 0,
+        sessions: [], frames: [], framesByInstance: [], apiReadbacks: [], screenshots: [] };
+      for (const instance of [0, 1]) {
+        const profile = dataOf(await request('/auth/me', { actor, instance, signal }));
+        assert.equal(profile.id, actor.id); assert.equal(profile.role, actor.role); assert.notEqual(profile.role, 'finance');
+        assert(profile.permissions.includes('collections.read') && profile.dataScopes.includes('finance_visible'));
+        const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+        page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(20000);
+        page.on('pageerror', error => evidence.errors.push(error.message));
+        const observedFrames = [];
+        page.on('websocket', socket => socket.on('framereceived', frame => {
+          try { const event = JSON.parse(String(frame.payload));
+            if (event.type === 'payment.verified' && Number(event.resourceId) === paymentId) observedFrames.push(event);
+          } catch { /* Non-JSON transport frames are not business events. */ }
+        }));
+        // Read only the actual native client's successful handshake. No synthetic
+        // WebSocket, injected business call, account reset or invented readiness.
+        const cdp = await page.context().newCDPSession(page); await cdp.send('Network.enable');
+        let handshakeStatus = null;
+        cdp.on('Network.webSocketHandshakeResponseReceived', event => { if (event.response.status === 101) handshakeStatus = 101; });
+        await page.addInitScript(({ token, user }) => {
+          for (const key of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(key, token);
+          for (const key of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
+          localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
+        }, { token: actor.token, user: profile });
+        const auth = page.waitForResponse(res => new URL(res.url()).pathname === '/api/auth/me' && res.request().method() === 'GET');
+        await page.goto(`${urls[instance]}/#collections`, { waitUntil: 'domcontentloaded' });
+        const observedProfile = await auth; assert.equal(observedProfile.status(), 200);
+        const actual = (await observedProfile.json()).data;
+        assert.equal(actual.id, actor.id); assert.equal(actual.role, actor.role);
+        assert.deepEqual(actual.permissions, profile.permissions); assert.deepEqual(actual.dataScopes, profile.dataScopes);
+        const pendingCard = await selectPayment(page, order.orderNo, paymentId); await expect(pendingCard).toContainText('待核销');
+        await until(async () => handshakeStatus, value => value === 101, 5000); await cdp.detach();
+        if (instance === 0) Object.assign(evidence.workforceObserver, { profile: actual, pendingVisible: true, handshakeStatus });
+        evidence.workforceObserver.sessions.push({ instance, profile: actual, pendingVisible: true, handshakeStatus });
+        workforceSessions.push({ actor, page, instance, frames: observedFrames });
+      }
     }
     const response = pages[0].waitForResponse(res => new URL(res.url()).pathname === `/api/collections/payments/${paymentId}/verify` && res.request().method() === 'POST');
     await pages[0].getByTestId(`collection-ledger-verify-${paymentId}`).click();
@@ -147,6 +194,36 @@ async function paymentEventAuditProbe(ctx, signal) {
     evidence.frames = frames.map(items => items.map(e => ({ id: e.id, type: e.type, resourceId: e.resourceId })));
     if (evidence.provider === 'postgresql') assert(frames.every(items => items.length === 1 && items[0].id === event.id), 'Shared bus must notify both independent finance sessions exactly once');
     else assert.equal(frames.flat().filter(e => e.id === event.id).length, 1, 'Local memory bus scope is one instance, not a distributed bus claim');
+    if (workforceSessions.length) {
+      const observer = evidence.workforceObserver;
+      observer.framesByInstance = workforceSessions.map(session => session.frames.map(row => ({ id: row.id, type: row.type, resourceId: row.resourceId })));
+      // Memory delivery belongs to whichever local instance claims the outbox.
+      // Redis fans out to both. Observe both native clients; never accept zero
+      // frames or assume that the request-receiving node owns publication.
+      assert.deepEqual(observer.framesByInstance, evidence.frames, 'Actual AR and legacy finance clients must agree on each publishing node');
+      observer.frames = observer.framesByInstance.flat();
+      assert.equal(observer.frames.length, evidence.provider === 'postgresql' ? 2 : 1);
+      assert(observer.frames.every(row => row.id === event.id));
+      for (const { actor, page, instance } of workforceSessions) {
+        await page.reload({ waitUntil: 'domcontentloaded' });
+        const detail = await selectPayment(page, order.orderNo, paymentId);
+        await expect(detail).toContainText('已核销'); await expect(detail).toContainText('300');
+        await expect(page.getByTestId(`collection-ledger-verify-${paymentId}`)).toHaveCount(0);
+        const font = await verifyRenderedCjk(page, `[data-testid="collection-payment-detail-${paymentId}"]`);
+        const file = path.join(folder, `workforce-receivables-${instance}-recovered.png`); await detail.screenshot({ path: file });
+        observer.screenshots.push({ path: file, actorId: actor.id, instance, font, text: await detail.innerText() });
+      }
+      const actor = workforceSessions[0].actor;
+      for (const instance of [0, 1]) {
+        const row = dataOf(await request(`/orders/${orderId}`, { actor, instance, signal }));
+        assert.equal(Number(row.id), orderId);
+        assert.equal(Number(row.paidAmount), 300); assert.equal(row.paymentRecords.length, 1);
+        assert.equal(row.paymentRecords[0].status, 'verified');
+        evidence.workforceObserver.apiReadbacks.push({ instance, path: `/orders/${orderId}`, orderId: Number(row.id), paidAmount: row.paidAmount,
+          payment: row.paymentRecords[0] });
+      }
+      assert.deepEqual(await snapshot(), beforeCrash, 'Dynamic-role readback cannot mutate the financial facts');
+    }
     evidence.deliveryReceipts = await prisma.businessEventDelivery.findMany({ where: { eventId: beforeCrash.events[0].id }, orderBy: { id: 'asc' } });
     assert.equal(evidence.errors.length, 0); evidence.proof = verifyPaymentEventProof(evidence, evidence.provider); return evidence;
   } catch (error) { error.evidence ||= evidence; throw error; }

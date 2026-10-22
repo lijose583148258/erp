@@ -195,6 +195,7 @@ describe('payment reversal outbox identity and immutable payload binding (mock t
     const { db } = fixture(JSON.stringify(payload), {}, { channel: 'realtime', destinationKey: 'finance-notifications' });
     jest.mocked(publishDurableRealtimeNotification).mockClear();
     expect((await drainPaymentEventOutbox({ db })).delivered).toBe(1);
-    expect(publishDurableRealtimeNotification).toHaveBeenCalledWith(expect.objectContaining({ id: payload.id, type, title, severity, resourceId: 7 }));
+    expect(publishDurableRealtimeNotification).toHaveBeenCalledWith(expect.objectContaining({ id: payload.id, type, title, severity, resourceId: 7,
+      audience: { roles: ['admin', 'manager', 'finance'], paymentReadAccess: 'current-policy-v1' } }));
   });
 });

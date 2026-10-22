@@ -76,14 +76,16 @@ function sharedSalesProofFixture(provider = 'sqlite') {
     let previous = null; for (const action of (i ? ['reserve', 'consume'] : ['reserve', 'release', 'reserve', 'consume'])) {
       const event = { schema: 'shipment-reservation/v1', action, shipmentId, actorId: actor('warehouse').id, stockBalanceId: 115 + i, locationId: 117, materialId: m.materialId, batchNo, quantity, unit: 'kg', previousAuditId: previous, reason: null };
       previous = audit('warehouse', 'shipment', shipmentId, { reserve: 'RESERVE_STOCK', release: 'RELEASE_STOCK', consume: 'CONSUME_RESERVATION' }[action], event);
-      response('warehouse', action === 'consume' ? 'PATCH' : 'POST', `/api/shipping/${shipmentId}/${action === 'consume' ? 'status' : action === 'release' ? 'release-reservation' : 'reserve'}`, {}, action === 'consume' ? 200 : 201, 0, {}, e.browser.actions);
+      const original = response('warehouse', action === 'consume' ? 'PATCH' : 'POST', `/api/shipping/${shipmentId}/${action === 'consume' ? 'status' : action === 'release' ? 'release-reservation' : 'reserve'}`,
+        { reservation: { ...event, auditId: previous }, replayed: false }, action === 'consume' ? 200 : 201, 0, { expectedAuditId: event.previousAuditId }, e.browser.actions);
+      if (!i && action === 'reserve' && event.previousAuditId === null) e.firstReservation = { response: original };
     }
     Object.assign(shipment, { productBatchId: batchId, batchNo, status: 'delivered', reservationState: 'consumed', reservationAuditId: previous, submissionJson: JSON.stringify(draftAck) });
     const r = { id: 120 + i, receiptNo: `POD${i}`, shipmentId, quantity, acceptedQuantity: quantity, rejectedQuantity: 0, unit: 'kg', signedReceiptUrl: null, discrepancyReason: null, note: 'Actual acceptance', receivedBy: actor('warehouse').id, receivedAt: date, createdAt: date };
     const rfacts = { quantity, acceptedQuantity: quantity, rejectedQuantity: 0, discrepancyType: 'customer_short_signed', discrepancyReason: null, note: r.note, file: null };
     const rack = { schema: 'shipment-receipt-submission/v1', key: `contract-pod-${i}`, actorId: actor('warehouse').id, shipmentId, fingerprint: hash({ shipmentId, actorId: actor('warehouse').id, facts: rfacts }), facts: rfacts, receipt: r };
     rack.auditId = audit('warehouse', 'shipment', shipmentId, 'CREATE_RECEIPT_EVENT', clone(rack)); e[i ? 'secondReceipt' : 'firstReceipt'] = response('warehouse', 'POST', `/api/shipping/${shipmentId}/receipt-events`, { submission: rack }, 201, 0, rfacts, e.browser.actions);
-    shipment.receipts = [r]; f.shipments.push(shipment); f.batches.push({ id: batchId, materialId: m.materialId, batchNo, stockQuantity: 0, qualityStatus: 'released' }); f.balances.push({ id: 115 + i, materialId: m.materialId, batchNo, quantity: 0 });
+    shipment.receipts = [r]; f.shipments.push(shipment); f.batches.push({ id: batchId, materialId: m.materialId, batchNo, stockQuantity: 0, qualityStatus: 'released' }); f.balances.push({ id: 115 + i, locationId: 117, materialId: m.materialId, batchNo, quantity: 0, unit: 'kg' });
     f.entries.push({ sourceType: 'shipping_issue', sourceRef: shipment.shipmentNo, movements: [{ quantityDelta: -quantity, batchNo }] });
     f.costs.push({ id: 130 + i * 2, batchId, quantityDelta: quantity, costAmountDelta: quantity * 10 }, { id: 131 + i * 2, batchId, quantityDelta: -quantity, costAmountDelta: -quantity * 10 });
     for (const instance of [0, 1]) { const payload = { batch: { id: batchId }, summary: { totalQuantityDelta: 0, currentQuantity: 0, totalCostAmountDelta: 0, currentCostAmount: 0 }, items: clone(f.costs.filter(c => c.batchId === batchId)) }; e.costReadbacks.push({ batchId, instance, data: payload }); response('cost', 'GET', `/production/batches/${batchId}/cost-ledger`, payload, 200, instance); }
@@ -108,6 +110,13 @@ function sharedSalesProofFixture(provider = 'sqlite') {
     for (const instance of [0, 1]) { response('sales', 'GET', `/orders/${m.orderId}`, value, 200, instance); response('sales', 'GET', `/orders?search=${m.orderNo}`, [value], 200, instance); }
   }
   e.stages.beforeDraft = clone(e.stages.firstReserved.snapshot); e.stages.afterDraft = clone(e.stages.beforeDraft);
+  const firstReservation = e.firstReservation.response.json.data.reservation;
+  for (const s of e.stages.afterDraft.shipments) Object.assign(s, { status: 'pending', reservationState: 'unreserved', reservationAuditId: null, reservationBalanceId: null, reservationQuantity: null, receipts: [] });
+  e.stages.afterDraft.audits = f.audits.filter(a => !['RESERVE_STOCK', 'RELEASE_STOCK', 'CONSUME_RESERVATION', 'CREATE_RECEIPT_EVENT'].includes(a.action)).map(clone);
+  e.stages.firstReserved.snapshot = clone(e.stages.afterDraft);
+  Object.assign(e.stages.firstReserved.snapshot.shipments[0], { reservationState: 'reserved', reservationAuditId: firstReservation.auditId, reservationBalanceId: firstReservation.stockBalanceId, reservationQuantity: firstReservation.quantity });
+  e.stages.firstReserved.snapshot.audits.push(clone(f.audits.find(a => a.id === firstReservation.auditId)));
+  e.firstReservation.snapshot = clone(e.stages.firstReserved.snapshot);
   e.stages.beforeQC = clone(e.stages.secondReserved.snapshot); e.stages.beforeQC.batches.find(b => b.id === receipt.batchId).qualityStatus = 'hold'; e.stages.beforeQC.checks = []; e.stages.beforeQC.supplierPayments[0].status = 'draft';
   const denials = [['sales cannot confirm own order', 'sales', 403], ['source confirmer cannot approve own sources', 'buyer2', 409], ['warehouse cannot read full orders', 'warehouse', 403], ['warehouse cannot read financial payables', 'warehouse', 403], ['foreign sales cannot read this customer order', 'salesPeer', 404], ['missing batch cannot reserve remainder', 'warehouse', 409], ['shortage cannot dispatch remainder', 'warehouse', 409], ['sales cannot reserve physical stock', 'sales', 403], ['QA hold freezes independent payment verification', 'owner', 409], ['QA hold blocks reservation of the real received batch', 'warehouse', 409], ['QA hold blocks dispatch of the real received batch', 'warehouse', 409], ['inspector cannot independently release own sample', 'qc', 403]];
   denials.push(['late quote/specification may remain blank only in draft', 'owner', 409]);
@@ -130,7 +139,9 @@ function sharedSalesProofFixture(provider = 'sqlite') {
     const actionIndex = e.actions.length, [method, endpoint, permission, code] = targets[name];
     response(job, method, endpoint, {}, status);
     e.actions.at(-1).json = { success: false, ...(permission ? { requiredPermissions: [permission] } : {}), ...(code ? { errorCode: code } : { message: 'Not authorized' }) };
-    const before = clone(f); if (name.startsWith('QA hold')) before.batches.find(b => b.id === m.replenishmentBatchId).qualityStatus = 'hold';
+    const before = clone(name === 'sales cannot reserve physical stock' ? e.stages.afterDraft : f);
+    if (name === 'sales cannot reserve physical stock') e.actions.at(-1).sent = { expectedAuditId: null };
+    if (name.startsWith('QA hold')) before.batches.find(b => b.id === m.replenishmentBatchId).qualityStatus = 'hold';
     e.denials.push({ name, job, actionIndex, before, after: clone(before) });
   }
   e.planCloseReplaySnapshot = clone(f); e.shipmentReplays = []; e.receiptReplays = [];

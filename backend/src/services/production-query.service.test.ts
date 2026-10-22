@@ -27,6 +27,27 @@ jest.mock('../config/database', () => ({
 
 import { ProductionQueryService } from './production-query.service';
 
+describe('ProductionQueryService.listWorkOrders batch projection', () => {
+  beforeEach(() => jest.clearAllMocks());
+
+  it('selects real cold-chain facts and preserves nullable batch dates without broad asset data', async () => {
+    prismaMock.productionWorkOrder.findMany.mockResolvedValue([{
+      id: 7, workOrderNo: 'WO-7', batchId: 11, plannedStartAt: null, plannedEndAt: null, actualStartAt: null, actualEndAt: null,
+      createdAt: new Date('2026-10-17T00:00:00Z'), updatedAt: new Date('2026-10-17T00:00:00Z'), steps: [], qualityChecks: [],
+      productBatch: { id: 11, batchNo: 'LOT-11', productName: 'Resin', productionDate: null, expiryDate: null,
+        isColdChain: true, storageTemp: '2–8 °C', stockQuantity: 10, qualityStatus: 'released', unit: 'kg' },
+    }]);
+    const [result] = await ProductionQueryService.listWorkOrders({ batchId: 11 });
+    expect(prismaMock.productionWorkOrder.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { batchId: 11 }, include: expect.objectContaining({ productBatch: { select: {
+        id: true, materialId: true, batchNo: true, productName: true, productionDate: true, expiryDate: true,
+        stockQuantity: true, qualityStatus: true, unit: true, isColdChain: true, storageTemp: true,
+      } } }),
+    }));
+    expect(result.productBatch).toMatchObject({ id: 11, productionDate: null, expiryDate: null, isColdChain: true, storageTemp: '2–8 °C' });
+  });
+});
+
 describe('ProductionQueryService.getSummary', () => {
   beforeEach(() => {
     jest.clearAllMocks();

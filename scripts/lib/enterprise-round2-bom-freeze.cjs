@@ -4,8 +4,24 @@ const { synchronizedBurst } = require('./enterprise-round2-runner.cjs');
 async function bomFreezeProbe(ctx, signal) {
   const { request, dataOf, actors, prisma, runId, ensureReleasedMaterial } = ctx;
   const evidence = { scope: 'API revision binding and governance freeze; existing admin/warehouse/manager roles, not complete workforce RBAC', cases: [] };
-  const call = async (url, method = 'GET', data, actor = actors.admin, instance = 0) => dataOf(await request(url, { method, data, actor, instance, signal }));
-  const change = (url, data, actor = actors.admin, instance = 1) => request(url, { method: 'POST', data, actor, instance, signal });
+  const duties = ctx.productionActors;
+  const research = duties ? duties.research : actors.admin, planner = duties ? duties.planner : actors.stock0;
+  const operator = duties ? duties.operators?.[0] : actors.stock0, qc = duties ? duties.qc : actors.stock0, qa = duties ? duties.qa : actors.buyer1;
+  if (duties) {
+    for (const person of [research, planner, operator, qc, qa]) assert(person?.id && person.id !== actors.admin.id, 'Explicit non-bootstrap production duties are required');
+    assert.equal(new Set([research, planner, operator, qc, qa].map(person => person.id)).size, 5, 'Production duties must use independent identities');
+    evidence.scope = 'Actual research/planning/execution/QC/QA responsibilities with the existing controlled governance regressions; not whole workforce acceptance';
+    evidence.productionActors = Object.fromEntries(Object.entries({ research, planner, operator, qc, qa }).map(([job, person]) => [job, { id: person.id, role: person.role }]));
+    evidence.roleActions = [];
+  }
+  const send = async (url, options) => {
+    const result = await request(url, { ...options, signal });
+    if (duties) evidence.roleActions.push({ actorId: options.actor.id, role: options.actor.role, instance: options.instance || 0,
+      method: options.method, path: url, sent: options.data ?? null, status: result.status, json: result.json });
+    return result;
+  };
+  const call = async (url, method = 'GET', data, actor = actors.admin, instance = 0) => dataOf(await send(url, { method, data, actor, instance }));
+  const change = (url, data, actor = actors.admin, instance = 1) => send(url, { method: 'POST', data, actor, instance });
   const readBom = id => prisma.productionBom.findUnique({ where: { id }, include: { items: { orderBy: { id: 'asc' } }, qualityCharacteristics: { orderBy: { id: 'asc' } } } });
   try {
     const raw = await ensureReleasedMaterial({ request, code: `${runId}-freeze-raw`, name: `${runId}-canonical-resin`, category: 'raw_material' });
@@ -17,11 +33,11 @@ async function bomFreezeProbe(ctx, signal) {
       materialId: fg.id, productName: fg.nameZh, version: label, status: linked ? 'active' : 'draft', outputUnit: 'kg', shelfLifeDays: 365,
       items: [{ ...(linked ? { materialId: raw.id } : { materialName: `${runId}-legacy-${label}` }), quantityPerUnit: quantity, unit: 'kg', allowedVarianceRate: 0 }],
       qualityCharacteristics: [{ code: 'VISC', name: '粘度', valueType: 'numeric', unit: 'mPa.s', lowerLimit: quantity, upperLimit: quantity + 1 }],
-    });
+    }, research);
     const woData = bom => ({ bomId: bom.id, productName: fg.nameZh, targetQuantity: 10, producedQuantity: 10 });
-    const makeWo = bom => call('/production/work-orders', 'POST', woData(bom), actors.stock0);
-    const status = (wo, value) => call(`/production/work-orders/${wo.id}/status`, 'PATCH', { status: value }, actors.stock0);
-    const preview = (wo, instance = 0) => call(`/production/work-orders/${wo.id}/preview-consumption`, 'GET', undefined, actors.stock0, instance);
+    const makeWo = bom => call('/production/work-orders', 'POST', woData(bom), planner);
+    const status = (wo, value) => call(`/production/work-orders/${wo.id}/status`, 'PATCH', { status: value }, value === 'cancelled' ? planner : operator);
+    const preview = (wo, instance = 0) => call(`/production/work-orders/${wo.id}/preview-consumption`, 'GET', undefined, operator, instance);
     const mapping = async bom => {
       const candidates = await call('/materials/governance/backfill-candidates?limit=50');
       const c = candidates.items.find(row => row.source.materialName === bom.items[0].materialName); assert(c);
@@ -35,14 +51,14 @@ async function bomFreezeProbe(ctx, signal) {
     assert.deepEqual(await preview(old), oldPreview); assert.deepEqual(await readBom(v1.id), oldDefinition);
     for (const wo of [old, newer]) await status(wo, 'qc_pending');
     const inspect = (wo, bom) => call(`/production/work-orders/${wo.id}/checks`, 'POST', { sampleNo: `${runId}-${wo.id}`,
-      measurements: [{ characteristicId: bom.qualityCharacteristics[0].id, measuredNumeric: '1.5' }] }, actors.stock0);
+      measurements: [{ characteristicId: bom.qualityCharacteristics[0].id, measuredNumeric: '1.5' }] }, qc);
     const oldQc = await inspect(old, v1); const newQc = await inspect(newer, v2);
     assert.equal(oldQc.result, 'pass'); assert.equal(newQc.result, 'fail');
-    await call(`/production/work-orders/${old.id}/checks/${oldQc.id}/review`, 'POST', { decision: 'release', reviewNote: 'Original v1 specification, independent reviewer' }, actors.buyer1);
-    const wrongRecipe = await request(`/production/work-orders/${old.id}/status`, { method: 'PATCH', actor: actors.stock0, signal,
+    await call(`/production/work-orders/${old.id}/checks/${oldQc.id}/review`, 'POST', { decision: 'release', reviewNote: 'Original v1 specification, independent reviewer' }, qa);
+    const wrongRecipe = await send(`/production/work-orders/${old.id}/status`, { method: 'PATCH', actor: operator,
       data: { status: 'completed', consumptionRecords: [{ stockBalanceId: stock.id, quantity: 20 }] } });
     assert.equal(wrongRecipe.status, 409, JSON.stringify(wrongRecipe));
-    await call(`/production/work-orders/${old.id}/status`, 'PATCH', { status: 'completed', consumptionRecords: [{ stockBalanceId: stock.id, quantity: 10 }] }, actors.stock0);
+    await call(`/production/work-orders/${old.id}/status`, 'PATCH', { status: 'completed', consumptionRecords: [{ stockBalanceId: stock.id, quantity: 10 }] }, operator);
     const persisted = await prisma.productionWorkOrder.findUnique({ where: { id: old.id }, include: { productBatch: true, qualityChecks: { include: { measurements: true } }, genealogyEdges: true } });
     const costs = await prisma.inventoryCostLedger.findMany({ where: { workOrderId: old.id }, orderBy: { id: 'asc' } });
     assert.equal(persisted.bomId, v1.id); assert.equal(persisted.status, 'completed'); assert.equal(persisted.productBatch.stockQuantity, 10);
@@ -52,7 +68,7 @@ async function bomFreezeProbe(ctx, signal) {
     assert.equal(Number(persisted.qualityChecks[0].measurements[0].lowerLimit), 1);
     assert.equal(Number(persisted.qualityChecks[0].measurements[0].upperLimit), 2);
     assert.deepEqual(await readBom(v1.id), oldDefinition);
-    const readbacks = await Promise.all([0,1].map(instance => call('/production/work-orders', 'GET', undefined, actors.stock0, instance)));
+    const readbacks = await Promise.all([0,1].map(instance => call('/production/work-orders', 'GET', undefined, operator, instance)));
     for (const rows of readbacks) { assert.equal(rows.find(r => r.id === old.id).bom.version, v1.version); assert.equal(rows.find(r => r.id === newer.id).bom.version, v2.version); }
     evidence.history = { old, newer, v1, v2, oldDefinition, persisted, costs, oldQc, newQc, wrongRecipe, readbacks };
 
@@ -76,8 +92,8 @@ async function bomFreezeProbe(ctx, signal) {
     for (const operation of ['apply', 'rollback']) for (let attempt = 0; attempt < 2; attempt++) {
       const bom = await makeBom(`race-${operation}-${attempt}`, false); const m = await mapping(bom);
       const prior = operation === 'rollback' ? dataOf(await apply([m])).run : null;
-      const race = await synchronizedBurst([actors.admin, actors.stock0], async actor => {
-        const creation = actor.id === actors.stock0.id;
+      const race = await synchronizedBurst([actors.admin, planner], async actor => {
+        const creation = actor.id === planner.id;
         const response = creation ? await change('/production/work-orders', woData(bom), actor, 0)
           : operation === 'apply' ? await apply([m]) : await change(`/materials/governance/runs/${prior.id}/rollback`, {});
         return { operation: creation ? 'create' : operation, ...response };
@@ -111,12 +127,13 @@ async function bomHistoryBrowser(ctx, history, signal) {
   const evidence = { scope: 'Warehouse browser readback of bound revisions; not browser formulation authoring or full workforce validation', readbacks: [], errors: [] };
   try {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } }); page.setDefaultTimeout(15000);
-    const actor = ctx.actors.stock0;
+    const actor = ctx.productionActors?.research || ctx.actors.stock0;
+    if (ctx.productionActors) { evidence.actorId = actor.id; evidence.role = actor.role; }
     await page.addInitScript(({ token, user }) => {
       for (const key of ['token','auth_token','erp_auth_token']) localStorage.setItem(key, token);
       for (const key of ['user','currentUser','erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
       localStorage.setItem('ailao.language','zh'); localStorage.setItem('language','zh-CN');
-    }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
+    }, { token: actor.token, user: { ...actor.profile, id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
     page.on('pageerror', error => evidence.errors.push(error.message));
     page.on('response', response => { if (unitFormActive && response.status() === 409 && new URL(response.url()).pathname === '/api/production/boms' && response.request().method() === 'POST') { expectedUnitResponses.push(response.status()); return; } if (response.status() >= 400 && response.url().includes('/api/')) evidence.errors.push(`${response.status()} ${new URL(response.url()).pathname}`); });
     await page.goto(`${ctx.urls[1]}/#production`); await page.locator('#loading').waitFor({ state: 'hidden' });

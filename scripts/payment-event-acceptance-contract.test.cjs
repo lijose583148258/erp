@@ -12,6 +12,62 @@ const { paymentEventProofFixture } = require('./fixtures/payment-event-proof-fix
 test('complete event evidence has separate SQLite and shared PostgreSQL bus boundaries', () => {
   for (const provider of ['sqlite', 'postgresql']) assert.equal(verifyPaymentEventProof(paymentEventProofFixture(provider), provider).downstreamEffects, 1);
 });
+
+function workforceObserverFixture(provider = 'postgresql', publisher = 0) {
+  const e = paymentEventProofFixture(provider);
+  e.frames = e.frames.map(rows => rows.map(frame => ({ ...frame, type: 'payment.verified' })));
+  if (provider === 'sqlite' && publisher === 1) e.frames = [[], e.frames.flat()];
+  const actorId = 900;
+  const profile = { id: actorId, role: 'run_owned_receivables', permissions: ['collections.read'], dataScopes: ['finance_visible'] };
+  const framesByInstance = structuredClone(e.frames);
+  e.workforceObserver = { actorId, job: 'receivables', role: 'run_owned_receivables', instance: 0,
+    profile,
+    pendingVisible: true, handshakeStatus: 101,
+    sessions: [0, 1].map(instance => ({ instance, profile: structuredClone(profile), pendingVisible: true, handshakeStatus: 101 })),
+    frames: framesByInstance.flat(), framesByInstance,
+    apiReadbacks: [0, 1].map(instance => {
+      const payment = structuredClone(e.finalSnapshot.payment); delete payment.orderId;
+      return { instance, path: `/orders/${e.orderId}`, orderId: e.orderId, paidAmount: 300, payment };
+    }),
+    screenshots: [0, 1].map(instance => ({ ...structuredClone(e.screenshots[instance]), actorId, instance })),
+  };
+  return e;
+}
+
+test('actual custom AR observer proof supplements, never replaces, the two finance recovery controls', () => {
+  assert.equal(verifyPaymentEventProof(workforceObserverFixture(), 'postgresql').financeBrowsers, 2);
+});
+for (const publisher of [0, 1]) test(`local memory AR observer follows the real outbox owner on node${publisher}`, () => {
+  assert.equal(verifyPaymentEventProof(workforceObserverFixture('sqlite', publisher), 'sqlite').financeBrowsers, 2);
+});
+test('local AR frame on the wrong node is rejected even when its total is one', () => {
+  const e = workforceObserverFixture('sqlite');
+  e.workforceObserver.framesByInstance.reverse(); e.workforceObserver.frames = e.workforceObserver.framesByInstance.flat();
+  assert.throws(() => verifyPaymentEventProof(e, 'sqlite'));
+});
+for (const [name, mutate] of [
+  ['borrowed legacy identity', o => { o.actorId = 1; }],
+  ['built-in role substitution', o => { o.role = o.profile.role = 'finance'; }],
+  ['missing collection grant', o => { o.profile.permissions = []; }],
+  ['all-data scope', o => { o.profile.dataScopes.push('all'); }],
+  ['native socket never connected', o => { o.handshakeStatus = null; }],
+  ['secondary native socket never connected', o => { o.sessions[1].handshakeStatus = null; }],
+  ['second page borrowed another identity', o => { o.sessions[1].profile.id++; }],
+  ['same native node twice', o => { o.sessions[1].instance = 0; }],
+  ['one Redis node missing', o => { o.framesByInstance[1] = []; o.frames = o.framesByInstance.flat(); }],
+  ['missing durable frame', o => { o.frames = []; }],
+  ['duplicate durable frame', o => { o.frames.push({ ...o.frames[0] }); }],
+  ['other payment frame', o => { o.frames[0].resourceId++; }],
+  ['other event type', o => { o.frames[0].type = 'payment.reversed'; }],
+  ['same node repeated', o => { o.apiReadbacks[1].instance = 0; }],
+  ['another order endpoint', o => { o.apiReadbacks[0].path = '/orders/123456'; }],
+  ['another parent order', o => { o.apiReadbacks[0].orderId++; }],
+  ['wrong payment readback', o => { o.apiReadbacks[0].payment.id++; }],
+  ['pending native detail', o => { o.screenshots[0].text = '待核销 300'; }],
+]) test(`custom AR observer proof rejects ${name}`, () => {
+  const e = workforceObserverFixture(); mutate(e.workforceObserver);
+  assert.throws(() => verifyPaymentEventProof(e, 'postgresql'));
+});
 for (const [name, mutate] of [
   ['missing finance browser', e => { e.browser = []; }],
   ['admin impersonates finance', e => { e.browser[0].role = 'admin'; }],

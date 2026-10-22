@@ -16,6 +16,37 @@ async function probeReservationWorkspace(ctx, evidence) {
   const sales = await browser.newPage({ viewport: { width: 1440, height: 1000 }, locale: 'en-US', serviceWorkers: 'block' });
   const folder = path.join(path.dirname(process.env.ROUND2_REPORT_PATH), 'reservation-workspace'); fs.mkdirSync(folder, { recursive: true });
   evidence.screenshots = [];
+  evidence.reservationReads = [];
+  evidence.browserDiagnostics = { pageErrors: [], navigations: [], lifecycle: [] };
+  let closing = false;
+  page.on('pageerror', error => {
+    if (evidence.browserDiagnostics.pageErrors.length < 20) evidence.browserDiagnostics.pageErrors.push({ at: new Date().toISOString(),
+      message: error.message.replace(/https?:\/\/[^\s)]+/g, value => { try { const url = new URL(value); return `${url.origin}${url.pathname}`; } catch { return '[unparsed-url]'; } }).slice(0, 1200) });
+  });
+  page.on('framenavigated', frame => {
+    if (frame !== page.mainFrame() || evidence.browserDiagnostics.navigations.length >= 40) return;
+    const url = new URL(frame.url()); evidence.browserDiagnostics.navigations.push({ at: new Date().toISOString(), path: `${url.origin}${url.pathname}${url.hash}` });
+  });
+  for (const event of ['crash', 'close']) page.on(event, () => evidence.browserDiagnostics.lifecycle.push({ at: new Date().toISOString(), event, intentional: closing }));
+  const pendingReads = new Set();
+  page.on('response', response => {
+    const endpoint = new URL(response.url()).pathname;
+    if (!/^\/api\/shipping\/\d+\/(reservation|reserve|release-reservation)$/.test(endpoint)) return;
+    const entry = { at: new Date().toISOString(), path: endpoint, method: response.request().method(), status: response.status() };
+    evidence.reservationReads.push(entry);
+    const task = response.json().then(json => { entry.json = json; }, error => { entry.readError = String(error.message || error); });
+    pendingReads.add(task); void task.finally(() => pendingReads.delete(task));
+  });
+  const visibleReservation = () => page.evaluate(() => {
+    const modal = document.querySelector('[data-testid="shipment-reservation-modal"]');
+    const reason = document.querySelector('[data-testid="shipment-reservation-reason"]');
+    let user; try { user = JSON.parse(localStorage.getItem('erp_current_user') || 'null'); } catch { user = null; }
+    return { url: `${location.origin}${location.pathname}${location.hash}`, modal: modal?.textContent || null, reason: reason instanceof HTMLTextAreaElement ? reason.value : null,
+      controls: modal ? Array.from(modal.querySelectorAll('[data-testid]')).map(node => ({ id: node.getAttribute('data-testid'), disabled: node.hasAttribute('disabled') })) : [],
+      alerts: Array.from(document.querySelectorAll('[role="alert"]')).slice(0, 5).map(node => node.textContent?.slice(0, 800)),
+      trace: window.__reservationWorkspaceTrace || null,
+      localIdentityHint: user ? { id: user.id, role: user.role } : null };
+  });
   let id, base;
   const snapshot = async () => ({ shipment: await prisma.shipment.findUnique({ where: { id } }),
     receipts: await prisma.shipmentReceipt.findMany({ where: { shipmentId: id }, orderBy: { id: 'asc' } }),
@@ -258,8 +289,35 @@ async function probeReservationWorkspace(ctx, evidence) {
     const microCell = sales.getByTestId(`order-reserved-${target.orderId}-${target.orderItemId}`);
     await expect(microCell).toContainText(/0\.000001\s*kg/); const microShot = path.join(folder, 'sales-micro-quantity.png');
     await microCell.screenshot({ path: microShot }); evidence.screenshots.push(microShot);
+    // Passive, bounded trace: preserve the actual DOM transition instead of
+    // guessing why a locator disappeared or extending the click timeout.
+    await page.evaluate(() => {
+      const trace = window.__reservationWorkspaceTrace = [];
+      let previous;
+      const capture = () => {
+        const modal = document.querySelector('[data-testid="shipment-reservation-modal"]');
+        const state = document.querySelector('[data-testid="shipment-reservation-state"]');
+        const reason = document.querySelector('[data-testid="shipment-reservation-reason"]');
+        const release = document.querySelector('[data-testid="shipment-reservation-release"]');
+        const entry = { modal: Boolean(modal?.isConnected), state: state?.textContent || null,
+          reasonLength: reason instanceof HTMLTextAreaElement ? reason.value.length : null,
+          release: Boolean(release?.isConnected), disabled: release instanceof HTMLButtonElement ? release.disabled : null,
+          focused: document.activeElement?.getAttribute('data-testid') || null,
+          alerts: Array.from(document.querySelectorAll('[role="alert"]')).slice(0, 3).map(node => node.textContent?.slice(0, 500)) };
+        const signature = JSON.stringify(entry);
+        if (signature !== previous && trace.length < 80) { previous = signature; trace.push({ at: new Date().toISOString(), ...entry }); }
+      };
+      const observer = new MutationObserver(capture);
+      observer.observe(document.body, { childList: true, subtree: true, attributes: true, characterData: true });
+      document.addEventListener('input', capture, true); document.addEventListener('focusin', capture, true);
+      window.__stopReservationWorkspaceTrace = () => { observer.disconnect(); document.removeEventListener('input', capture, true); document.removeEventListener('focusin', capture, true); };
+      capture();
+    });
     await page.getByTestId('shipment-reservation-reason').fill('End isolated micro-quantity UI verification');
+    evidence.micro.beforeReleaseUI = await visibleReservation();
     await page.getByTestId('shipment-reservation-release').click(); await expect(page.getByTestId('shipment-reservation-state')).toHaveText('已释放');
+    evidence.micro.afterReleaseUI = await visibleReservation();
+    await page.evaluate(() => window.__stopReservationWorkspaceTrace?.());
     onLogin(login.token); evidence.micro.after = await snapshot();
     for (const key of ['balances', 'batch', 'costs']) assert.deepEqual(evidence.micro.after[key], evidence.micro.before[key]);
     await page.getByTestId('shipment-reservation-close').click();
@@ -301,6 +359,15 @@ async function probeReservationWorkspace(ctx, evidence) {
     assert.equal(microCost.costBefore, 100); assert.equal(microCost.costAfter, 100);
     assert.equal(Math.round(evidence.micro.afterReceiptRace.costs.reduce((sum, row) => sum + row.quantityDelta, 0) * 1e6), 9999999);
     assert.equal(evidence.micro.afterReceiptRace.costs.reduce((sum, row) => sum + row.costAmountDelta, 0), 100);
-  } finally { await sales.close().catch(() => {}); await page.close().catch(() => {}); await browser.close(); }
+  } catch (error) {
+    evidence.failure = { message: String(error.message || error), warehouse: await visibleReservation().catch(() => null) };
+    const file = path.join(folder, 'reservation-failure.png');
+    await page.screenshot({ path: file, fullPage: true }).then(() => evidence.screenshots.push(file), () => {});
+    throw error;
+  } finally {
+    closing = true;
+    await sales.close().catch(() => {}); await page.close().catch(() => {}); await browser.close();
+    await Promise.allSettled([...pendingReads]);
+  }
 }
 module.exports = { probeReservationWorkspace };

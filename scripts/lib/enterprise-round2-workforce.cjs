@@ -7,7 +7,7 @@ const { ensureUiAuditUser } = require('./ui-audit-user.cjs');
 // permissions. The bootstrap administrator is deliberately outside the cohort.
 const policies = {
   owner: {
-    permissions: ['orders.read', 'orders.payment.verify', 'finance.read', 'procurement.read', 'procurement.approve', 'procurement.payment.verify'],
+    permissions: ['orders.read', 'orders.payment.verify', 'finance.read', 'procurement.read', 'procurement.approve', 'procurement.payment.verify', 'collections.read', 'barter.read', 'barter.approve', 'orders.payment.reversal.review'],
     dataScopes: ['finance_visible', 'procurement_visible'],
   },
   sales_lead: {
@@ -15,7 +15,7 @@ const policies = {
     dataScopes: ['team_customers'],
   },
   sales: {
-    permissions: ['orders.read', 'orders.create', 'orders.update', 'orders.payment.record', 'customers.read', 'customers.create', 'customers.update', 'materials.read', 'shipping.read', 'shipping.receipts.read'],
+    permissions: ['orders.read', 'orders.create', 'orders.update', 'orders.payment.record', 'customers.read', 'customers.create', 'customers.update', 'materials.read', 'shipping.read', 'shipping.receipts.read', 'barter.read', 'barter.write'],
     dataScopes: ['own_customers'],
   },
   buyer: {
@@ -47,11 +47,11 @@ const policies = {
     dataScopes: ['warehouse_visible', 'procurement_visible'],
   },
   receivables: {
-    permissions: ['orders.read', 'orders.payment.record', 'orders.payment.verify', 'finance.read'],
+    permissions: ['orders.read', 'orders.payment.record', 'orders.payment.verify', 'finance.read', 'collections.read', 'barter.read', 'barter.post', 'orders.payment.reversal.request'],
     dataScopes: ['finance_visible'],
   },
   payables: {
-    permissions: ['finance.read', 'procurement.payment.record'],
+    permissions: ['finance.read', 'procurement.payment.record', 'barter.read', 'barter.post'],
     dataScopes: ['finance_visible', 'procurement_visible'],
   },
   cost_accountant: {
@@ -174,4 +174,14 @@ async function createWorkforce({ request, dataOf, bootstrapToken, runId, passwor
   return { version: 'enterprise-round2-workforce/v1', configurationOnly: true, participationNotYetProven: true, actors, byJob };
 }
 
-module.exports = { createWorkforce };
+// The final evidence reader reuses these exact fixture policies. It must not
+// maintain a second permission matrix or accept the login DTO as /auth/me.
+function verifyWorkforceProfile(profile, actor) {
+  assert(Object.hasOwn(policies, actor.job), 'Unknown workforce job');
+  assert.equal(profile?.id, actor.id, 'Workforce profile borrowed another identity');
+  assert.equal(profile.isActive, true, 'Workforce current account must be active');
+  assertProfile(profile, { username: `${actor.role}_${actor.index}`, role: actor.role, segment: 'mixed' },
+    policies[actor.job], `${actor.job}/${actor.index}`);
+}
+
+module.exports = { createWorkforce, verifyWorkforceProfile };

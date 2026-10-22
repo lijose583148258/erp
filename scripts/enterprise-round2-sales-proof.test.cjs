@@ -14,7 +14,41 @@ test('shared150 proof is typed, dual-node and explicitly not whole workforce acc
   }
 });
 
+function openingDisposition(e, status) {
+  const visit = value => {
+    if (!value || typeof value !== 'object') return;
+    if (value.batchNo === e.manifest.existingBatch && Object.hasOwn(value, 'qualityStatus')) value.qualityStatus = status;
+    Object.values(value).forEach(visit);
+  };
+  visit(e); refreshSharedSalesDigest(e); return e;
+}
+
+test('initial stock accepts both existing explicit issue dispositions without exempting incoming QA', () => {
+  for (const status of ['not_required', 'released']) {
+    const e = openingDisposition(sharedSalesProofFixture(), status);
+    assert.doesNotThrow(() => verifySharedSalesChain(e, 'sqlite'));
+    assert.equal(e.stages.beforeQC.batches.find(b => b.id === e.manifest.replenishmentBatchId).qualityStatus, 'hold');
+  }
+});
+
+for (const status of ['hold', 'quarantine', 'pending', null]) test(`initial reservation control rejects ${status} stock even with a nominal HTTP success`, () => {
+  assert.throws(() => verifySharedSalesChain(openingDisposition(sharedSalesProofFixture(), status), 'sqlite'));
+});
+
 const mutations = {
+  'sales reservation denial reuses a stale CAS': e => { const d = e.denials.find(d => d.name === 'sales cannot reserve physical stock'); d.before = structuredClone(e.stages.firstReserved.snapshot); d.after = structuredClone(d.before); },
+  'sales reservation denial has no actual payload': e => { const d = e.denials.find(d => d.name === 'sales cannot reserve physical stock'); delete e.actions[d.actionIndex].sent; },
+  'sales reservation denial missing authorized positive control': e => { delete e.firstReservation; },
+  'sales reservation positive control has no immediate SQL snapshot': e => { delete e.firstReservation.snapshot; },
+  'sales reservation positive control is a later rehold': e => { const rows = e.browser.actions.filter(a => a.path === `/api/shipping/${e.manifest.shipmentIds[0]}/reserve`); e.firstReservation.response = { http: structuredClone(rows[1]), json: structuredClone(rows[1].json) }; },
+  'sales reservation positive control is an HTTP replay': e => { e.firstReservation.response.json.data.replayed = true; e.firstReservation.response.http.json.data.replayed = true; const a = e.browser.actions.find(a => a.path === e.firstReservation.response.http.path && a.sent.expectedAuditId === null); a.json.data.replayed = true; },
+  'sales reservation positive control changes request facts': e => { const d = e.denials.find(d => d.name === 'sales cannot reserve physical stock'); e.actions[d.actionIndex].sent.reason = 'different request'; },
+  'sales reservation before snapshot conceals an earlier business audit': e => { const d = e.denials.find(d => d.name === 'sales cannot reserve physical stock'); const a = e.final.audits.find(a => a.action === 'RESERVE_STOCK'); for (const s of [e.stages.afterDraft, d.before, d.after]) s.audits.push(structuredClone(a)); },
+  'sales reservation positive control drops prior business audits': e => { e.firstReservation.snapshot.audits.shift(); e.stages.firstReserved.snapshot = structuredClone(e.firstReservation.snapshot); },
+  'sales reservation positive control duplicates its business audit': e => { const a = e.firstReservation.snapshot.audits.find(a => a.action === 'RESERVE_STOCK'); e.firstReservation.snapshot.audits.push({ ...a, id: 99999 }); e.stages.firstReserved.snapshot = structuredClone(e.firstReservation.snapshot); },
+  'sales reservation positive control changes unrelated order facts': e => { e.firstReservation.snapshot.order.status = 'cancelled'; e.stages.firstReserved.snapshot = structuredClone(e.firstReservation.snapshot); },
+  'sales reservation positive control persisted a different held quantity': e => { e.firstReservation.snapshot.shipments[0].reservationQuantity = 99; e.stages.firstReserved.snapshot = structuredClone(e.firstReservation.snapshot); },
+  'sales reservation positive control changed another shipment': e => { e.firstReservation.snapshot.shipments[1].status = 'exception'; e.stages.firstReserved.snapshot = structuredClone(e.firstReservation.snapshot); },
   'actor substitution': e => { e.actions[0].actorId = e.workforce.actors[0].id; },
   'original order changed': e => { e.final.order.id++; },
   'original line quantity lowered': e => { e.final.order.items[0].quantity = 100; },
@@ -78,3 +112,85 @@ for (const [label, mutate] of Object.entries(mutations)) test(`reject ${label} e
 test('digest cannot be asserted without recomputation', () => { const e = sharedSalesProofFixture(); e.chainDigest = 'f'.repeat(64); assert.throws(() => verifySharedSalesChain(e), /digest mismatch/); });
 test('provider mismatch cannot promote local evidence to cloud', () => assert.throws(() => verifySharedSalesChain(sharedSalesProofFixture(), 'postgresql'), /Provider mismatch/));
 test('image artifact verification requires a real supplied resolution, no silent missing-file pass', () => { const e = sharedSalesProofFixture(); assert.throws(() => verifySharedSalesImages(e, () => 'Z:/missing-shared-proof.png')); });
+
+function qualityStartupHarness({ drift = false, noResponse = false } = {}) {
+  const fs = require('node:fs'), path = require('node:path'), vm = require('node:vm');
+  const file = path.join(__dirname, 'lib/enterprise-round2-sales-quality-browser.cjs'), module = { exports: {} };
+  const profile = { id: 79, role: 'run_owned_qc', permissions: ['procurement.quality.inspect'], dataScopes: ['procurement_visible'] };
+  const actor = { id: profile.id, role: profile.role, profile, account: { role: profile.role }, token: 'private-session' };
+  const calls = [], listeners = new Map(), sentinel = new Error('real receipt selector reached; no UI acceptance asserted');
+  let startupPending = false, legacyResponse, freshRequest;
+  const response = { status: () => 200, json: async () => ({ data: { ...profile, ...(drift ? { id: 999 } : {}) } }) };
+  const request = { url: () => 'http://node-a.test/api/auth/me', method: () => 'GET', response: async () => {
+    if (!noResponse) return response;
+    listeners.get('requestfailed')?.({ ...request, failure: () => ({ errorText: 'net::ERR_ABORTED private-session' }) });
+    for (let i = 0; i < 45; i++) listeners.get('pageerror')?.(new Error(`startup ${i} private-session`));
+    return null;
+  } };
+  const page = {
+    setDefaultTimeout: value => calls.push(['timeout', value]),
+    on: (event, fn) => listeners.set(event, fn), off: event => listeners.delete(event),
+    goto: async () => { calls.push(['goto']); startupPending = true; },
+    waitForResponse: () => new Promise((resolve, reject) => { legacyResponse = { resolve, reject }; }),
+    waitForRequest: predicate => {
+      assert.equal(predicate({ ...request, url: () => 'http://foreign.test/api/auth/me' }), false);
+      assert.equal(predicate({ ...request, method: () => 'POST' }), false);
+      assert.equal(predicate(request), true);
+      calls.push(['fresh-request']); return new Promise(resolve => { freshRequest = resolve; });
+    },
+    reload: async () => {
+      calls.push(['reload']);
+      if (startupPending) { legacyResponse?.reject(new Error('reload canceled startup auth')); return; }
+      freshRequest(request);
+    },
+    locator: selector => ({ waitFor: async options => {
+      assert.equal(selector, '#loading'); assert.equal(options.state, 'hidden');
+      calls.push([startupPending ? 'initial-startup-settled' : 'fresh-startup-settled']); startupPending = false;
+    } }),
+    getByTestId: selector => ({ click: async () => { calls.push(['select', selector]); throw sentinel; } }),
+    evaluate: async () => ({ path: '/', hash: '#procurement', loading: false, login: false, alerts: [] }),
+    screenshot: async () => { calls.push(['diagnostic-screenshot']); }, isClosed: () => false,
+  };
+  const browser = { newPage: async () => page, close: async () => calls.push(['close']) };
+  vm.runInNewContext(fs.readFileSync(file, 'utf8'), { module, require: name => {
+    if (name === 'playwright/test') return { expect: () => { throw new Error('Business assertions must not run before the sentinel'); } };
+    if (name === './browser-launch-guard.cjs') return { launchBrowserWithGuard: async () => ({ browser }) };
+    if (name === './ui-audit-user.cjs') return { loginUiAuditUser: async () => ({ user: profile, token: actor.token }) };
+    if (name === './browser-cjk-font-guard.cjs') return { verifyRenderedCjk: async () => { throw new Error('No screenshot acceptance in startup contract'); } };
+    return require(name);
+  }, URL, Date }, { filename: file });
+  return { create: () => module.exports.createSharedQualityBrowser({ urls: ['http://node-a.test', 'http://node-b.test'],
+    actors: { qc: actor }, runId: 'deterministic-startup', folder: 'diagnostic-only' }), calls, sentinel, profile, listeners };
+}
+
+test('quality startup settles the first navigation before fresh auth and reaches only the real receipt selector', async () => {
+  const h = qualityStartupHarness(), browser = await h.create();
+  await assert.rejects(browser.inspect({ receiptId: 4 }), error => error === h.sentinel);
+  assert.deepEqual(h.calls.filter(row => !['diagnostic-screenshot', 'timeout'].includes(row[0])),
+    [['goto'], ['initial-startup-settled'], ['fresh-request'], ['reload'], ['fresh-startup-settled'], ['select', 'incoming-quality-select-4']]);
+  assert.equal(browser.evidence().browserProfiles.length, 1);
+  assert.equal(browser.evidence().browserProfiles[0].actual.id, h.profile.id);
+  assert.equal(browser.evidence().actions.length, 0); await browser.close();
+});
+
+test('quality fresh auth rejects a borrowed identity before receipt selection', async () => {
+  const h = qualityStartupHarness({ drift: true }), browser = await h.create();
+  await assert.rejects(browser.inspect({ receiptId: 4 }), /Expected values to be strictly deep-equal/);
+  assert.equal(h.calls.some(row => row[0] === 'select'), false);
+  assert.equal(browser.evidence().browserProfiles.length, 0); await browser.close();
+});
+
+test('quality missing fresh response fails closed and captures bounded load-only diagnostics', async () => {
+  const h = qualityStartupHarness({ noResponse: true }), browser = await h.create();
+  await assert.rejects(browser.inspect({ receiptId: 4 }), /Fresh quality auth\/me request failed/);
+  assert.equal(h.calls.some(row => row[0] === 'select'), false);
+  const trace = browser.evidence().loads[0];
+  assert.equal(trace.job, 'qc'); assert.equal(trace.receiptId, 4); assert.equal(trace.phase, 'fresh-auth');
+  assert.equal(trace.failure.login, false); assert.equal(trace.failure.loading, false);
+  assert.equal(trace.events.length, 40); assert.equal(trace.events[0].event, 'auth-requestfailed');
+  assert.equal(trace.events[0].error, 'net::ERR_ABORTED [redacted]');
+  assert.equal(h.calls.some(row => row[0] === 'diagnostic-screenshot'), true);
+  assert.equal(h.listeners.size, 0);
+  assert.equal(/private-session|authorization|password/i.test(JSON.stringify(browser.evidence())), false);
+  await browser.close();
+});

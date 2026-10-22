@@ -2,6 +2,58 @@
 const assert = require('node:assert/strict');
 const crypto = require('node:crypto');
 const { assertCjkRasterEvidence } = require('./browser-cjk-font-guard.cjs');
+const { paymentWorkforceProfile } = require('./enterprise-round2-payment-actor-proof.cjs');
+function verifyWorkforce(e) {
+  const w = e.workforce; assert.equal(w.version, 'payment-submission-workforce/v1');
+  assert.equal(w.cohort.length, 20); assert.equal(new Set(w.cohort.map(row => row.id)).size, 20);
+  const people = {};
+  for (const [duty, job, index] of [['sales','sales',3], ['requester','receivables',1], ['reviewer','owner',1]]) {
+    const row = w.actors[duty]; assert.equal(row.job, job); assert.equal(row.index, index);
+    const cohort = w.cohort.filter(person => person.id === row.actorId); assert.equal(cohort.length, 1);
+    assert.equal(cohort[0].job, job); assert.equal(cohort[0].index, index); assert.equal(cohort[0].role, row.role);
+    const actor = { ...row, id: row.actorId, account: { username: row.profile.username, role: row.role, segment: row.profile.segment } };
+    paymentWorkforceProfile(row.profile, actor); people[duty] = actor;
+    const profiles = w.profiles.filter(p => p.duty === duty); assert.equal(profiles.length, 2);
+    assert.deepEqual(profiles.map(p => p.instance).sort(), [0,1]);
+    for (const p of profiles) { assert.equal(p.actorId, actor.id); paymentWorkforceProfile(p.profile, actor); }
+    const sessions = w.sessions.filter(p => p.duty === duty); assert.equal(sessions.length, 1);
+    const session = sessions[0]; assert.equal(session.actorId, actor.id); assert.equal(session.instance, duty === 'reviewer' ? 1 : 0);
+    assert.equal(session.authorizationMatched, true); paymentWorkforceProfile(session.profile, actor);
+  }
+  assert.equal(new Set(Object.values(people).map(person => person.id)).size, 3);
+  assert.equal(w.profiles.length, 6); assert.equal(w.sessions.length, 3);
+  const { sales, requester, reviewer } = people;
+  assert.equal(e.browser.actorId, sales.id); assert.equal(e.browser.role, sales.role);
+  assert.equal(w.order.id, e.orderId); assert.equal(w.order.createdBy, sales.id);
+  assert.equal(w.customer.salespersonId, sales.id); assert.equal(w.order.customerId, w.customer.id);
+  for (const snapshot of [e.before,e.twoGenuine,e.afterVerification,e.finalSnapshot,e.afterAllReplays]) assert.equal(snapshot.order.createdBy, sales.id);
+  for (const receipt of [e.originalReceipt,e.genuineSecondReceipt,e.browser.originalReceipt]) assert.equal(receipt.submittedBy, sales.id);
+  assert(e.finalSnapshot.submissions.every(row => row.userId === sales.id));
+  assert(e.finalSnapshot.audits.every(row => row.userId === sales.id));
+  assert(e.finalSnapshot.payments.every(row => row.verifiedBy === requester.id));
+  assert.equal(w.verificationAudits.length, 3);
+  for (const payment of e.finalSnapshot.payments) {
+    const rows = w.verificationAudits.filter(row => row.resourceId === payment.id); assert.equal(rows.length, 1);
+    assert.equal(rows[0].resource, 'payment'); assert.equal(rows[0].action, 'PAYMENT_VERIFIED'); assert.equal(rows[0].userId, requester.id);
+  }
+  assert.equal(e.negatives.find(row => row.label === 'different-principal').actorId, requester.id);
+  assert.equal(w.nativeRequests.length, 4);
+  for (const phase of ['lost-ack','recovered-ack']) {
+    const rows = w.nativeRequests.filter(row => row.phase === phase); assert.equal(rows.length, 1);
+    const row = rows[0]; assert.equal(row.actorId, sales.id); assert.equal(row.role, sales.role); assert.equal(row.instance, 0);
+    assert.equal(row.method, 'POST'); assert.equal(row.path, `/api/orders/${e.orderId}/payment`);
+  }
+  for (const [instance, actor] of [requester, reviewer].entries()) {
+    const api = e.apiReadbacks.filter(row => row.instance === instance); assert.equal(api.length, 1); assert.equal(api[0].actorId, actor.id);
+    const screenshots = e.screenshots.filter(row => row.kind === 'finance-readback' && row.instance === instance);
+    assert.equal(screenshots.length, 1); assert.equal(screenshots[0].actorId, actor.id);
+    const native = w.nativeRequests.filter(row => row.phase === 'collections-readback' && row.instance === instance); assert.equal(native.length, 1);
+    const row = native[0]; assert.equal(row.actorId, actor.id); assert.equal(row.role, actor.role);
+    assert.equal(row.method, 'GET'); assert.equal(row.path, '/api/collections/workbench');
+    assert.equal(row.payment.id, e.browser.originalReceipt.paymentId); assert.equal(row.payment.amount, 300); assert.equal(row.payment.status, 'verified');
+  }
+  for (const row of w.nativeRequests) { assert.equal(row.status, 200); assert.equal(row.authorizationMatched, true); }
+}
 function verifyPaymentSubmissionProof(e, provider) {
   assert.equal(e.provider, provider); assert.equal(e.browserErrors.length, 0);
   const boot = e.bootstrapRecovery; assert.equal(boot.version, 'bootstrap-script-failure/v1');
@@ -27,7 +79,7 @@ function verifyPaymentSubmissionProof(e, provider) {
     assert.equal(n.code, label === 'missing-key' ? 'PAYMENT_SUBMISSION_KEY_REQUIRED' : label === 'pending-capacity' ? 'PAYMENT_SUBMISSION_PENDING_CAPACITY' : 'PAYMENT_SUBMISSION_KEY_CONFLICT');
     if (label === 'different-order') { assert.equal(n.paymentCount, 0); assert.equal(n.auditCount, 0); }
   }
-  const b = e.browser; assert.equal(b.role, 'sales'); assert.equal(b.faultRequests, 1); assert(b.lockedUnknownFacts);
+  const b = e.browser; assert.equal(b.role, e.workforce ? e.workforce.actors.sales.role : 'sales'); assert.equal(b.faultRequests, 1); assert(b.lockedUnknownFacts);
   assert.equal(b.committedResponse.status, 200); assert.equal(b.committedResponse.json.replayed, false);
   assert.equal(b.recoveredResponse.status, 200); assert.equal(b.recoveredResponse.json.replayed, true);
   assert.deepEqual(b.committedResponse.json.paymentSubmission, b.originalReceipt); assert.deepEqual(b.recoveredResponse.json.paymentSubmission, b.originalReceipt);
@@ -76,6 +128,7 @@ function verifyPaymentSubmissionProof(e, provider) {
     assert.deepEqual([...race.statuses].sort(), [200,409]); assert.equal(race.paymentCount, 1); assert.equal(race.auditCount, 1); assert.equal(race.identityCount, 1);
   }
   assert.equal(new Set(e.crossOrderRace.orderIds).size, 2); assert.equal(e.capacityRace.amount, 600);
+  if (e.workforce) verifyWorkforce(e);
   return { registrations: 3, submissionAudits: 3, paidAmount: 900, sameKeyConcurrentRequests: 8, negativeCases: 10, financeBrowsers: 2, databaseRestarted: false };
 }
 module.exports = { verifyPaymentSubmissionProof };

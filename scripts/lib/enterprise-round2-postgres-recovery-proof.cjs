@@ -222,6 +222,53 @@ function profile(value, role, permissions, scope) {
   for (const permission of permissions) assert(value.permissions.includes(permission), `Missing real permission ${permission}`);
   assert(value.dataScopes.includes(scope));
 }
+function workforceActors(e) {
+  const proof = e.workforceActors;
+  assert.equal(proof?.version, 'postgres-recovery-workforce-actors/v1');
+  const duties = {
+    warehouse: { job: 'warehouse', index: 3, permissions: ['shipping.read', 'shipping.write', 'shipping.receipts.read'], scope: 'warehouse_visible' },
+    sales: { job: 'sales', index: 3, permissions: ['orders.read', 'orders.create', 'orders.payment.record', 'customers.create'], scope: 'own_customers' },
+    approver: { job: 'sales_lead', index: 1, permissions: ['orders.read', 'orders.status.manage'], scope: 'team_customers' },
+    receivables: { job: 'receivables', index: 1, permissions: ['orders.read', 'orders.payment.verify'], scope: 'finance_visible' },
+  };
+  same(Object.keys(proof.actors || {}).sort(), Object.keys(duties).sort());
+  const prefix = `r2wf_${rawHash(`${e.runId}-workforce`).slice(0, 12)}`, identities = new Set();
+  for (const [duty, expected] of Object.entries(duties)) {
+    const actor = proof.actors[duty]; positive(actor.id); assert(!identities.has(actor.id), 'Recovery workforce duties share an identity'); identities.add(actor.id);
+    assert.equal(actor.job, expected.job); assert.equal(actor.index, expected.index);
+    assert.equal(actor.role, `${prefix}_${expected.job}`, 'Recovery actor belongs to another cohort or job');
+    const user = one(e.baseline, 'users', actor.id).value;
+    assert.equal(user.username, `${actor.role}_${actor.index}`, 'Recovery raw user is not the selected real job identity');
+    assert.equal(user.role, actor.role); assert.equal(user.is_active, true); assert.equal(user.must_change_password, false);
+    assert.equal(actor.authProfiles?.length, 2);
+    let first;
+    for (const instance of [0, 1]) {
+      const action = actor.authProfiles[instance];
+      const actual = api(action, { actor, method: 'GET', path: '/auth/me', instance, status: 200 }); captured(e, action);
+      assert(stamp(action.finishedAt) <= sqlStamp(e.baseline.transaction.startedAt), 'Actor refresh happened after recovery baseline');
+      assert.equal(Number(actual.id), actor.id, 'Recovery session borrowed another identity'); assert.equal(actual.role, actor.role);
+      assert.equal(actual.username, user.username); assert.equal(actual.segment, user.segment);
+      assert.equal(actual.isActive, true); assert.equal(actual.mustChangePassword, false);
+      profile(actual, actor.role, expected.permissions, expected.scope);
+      const normalized = { id: Number(actual.id), role: actual.role,
+        permissions: [...actual.permissions].sort(), dataScopes: [...actual.dataScopes].sort() };
+      assert.equal(new Set(actual.permissions).size, actual.permissions.length); assert.equal(new Set(actual.dataScopes).size, actual.dataScopes.length);
+      if (first) same(normalized, first, 'Cross-node recovery profile drift'); else first = normalized;
+    }
+    if (e.profiles[duty]) same(e.profiles[duty], first, 'Recovery profile is not its actual cohort session');
+  }
+  const { sales, approver, receivables } = proof.actors, m = e.manifest;
+  const oneAction = (actor, method, path, instance) => {
+    const found = e.actions.filter(a => a.actorId === actor.id && a.method === method && normalize(a.path) === path && a.instance === instance);
+    assert.equal(found.length, 1, 'Missing/duplicate actual workforce business action');
+    api(found[0], { actor, method, path, instance, status: 200 }); return found[0];
+  };
+  const confirmation = oneAction(approver, 'PATCH', `/orders/${m.orderId}/status`, 0);
+  assert.equal(confirmation.sent.status, 'confirmed');
+  oneAction(receivables, 'POST', `/orders/${m.orderId}/payment/${m.paymentId}/verify`, 1);
+  assert.equal(Number(one(e.baseline, 'orders', m.orderId).value.created_by), sales.id, 'Order was not created by this sales actor');
+  assert.equal(Number(one(e.baseline, 'payment_records', m.paymentId).value.verified_by), receivables.id, 'Payment was not verified by this AR actor');
+}
 function ledgerSubject(snapshot, e, accepted) {
   const m = e.manifest, order = one(snapshot, 'orders', m.orderId).value, item = one(snapshot, 'order_items', m.orderItemId).value;
   assert.equal(order.order_no, m.orderNo); assert.equal(order.final_amount, 200); assert.equal(order.paid_amount, 200); assert.equal(order.currency, 'CNY');
@@ -287,8 +334,12 @@ function verifyPostgresRecoveryProof(e, options = {}) {
   const m = e.manifest; for (const field of ['orderId', 'orderItemId', 'materialId', 'paymentId']) positive(m[field]);
   assert(typeof m.orderNo === 'string' && m.orderNo.trim()); assert(typeof m.batchNo === 'string' && m.batchNo.trim());
   assert.equal(m.orderedQuantity, 20); assert.equal(m.amount, 200); assert.equal(m.shipmentIds?.length, 2); assert.equal(new Set(m.shipmentIds).size, 2); m.shipmentIds.forEach(positive);
-  profile(e.profiles.warehouse, 'warehouse', ['shipping.read', 'shipping.write', 'shipping.receipts.read'], 'warehouse_visible');
-  profile(e.profiles.sales, 'sales', ['orders.read'], 'own_customers'); assert.notEqual(e.profiles.warehouse.id, e.profiles.sales.id);
+  if (Object.hasOwn(e, 'workforceActors')) workforceActors(e);
+  else {
+    profile(e.profiles.warehouse, 'warehouse', ['shipping.read', 'shipping.write', 'shipping.receipts.read'], 'warehouse_visible');
+    profile(e.profiles.sales, 'sales', ['orders.read'], 'own_customers');
+  }
+  assert.notEqual(e.profiles.warehouse.id, e.profiles.sales.id);
   assert(Array.isArray(e.actions) && e.actions.length > 0); const primary = controlIdentity(e.controlBefore, e.controlAfter);
   assert.equal(e.replicaStopped?.stopped, true); assert.equal(e.replicaStopped.originallyRunning, true);
   assert.equal(e.replicaStopped.id, e.controlBefore.containers.find(c => c.service === 'postgres-replica').id);

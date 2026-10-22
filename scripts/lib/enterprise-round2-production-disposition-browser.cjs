@@ -11,12 +11,15 @@ async function productionDispositionBrowser(ctx, fixture, signal) {
   const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
   const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
   const { workOrder, outputBatch, outputStock } = fixture;
+  const actor = ctx.productionActors ? ctx.productionActors.operators[0] : ctx.actors.stock0;
   const evidence = {
-    scope: 'Warehouse browser posts one additional physical scrap from a completed output batch and verifies stock, cost, audit, CJK rendering, and two-instance readback.',
+    scope: 'Native production browser posts one additional physical scrap from a completed output batch and verifies stock, cost, audit, CJK rendering, and two-instance readback.',
+    actorId: actor.id, role: actor.role,
+    entry: ctx.productionActors ? 'explicit-work-order-batch' : 'legacy-asset-catalog',
     errors: [],
   };
-  const call = async (url, method = 'GET', data, actor = ctx.actors.stock0, instance = 0) =>
-    ctx.dataOf(await ctx.request(url, { method, data, actor, instance, signal }));
+  const call = async (url, method = 'GET', data, person = actor, instance = 0) =>
+    ctx.dataOf(await ctx.request(url, { method, data, actor: person, instance, signal }));
   const snapshot = async () => ({
     batch: await ctx.prisma.productBatch.findUniqueOrThrow({ where: { id: outputBatch.id } }),
     stock: await ctx.prisma.stockBalance.findUniqueOrThrow({ where: { id: outputStock.id } }),
@@ -45,7 +48,20 @@ async function productionDispositionBrowser(ctx, fixture, signal) {
         evidence.errors.push(`${response.status()} ${new URL(response.url()).pathname}`);
       }
     });
-    const actor = ctx.actors.stock0;
+    if (ctx.productionActors) {
+      const profile = await call('/auth/me');
+      assert.equal(Number(profile.id), actor.id);
+      assert.equal(profile.role, actor.role);
+      assert(profile.permissions.includes('production.execute'));
+      assert(!profile.permissions.includes('assets.read'), 'Do not grant customer asset access to open a work-order batch');
+      evidence.profile = { id: Number(profile.id), role: profile.role, permissions: profile.permissions, dataScopes: profile.dataScopes };
+      evidence.assetDenials = [];
+      for (const path of ['/assets/balance', '/assets/history', '/assets/batches']) {
+        const result = await ctx.request(path, { actor, instance: 1, signal });
+        evidence.assetDenials.push({ path, actorId: actor.id, instance: 1, status: result.status, json: result.json });
+        assert.equal(result.status, 403, `Production actor must not read ${path}`);
+      }
+    }
     await page.addInitScript(({ token, user }) => {
       for (const key of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(key, token);
       for (const key of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
@@ -55,9 +71,18 @@ async function productionDispositionBrowser(ctx, fixture, signal) {
 
     await page.goto(`${ctx.urls[1]}/#production`);
     await page.locator('#loading').waitFor({ state: 'hidden' });
-    await page.getByTestId('production-desk-batches').click();
-    await page.getByTestId('production-batch-search-input').fill(outputBatch.batchNo);
-    await page.getByTestId(`production-batch-row-${outputBatch.id}`).click();
+    if (ctx.productionActors) {
+      await page.getByTestId('production-desk-work-orders').click();
+      await page.getByPlaceholder('搜索工单').fill(workOrder.workOrderNo);
+      await page.getByTestId(`production-work-order-row-${workOrder.id}`).click();
+      await page.getByTestId(`production-work-order-batch-${workOrder.id}`).click();
+      await expect(page.getByTestId('production-batch-search-input')).toHaveCount(0);
+      evidence.workOrderId = workOrder.id; evidence.batchId = outputBatch.id;
+    } else {
+      await page.getByTestId('production-desk-batches').click();
+      await page.getByTestId('production-batch-search-input').fill(outputBatch.batchNo);
+      await page.getByTestId(`production-batch-row-${outputBatch.id}`).click();
+    }
     const panel = page.getByTestId('production-disposition-panel');
     await expect(panel).toContainText(workOrder.workOrderNo);
     await page.getByTestId('production-disposition-template-production_loss').click();
@@ -87,6 +112,7 @@ async function productionDispositionBrowser(ctx, fixture, signal) {
     assert.equal(evidence.after.dispositions.filter(row => row.id === evidence.disposition.id).length, 1);
     assert.equal(evidence.after.entries.filter(row => row.sourceRef === evidence.disposition.dispositionNo).length, 1);
     assert.equal(evidence.after.audits.filter(row => row.action === 'POST_PRODUCTION_SCRAP_DISPOSITION' && row.resourceId === evidence.disposition.id).length, 1);
+    assert.equal(evidence.after.audits.find(row => row.action === 'POST_PRODUCTION_SCRAP_DISPOSITION' && row.resourceId === evidence.disposition.id).userId, actor.id);
     evidence.readbacks = await Promise.all([0, 1].map(async instance => ({
       dispositions: await call(`/production/work-orders/${workOrder.id}/dispositions`, 'GET', undefined, actor, instance),
       stocks: await call(`/warehouses/stock-balances?batchNo=${encodeURIComponent(outputBatch.batchNo)}&pageSize=100`, 'GET', undefined, actor, instance),

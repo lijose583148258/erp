@@ -3,7 +3,7 @@ import { can } from '../../app/permissions';
 import { ArrowUpRight, Filter, Search, ShieldAlert, Undo2 } from 'lucide-react';
 import { ProductBatch } from '../../services/asset.service';
 import { AdjustmentRecord } from '../../services/adjustment.service';
-import { ProductionDisposition } from '../../services/production.service';
+import { ProductionBatchSelection, ProductionDisposition } from '../../services/production.service';
 import { StockBalanceRecord, WarehouseLocation } from '../../services/warehouse.service';
 import { ProductionBatchGenealogy } from './ProductionBatchGenealogy';
 import {
@@ -43,13 +43,15 @@ const QUALITY_STATUS_LABELS: Record<NonNullable<ProductBatch['qualityStatus']>, 
 
 interface ProductionBatchAdjustmentSectionProps {
   batches: ProductBatch[];
+  canReadBatches?: boolean;
+  selectedBatchWorkOrderNo?: string | null;
   batchKeyword: string;
   setBatchKeyword: (value: string) => void;
   batchStatus: BatchStatusFilter;
   setBatchStatus: (value: BatchStatusFilter) => void;
   selectedBatchId: number | null;
   setSelectedBatchId: (value: number) => void;
-  selectedBatch: ProductBatch | null;
+  selectedBatch: ProductionBatchSelection | null;
   batchTrace: BatchTraceNode[];
   selectedTemplate: ProductionAdjustmentTemplate;
   templateId: string;
@@ -82,6 +84,8 @@ interface ProductionBatchAdjustmentSectionProps {
 
 export function ProductionBatchAdjustmentSection({
   batches,
+  canReadBatches = true,
+  selectedBatchWorkOrderNo = null,
   batchKeyword,
   setBatchKeyword,
   batchStatus,
@@ -123,7 +127,7 @@ export function ProductionBatchAdjustmentSection({
   return (
     <>
       <div className="grid grid-cols-1 xl:grid-cols-5 gap-8">
-        <div className="xl:col-span-3 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8">
+        {canReadBatches ? <div className="xl:col-span-3 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8">
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-2xl font-black tracking-tighter italic uppercase flex items-center">
               <div className="w-2 h-8 bg-blue-600 rounded-full mr-4" />
@@ -182,10 +186,13 @@ export function ProductionBatchAdjustmentSection({
               </tbody>
             </table>
           </div>
-        </div>
+        </div> : <div className="xl:col-span-3 rounded-[28px] border border-slate-200 bg-white/60 p-6 text-sm font-bold text-slate-600 dark:border-slate-700 dark:bg-slate-900/60 dark:text-slate-300">
+          仅查看从已授权工单明确打开的批次；这里不加载完整资产批次目录。请回到“工单 / 质检”选择实际工单批次。
+        </div>}
 
         <div className="xl:col-span-2 bg-white/60 dark:bg-slate-900/60 backdrop-blur-xl rounded-[44px] border border-white/50 dark:border-slate-800 shadow-[0_20px_50px_rgba(0,0,0,0.03)] overflow-hidden p-8 space-y-6">
           <SectionHeader title="批次追踪" subtitle="入库 / 效期 / 温控 / 盘点" />
+          {selectedBatchWorkOrderNo && <p data-testid="production-batch-work-order-context" className="text-xs font-bold text-blue-700 dark:text-blue-200">来源工单：{selectedBatchWorkOrderNo}</p>}
           <div className="rounded-[22px] border border-amber-200 bg-amber-50 p-4 text-amber-900 dark:border-amber-800/60 dark:bg-amber-950/30 dark:text-amber-100">
             <div className="flex items-start gap-3">
               <ShieldAlert size={16} className="mt-0.5 shrink-0" />
@@ -200,7 +207,7 @@ export function ProductionBatchAdjustmentSection({
                 <div className="text-xs font-black uppercase tracking-[0.25em] text-slate-400">批次信息</div>
                 <div className="text-lg font-black text-slate-900 dark:text-white">{selectedBatch.batchNo}</div>
                 <div className="text-sm font-bold text-slate-600 dark:text-slate-300">{selectedBatch.productName}</div>
-                <div className="text-xs text-slate-400">库存 {selectedBatch.stockQuantity} {selectedBatch.unit} · 冷链 {selectedBatch.isColdChain ? '是' : '否'}</div>
+                <div className="text-xs text-slate-400">库存 {selectedBatch.stockQuantity} {selectedBatch.unit} · 冷链 {typeof selectedBatch.isColdChain === 'boolean' ? selectedBatch.isColdChain ? '是' : '否' : '未提供'}</div>
               </div>
               <ProductionBatchGenealogy key={selectedBatch.id} batchId={selectedBatch.id} />
               <div className="rounded-[28px] bg-slate-50 dark:bg-slate-800/70 border border-slate-100 dark:border-slate-700 p-5">

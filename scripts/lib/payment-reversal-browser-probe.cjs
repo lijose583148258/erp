@@ -5,9 +5,11 @@ const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
 const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 const { restartIsolatedApps } = require('./enterprise-round2-app-restart.cjs');
+const { paymentWorkforceActors, paymentWorkforceProfile, paymentNativeRequest } = require('./enterprise-round2-payment-actor-proof.cjs');
 
 async function paymentReversalBrowserProbe(ctx, signal) {
   const { request, dataOf, actors, prisma, runId, urls, reportPath } = ctx;
+  const duties = paymentWorkforceActors(ctx);
   const e = { version:'payment-reversal-browser/v2',provider:process.env.AUDIT_PRISMA_PROVIDER||'sqlite',
     scope:'Two real finance browser actors, original full-CNY cash reversal, lost acknowledgments, signed consumer and actual application crash; not DB-server restart',
     errors:[],screenshots:[],frames:[[],[]] };
@@ -149,7 +151,100 @@ async function paymentReversalBrowserProbe(ctx, signal) {
     await expect(salesModal.getByTestId('collection-reversal-request-submit')).toHaveCount(0);await expect(salesModal.getByTestId(`collection-reversal-review-submit-${requestId}`)).toHaveCount(0);
     e.salesReadOnly={actorId:actors.sales.id,role:'sales',...identities.get(sales),url:sales.url(),text:await salesModal.innerText(),requestButtons:await salesModal.getByTestId('collection-reversal-request-submit').count(),reviewButtons:await salesModal.getByTestId(`collection-reversal-review-submit-${requestId}`).count(),originalVisible:await salesModal.getByTestId('collection-reversal-original').isVisible()};
     e.finalReadbacks=await Promise.all([0,1].map(async instance=>dataOf(await request(`/orders/${e.orderId}`,{actor:actors.finance2,instance,signal}))));
-    assert(e.finalReadbacks.every(r=>r.paidAmount===50));assert.deepEqual(e.errors,[]);signal.removeEventListener('abort',abort);
+    assert(e.finalReadbacks.every(r=>r.paidAmount===50));
+    // Keep the original broad-grant resilience/SoD controls intact. The run-owned
+    // least-privilege request/review chain below is separate, never impersonated
+    // by those controls or counted merely because the old browser case passed.
+    if(duties){
+      const { loginUiAuditUser }=require('./ui-audit-user.cjs');
+      const w={version:'payment-reversal-workforce/v1',actors:[],nativeWrites:[],denials:[],screenshots:[],errors:[],
+        scope:'Same20 sales registration API, native AR request and owner review; legacy full crash/lost-ACK/privileged-SoD controls remain separate'};
+      e.workforce=w;
+      for(const [duty,actor]of Object.entries(duties)){
+        const profiles=[];
+        for(const instance of[0,1])profiles.push({instance,profile:paymentWorkforceProfile(dataOf(await request('/auth/me',{actor,instance,signal})),actor)});
+        w.actors.push({duty,actorId:actor.id,role:actor.role,profiles,nativeProfiles:[]});
+      }
+      const customer=dataOf(await call('/customers',duties.sales,{name:`${runId}-workforce-reversal`,nameZh:`${runId}-workforce-reversal`,creditLimit:100000,termsDays:30,
+        segment:'direct',poolState:'private',salespersonId:duties.sales.id}));
+      const own=dataOf(await call('/orders',duties.sales,{customerId:Number(customer.id),items:[{materialId:material.id,productName:material.nameZh,quantity:10,unit:'kg',unitPrice:100}],paymentTerms:30}));
+      w.orderId=Number(own.id);w.orderNo=own.orderNo;w.customerId=Number(customer.id);
+      const registration={idempotencyKey:crypto.randomUUID(),amount:300,method:'bank_transfer',payerName:'Same20 original payment',note:runId};
+      const submission=await call(`/orders/${w.orderId}/payment`,duties.sales,registration);dataOf(submission);
+      w.submissionReceipt=submission.json.paymentSubmission;w.paymentId=w.submissionReceipt.paymentId;
+      const state=async()=>({order:await prisma.order.findUniqueOrThrow({where:{id:w.orderId},include:{customer:true,paymentRecords:{orderBy:{id:'asc'}}}}),
+        payment:await prisma.paymentRecord.findUniqueOrThrow({where:{id:w.paymentId}}),
+        adjustments:await prisma.adjustmentRecord.findMany({where:{orderId:w.orderId},orderBy:{id:'asc'}}),
+        requests:await prisma.paymentReversalRequest.findMany({where:{paymentId:w.paymentId},orderBy:{createdAt:'asc'}}),
+        effects:await prisma.paymentReversal.findMany({where:{paymentId:w.paymentId}}),
+        audits:await prisma.auditLog.findMany({where:{resource:'payment',resourceId:w.paymentId},orderBy:{id:'asc'}}),
+        events:await prisma.businessEvent.findMany({where:{aggregateType:'payment',aggregateId:String(w.paymentId)},orderBy:{id:'asc'}})});
+      const denied=async(label,actor,endpoint,body,method='POST')=>{
+        const before=await state(),response=await request(endpoint,{actor,method,data:body,instance:1,signal}),after=await state();
+        assert.equal(response.status,403);assert.deepEqual(after,before);
+        w.denials.push({label,actorId:actor.id,role:actor.role,instance:1,method,path:endpoint,sent:body??null,status:response.status,json:response.json,before,after});
+        return response;
+      };
+      const ap=ctx.workforce.byJob.payables[0];assert(ctx.workforce.actors.includes(ap));assert.notEqual(ap.id,duties.requester.id);
+      const apProfile=dataOf(await request('/auth/me',{actor:ap,instance:1,signal}));
+      assert.equal(Number(apProfile.id),ap.id);assert.equal(apProfile.role,ap.role);assert.equal(apProfile.isActive,true);assert.equal(apProfile.mustChangePassword,false);
+      assert(!apProfile.permissions.includes('orders.payment.verify'));assert.deepEqual(apProfile.permissions,ap.profile.permissions);assert.deepEqual(apProfile.dataScopes,ap.profile.dataScopes);
+      w.payablesProfile=apProfile;
+      await denied('payables-cannot-verify-receivable',ap,`/orders/${w.orderId}/payment/${w.paymentId}/verify`);
+      dataOf(await call(`/orders/${w.orderId}/payment/${w.paymentId}/verify`,duties.requester));
+      // Independent +50 is a bootstrap fixture, not a new grant to AR or owner.
+      w.adjustmentResponse=dataOf(await call('/adjustments',actors.admin,{domain:'finance',targetType:'order',orderId:w.orderId,amountDelta:50,status:'posted',reasonCategory:'payment_correction',reason:`${runId} workforce independent +50`}));
+      w.adjustment=w.adjustmentResponse.adjustment;
+      w.adjustmentActorId=actors.admin.id;w.initial=await state();assert.equal(w.initial.order.paidAmount,350);
+      w.submissionAudit=await prisma.auditLog.findUniqueOrThrow({where:{id:w.submissionReceipt.auditId}});
+      const endpoint=`/collections/payments/${w.paymentId}/reversal-requests`;
+      const facts={requestKey:crypto.randomUUID(),reasonCategory:'registration_error',reason:`${runId} same20 registration correction`};
+      await denied('owner-cannot-request',duties.reviewer,endpoint,facts);
+      await denied('sales-cannot-request',duties.sales,endpoint,{...facts,requestKey:crypto.randomUUID()});
+      const openWorkforce=async(actor,instance)=>{
+        const page=await browser.newPage({viewport:{width:1600,height:1000},serviceWorkers:'block'});page.setDefaultTimeout(15000);page.setDefaultNavigationTimeout(20000);
+        page.on('pageerror',error=>w.errors.push(error.message));
+        const session=await loginUiAuditUser(page,`${urls[instance]}/`,{account:actor.account,reuseExistingAccount:true,storage:{'ailao.language':'zh',language:'zh-CN'}});
+        paymentWorkforceProfile(session.user,actor);actor.token=session.token;
+        const record=w.actors.find(row=>row.actorId===actor.id),origin=new URL(urls[instance]).origin;
+        const current=page.waitForResponse(response=>new URL(response.url()).origin===origin&&new URL(response.url()).pathname==='/api/auth/me'&&response.request().method()==='GET');void current.catch(()=>{});
+        await page.goto(`${urls[instance]}/#collections`,{waitUntil:'domcontentloaded'});const response=await current;assert.equal(response.status(),200);
+        record.nativeProfiles.push({instance,url:response.url(),method:'GET',actualHTTP:response.status(),observedAt:new Date().toISOString(),profile:paymentWorkforceProfile((await response.json()).data,actor)});
+        await page.locator('#loading').waitFor({state:'hidden'});await page.getByTestId('collection-tab-ledger').click();await page.getByTestId('collection-ledger-search').fill(w.orderNo);
+        await page.getByTestId(`collection-ledger-reversal-${w.paymentId}`).click();return page;
+      };
+      const requester=await openWorkforce(duties.requester,0);
+      await requester.getByTestId('collection-reversal-reason').fill(facts.reason);
+      const submitted=requester.waitForResponse(response=>new URL(response.url()).origin===new URL(urls[0]).origin&&new URL(response.url()).pathname===`/api${endpoint}`&&response.request().method()==='POST');
+      await requester.getByTestId('collection-reversal-request-submit').click();const requested=await submitted;assert.equal(requested.status(),201);
+      w.nativeWrites.push({...await paymentNativeRequest(requested.request(),duties.requester,duties.requester.token,0,{origin:new URL(urls[0]).origin,method:'POST',path:`/api${endpoint}`,status:201}),sent:requested.request().postDataJSON(),json:await requested.json()});
+      const requestId=w.nativeWrites[0].json.data.request.id;w.requestId=requestId;w.afterRequest=await state();assert.equal(w.afterRequest.order.paidAmount,350);
+      await expect(requester.getByTestId(`collection-reversal-review-submit-${requestId}`)).toHaveCount(0);
+      const review=`/collections/payment-reversal-requests/${requestId}/review`,reviewFacts={reviewKey:crypto.randomUUID(),decision:'approve',note:'Valid request, wrong duty'};
+      await denied('requester-cannot-review',duties.requester,review,reviewFacts);
+      await denied('sales-cannot-review',duties.sales,review,reviewFacts);
+      await denied('sales-cannot-read-collections',duties.sales,endpoint,undefined,'GET');
+      const reviewer=await openWorkforce(duties.reviewer,1);
+      await reviewer.getByTestId(`collection-reversal-review-note-${requestId}`).fill(`${runId} same20 independent review`);
+      const approved=reviewer.waitForResponse(response=>new URL(response.url()).origin===new URL(urls[1]).origin&&new URL(response.url()).pathname===`/api${review}`&&response.request().method()==='POST');
+      await reviewer.getByTestId(`collection-reversal-review-submit-${requestId}`).click();const reviewed=await approved;assert.equal(reviewed.status(),200);
+      w.nativeWrites.push({...await paymentNativeRequest(reviewed.request(),duties.reviewer,duties.reviewer.token,1,{origin:new URL(urls[1]).origin,method:'POST',path:`/api${review}`,status:200}),sent:reviewed.request().postDataJSON(),json:await reviewed.json()});
+      w.final=await state();assert.equal(w.final.order.paidAmount,50);assert.equal(w.final.effects.length,1);assert.equal(w.final.effects[0].postedBy,duties.reviewer.id);
+      w.readbacks=await Promise.all([0,1].map(async instance=>({instance,json:dataOf(await request(`/orders/${w.orderId}`,{actor:duties.requester,instance,signal}))})));
+      for(const [instance,page]of[requester,reviewer].entries()){
+        const actor=instance===0?duties.requester:duties.reviewer;
+        await page.getByTestId('collection-reversal-refresh').click();const modal=page.getByTestId('collection-payment-reversal-dialog');
+        await expect(modal.getByTestId('collection-reversal-current-order')).toHaveText('最新订单累计已收：CNY 50.00');await expect(modal.getByTestId('collection-reversal-effect')).toContainText('CNY -300.00');
+        const effect=modal.getByTestId('collection-reversal-effect');await effect.scrollIntoViewIfNeeded();
+        const unobscured=await effect.getByRole('heading').evaluate(el=>{const r=el.getBoundingClientRect(),top=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);return!!top&&(top===el||el.contains(top));});assert(unobscured);
+        const file=path.join(folder,`workforce-${instance===0?'requester':'reviewer'}-original-reversal.png`);await modal.screenshot({path:file});
+        w.screenshots.push({actorId:actor.id,role:actor.role,instance,path:file,url:page.url(),unobscured,text:await modal.innerText(),
+          requestButtons:await modal.getByTestId('collection-reversal-request-submit').count(),reviewButtons:await modal.getByTestId(`collection-reversal-review-submit-${requestId}`).count(),
+          font:await verifyRenderedCjk(page,'[data-testid="collection-payment-reversal-dialog"]')});
+      }
+      assert.deepEqual(w.errors,[]);assert.deepEqual(await state(),w.final);
+    }
+    assert.deepEqual(e.errors,[]);signal.removeEventListener('abort',abort);
     return e;
   }catch(error){if(browser)try{for(const [index,page]of browser.contexts().flatMap(c=>c.pages()).entries()){const f=path.join(folder,`failure-${index}.png`);await page.screenshot({path:f});e.failureScreenshots??=[];e.failureScreenshots.push(f);}}catch{}error.evidence=e;throw error;}
   finally{if(paymentId)await receiver('/release',{}).catch(()=>{});if(browser)await browser.close();fs.writeFileSync(path.join(folder,'evidence.json'),JSON.stringify(e,null,2));}

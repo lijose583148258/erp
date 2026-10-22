@@ -36,7 +36,8 @@ const sendPaymentEvent = async (target: DeliveryTarget, event: PaymentDurableEve
       publishDurableRealtimeNotification({
         id: event.id, occurredAt: event.occurredAt, type: event.type, title: event.type === 'payment.reversed' ? 'Payment reversed' : 'Payment verified',
         message: `订单 ${event.data.orderId} 原回款${event.type === 'payment.reversed' ? '已冲销' : '已核销'}`, resourceType: 'payment', resourceId: event.resourceId,
-        severity: event.type === 'payment.reversed' ? 'warning' : 'success', audience: { roles: ['admin', 'manager', 'finance'] },
+        severity: event.type === 'payment.reversed' ? 'warning' : 'success',
+        audience: { roles: ['admin', 'manager', 'finance'], paymentReadAccess: 'current-policy-v1' },
       }),
       new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('REALTIME_TIMEOUT')), 5_000); }),
     ]);

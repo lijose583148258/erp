@@ -99,19 +99,54 @@ async function ensureUiAuditUser(account) {
 }
 
 async function loginUiAuditUser(page, appUrl, options = {}) {
-  const account = await ensureUiAuditUser(options.account);
+  // Opt-in only: reuse credentials without fixture upserts or password resets.
+  // Normal server-side login metadata and session/audit writes still occur.
+  if (options.reuseExistingAccount !== undefined && typeof options.reuseExistingAccount !== 'boolean') {
+    throw new Error('reuseExistingAccount must be an explicit boolean.');
+  }
+  const existing = options.reuseExistingAccount === true;
+  if (existing && (!options.account || ['username', 'password', 'role'].some(field =>
+    typeof options.account[field] !== 'string' || !options.account[field].trim()))) {
+    throw new Error('Existing UI audit account is incomplete.');
+  }
+  const account = existing ? options.account : await ensureUiAuditUser(options.account);
   const response = await page.request.post(`${appUrl}api/auth/login`, {
     data: { username: account.username, password: account.password },
+  }).catch(error => {
+    if (existing) throw new Error('Existing UI audit login request failed.');
+    throw error;
   });
   if (!response.ok()) {
     throw new Error(`audit user login failed: ${response.status()}`);
   }
 
-  const json = await response.json();
+  const json = await response.json().catch(error => {
+    if (existing) throw new Error('Existing UI audit login response is invalid.');
+    throw error;
+  });
   const token = json?.data?.token;
-  const user = json?.data?.user;
+  let user = json?.data?.user;
   if (!token || !user || user.mustChangePassword) {
     throw new Error('audit user login returned invalid ready state');
+  }
+  if (existing) {
+    const sameIdentity = value => value && Number.isSafeInteger(Number(value.id)) && Number(value.id) > 0
+      && value.username === account.username && value.role === account.role && value.segment === (account.segment || 'mixed')
+      && value.mustChangePassword === false;
+    if (typeof token !== 'string' || !token.trim() || !sameIdentity(user)) {
+      throw new Error('Existing UI audit login identity or readiness changed.');
+    }
+    // /auth/login intentionally omits isActive. Require real, authenticated
+    // readiness from /auth/me rather than inventing it or rewriting the fixture.
+    const me = await page.request.get(`${appUrl}api/auth/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+    }).catch(() => { throw new Error('Existing UI audit profile request failed.'); });
+    if (!me.ok()) throw new Error(`Existing UI audit profile request failed: ${me.status()}`);
+    const profile = (await me.json().catch(() => { throw new Error('Existing UI audit profile response is invalid.'); }))?.data;
+    if (!sameIdentity(profile) || Number(profile.id) !== Number(user.id) || profile.isActive !== true) {
+      throw new Error('Existing UI audit profile identity or readiness changed.');
+    }
+    user = profile;
   }
 
   const session = {

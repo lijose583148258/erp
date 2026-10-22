@@ -141,6 +141,47 @@ function verifySharedSalesChain(e, provider) {
     if (code) assert.equal(a.json.errorCode || a.json.message, code, `${name}: unrelated conflict`);
     if (name.startsWith('QA hold')) assert.equal(d.before.batches.find(b => b.id === m.replenishmentBatchId)?.qualityStatus, 'hold');
   }
+  // A role denial must use a currently valid request, not hide stale CAS behind
+  // middleware. The existing first native reserve is its same-body control.
+  const reserveDenied = e.denials.find(d => d.name === 'sales cannot reserve physical stock');
+  const reserveRequest = e.actions[reserveDenied.actionIndex], control = e.firstReservation;
+  assert(!actor('sales').profile.permissions.includes('shipping.write'));
+  same(reserveRequest.sent, { expectedAuditId: null }, 'Sales refusal must use the current initial reservation CAS');
+  same(reserveDenied.before, e.stages.afterDraft, 'Sales refusal must precede the first reserve');
+  const unreserved = reserveDenied.before.shipments.find(s => s.id === m.shipmentIds[0]); assert(unreserved);
+  assert.equal(unreserved.status, 'pending'); assert.equal(unreserved.reservationState, 'unreserved');
+  for (const field of ['reservationAuditId', 'reservationBalanceId', 'reservationQuantity']) assert.equal(unreserved[field], null, `Stale reservation ${field}`);
+  const reservationVerbs = ['RESERVE_STOCK', 'RELEASE_STOCK', 'CONSUME_RESERVATION'];
+  assert(!reserveDenied.before.audits.some(a => a.resource === 'shipment' && a.resourceId === unreserved.id && reservationVerbs.includes(a.action)), 'Sales refusal followed an earlier reservation');
+  browserOriginal(control?.response, e.browser, 'warehouse', 'POST', `/shipping/${unreserved.id}/reserve`, 201);
+  same(control.response.http.sent, reserveRequest.sent, 'Authorized reserve must use the rejected facts');
+  const reserved = data(control.response); assert.equal(reserved.replayed, false, 'Positive control must create the first hold');
+  const event = reserved.reservation; assert(event); id(event.auditId, 'First reservation audit');
+  assert.equal(event.schema, 'shipment-reservation/v1'); assert.equal(event.action, 'reserve'); assert.equal(event.shipmentId, unreserved.id);
+  assert.equal(event.actorId, warehouse.id); assert.equal(event.previousAuditId, null); assert.equal(event.reason, null);
+  assert.equal(event.materialId, m.materialId); assert.equal(event.batchNo, m.existingBatch); assert.equal(event.unit, 'kg'); qty(event.quantity, 100);
+  const balance = reserveDenied.before.balances.find(b => b.id === event.stockBalanceId); assert(balance, 'Reserve must bind to the existing balance');
+  for (const field of ['locationId', 'materialId', 'batchNo', 'unit']) assert.equal(event[field], balance[field]); qty(balance.quantity, 100);
+  assert(['released', 'not_required'].includes(reserveDenied.before.batches.find(b => b.batchNo === event.batchNo)?.qualityStatus),
+    'Existing opening stock must have an explicit issuable disposition; held/quarantined stock cannot be a positive control');
+  assert(control.snapshot, 'Missing immediate SQL snapshot after authorized reserve');
+  same(control.snapshot, e.stages.firstReserved.snapshot, 'First-reserve readback differs from its immediate SQL snapshot');
+  for (const field of Object.keys(reserveDenied.after).filter(k => !['shipments', 'audits'].includes(k))) same(control.snapshot[field], reserveDenied.after[field], `Reserve changed unrelated ${field}`);
+  assert.equal(control.snapshot.shipments.length, reserveDenied.after.shipments.length);
+  for (const before of reserveDenied.after.shipments) {
+    const after = control.snapshot.shipments.find(s => s.id === before.id); assert(after);
+    if (before.id !== unreserved.id) { same(after, before, 'Reserve changed another shipment'); continue; }
+    const mutable = ['reservationState', 'reservationAuditId', 'reservationBalanceId', 'reservationQuantity', 'updatedAt'];
+    same(projection(after, Object.keys(before).filter(k => !mutable.includes(k))), projection(before, Object.keys(before).filter(k => !mutable.includes(k))), 'Reserve changed non-reservation shipment facts');
+    assert.equal(after.reservationState, 'reserved'); assert.equal(after.reservationAuditId, event.auditId);
+    assert.equal(after.reservationBalanceId, event.stockBalanceId); qty(after.reservationQuantity, 100);
+  }
+  const priorAuditIds = new Set(reserveDenied.after.audits.map(a => a.id));
+  assert.equal(priorAuditIds.size, reserveDenied.after.audits.length, 'Duplicate prior business audit');
+  same(control.snapshot.audits.filter(a => priorAuditIds.has(a.id)), reserveDenied.after.audits, 'Reserve dropped or changed prior business audits');
+  const createdAudits = control.snapshot.audits.filter(a => !priorAuditIds.has(a.id)); assert.equal(createdAudits.length, 1, 'First reserve must add exactly one business audit');
+  const { auditId: firstReserveAuditId, ...firstReserveFacts } = event;
+  same(createdAudits[0], audit(firstReserveAuditId, warehouse.id, 'shipment', unreserved.id, 'RESERVE_STOCK', firstReserveFacts), 'Reserve SQL/audit/HTTP disagree');
   const po = f.purchase; assert.equal(po?.id, m.purchaseOrderId); assert.equal(po.salesOrderId, m.orderId); assert.equal(po.materialId, m.materialId); qty(po.quantity, 50); money(po.price, 10); assert.equal(po.unit, 'kg'); assert.equal(po.currency, 'CNY');
   const pendingPO = e.purchaseDraft; assert(pendingPO, 'Missing actual incomplete purchase draft');
   assert.equal(Number(pendingPO.id), po.id); assert.equal(Number(pendingPO.salesOrderId), m.orderId); assert.equal(pendingPO.status, 'pending');

@@ -5,7 +5,7 @@ const os = require('node:os');
 const path = require('node:path');
 const catalog = require('./config/enterprise-round2-v1.json');
 const { validateCatalog, summarize, createRound2Runner, synchronizedBurst } = require('./lib/enterprise-round2-runner.cjs');
-const { verifyInventoryBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
+const { verifyInventoryBrowser, verifyInventoryWorkforceReadbacks } = require('./lib/enterprise-round2-inventory-browser.cjs');
 const { inventoryBrowserFixture } = require('./fixtures/inventory-browser-proof-fixture.cjs');
 const { verifyPurchaseReceiptSubmissionProof, verifyPurchaseReceiptRecoveryProof } = require('./lib/enterprise-round2-purchase-receipt-proof.cjs');
 const { purchaseReceiptSubmissionProofFixture, purchaseReceiptRecoveryProofFixture, controlledPurchaseReceiptSubmissionProofFixture } = require('./fixtures/purchase-receipt-proof-fixture.cjs');
@@ -139,6 +139,145 @@ test('inventory readback verifier accepts stock and both legitimate transfer/shi
     const { source, proof } = inventoryBrowserFixture(status);
     assert.equal(verifyInventoryBrowser(proof, source).actors.length, 2);
   }
+});
+
+// Synthetic reader contracts only; these do not replace the existing real
+// twenty-writer race, its two native participant pages, or workforce acceptance.
+function inventoryWorkforceFixture() {
+  const fixture = inventoryBrowserFixture();
+  const { source, proof } = fixture, people = [];
+  let id = 100;
+  for (const { job, count } of catalog.roles) for (let index = 1; index <= count; index++) {
+    const role = `synthetic_${job}`, personId = ++id;
+    const profile = { id: personId, username: `synthetic_${personId}`, role, segment: 'mixed', isActive: true,
+      mustChangePassword: false, permissions: ['warehouse.read', 'warehouse.write', 'warehouse.ledger.read'], dataScopes: ['warehouse_visible'] };
+    people.push({ id: personId, job, index, role, profile, profilesByInstance: { 0: structuredClone(profile), 1: structuredClone(profile) } });
+  }
+  source.workforce = { people, appUrls: ['http://127.0.0.1:51001', 'http://127.0.0.1:51002'] };
+  Object.assign(source.state.balances[0], { materialId: 8, locationId: 2 });
+  Object.assign(source.state.entries[0], { sourceType: 'warehouse_manual_inbound', direction: 'inbound', createdBy: 1,
+    warehouseId: 1, locationId: 2, reason: 'synthetic fixture', note: null });
+  Object.assign(source.state.movements[0], { materialId: 8, locationId: 2, stockBalanceId: 1, quantityBefore: 0, quantityAfter: 100 });
+  proof.workforceReadbacks = proof.readbacks.map((read, instance) => {
+    const person = people.find(row => row.job === 'warehouse' && row.index === instance + 1);
+    const response = (pathname, query, data) => ({ actorId: person.id, instance,
+      origin: source.workforce.appUrls[instance], method: 'GET', pathname, query, authorizationMatched: true,
+      status: 200, json: { success: true, data } });
+    const observed = structuredClone(read);
+    Object.assign(observed, { actorId: person.id, role: person.role, observerOnly: true,
+      actualProfile: { endpoint: '/auth/me', status: 200, ...structuredClone(person.profile) },
+      nativeProfile: response('/api/auth/me', {}, structuredClone(person.profile)),
+      apiReadbacks: {
+        balances: response('/api/warehouses/stock-balances', { productName: 'unit-product' }, [
+          { ...structuredClone(source.state.balances[0]), warehouseName: 'warehouse', locationName: 'location' }]),
+        ledger: response('/api/warehouses/stock-entries', { batchNo: 'unit-batch' }, [
+          { ...structuredClone(source.state.entries[0]), movements: structuredClone(source.state.movements), movementCount: 1, netQuantityDelta: 100 }]),
+      } });
+    return observed;
+  });
+  return fixture;
+}
+
+test('stock observer reader binds same20 public profiles, real response facts and native rows separately from writers', () => {
+  const { source, proof } = inventoryWorkforceFixture();
+  assert.deepEqual(verifyInventoryWorkforceReadbacks(proof, source), { observers: [108, 109], nodes: [0, 1] });
+  assert.equal(verifyInventoryBrowser(proof, source).actors.length, 2);
+  assert.deepEqual(proof.readbacks.map(row => row.actorId), [1, 2], 'Original winner/loser evidence is unchanged');
+});
+
+for (const [label, mutate] of [
+  ['no source cohort', ({ source }) => { delete source.workforce; }],
+  ['incomplete source cohort', ({ source }) => { source.workforce.people.pop(); }],
+  ['duplicate source identity', ({ source }) => { source.workforce.people[0].id = source.workforce.people[1].id; }],
+  ['missing observers', ({ proof }) => { delete proof.workforceReadbacks; }],
+  ['one observer', ({ proof }) => { proof.workforceReadbacks.pop(); }],
+  ['pressure writer substituted', ({ proof }) => { proof.workforceReadbacks[0].actorId = 1; }],
+  ['different warehouse substituted', ({ proof, source }) => { proof.workforceReadbacks[0].actorId = source.workforce.people.find(p => p.job === 'warehouse' && p.index === 3).id; }],
+  ['wrong job', ({ source }) => { source.workforce.people.find(p => p.job === 'warehouse').job = 'sales'; }],
+  ['observer labelled a writer', ({ proof }) => { proof.workforceReadbacks[0].observerOnly = false; }],
+  ['two readers on same node', ({ proof }) => { proof.workforceReadbacks[1].instance = 0; }],
+  ['profile drift on API auth', ({ proof }) => { proof.workforceReadbacks[0].actualProfile.permissions.push('*'); }],
+  ['inactive observer', ({ proof }) => { proof.workforceReadbacks[0].nativeProfile.json.data.isActive = false; }],
+  ['password change required', ({ proof }) => { proof.workforceReadbacks[0].actualProfile.mustChangePassword = true; }],
+  ['native borrowed profile', ({ proof }) => { proof.workforceReadbacks[0].nativeProfile.json.data.id++; }],
+  ['native wrong username', ({ proof }) => { proof.workforceReadbacks[0].nativeProfile.json.data.username = 'other'; }],
+  ['native cross-origin response', ({ proof }) => { proof.workforceReadbacks[0].nativeProfile.origin = 'http://127.0.0.1:59999'; }],
+  ['native wrong bearer', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.authorizationMatched = false; }],
+  ['native POST substituted', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.method = 'POST'; }],
+  ['native response other node', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.instance = 1; }],
+  ['native response other actor', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.actorId++; }],
+  ['native missing response', ({ proof }) => { delete proof.workforceReadbacks[0].apiReadbacks.ledger; }],
+  ['native unsuccessful response', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.success = false; }],
+  ['native response status failure', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.status = 403; }],
+  ['native wrong batch query', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.query.batchNo = 'other'; }],
+  ['native restricted voucher query', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.query.sourceType = 'warehouse_transfer'; }],
+  ['native wrong product query', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.query.productName = 'other'; }],
+  ['native response missing balance', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.json.data = []; }],
+  ['native response duplicate balance', ({ proof }) => { const rows = proof.workforceReadbacks[0].apiReadbacks.balances.json.data; rows.push(structuredClone(rows[0])); }],
+  ['native response wrong material', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.json.data[0].materialId++; }],
+  ['native response wrong location', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.json.data[0].locationId++; }],
+  ['native response quantity drift', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.json.data[0].quantity--; }],
+  ['native response location label drift', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.balances.json.data[0].locationName = 'elsewhere'; }],
+  ['native response missing voucher', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.data = []; }],
+  ['native voucher creator drift', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.data[0].createdBy++; }],
+  ['native voucher source drift', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.data[0].sourceRef = 'other'; }],
+  ['native voucher movement missing', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.data[0].movements = []; }],
+  ['native voucher movement amount drift', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.data[0].movements[0].quantityDelta--; }],
+  ['native voucher movement total drift', ({ proof }) => { proof.workforceReadbacks[0].apiReadbacks.ledger.json.data[0].netQuantityDelta--; }],
+  ['native table missing voucher', ({ proof }) => { proof.workforceReadbacks[0].ledger = []; }],
+  ['native table quantity drift', ({ proof }) => { proof.workforceReadbacks[0].balances[0].cells[2] = '99'; }],
+  ['native customer catalog access', ({ proof }) => { proof.workforceReadbacks[0].customerCatalogRequests++; }],
+  ['native missing screenshot', ({ proof }) => { proof.workforceReadbacks[0].screenshots.pop(); }],
+]) test(`stock observer reader rejects ${label}`, () => {
+  const fixture = inventoryWorkforceFixture(); mutate(fixture);
+  assert.throws(() => verifyInventoryBrowser(fixture.proof, fixture.source));
+});
+
+test('stock observers cannot be silently omitted when the original cohort proof exists', () => {
+  const { source, proof } = inventoryWorkforceFixture(); delete proof.workforceReadbacks;
+  assert.throws(() => verifyInventoryBrowser(proof, source), /observer pages/);
+});
+
+test('stock observer extension is not accepted for the independent transfer/shipping race', () => {
+  const { source, proof } = inventoryWorkforceFixture(); source.persisted = { status: 'pending' };
+  assert.throws(() => verifyInventoryWorkforceReadbacks(proof, source), /stock20/);
+});
+
+function inventoryObservedGet() {
+  const module = { exports: {} };
+  // Expose this private transport assertion only inside the test VM. It does
+  // not stub business pages or claim browser acceptance from synthetic traffic.
+  require('node:vm').runInNewContext(fs.readFileSync(path.join(__dirname, 'lib/enterprise-round2-inventory-browser.cjs'), 'utf8')
+    + '\nmodule.exports.capture = observedBrowserGet;', { module, exports: module.exports, require, URL });
+  return module.exports.capture;
+}
+
+test('stock native response capture records only successful private bearer comparison, never the header', async () => {
+  const capture = inventoryObservedGet(), secret = 'PRIVATE_STOCK_OBSERVER_SESSION';
+  const actor = { id: 108, token: secret };
+  const response = { url: () => 'http://127.0.0.1:51001/api/warehouses/stock-balances?productName=unit-product',
+    request: () => ({ method: () => 'GET', headerValue: async name => name === 'authorization' ? `Bearer ${secret}` : null }),
+    status: () => 200, json: async () => ({ success: true, data: [] }) };
+  const read = await capture(response, actor, 0, 'http://127.0.0.1:51001');
+  assert.equal(read.authorizationMatched, true); assert.equal(read.actorId, 108);
+  assert(!JSON.stringify(read).includes(secret)); assert(!Object.hasOwn(read, 'headers'));
+});
+
+for (const [label, mutate] of [
+  ['wrong private bearer', r => { r.request = () => ({ method: () => 'GET', headerValue: async () => 'Bearer OTHER_PRIVATE_SESSION' }); }],
+  ['foreign origin', r => { r.url = () => 'http://127.0.0.1:59999/api/warehouses/stock-entries'; }],
+  ['POST', r => { r.request = () => ({ method: () => 'POST', headerValue: async () => 'Bearer PRIVATE_EXPECTED_SESSION' }); }],
+  ['HTTP denial', r => { r.status = () => 403; }],
+  ['failed envelope', r => { r.json = async () => ({ success: false, data: [] }); }],
+]) test(`stock native response capture rejects ${label} without private token error output`, async () => {
+  const response = { url: () => 'http://127.0.0.1:51001/api/warehouses/stock-entries',
+    request: () => ({ method: () => 'GET', headerValue: async () => 'Bearer PRIVATE_EXPECTED_SESSION' }),
+    status: () => 200, json: async () => ({ success: true, data: [] }) };
+  mutate(response);
+  await assert.rejects(inventoryObservedGet()(response, { id: 108, token: 'PRIVATE_EXPECTED_SESSION' }, 0, 'http://127.0.0.1:51001'), error => {
+    assert(!require('node:util').inspect(error).includes('PRIVATE_EXPECTED_SESSION'));
+    assert(!require('node:util').inspect(error).includes('OTHER_PRIVATE_SESSION')); return true;
+  });
 });
 
 for (const [label, mutate] of [

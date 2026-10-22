@@ -38,6 +38,44 @@ function verifyPaymentEventProof(e, provider) {
   assert.equal(e.frames.length, 2); const frames = e.frames.flat();
   assert.equal(frames.length, provider === 'postgresql' ? 2 : 1); assert(frames.every(f => f.id === event.id && Number(f.resourceId) === e.paymentId));
   if (provider === 'postgresql') assert(e.frames.every(f => f.length === 1));
+  if (e.workforceObserver !== undefined) {
+    const observer = e.workforceObserver;
+    assert.equal(observer.job, 'receivables');
+    assert(Number.isSafeInteger(observer.actorId) && observer.actorId > 0);
+    assert(!e.browser.some(row => row.actorId === observer.actorId), 'A legacy finance identity cannot stand in for custom AR');
+    assert.equal(observer.profile.id, observer.actorId); assert.equal(observer.profile.role, observer.role);
+    assert.equal(typeof observer.role, 'string'); assert(observer.role.length > 0 && !['admin', 'manager', 'finance'].includes(observer.role));
+    assert(observer.profile.permissions.includes('collections.read'));
+    assert(observer.profile.dataScopes.includes('finance_visible') && !observer.profile.dataScopes.includes('all'));
+    assert.equal(observer.instance, 0); assert.equal(observer.handshakeStatus, 101); assert.equal(observer.pendingVisible, true);
+    assert.equal(observer.sessions.length, 2);
+    assert.deepEqual(observer.sessions.map(row => row.instance), [0, 1]);
+    for (const session of observer.sessions) {
+      assert.equal(session.handshakeStatus, 101); assert.equal(session.pendingVisible, true);
+      assert.equal(session.profile.id, observer.actorId); assert.equal(session.profile.role, observer.role);
+      assert.deepEqual([...session.profile.permissions].sort(), [...observer.profile.permissions].sort());
+      assert.deepEqual([...session.profile.dataScopes].sort(), [...observer.profile.dataScopes].sort());
+    }
+    assert.deepEqual(observer.framesByInstance, e.frames, 'AR must observe the same real publishing nodes as the original finance controls');
+    assert.deepEqual(observer.frames, observer.framesByInstance.flat());
+    assert.equal(observer.frames.length, provider === 'postgresql' ? 2 : 1);
+    for (const frame of observer.frames) assert.deepEqual(frame, { id: event.id, type: 'payment.verified', resourceId: e.paymentId });
+    assert.equal(observer.apiReadbacks.length, 2);
+    assert.deepEqual(observer.apiReadbacks.map(row => row.instance), [0, 1]);
+    for (const row of observer.apiReadbacks) {
+      assert.equal(row.path, `/orders/${e.orderId}`);
+      assert.equal(row.orderId, e.orderId); assert.equal(Number(row.paidAmount), 300);
+      // The order DTO owns its embedded payments; it intentionally omits their
+      // redundant orderId. The raw DB relation is checked above, not invented here.
+      assert.equal(row.payment.id, e.paymentId);
+      assert.equal(row.payment.status, 'verified'); assert.equal(Number(row.payment.amount), 300);
+    }
+    assert.equal(observer.screenshots.length, 2); assert.deepEqual(observer.screenshots.map(row => row.instance), [0, 1]);
+    for (const shot of observer.screenshots) {
+      assert.equal(shot.actorId, observer.actorId); assert(shot.path);
+      assert(shot.text.includes('已核销') && shot.text.includes('300')); assertCjkRasterEvidence(shot.font);
+    }
+  }
   return { paymentId: e.paymentId, eventId: event.id, financialEffects: 1, auditCount: 1, eventCount: 1,
     downstreamEffects: accepted.effects, transportAttempts: attempts.length, financeBrowsers: 2, databaseRestarted: false };
 }

@@ -1,6 +1,7 @@
 import type { ProductBatch } from '../../services/asset.service';
 import type {
   ProductionBom,
+  ProductionBatchSelection,
   ProductionBomItem,
   ProductionSummary,
   ProductionWorkOrder,
@@ -85,7 +86,7 @@ export const buildProductionStats = (
 });
 
 export const buildBatchTrace = (
-  selectedBatch: ProductBatch | null,
+  selectedBatch: ProductionBatchSelection | null,
   workOrders: ProductionWorkOrder[],
 ): BatchTraceNode[] => {
   if (!selectedBatch) return [];
@@ -128,7 +129,7 @@ export const buildBatchTrace = (
         status: '已完成',
       });
     }
-  } else {
+  } else if (selectedBatch.productionDate) {
     events.push({
       label: '批次日期（非工单完工凭证）',
       time: new Date(selectedBatch.productionDate),
@@ -137,7 +138,7 @@ export const buildBatchTrace = (
     });
   }
 
-  events.push({
+  if (selectedBatch.expiryDate) events.push({
     label: '效期管控',
     time: new Date(selectedBatch.expiryDate),
     place: '合规',

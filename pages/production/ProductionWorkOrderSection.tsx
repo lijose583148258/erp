@@ -57,6 +57,7 @@ interface ProductionWorkOrderSectionProps {
   setSelectedWorkOrderId: (value: number) => void;
   handleWorkOrderStatus: (workOrderIdOrStatus: number | ProductionWorkOrderStatus, maybeStatus?: ProductionWorkOrderStatus) => Promise<void>;
   selectedWorkOrder: ProductionWorkOrder | null;
+  onOpenWorkOrderBatch: (workOrderId: number, batchId: number) => void;
   selectedChecks: ProductionQualityCheck[];
   handleStepAction: (step: ProductionStep, status: ProductionStep['status']) => Promise<void>;
   qcSampleNo: string;
@@ -108,6 +109,7 @@ export function ProductionWorkOrderSection({
   setSelectedWorkOrderId,
   handleWorkOrderStatus,
   selectedWorkOrder,
+  onOpenWorkOrderBatch,
   selectedChecks,
   handleStepAction,
   qcSampleNo,
@@ -264,6 +266,17 @@ export function ProductionWorkOrderSection({
                 <div className="flex flex-wrap gap-2">
                   <WorkOrderStatusBadge status={selectedWorkOrder.status} />
                   {selectedWorkOrder.productBatch && <MiniTag label={`批次 ${selectedWorkOrder.productBatch.batchNo}`} />}
+                  {selectedWorkOrder.batchId === selectedWorkOrder.productBatch?.id && selectedWorkOrder.productBatch && (
+                    <button type="button" data-testid={`production-work-order-batch-${selectedWorkOrder.id}`}
+                      disabled={loading}
+                      onClick={() => {
+                        const batch = selectedWorkOrder.productBatch;
+                        if (batch && selectedWorkOrder.batchId === batch.id) onOpenWorkOrderBatch(selectedWorkOrder.id, batch.id);
+                      }}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-black text-white">
+                      追溯 / 批次处置
+                    </button>
+                  )}
                 </div>
               </div>
 

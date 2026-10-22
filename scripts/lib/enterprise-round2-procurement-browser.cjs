@@ -1,13 +1,50 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const assert = require('node:assert/strict');
+const { verifyWorkforceRevisionWrites } = require('./enterprise-round2-procurement.cjs');
 const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
 const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 const { verifyProcurementToolbarLayouts } = require('./procurement-toolbar-layout-audit.cjs');
 const { explicitPurchaseSources, createApprovedPurchaseFixture, fillPurchaseSourceFields } = require('./purchase-quality-audit-fixture.cjs');
+const { loginUiAuditUser } = require('./ui-audit-user.cjs');
 
-async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal) {
+function revisionBuyerProfile(profile, actor) {
+  assert.equal(Number(profile?.id), actor.id, 'Purchasing session actor changed');
+  for (const field of ['username', 'role', 'segment', 'isActive', 'mustChangePassword']) assert.equal(profile[field], actor.profile[field], `Purchasing ${field} changed`);
+  assert.equal(profile.username, actor.account.username); assert.equal(profile.role, actor.role);
+  assert.equal(profile.isActive, true); assert.equal(profile.mustChangePassword, false);
+  for (const field of ['permissions', 'dataScopes']) {
+    assert(Array.isArray(profile[field]) && profile[field].every(value => typeof value === 'string'));
+    assert.equal(new Set(profile[field]).size, profile[field].length);
+    assert.deepEqual([...profile[field]].sort(), [...actor.profile[field]].sort(), `Purchasing ${field} drift`);
+  }
+  assert(!profile.permissions.includes('*') && !profile.dataScopes.includes('all'));
+  return { id: Number(profile.id), username: profile.username, role: profile.role, segment: profile.segment,
+    isActive: profile.isActive, mustChangePassword: profile.mustChangePassword,
+    permissions: [...profile.permissions], dataScopes: [...profile.dataScopes] };
+}
+
+function workforceRevisionBuyers({ workforce, actors }) {
+  if (!workforce) return null;
+  assert.equal(workforce.actors?.length, 20, 'Purchasing browser needs the original twenty-person cohort');
+  const buyers = workforce.byJob?.buyer;
+  assert.equal(buyers?.length, 2, 'Two run-owned buyers are required');
+  assert.notEqual(buyers[0].id, buyers[1].id, 'Purchasing principals must be independent');
+  for (const [index, actor] of buyers.entries()) {
+    assert.equal(actor.job, 'buyer'); assert.equal(actor.index, index + 1);
+    assert.equal(actors[`buyer${index + 1}`], actor, 'Purchasing context borrowed a different principal');
+    assert(workforce.actors.includes(actor), 'Purchasing principal is outside the run cohort');
+    assert.equal(actor.account?.role, actor.role, 'Existing purchasing account is required');
+    revisionBuyerProfile(actor.profile, actor);
+  }
+  return buyers;
+}
+
+async function purchaseRevisionBrowser(ctx, signal) {
+  const { request, dataOf, actors, prisma, runId, urls, reportPath } = ctx;
+  const buyers = workforceRevisionBuyers(ctx);
+  const workforce = buyers ? { version: 'purchase-revision-workforce/v1', actors: [], browserWrites: [], databaseAudits: [] } : null;
   const folder = path.join(path.dirname(reportPath), `${runId}-purchase-browser`);
   fs.mkdirSync(folder, { recursive: true });
   const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
@@ -30,15 +67,26 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
   const runtimeErrors = [];
   const fontEvidence = [];
   const layoutEvidence = [];
+  const pageActors = new Map();
   const abort = () => { void browser.close().catch(() => {}); };
   signal.addEventListener('abort', abort, { once: true });
   const read = async instance => dataOf(await request(`/procurement/orders/${order.id}/revisions`, { actor: actors.buyer1, instance, signal }));
+  async function observedWrite(page, response) {
+    const body = await response.json();
+    if (workforce) {
+      const { actor, instance } = pageActors.get(page), original = response.request();
+      assert((await original.allHeaders()).authorization === `Bearer ${actor.token}`, 'Browser write used another purchasing session');
+      workforce.browserWrites.push({ actorId: actor.id, role: actor.role, instance, method: original.method(),
+        path: new URL(original.url()).pathname, status: response.status(), sent: original.postDataJSON(), json: body });
+    }
+    return { status: response.status(), body };
+  }
   async function clickWrite(page, testId, suffix) {
     const response = page.waitForResponse(res => new URL(res.url()).pathname.endsWith(`/procurement/orders/${order.id}${suffix}`)
       && res.request().method() === 'PATCH');
     await page.getByTestId(testId).click();
     const result = await response;
-    return { status: result.status(), body: await result.json() };
+    return observedWrite(page, result);
   }
   try {
     signal.throwIfAborted();
@@ -48,13 +96,28 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
       page.on('pageerror', error => runtimeErrors.push(error.message));
       page.on('console', message => { if (message.type() === 'error' && !/409|Conflict/.test(message.text())) runtimeErrors.push(message.text()); });
       pages.push(page);
-      await page.addInitScript(({ token, user }) => {
-        for (const key of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(key, token);
-        for (const key of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
-        localStorage.setItem('erp_current_role', user.role); localStorage.setItem('ailao.activeTab', 'procurement');
-        localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
-      }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
-      await page.goto(`${urls[index]}/#procurement`, { waitUntil: 'domcontentloaded' });
+      if (workforce) {
+        const login = await loginUiAuditUser(page, `${urls[index]}/`, { account: actor.account, reuseExistingAccount: true,
+          storage: { 'ailao.activeTab': 'procurement', 'ailao.language': 'zh', language: 'zh-CN' } });
+        revisionBuyerProfile(login.user, actor); actor.token = login.token;
+        const profilesByInstance = {};
+        for (const instance of [0, 1]) profilesByInstance[instance] = revisionBuyerProfile(dataOf(await request('/auth/me', { actor, instance, signal })), actor);
+        pageActors.set(page, { actor, instance: index });
+        const current = page.waitForResponse(response => new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET');
+        void current.catch(() => {});
+        await page.goto(`${urls[index]}/#procurement`, { waitUntil: 'domcontentloaded' });
+        const response = await current; assert.equal(response.status(), 200);
+        const browserProfile = revisionBuyerProfile((await response.json()).data, actor);
+        workforce.actors.push({ actorId: actor.id, job: actor.job, index: actor.index, role: actor.role, instance: index, profilesByInstance, browserProfile });
+      } else {
+        await page.addInitScript(({ token, user }) => {
+          for (const key of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(key, token);
+          for (const key of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(key, JSON.stringify(user));
+          localStorage.setItem('erp_current_role', user.role); localStorage.setItem('ailao.activeTab', 'procurement');
+          localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
+        }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
+        await page.goto(`${urls[index]}/#procurement`, { waitUntil: 'domcontentloaded' });
+      }
       if (index === 0) layoutEvidence.push(...await verifyProcurementToolbarLayouts(page, folder));
       await page.getByTestId('procurement-desk-orders').click();
       await page.getByTestId(`purchase-order-revise-${order.id}`).click();
@@ -89,7 +152,7 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
       && res.request().method() === 'POST');
     await pages[1].getByTestId('purchase-source-confirm').click();
     const confirmedResponse = await sourceResponse;
-    const sourceConfirmation = { status: confirmedResponse.status(), body: await confirmedResponse.json(), request: confirmedResponse.request().postDataJSON(), actorId: actors.buyer2.id };
+    const sourceConfirmation = { ...await observedWrite(pages[1], confirmedResponse), request: confirmedResponse.request().postDataJSON(), actorId: actors.buyer2.id };
     assert.equal(sourceConfirmation.status, 200, JSON.stringify(sourceConfirmation.body));
     assert.equal(sourceConfirmation.body.data.revision, 3);
     await pages[1].getByTestId('purchase-source-state').filter({ hasText: /等待另一位审批人/ }).waitFor();
@@ -114,9 +177,19 @@ async function purchaseRevisionBrowser({ request, dataOf, actors, prisma, runId,
     assert.equal(readbacks[0].history.filter(entry => entry.action === 'REVISE').length, 2);
     assert.equal(readbacks[0].history.filter(entry => entry.action === 'STATUS_CHANGE').length, 2);
     assert.equal(readbacks[0].history.filter(entry => entry.action === 'CONFIRM_SOURCES').length, 1);
+    if (workforce) {
+      workforce.databaseAudits = await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: Number(order.id),
+        action: { in: ['CREATE', 'REVISE', 'CONFIRM_SOURCES', 'STATUS_CHANGE'] } }, orderBy: { id: 'asc' } });
+      verifyWorkforceRevisionWrites(Number(order.id), buyers, workforce.browserWrites, workforce.databaseAudits);
+      for (const readback of readbacks) for (const row of workforce.databaseAudits) {
+        const history = readback.history.find(item => item.id === row.id); assert(history, 'API omitted a real purchasing audit');
+        for (const field of ['userId', 'action', 'details']) assert.equal(history[field], row[field], 'Purchasing API/DB audit drift');
+      }
+    }
     assert.deepEqual(runtimeErrors, []);
     return { orderId: order.id, setup, actorIds: [actors.buyer1.id, actors.buyer2.id], first, stale, rebased, sourceConfirmation, approval, approvalActorId: actors.buyer1.id,
-      conflictText, historyText, readbacks, persisted, fontEvidence, layoutEvidence, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps };
+      conflictText, historyText, readbacks, persisted, fontEvidence, layoutEvidence, screenshots: ['conflict.png', 'reapproved.png'].map(name => path.join(folder, name)), steps,
+      ...(workforce ? { workforce } : {}) };
   } catch (error) {
     if (error.fontEvidence) fontEvidence.push(error.fontEvidence);
     if (error.layoutEvidence) layoutEvidence.push(...error.layoutEvidence);
@@ -369,4 +442,4 @@ async function purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, repor
   } catch (error) { error.evidence = evidence; throw error; }
   finally { signal.removeEventListener('abort', abort); for (const c of contexts) await c.close().catch(() => {}); await browser.close(); }
 }
-module.exports = { purchaseRevisionBrowser, purchaseRoleBrowser };
+module.exports = { purchaseRevisionBrowser, purchaseRoleBrowser, verifyWorkforceRevisionWrites };

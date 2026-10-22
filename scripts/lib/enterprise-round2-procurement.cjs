@@ -2,7 +2,9 @@ const { ensureReleasedMaterial } = require('./material-audit-fixture.cjs');
 const { synchronizedBurst } = require('./enterprise-round2-runner.cjs');
 const { explicitPurchaseSources, createApprovedPurchaseFixture, releasePurchaseFixture } = require('./purchase-quality-audit-fixture.cjs');
 
-async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
+async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify, material, supplier }, signal) {
+  const receiver = receiptActors?.receivers[0] || actors.buyer1;
+  const otherReceiver = receiptActors?.receivers[1] || actors.buyer2;
   const sources = explicitPurchaseSources({ quoteRef: `${runId}-durable-quote`, specificationRef: `${runId}-durable-spec`, specificationRevision: 'R1',
     taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
       { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
@@ -23,19 +25,19 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
       costs: await prisma.inventoryCostLedger.findMany({ where: { OR: [{ sourceRef: { in: entries.map(e => e.entryNo) } }, { batchId: { in: batches.map(b => b.id) } }] }, orderBy: { id: 'asc' } }),
       audits: await prisma.auditLog.findMany({ where: { resource: 'purchase_order', resourceId: poId }, orderBy: { id: 'asc' } }) };
   };
-  const before = await snapshot(id), missingKey = await post(actors.buyer1, 0, null, facts), afterMissing = await snapshot(id);
+  const before = await snapshot(id), missingKey = await post(receiver, 0, null, facts), afterMissing = await snapshot(id);
   // A duplicated intent is deliberately the same authenticated receiver on two
   // nodes, not two invented workforce identities. Rendezvous before dispatch.
   let release;
   const barrier = new Promise(resolve => { release = resolve; });
-  const queued = [0, 1].map(async instance => { await barrier; return post(actors.buyer1, instance, key, facts); });
+  const queued = [0, 1].map(async instance => { await barrier; return post(receiver, instance, key, facts); });
   release();
   const concurrent = await Promise.all(queued);
   const committed = await snapshot(id), receipt = concurrent.map(r => dataOf(r))[0].submission;
-  const changed = await post(actors.buyer1, 1, key, { ...facts, quantity: 0.5, acceptedQuantity: 0.5 });
-  const differentActor = await post(actors.buyer2, 0, key, facts), afterConflicts = await snapshot(id);
-  dataOf(await post(actors.buyer1, 1, `${runId}-remaining-receipt`, { ...facts, batchNo: `${runId}-remaining-batch` }));
-  const full = await snapshot(id), replay = await post(actors.buyer1, 0, key, facts), afterReplay = await snapshot(id);
+  const changed = await post(receiver, 1, key, { ...facts, quantity: 0.5, acceptedQuantity: 0.5 });
+  const differentActor = await post(otherReceiver, 0, key, facts), afterConflicts = await snapshot(id);
+  dataOf(await post(receiver, 1, `${runId}-remaining-receipt`, { ...facts, batchNo: `${runId}-remaining-batch` }));
+  const full = await snapshot(id), replay = await post(receiver, 0, key, facts), afterReplay = await snapshot(id);
   const faultSetup = await create(1), blockedOrder = faultSetup.approved, faultId = Number(blockedOrder.id), faultBefore = await snapshot(faultId);
   const faultName = `receipt_audit_fault_${faultId}`, pg = process.env.AUDIT_PRISMA_PROVIDER === 'postgresql';
   const readFault = () => pg
@@ -54,8 +56,8 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
     faultInjection.installed = await readFault();
     faultInjection.installedFunctions = await readFaultFunction();
     const requestBody = { expectedRevision: blockedOrder.revision, quantity: 1, batchNo: `${runId}-audit-fault-batch` }, requestKey = `${runId}-audit-rollback`;
-    auditFailure = { ...await request(`/procurement/orders/${faultId}/receipts`, { actor: actors.buyer1, instance: 1, method: 'POST', signal,
-      headers: { 'Idempotency-Key': requestKey }, data: requestBody }), purchaseOrderId: faultId, actorId: actors.buyer1.id, instance: 1, method: 'POST', requestKey, requestBody };
+    auditFailure = { ...await request(`/procurement/orders/${faultId}/receipts`, { actor: receiver, instance: 1, method: 'POST', signal,
+      headers: { 'Idempotency-Key': requestKey }, data: requestBody }), purchaseOrderId: faultId, actorId: receiver.id, instance: 1, method: 'POST', requestKey, requestBody };
   } finally {
     await prisma.$executeRawUnsafe(pg ? `DROP TRIGGER IF EXISTS ${faultName} ON audit_logs` : `DROP TRIGGER IF EXISTS ${faultName}`);
     if (pg) await prisma.$executeRawUnsafe(`DROP FUNCTION IF EXISTS ${faultName}()`);
@@ -69,7 +71,7 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
     two_nodes_one_owner_one_acknowledgement: concurrent.every(r => r.status === 201) && concurrent.map(r => r.json.data.replayed).filter(Boolean).length === 1
       && concurrent.every(r => JSON.stringify(r.json.data.submission) === JSON.stringify(receipt)) && committed.receipts.length === 1 && committed.entries.length === 1 && committed.costs.length === 1,
     committed_identity_and_audit_bound: committed.receipts[0]?.submissionKey === key && committed.receipts[0]?.submissionFingerprint === receipt.fingerprint
-      && committed.receipts[0]?.submissionJson === JSON.stringify(receipt) && receipt.receipt.receivedBy === actors.buyer1.id
+      && committed.receipts[0]?.submissionJson === JSON.stringify(receipt) && receipt.receipt.receivedBy === receiver.id
       && committed.audits.filter(a => a.action === 'CREATE_RECEIPT').length === 1 && committed.audits.some(a => a.id === receipt.auditId),
     changed_facts_and_actor_do_not_rebook: changed.status === 409 && differentActor.status === 409 && JSON.stringify(committed) === JSON.stringify(afterConflicts),
     full_order_returns_original_receipt_not_a_new_posting: full.order.status === 'received' && replay.status === 201 && replay.json.data.replayed === true
@@ -83,7 +85,7 @@ async function purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma,
   return evidence;
 }
 
-async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
+async function purchaseGovernanceProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify, material, supplier }, signal) {
   const terms = { taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 3, evidenceRef: `${runId}-supplier-quote` };
   const plan = { specificationRef: `${runId}-incoming-spec`, specificationRevision: 'R1', characteristics: [
     { code: 'PH', name: 'pH', valueType: 'numeric', lowerLimit: '7.0', upperLimit: '8.0', testMethod: 'Calibrated meter', required: true },
@@ -98,7 +100,7 @@ async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId,
   const staleApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 0 } });
   const apiReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/procurement/orders/${id}/revisions`, { actor: actors.buyer2, instance, signal }))));
   const approved = dataOf(await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
-  const receive = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+  const receive = await request(`/procurement/orders/${id}/receipts`, { actor: receiptActors?.receivers[0] || actors.buyer1, method: 'POST', signal,
     headers: { 'Idempotency-Key': `${runId}-source-receipt` },
     data: { expectedRevision: approved.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-governed-source` } });
   const snapshot = async () => ({ order: await prisma.purchaseOrder.findUnique({ where: { id } }),
@@ -124,7 +126,8 @@ async function purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId,
     scope: 'Frozen PO sources and actual post-receipt no-change guard, not a claim of CAS rollback, live incoming inspection/AP/payment gates or least-privilege workforce proof' });
 }
 
-async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal) {
+async function purchaseReceiptCostProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify, material, supplier }, signal) {
+  const receivers = receiptActors?.receivers || [actors.buyer1, actors.buyer2];
   const sources = explicitPurchaseSources({ quoteRef: `${runId}-fractional-quote`, specificationRef: `${runId}-fractional-spec`, specificationRevision: 'R1',
     taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0, characteristics: [
       { code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8', testMethod: 'Synthetic calibrated pH meter', required: true },
@@ -140,9 +143,9 @@ async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId
     return { actorId: actor.id, instance, status: result.status, body: result.json };
   };
   const responses = [];
-  for (let index = 0; index < 4; index++) responses.push(await receive(actors.buyer1, index % 2, index));
-  responses.push(...await synchronizedBurst([actors.buyer1, actors.buyer2], actor =>
-    receive(actor, actor.id === actors.buyer1.id ? 0 : 1, actor.id === actors.buyer1.id ? 4 : 5), signal));
+  for (let index = 0; index < 4; index++) responses.push(await receive(receivers[0], index % 2, index));
+  responses.push(...await synchronizedBurst(receivers, actor =>
+    receive(actor, actor.id === receivers[0].id ? 0 : 1, actor.id === receivers[0].id ? 4 : 5), signal));
   const order = await prisma.purchaseOrder.findUnique({ where: { id } });
   const receipts = await prisma.purchaseReceipt.findMany({ where: { purchaseOrderId: id }, orderBy: { id: 'asc' } });
   const entries = await prisma.stockEntry.findMany({ where: { sourceType: 'procurement_receipt', sourceRef: { startsWith: `PO-${id}-RCV-` } },
@@ -150,7 +153,7 @@ async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId
   const ledgers = await prisma.inventoryCostLedger.findMany({ where: { sourceRef: { in: entries.map(e => e.entryNo) } }, orderBy: { id: 'asc' } });
   const quality = [];
   for (const [index, receipt] of receipts.entries()) {
-    quality.push(await releasePurchaseFixture({ request, dataOf, signal }, { receiptId: receipt.id, qcActor: actors.stock0, qaActor: actors.buyer2,
+    quality.push(await releasePurchaseFixture({ request, dataOf, signal }, { receiptId: receipt.id, qcActor: receiptActors?.qc || actors.stock0, qaActor: receiptActors?.qa || actors.buyer2,
       key: `${runId}-fractional-qc-${index}`, input: { sampleNo: `${runId}-fractional-sample-${index}`, measurements: [
         { code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null, instrumentNo: 'SYNTHETIC-PH-METER-1' },
       ], note: 'Explicit synthetic 0.5 kg delivery sample' }, reason: 'Independent QA reviewed explicit synthetic pH evidence' }));
@@ -180,7 +183,7 @@ async function purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId
   }, evidence);
 }
 
-async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, verify }, signal) {
+async function purchaseRevisionProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify }, signal) {
   const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
     code: `${runId}-po-revise`, name: `${runId}-po-revise`, category: 'raw_material', unit: 'kg' });
   const supplier = dataOf(await request('/procurement/suppliers', { actor: actors.buyer1, method: 'POST', signal,
@@ -217,7 +220,9 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
     revision_audit_exactly_once: state.audits.filter(row => row.action === 'REVISE').length === 1,
     no_receipt_created: state.receipts.length === 0,
   };
-  const evidence = { setup, original, responses, state, roleBoundary: 'Two distinct manager-backed purchasing actors; not a least-privilege workforce proof' };
+  const evidence = { setup, original, responses, state,
+    roleBoundary: receiptActors ? 'Run-owned buyers revise/independently approve; warehouse receives and separate QC/QA controls actual incoming lots; not full workforce acceptance'
+      : 'Two distinct manager-backed purchasing actors; not a least-privilege workforce proof' };
   verify(requirements, evidence);
   const winningTerms = terms[winner.index];
   requirements.only_winning_terms_persist = state.order.quantity === winningTerms.quantity && state.order.price === winningTerms.price
@@ -229,7 +234,7 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
     data: { ...terms[0], expectedRevision: 0, expectedUpdatedAt: original.updatedAt } });
   const staleApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 0 } });
   const unversionedApproval = await request(`/procurement/orders/${id}/status`, { actor: actors.buyer2, method: 'PATCH', signal, data: { status: 'approved' } });
-  const pendingReceipt = await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+  const pendingReceipt = await request(`/procurement/orders/${id}/receipts`, { actor: receiptActors?.receivers[0] || actors.buyer1, method: 'POST', signal,
     headers: { 'Idempotency-Key': `${runId}-unapproved-receipt` },
     data: { expectedRevision: state.order.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-blocked` } });
   const deniedEdit = await request(`/procurement/orders/${id}`, { actor: actors.sales, method: 'PATCH', signal,
@@ -246,16 +251,16 @@ async function purchaseRevisionProbe({ request, dataOf, actors, prisma, runId, v
   const statusBeforeReplay = await snapshot();
   dataOf(await request(`/procurement/orders/${id}/status`, { actor: approver, instance: 1, method: 'PATCH', signal, data: { status: 'approved', expectedRevision: 1 } }));
   requirements.approval_replay_does_not_duplicate_audit = JSON.stringify(await snapshot()) === JSON.stringify(statusBeforeReplay);
-  dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: actors.buyer1, method: 'POST', signal,
+  dataOf(await request(`/procurement/orders/${id}/receipts`, { actor: receiptActors?.receivers[0] || actors.buyer1, method: 'POST', signal,
     headers: { 'Idempotency-Key': `${runId}-revised-receipt` },
     data: { expectedRevision: approved.revision, quantity: 1, acceptedQuantity: 1, rejectedQuantity: 0, batchNo: `${runId}-po-received` } }));
   const received = await snapshot();
   const receiptEdit = await request(`/procurement/orders/${id}`, { actor: actors.buyer1, instance: 1, method: 'PATCH', signal,
     data: { ...terms[0], quantity: 999, expectedRevision: received.order.revision, expectedUpdatedAt: received.order.updatedAt.toISOString() } });
   requirements.received_order_cannot_be_rewritten = receiptEdit.status === 409 && JSON.stringify(await snapshot()) === JSON.stringify(received);
-  const receiptCost = await purchaseReceiptCostProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
-  const governance = await purchaseGovernanceProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
-  const receiptSubmission = await purchaseReceiptSubmissionProbe({ request, dataOf, actors, prisma, runId, verify, material, supplier }, signal);
+  const receiptCost = await purchaseReceiptCostProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify, material, supplier }, signal);
+  const governance = await purchaseGovernanceProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify, material, supplier }, signal);
+  const receiptSubmission = await purchaseReceiptSubmissionProbe({ request, dataOf, actors, receiptActors, prisma, runId, verify, material, supplier }, signal);
   return verify(requirements, { ...evidence, apiReadbacks, approved, received, receiptCost, governance, receiptSubmission, statuses: { replay: replay.status, staleApproval: staleApproval.status,
     unversionedApproval: unversionedApproval.status, pendingReceipt: pendingReceipt.status, deniedEdit: deniedEdit.status, receiptEdit: receiptEdit.status } });
 }
@@ -329,4 +334,34 @@ function verifyPurchaseRoleProof(e) {
   }
   return { actors: 3, deniedWrites: 26, browserWrites: controlled ? 5 : 4, receivedQuantity: 5, remainingQuantity: 7, receivedCost: 50 };
 }
-module.exports = { purchaseRevisionProbe, verifyPurchaseRoleProof };
+function verifyWorkforceRevisionWrites(orderId, buyers, writes, audits) {
+  const assert = require('node:assert/strict');
+  const expected = [[0, 'PATCH', '', 200], [1, 'PATCH', '', 409], [1, 'PATCH', '', 200],
+    [1, 'POST', '/confirm-sources', 200], [0, 'PATCH', '/status', 200]];
+  assert.equal(writes.length, expected.length, 'Missing native purchasing write');
+  expected.forEach(([index, method, suffix, status], position) => {
+    const row = writes[position]; assert.equal(row.actorId, buyers[index].id); assert.equal(row.role, buyers[index].role);
+    assert.equal(row.instance, index); assert.equal(row.method, method); assert.equal(row.status, status);
+    assert.equal(row.path, `/api/procurement/orders/${orderId}${suffix}`);
+  });
+  for (const row of audits) { assert.equal(row.resource, 'purchase_order'); assert.equal(row.resourceId, orderId); }
+  const rows = action => audits.filter(row => row.action === action).sort((a, b) => a.id - b.id);
+  const created = rows('CREATE'), revisions = rows('REVISE'), sources = rows('CONFIRM_SOURCES'), approvals = rows('STATUS_CHANGE');
+  assert.equal(created.length, 1); assert.equal(created[0].userId, buyers[0].id);
+  assert.equal(revisions.length, 2); assert.equal(sources.length, 1); assert.equal(approvals.length, 2);
+  revisions.forEach((row, index) => {
+    const details = JSON.parse(row.details); assert.equal(row.userId, buyers[index].id);
+    assert.equal(details.schema, 'purchase-revision/v1'); assert.equal(Number(details.after.id), orderId);
+    assert.equal(details.after.revision, index + 1); assert.equal(details.after.quantity, index ? 80 : 120); assert.equal(details.after.price, index ? 9 : 11);
+  });
+  const source = JSON.parse(sources[0].details), approval = JSON.parse(approvals[1].details);
+  assert.equal(sources[0].userId, buyers[1].id); assert.equal(source.schema, 'purchase-source-confirmation/v1');
+  assert.equal(Number(source.after.id), orderId); assert.equal(source.after.revision, 3); assert.equal(source.source.revision, 3);
+  assert.equal(approvals[0].userId, buyers[1].id); assert.equal(approvals[1].userId, buyers[0].id);
+  assert.notEqual(approvals[1].userId, sources[0].userId); assert(sources[0].id < approvals[1].id);
+  assert.equal(approval.schema, 'purchase-status/v2'); assert.equal(approval.revision, 3);
+  assert.equal(approval.from, 'pending'); assert.equal(approval.to, 'approved'); assert.equal(approval.isSourceApproval, true);
+  assert.equal(approval.sourceAuditId, sources[0].id, 'Approval must bind the actual independent source audit');
+}
+
+module.exports = { purchaseRevisionProbe, verifyPurchaseRoleProof, verifyWorkforceRevisionWrites };

@@ -22,7 +22,7 @@ async function sharedSalesChain(ctx, signal) {
     e.bootstrap.push({ method: options.method || 'GET', path: endpoint, status: result.status }); return result;
   };
   try {
-    const workforce = await createWorkforce({ request: (endpoint, { auth, ...options } = {}) => request(endpoint,
+    const workforce = ctx.workforce || await createWorkforce({ request: (endpoint, { auth, ...options } = {}) => request(endpoint,
       { ...options, actor: auth ? { token: auth } : null, signal }), dataOf, bootstrapToken: bootstrap.token,
       runId: `${runId}-shared`, password: crypto.randomBytes(24).toString('base64url') + '!Aa1', catalog });
     const one = (job, index = 0) => { const actor = workforce.byJob[job]?.[index]; assert(actor?.id && actor.token); return actor; };
@@ -132,8 +132,9 @@ async function sharedSalesChain(ctx, signal) {
     await deny('foreign sales cannot read this customer order', 'salesPeer', `/orders/${order.id}`, {}, 404);
     await deny('missing batch cannot reserve remainder', 'warehouse', `/shipping/${second.shipment.id}/reserve`, { method: 'POST', data: { expectedAuditId: null } }, 409, 'SHIPMENT_RESERVATION_IDENTITY_REQUIRED');
     await deny('shortage cannot dispatch remainder', 'warehouse', `/shipping/${second.shipment.id}/status`, { method: 'PATCH', data: { status: 'in_transit' } }, 409, 'SHIPMENT_BATCH_REQUIRED_BEFORE_DISPATCH');
-    await browser.reserve({ shipmentId: first.shipment.id }); await read('firstReserved', 100, 0, 0);
     await deny('sales cannot reserve physical stock', 'sales', `/shipping/${first.shipment.id}/reserve`, { method: 'POST', data: { expectedAuditId: null } }, 403);
+    e.firstReservation = { response: await browser.reserve({ shipmentId: first.shipment.id }), snapshot: await snapshot() };
+    await read('firstReserved', 100, 0, 0);
     await browser.release({ shipmentId: first.shipment.id, reason: 'Cross-border transport papers delayed; release only this hold' }); await read('firstReleased', 0, 0, 0);
     await browser.reserve({ shipmentId: first.shipment.id }); await read('firstReheld', 100, 0, 0);
     await browser.dispatch({ shipmentId: first.shipment.id }); await read('firstDispatched', 0, 100, 0);

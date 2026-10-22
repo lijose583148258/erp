@@ -254,6 +254,8 @@ export class ProductionQueryService {
             stockQuantity: true,
             qualityStatus: true,
             unit: true,
+            isColdChain: true,
+            storageTemp: true,
           },
         },
         steps: { orderBy: { stepNo: 'asc' } },

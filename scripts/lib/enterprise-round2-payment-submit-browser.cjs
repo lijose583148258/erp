@@ -3,9 +3,19 @@ const { expect } = require('playwright/test');
 const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
 const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
 const { restartIsolatedApps } = require('./enterprise-round2-app-restart.cjs');
+const { loginUiAuditUser } = require('./ui-audit-user.cjs');
+const { paymentWorkforceActors, paymentWorkforceProfile, paymentNativeRequest } = require('./enterprise-round2-payment-actor-proof.cjs');
 
 async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
   const { actors, request, dataOf, runId, urls, reportPath } = ctx, orderId = Number(order.id);
+  const duties = paymentWorkforceActors(ctx), salesActor = duties?.sales || actors.sales;
+  const requester = duties?.requester || actors.finance1, readActors = duties ? [duties.requester, duties.reviewer] : [actors.finance1, actors.finance2];
+  const sessions = new Map();
+  const native = async (req, actor, instance, method, endpoint, status, phase) => {
+    if (!duties) return;
+    e.workforce.nativeRequests.push({ phase, ...await paymentNativeRequest(req, actor, sessions.get(actor), instance,
+      { origin: new URL(urls[instance]).origin, method, path: endpoint, status }) });
+  };
   const folder = path.join(path.dirname(reportPath), `${runId}-payment-submit`); fs.mkdirSync(folder, { recursive: true });
   const browser = (await launchBrowserWithGuard({ retryLimit: 1 })).browser;
   const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
@@ -48,16 +58,44 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
     await page.context().tracing.start({ screenshots: true, snapshots: true });
     page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(20000); page.on('pageerror', err => e.browserErrors.push(err.message));
-    await page.addInitScript(({ token, user }) => {
-      for (const k of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(k, token);
-      for (const k of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(k, JSON.stringify(user));
-      localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
-    }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
-    await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' }); await page.locator('#loading').waitFor({ state: 'hidden' }); return page;
+    const collectionRead = duties && hash === 'collections' ? page.waitForResponse(response =>
+      new URL(response.url()).origin === new URL(urls[instance]).origin && new URL(response.url()).pathname === '/api/collections/workbench' && response.request().method() === 'GET') : null;
+    if (collectionRead) void collectionRead.catch(() => {});
+    if (duties) {
+      const login = await loginUiAuditUser(page, `${urls[instance]}/`, { account: actor.account, reuseExistingAccount: true,
+        storage: { 'ailao.language': 'zh', language: 'zh-CN' } });
+      paymentWorkforceProfile(login.user, actor); actor.token = login.token; sessions.set(actor, login.token);
+      const current = page.waitForResponse(response => new URL(response.url()).origin === new URL(urls[instance]).origin &&
+        new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET');
+      void current.catch(() => {});
+      await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' });
+      const response = await current; assert.equal(response.status(), 200);
+      const profile = paymentWorkforceProfile((await response.json()).data, actor);
+      const checked = await paymentNativeRequest(response.request(), actor, login.token, instance,
+        { origin: new URL(urls[instance]).origin, method: 'GET', path: '/api/auth/me', status: response.status() });
+      const duty = Object.keys(duties).find(key => duties[key] === actor);
+      e.workforce.sessions.push({ duty, actorId: actor.id, instance, profile, authorizationMatched: checked.authorizationMatched });
+    } else {
+      await page.addInitScript(({ token, user }) => {
+        for (const k of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(k, token);
+        for (const k of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(k, JSON.stringify(user));
+        localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
+      }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
+      await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' });
+    }
+    await page.locator('#loading').waitFor({ state: 'hidden' });
+    if (collectionRead) {
+      const response = await collectionRead; assert.equal(response.status(), 200);
+      await native(response.request(), actor, instance, 'GET', '/api/collections/workbench', response.status(), 'collections-readback');
+      const payment = (await response.json()).data.ledger.find(row => Number(row.id) === e.browser.originalReceipt.paymentId);
+      assert(payment && Number(payment.amount) === 300 && payment.status === 'verified', 'Native workbench did not read the actual registered payment');
+      e.workforce.nativeRequests.at(-1).payment = { id: Number(payment.id), amount: Number(payment.amount), status: payment.status };
+    }
+    return page;
   }
   try {
     e.bootstrapRecovery = await bootstrapFailureReadbacks();
-    const sales = await open(actors.sales, 0, 'orders');
+    const sales = await open(salesActor, 0, 'orders');
     const openRegistration = async () => {
       await sales.getByTestId('sales-desk-payments').click(); await sales.getByTestId('sales-order-search').fill(order.orderNo);
       await sales.getByTestId(`sales-order-row-${orderId}`).getByTestId('sales-order-payment-button').click();
@@ -65,11 +103,13 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     };
     await openRegistration(); const modal = sales.getByTestId('sales-order-payment-modal');
     await modal.getByTestId('sales-order-payment-amount').fill('300'); await modal.locator('input[type="text"]').last().fill(`${runId}-lost-ack`);
-    e.browser = { actorId: actors.sales.id, role: 'sales', faultRequests: 0 };
+    e.browser = { actorId: salesActor.id, role: duties ? salesActor.role : 'sales', faultRequests: 0 };
     const pattern = `**/api/orders/${orderId}/payment`;
     await sales.route(pattern, async route => {
       e.browser.faultRequests++; e.browser.payload = route.request().postDataJSON();
-      const res = await route.fetch({ timeout: 15000 }); e.browser.committedResponse = { status: res.status(), json: await res.json() };
+      const res = await route.fetch({ timeout: 15000 });
+      await native(route.request(), salesActor, 0, 'POST', `/api/orders/${orderId}/payment`, res.status(), 'lost-ack');
+      e.browser.committedResponse = { status: res.status(), json: await res.json() };
       await route.abort('failed'); // Discard a real committed success, not a mocked business response.
     });
     await modal.getByTestId('sales-order-payment-confirm').click({ clickCount: 2 });
@@ -123,24 +163,26 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     const ack = sales.waitForResponse(res => new URL(res.url()).pathname === `/api/orders/${orderId}/payment` && res.request().method() === 'POST');
     await restored.getByTestId('sales-order-payment-confirm').click(); const recovered = await ack;
     e.browser.recoveredResponse = { status: recovered.status(), json: await recovered.json() };
+    await native(recovered.request(), salesActor, 0, 'POST', `/api/orders/${orderId}/payment`, recovered.status(), 'recovered-ack');
     assert.equal(recovered.status(), 200); assert.equal(e.browser.recoveredResponse.json.replayed, true);
     assert.deepEqual(e.browser.recoveredResponse.json.paymentSubmission, e.browser.originalReceipt);
     await expect(restored).toBeHidden();
     e.browser.storageAfter = await sales.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('ailaoda.payment-intent/v1.')));
     assert.deepEqual(e.browser.storageAfter, []); assert.deepEqual(await snapshot(), e.beforeAppCrash);
     const id = e.browser.originalReceipt.paymentId;
-    dataOf(await request(`/orders/${orderId}/payment/${id}/verify`, { actor: actors.finance2, instance: 1, method: 'POST', signal }));
+    dataOf(await request(`/orders/${orderId}/payment/${id}/verify`, { actor: duties ? requester : actors.finance2, instance: 1, method: 'POST', signal }));
     e.finalSnapshot = await snapshot(); assert.equal(e.finalSnapshot.payments.length, 3); assert.equal(e.finalSnapshot.submissions.length, 3);
     assert.equal(e.finalSnapshot.audits.length, 3); assert.equal(Number(e.finalSnapshot.order.paidAmount), 900);
     for (const index of [0,1]) {
-      const replay = await request(`/orders/${orderId}/payment`, { actor: actors.sales, instance: index, method: 'POST', signal, data: e.browser.payload });
+      const replay = await request(`/orders/${orderId}/payment`, { actor: salesActor, instance: index, method: 'POST', signal, data: e.browser.payload });
       assert.equal(replay.status, 200); assert.deepEqual(replay.json.paymentSubmission, e.browser.originalReceipt);
     }
     e.afterAllReplays = await snapshot(); assert.deepEqual(e.afterAllReplays, e.finalSnapshot);
     e.apiReadbacks = await Promise.all(urls.map(async (_, instance) => {
-      const row = dataOf(await request(`/orders/${orderId}`, { actor: actors.finance1, instance, signal }));
+      const actor = duties ? readActors[instance] : actors.finance1;
+      const row = dataOf(await request(`/orders/${orderId}`, { actor, instance, signal }));
       assert.equal(Number(row.paidAmount), 900); assert.equal(row.paymentRecords.length, 3);
-      return { instance, orderId, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus, count: row.paymentRecords.length };
+      return { instance, ...(duties ? { actorId: actor.id } : {}), orderId, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus, count: row.paymentRecords.length };
     }));
     await sales.unroute(aiPattern);
     await sales.reload(); await expect(sales.getByTestId('ai-assistant-open')).toBeVisible();
@@ -150,7 +192,7 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
     assert.deepEqual(e.optionalAiModuleFailure.afterRecovery, e.finalSnapshot);
     e.optionalAiModuleFailure.recovered = true;
     e.optionalAiModuleFailure.finishedAt = new Date().toISOString();
-    for (const [index, actor] of [actors.finance1, actors.finance2].entries()) {
+    for (const [index, actor] of readActors.entries()) {
       const page = await open(actor, index, 'collections'); await page.getByTestId('collection-tab-ledger').click();
       await page.getByTestId('collection-ledger-search').fill(order.orderNo);
       await page.getByRole('button', { name: '显示或隐藏表格列', exact: true }).first().click();
@@ -164,7 +206,7 @@ async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
       const hit = el => { const r=el.getBoundingClientRect(), top=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2); return !!top&&(top===el||el.contains(top)); };
       const statusVisible = await status.evaluate(hit), amountVisible = await amount.evaluate(hit); assert(statusVisible && amountVisible);
       const file = path.join(folder, `finance-${index + 1}-registered-once.png`); await page.screenshot({ path: file });
-      e.screenshots.push({ kind: 'finance-readback', actorId: actor.id, path: file, statusVisible, amountVisible, text: await card.innerText(),
+      e.screenshots.push({ kind: 'finance-readback', actorId: actor.id, ...(duties ? { instance: index } : {}), path: file, statusVisible, amountVisible, text: await card.innerText(),
         font: await verifyRenderedCjk(page, `[data-testid="collection-payment-detail-${id}"]`) });
     }
     assert.equal(e.browserErrors.length, 0);

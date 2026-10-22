@@ -30,6 +30,86 @@ test('fixture accepts caller raw prior siblings and preserves caller run identit
   assert.throws(() => verify(e), /Prior proof belongs/);
 });
 
+// Synthetic transformation only: the runtime producer must capture these same
+// raw API/users rows itself. This cannot substitute for a real PG/cohort run.
+function workforceFixture() {
+  const e = postgresRecoveryProofFixture(), prefix = `r2wf_${crypto.createHash('sha256').update(`${e.runId}-workforce`).digest('hex').slice(0, 12)}`;
+  const descriptions = {
+    warehouse: { id: e.profiles.warehouse.id, job: 'warehouse', index: 3, permissions: ['shipping.read', 'shipping.write', 'shipping.receipts.read'], scope: 'warehouse_visible' },
+    sales: { id: e.profiles.sales.id, job: 'sales', index: 3, permissions: ['orders.read', 'orders.create', 'orders.payment.record', 'customers.create'], scope: 'own_customers' },
+    approver: { id: 72, job: 'sales_lead', index: 1, permissions: ['orders.read', 'orders.status.manage'], scope: 'team_customers' },
+    receivables: { id: 73, job: 'receivables', index: 1, permissions: ['orders.read', 'orders.payment.verify'], scope: 'finance_visible' },
+  };
+  // All existing HTTP/browser roles must remain the same exact subject after
+  // moving from legacy names to the actual dynamic role code.
+  const rewriteRoles = value => {
+    if (!value || typeof value !== 'object') return;
+    if (value.role === 'warehouse') value.role = `${prefix}_warehouse`;
+    if (value.role === 'sales') value.role = `${prefix}_sales`;
+    for (const child of Object.values(value)) rewriteRoles(child);
+  };
+  rewriteRoles(e);
+  const actors = {};
+  for (const [duty, description] of Object.entries(descriptions)) {
+    const { id, job, index, permissions, scope } = description, role = `${prefix}_${job}`;
+    const profile = { id, role, username: `${role}_${index}`, segment: 'mixed', isActive: true, mustChangePassword: false,
+      permissions: [...permissions].sort(), dataScopes: [scope] };
+    const authProfiles = [0, 1].map(instance => ({ actorId: id, role, instance, method: 'GET', path: '/auth/me', status: 200,
+      sent: null, key: null, finishedAt: '2026-10-17T00:00:09.500Z', json: { success: true, data: copy(profile) } }));
+    actors[duty] = { id, role, job, index, authProfiles }; e.actions.push(...authProfiles);
+    if (e.profiles[duty]) e.profiles[duty] = { id, role, permissions: profile.permissions, dataScopes: profile.dataScopes };
+    for (const snapshot of allSnapshots(e)) putPostgresLedgerRow(snapshot, 'users', { id, role, username: profile.username,
+      segment: 'mixed', is_active: true, must_change_password: false });
+  }
+  e.workforceActors = { version: 'postgres-recovery-workforce-actors/v1', actors };
+  const action = (actor, method, path, instance, sent) => ({ actorId: actor.id, role: actor.role, method, path, instance, status: 200,
+    json: { success: true, data: {} }, sent, key: null, finishedAt: '2026-10-17T00:00:09.000Z' });
+  e.actions.push(action(actors.approver, 'PATCH', `/orders/${e.manifest.orderId}/status`, 0, { status: 'confirmed' }),
+    action(actors.receivables, 'POST', `/orders/${e.manifest.orderId}/payment/${e.manifest.paymentId}/verify`, 1, null));
+  for (const snapshot of allSnapshots(e)) {
+    setValue(snapshot, 'orders', e.manifest.orderId, 'created_by', actors.sales.id);
+    setValue(snapshot, 'payment_records', e.manifest.paymentId, 'verified_by', actors.receivables.id);
+  }
+  return resignPostgresRecoveryProof(e);
+}
+
+test('same-cohort dynamic duties retain all two-crash/ledger checks without declaring full workforce accepted', () => {
+  const e = workforceFixture(), proof = verify(e);
+  assert.equal(proof.fullLedgerSnapshots, 9); assert.equal(proof.originalReceipts, 2);
+  assert.equal(proof.fullWorkforceAccepted, false); assert.equal(proof.productionReady, false);
+});
+
+const workforceMutations = [
+  ['explicit null marker cannot fall back to legacy roles', e => { e.workforceActors = null; }],
+  ['unknown workforce proof version', e => { e.workforceActors.version = 'future-unknown'; }],
+  ['missing actual duty', e => { delete e.workforceActors.actors.approver; }],
+  ['another cohort role', e => { e.workforceActors.actors.sales.role = 'r2wf_000000000000_sales'; }],
+  ['sales1 substituted for required sales3', e => { e.workforceActors.actors.sales.index = 1; }],
+  ['wrong job label', e => { e.workforceActors.actors.approver.job = 'buyer'; }],
+  ['duties share one identity', e => { e.workforceActors.actors.receivables.id = e.workforceActors.actors.approver.id; }],
+  ['token actually belongs to another actor', e => { e.workforceActors.actors.warehouse.authProfiles[0].json.data.id = e.workforceActors.actors.sales.id; }],
+  ['auth request actor is mislabeled', e => { e.workforceActors.actors.warehouse.authProfiles[0].actorId = e.workforceActors.actors.sales.id; }],
+  ['profile role drift', e => { e.workforceActors.actors.sales.authProfiles[1].json.data.role = 'admin'; }],
+  ['cross-node grants drift', e => { e.workforceActors.actors.warehouse.authProfiles[1].json.data.permissions.push('orders.read'); }],
+  ['required AR grant missing', e => { for (const a of e.workforceActors.actors.receivables.authProfiles) a.json.data.permissions = ['orders.read']; }],
+  ['universal grant', e => { e.workforceActors.actors.warehouse.authProfiles[0].json.data.permissions.push('*'); }],
+  ['universal scope', e => { e.workforceActors.actors.sales.authProfiles[0].json.data.dataScopes.push('all'); }],
+  ['inactive current session', e => { e.workforceActors.actors.sales.authProfiles[0].json.data.isActive = false; }],
+  ['password change required', e => { e.workforceActors.actors.sales.authProfiles[0].json.data.mustChangePassword = true; }],
+  ['raw users role differs', e => { setValue(e.baseline, 'users', e.workforceActors.actors.sales.id, 'role', 'admin'); }],
+  ['raw users username differs', e => { setValue(e.baseline, 'users', e.workforceActors.actors.sales.id, 'username', 'foreign'); }],
+  ['raw user not ready', e => { setValue(e.baseline, 'users', e.workforceActors.actors.sales.id, 'must_change_password', true); }],
+  ['browser profile not actual current session', e => { e.profiles.warehouse.permissions.push('orders.read'); }],
+  ['AR verification performed by someone else', e => { setValue(e.baseline, 'payment_records', e.manifest.paymentId, 'verified_by', e.workforceActors.actors.approver.id); }],
+  ['order created by someone else', e => { setValue(e.baseline, 'orders', e.manifest.orderId, 'created_by', e.workforceActors.actors.approver.id); }],
+  ['sales lead never confirms order', e => { e.actions = e.actions.filter(a => !a.path.endsWith('/status')); }],
+  ['AR action borrowed another principal', e => { e.actions.find(a => a.path.endsWith('/verify')).actorId = e.workforceActors.actors.approver.id; }],
+  ['account refresh after ledger baseline', e => { e.workforceActors.actors.sales.authProfiles[0].finishedAt = '2026-10-17T00:00:12.000Z'; }],
+];
+for (const [name, mutate] of workforceMutations) test(`dynamic workforce proof rejects ${name}`, () => {
+  const e = workforceFixture(); mutate(e); resignPostgresRecoveryProof(e); assert.throws(() => verify(e));
+});
+
 const mutations = [
   ['wrong provider', e => { e.provider = 'sqlite'; }],
   ['false success status', e => { e.status = 'failed'; }],

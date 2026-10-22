@@ -95,21 +95,53 @@ async function postgresRecoveryProbe(ctx, parentSignal) {
   try {
     assert.equal(process.env.ROUND2_POSTGRES_RECOVERY, 'true');
     assert.equal(process.env.AUDIT_PRISMA_PROVIDER, 'postgresql');
+    // Only this recovery chain selects these four duties. Never replace the
+    // runner's legacy pressure/control actors or widen the cohort's grants.
+    const selected = ctx.workforce ? {
+      warehouse: ctx.workforce.byJob?.warehouse?.[2], sales: ctx.workforce.byJob?.sales?.[2],
+      approver: ctx.workforce.byJob?.sales_lead?.[0], receivables: ctx.workforce.byJob?.receivables?.[0],
+    } : { warehouse: actors?.stock0, sales: actors?.sales, approver: actors?.buyer1, receivables: actors?.finance1 };
+    if (ctx.workforce) {
+      for (const [job, actor] of Object.entries(selected)) {
+        assert(actor && Number.isSafeInteger(actor.id) && actor.id > 0, `Missing existing recovery workforce duty: ${job}`);
+        assert(ctx.workforce.actors.includes(actor), `${job}: recovery actor must belong to the same cohort`);
+        assert(actor.account, `${job}: existing workforce account is required`);
+      }
+      assert.equal(new Set(Object.values(selected).map(actor => actor.id)).size, 4, 'Recovery duties require distinct real identities');
+    }
     control = await createOwnedPostgresControl({ urls, signal });
     e.controlBefore = control.before;
     const initial = await control.connect('r2_recovery_initial');
     original = await settings(initial); e.settingsBefore = original; await initial.end();
-    // Reuse real seeded job accounts privately; no password/token is evidence.
-    // The native browser helper reasserts credentials only on its first open,
-    // which is deliberately before the full-ledger baseline below.
+    // Existing cohort credentials stay unchanged. Refresh only private session
+    // state on that same actor: the native browser reasserts the same password
+    // on first open and updates its token, all before the full-ledger baseline.
+    // Legacy seeded actors without an account retain their old reset path.
     const password = crypto.randomBytes(24).toString('base64url') + '!Aa1';
-    for (const [job, actor] of [['warehouse', actors.stock0], ['sales', actors.sales]]) {
+    const sessionActors = ctx.workforce ? Object.entries(selected) : [['warehouse', selected.warehouse], ['sales', selected.sales]];
+    for (const [job, actor] of sessionActors) {
       const user = await prisma.user.findUniqueOrThrow({ where: { id: actor.id } });
-      const account = { username: user.username, password, role: user.role, segment: user.segment };
-      await ensureUiAuditUser(account);
-      const login = dataOf(await request('/auth/login', { actor: null, method: 'POST', signal, data: { username: account.username, password } }));
-      const current = { ...actor, token: login.token, account };
-      current.profile = dataOf(await request('/auth/me', { actor: current, signal })); people[job] = current;
+      const existing = actor.account;
+      const account = existing || { username: user.username, password, role: user.role, segment: user.segment };
+      if (existing) {
+        assert.equal(account.username, user.username, `${job}: existing account username differs from the actual actor`);
+        assert.equal(account.role, user.role, `${job}: existing account role differs from the actual actor`);
+        assert.equal(account.segment || 'mixed', user.segment, `${job}: existing account segment differs from the actual actor`);
+        assert(typeof account.password === 'string' && account.password.length > 0, `${job}: existing password is required`);
+      } else await ensureUiAuditUser(account);
+      const login = dataOf(await request('/auth/login', { actor: null, method: 'POST', signal,
+        data: { username: account.username, password: account.password } }));
+      assert(typeof login.token === 'string' && login.token.length > 0, `${job}: recovery login has no session`);
+      const current = existing ? actor : { ...actor, account };
+      current.token = login.token;
+      const profile = dataOf(await request('/auth/me', { actor: current, signal }));
+      if (existing) {
+        assert.equal(Number(profile.id), actor.id, `${job}: refreshed recovery session changed identity`);
+        assert.equal(profile.username, account.username, `${job}: refreshed recovery username changed`);
+        assert.equal(profile.role, account.role, `${job}: refreshed recovery role changed`);
+      }
+      current.profile = profile;
+      if (job === 'warehouse' || job === 'sales') people[job] = current;
     }
     const fixture = await stockFixture('pg-recovery', signal);
     const buyer = dataOf(await call(people.sales, '/customers', { method: 'POST', data: {
@@ -120,12 +152,12 @@ async function postgresRecoveryProbe(ctx, parentSignal) {
     const order = dataOf(await call(people.sales, '/orders', { method: 'POST', data: { customerId: Number(buyer.id),
       items: [{ materialId: fixture.material.id, productName: fixture.material.nameZh, quantity: 20, unit: 'kg', unitPrice: 10 }], paymentTerms: 30 } }));
     const orderId = Number(order.id);
-    dataOf(await call(actors.buyer1, `/orders/${orderId}/status`, { method: 'PATCH', data: { status: 'confirmed' } }));
+    dataOf(await call(selected.approver, `/orders/${orderId}/status`, { method: 'PATCH', data: { status: 'confirmed' } }));
     dataOf(await call(people.sales, `/orders/${orderId}/payment`, { method: 'POST', data: { idempotencyKey: `${runId}-pg-ar`,
       amount: 200, method: 'bank_transfer', payerName: 'Declared isolated recovery payment200' } }));
-    const detail = dataOf(await call(actors.finance1, `/orders/${orderId}`));
+    const detail = dataOf(await call(selected.receivables, `/orders/${orderId}`));
     const paymentId = Number(detail.paymentRecords.find(row => row.status === 'pending').id);
-    dataOf(await call(actors.finance1, `/orders/${orderId}/payment/${paymentId}/verify`, { method: 'POST', instance: 1 }));
+    dataOf(await call(selected.receivables, `/orders/${orderId}/payment/${paymentId}/verify`, { method: 'POST', instance: 1 }));
     e.manifest = { orderId, orderItemId: Number(detail.items[0].id), orderNo: order.orderNo, materialId: Number(fixture.material.id),
       batchNo: fixture.batchNo, paymentId, orderedQuantity: 20, amount: 200, shipmentIds: [] };
     browser = await require('./enterprise-round2-sales-browser.cjs').createSharedSalesBrowser({ urls, actors: people, runId, folder, signal });
@@ -135,6 +167,27 @@ async function postgresRecoveryProbe(ctx, parentSignal) {
       await browser.reserve({ shipmentId }); await browser.dispatch({ shipmentId });
     }
     await salesRead(0);
+    if (ctx.workforce) {
+      const participants = {};
+      // The first native opens above can refresh user.updatedAt and tokens.
+      // Capture authoritative sessions only after both opens, never after the
+      // ledger baseline. These raw profiles contain no token or password.
+      for (const [duty, actor] of Object.entries(selected)) {
+        const authProfiles = [], profilesByInstance = {};
+        for (const instance of [0, 1]) {
+          const action = await call(actor, '/auth/me', { instance }), profile = dataOf(action);
+          assert.equal(Number(profile.id), actor.id, `${duty}: actual session belongs to another actor`);
+          assert.equal(profile.role, actor.role, `${duty}: actual session role drifted`);
+          assert.equal(profile.username, actor.account.username, `${duty}: actual session username drifted`);
+          authProfiles.push(action);
+          profilesByInstance[instance] = { ...profile };
+        }
+        actor.profilesByInstance = profilesByInstance;
+        actor.profile = profilesByInstance[0];
+        participants[duty] = { id: actor.id, role: actor.role, job: actor.job, index: actor.index, authProfiles };
+      }
+      e.workforceActors = { version: 'postgres-recovery-workforce-actors/v1', actors: participants };
+    }
     e.profiles = Object.fromEntries(Object.entries(people).map(([job, actor]) => [job, { id: actor.id, role: actor.role,
       permissions: [...actor.profile.permissions].sort(), dataScopes: [...actor.profile.dataScopes].sort() }]));
     e.replicaStopped = await control.stopReplica();
