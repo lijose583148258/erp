@@ -219,6 +219,71 @@ for (const [label, mutate] of [
   assert.equal(result.status, 'failed', 'A wiring seam is never a final acceptance fixture');
 });
 
+for (const [label, mutate, accepted = false] of [
+  ['only four recovery actors reauthenticated', () => {}, true],
+  ['previous login timestamp was null', (actors, people) => { people[0].profile.lastLoginAt = null; actors[0].profile.lastLoginAt = '2026-01-01T00:00:02.000Z'; }, true],
+  ['previous login timestamp was absent', (actors, people) => { delete people[0].profile.lastLoginAt; actors[0].profile.lastLoginAt = '2026-01-01T00:00:02.000Z'; }, true],
+  ['actor ID changed', actors => { actors[0].id++; }],
+  ['job changed', actors => { actors[0].job = 'warehouse'; }],
+  ['job index changed', actors => { actors[0].index++; }],
+  ['actor role changed', actors => { actors[0].role = 'another_role'; }],
+  ['profile ID changed', actors => { actors[0].profile.id++; }],
+  ['profile role changed', actors => { actors[0].profile.role = 'another_role'; }],
+  ['username changed', actors => { actors[0].profile.username = 'another_user'; }],
+  ['permission added', actors => { actors[0].profile.permissions.push('warehouse.write'); }],
+  ['permission removed', actors => { actors[0].profile.permissions.pop(); }],
+  ['scope changed', actors => { actors[0].profile.dataScopes = ['all']; }],
+  ['account inactive', actors => { actors[0].profile.isActive = false; }],
+  ['password reset required', actors => { actors[0].profile.mustChangePassword = true; }],
+  ['account updatedAt changed', actors => { actors[0].profile.updatedAt = '2026-01-01T00:00:02.000Z'; }],
+  ['segment changed', actors => { actors[0].profile.segment = 'another_segment'; }],
+  ['unknown profile field added', actors => { actors[0].profile.newPolicy = true; }],
+  ['person missing', actors => { actors.pop(); }],
+]) test(`stock cohort adapter wiring only (not acceptance): ${label}`, () => {
+  const data = fixture(); data.baseline = structuredClone(baseline);
+  const round2 = data.reports.round2, source = round2.checks.find(check => check.id === 'stock-20-contention').evidence;
+  let id = 100;
+  const people = catalog.roles.flatMap(({ job, count }) => Array.from({ length: count }, (_, index) => {
+    const actor = { id: ++id, job, index: index + 1, role: `synthetic_${job}` };
+    return { ...actor, profile: { id: actor.id, username: `synthetic_${actor.id}`, role: actor.role,
+      permissions: ['dashboard.read'], dataScopes: ['own'], isActive: true, mustChangePassword: false, segment: 'mixed',
+      updatedAt: '2025-12-31T00:00:00.000Z', lastLoginAt: '2026-01-01T00:00:01.000Z' } };
+  }));
+  const appUrls = ['http://127.0.0.1:1', 'http://127.0.0.1:2'];
+  source.workforce = { people, appUrls: [...appUrls] };
+  round2.metadata.appUrls = appUrls;
+  round2.workforcePreparation = { actors: structuredClone(people) };
+  const actors = round2.workforcePreparation.actors;
+  const recovered = actors.filter(actor => ['sales_lead', 'receivables'].includes(actor.job)
+    || (['sales', 'warehouse'].includes(actor.job) && actor.index === 3));
+  assert.equal(recovered.length, 4);
+  for (const actor of recovered) actor.profile.lastLoginAt = '2026-01-01T00:00:02.000Z';
+  mutate(actors, people);
+  const before = structuredClone({ people, actors });
+  const filename = path.join(__dirname, 'lib/enterprise-regression.cjs');
+  const requireLocal = require('node:module').createRequire(filename), loaded = { exports: {} };
+  let calls = 0;
+  // The existing stock domain contracts own stock/ledger validity. This seam
+  // exercises only the real cumulative adapter's cohort comparison, and cannot
+  // claim either PostgreSQL recovery or full twenty-person business acceptance.
+  const injectedRequire = name => name === './enterprise-round2-stock-workforce.cjs'
+    ? { verifyStockWorkforce(proof, evidence) { calls++; assert.equal(proof, source.workforce); assert.equal(evidence, source); } }
+    : name === './enterprise-round2-postgres-recovery-proof.cjs'
+      ? { verifyPostgresRecoveryProof() { throw new Error('recovery intentionally unavailable in stock cohort wiring test'); } }
+      : requireLocal(name);
+  new Function('require', 'module', 'exports', fs.readFileSync(filename, 'utf8'))(injectedRequire, loaded, loaded.exports);
+  const result = loaded.exports.evaluateRegression(data);
+  assert.equal(calls, 1, 'The stock domain verifier must still run before comparing cohorts');
+  const check = result.checks.find(row => row.id === 'round2:stock-20-contention');
+  assert.equal(check.status, accepted ? 'passed' : 'failed', check.error);
+  if (!accepted) assert.match(check.error, /Stock observation cannot introduce a second cohort/);
+  assert.deepEqual({ people, actors }, before, 'Normalize copies only; preserve both captured and current profiles');
+  assert.equal(result.status, 'failed', 'A wiring seam is never a final acceptance fixture');
+  assert.equal(result.fullAcceptanceStatus, 'incomplete');
+  assert.equal(result.checks.find(row => row.id === 'round2:workforce-rbac').status, 'failed');
+  for (const recoveryId of postgresIds) assert.equal(result.checks.find(row => row.id === `round2:${recoveryId}`).status, 'failed');
+});
+
 for (const [label, mutate, pattern] of [
   ['non-array', revision => { revision.postgresqlRound2Checks = 'database-restart-ambiguous-commit'; }, /Invalid PostgreSQL-only/],
   ['null', revision => { revision.postgresqlRound2Checks = null; }, /Invalid PostgreSQL-only/],

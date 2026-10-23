@@ -234,7 +234,12 @@ function evaluateRegression({ baseline, context, currentCommit, currentSourceHas
       require('./enterprise-round2-stock-workforce.cjs').verifyStockWorkforce(check.evidence.workforce, check.evidence);
       const cohort = round2.workforcePreparation?.actors;
       assert(Array.isArray(cohort), 'Stock observers require the same run-owned workforce');
-      assert.deepEqual(check.evidence.workforce.people, cohort.map(({ id, job, index, role, profile }) => ({ id, job, index, role, profile })),
+      // Recovery re-authenticates the same actors and legitimately advances
+      // lastLoginAt. Keep every identity, grant and account-readiness field in
+      // the comparison; ignore only this observation timestamp, without editing
+      // either captured profile or the final current-profile evidence.
+      const samePeople = people => people.map(person => ({ ...person, profile: { ...person.profile, lastLoginAt: undefined } }));
+      assert.deepEqual(samePeople(check.evidence.workforce.people), samePeople(cohort.map(({ id, job, index, role, profile }) => ({ id, job, index, role, profile }))),
         'Stock observation cannot introduce a second cohort');
       assert.deepEqual(check.evidence.workforce.appUrls, round2.metadata.appUrls, 'Stock observation must use the original nodes');
     }

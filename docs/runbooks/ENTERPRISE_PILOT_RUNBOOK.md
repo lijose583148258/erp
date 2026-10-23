@@ -2,7 +2,19 @@
 
 ## Scope
 
-This runbook covers the controlled Windows pilot topology. Runtime data stays under the ASCII-only root `C:\AilaoDaPostgresRehearsal`; the source checkout may remain in a Unicode path.
+This runbook covers the controlled Windows pilot topology. Use an explicitly
+selected ASCII-only runtime root; the source checkout may remain in a Unicode
+path. The historical scripts default to `C:\AilaoDaPostgresRehearsal`, so always
+pass `-RuntimeRoot` when the approved data location differs. On 2026-10-23 the
+user selected the local isolated sandbox, with candidate data root
+`E:\CodexData\.codex\visualizations\2026\09\23\01a0ceb0-635c-7e52-9f2b-dc3445744957\erp-pilot-runtime`.
+This is a local host, not managed cloud hosting. Selection alone does not mean
+it has been provisioned or passed readiness. Do not reuse old data or secrets.
+Confirm actual listener binding and dependency isolation before starting;
+accessing a URL through `127.0.0.1` does not prove a loopback-only listener.
+Keep binaries separate from persistent data. A reboot, sleep or stopped service
+breaks the continuous observation window; retain evidence and restart that
+window rather than adding disconnected segments together.
 
 ## Topology
 
