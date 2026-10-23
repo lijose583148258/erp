@@ -658,11 +658,13 @@ test('BOM freeze probes are discoverable before runtime and browser dependencies
   assert.equal(typeof bomHistoryBrowser, 'function');
 });
 
-test('BOM freeze write paths and browser readback changes trigger the cumulative cloud gate', () => {
+test('Enterprise Cloud Sandbox triggers the cumulative gate once for every main PR and direct main push', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
-  const prPaths = workflow.split('  pull_request:')[1].split('  push:')[0];
-  for (const file of ['scripts/lib/enterprise-round2-bom-freeze.cjs', 'backend/src/services/production-bom-freeze*.ts',
-    'backend/src/services/production-mutation.service.ts', 'backend/src/services/material-governance.service.ts',
-    'backend/src/controllers/material.controller.ts', 'backend/src/controllers/production.controller.ts',
-    'pages/production/ProductionWorkOrderSection.tsx']) assert(prPaths.includes(`'${file}'`), `${file} no longer triggers cloud regression`);
+  assert.match(workflow, /pull_request:\r?\n    branches:\r?\n      - main/);
+  assert.match(workflow, /push:\r?\n    branches:\r?\n      - main/);
+  const pullRequestTrigger = workflow.split('  pull_request:')[1].split('  push:')[0];
+  const pushTrigger = workflow.split('  push:')[1].split('\n\npermissions:')[0];
+  assert.doesNotMatch(pullRequestTrigger, /^\s+(?:paths|paths-ignore):/m);
+  assert.doesNotMatch(pushTrigger, /^\s+(?:paths|paths-ignore):/m);
+  assert.doesNotMatch(pushTrigger, /^\s+-\s+['"]?codex\//m);
 });

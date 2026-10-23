@@ -493,10 +493,10 @@ const startServer = async () => {
     dailyBackupTimer.unref();
     startShutdownSignalWatcher();
 
-    server = app.listen(PORT, () => {
+    server = app.listen(PORT, runtime.listenHost, () => {
       if (server) attachRealtimeNotifications(server);
       startPaymentEventOutbox();
-      logger.info(`Server started successfully. Port: ${PORT}`);
+      logger.info(`Server started successfully. Host: ${runtime.listenHost}. Port: ${PORT}`);
       logger.info(`Environment: ${runtime.nodeEnv}`);
       logger.info(`CORS: ${allowedOrigins.join(',')}`);
       logger.info(`SQLite: ${runtime.sqliteDbPath || 'not configured'}`);

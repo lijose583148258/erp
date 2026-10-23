@@ -1,7 +1,5 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const path = require('node:path');
 const { assertContinuousLedger, productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
 const fixture = () => [
   { id: 1, quantityBefore: 0, quantityDelta: 100, quantityAfter: 100, costBefore: 0, costAmountDelta: 1000, costAfter: 1000 },
@@ -21,12 +19,3 @@ for (const [name, mutate] of [
   ['duplicate debit', rows => { rows.push({ ...rows[2], id: 4 }); }],
   ['missing ledger', rows => { rows.length = 0; }],
 ]) test(`rejects ${name}`, () => { const rows = fixture(); mutate(rows); assert.throws(() => assertContinuousLedger(rows, 0, 0)); });
-test('production lot and genealogy changes trigger cloud cumulative replay', () => {
-  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
-  const paths = workflow.split('  pull_request:')[1].split('  push:')[0];
-  for (const file of ['scripts/lib/enterprise-round2-production-lot.cjs', 'backend/src/services/production.service.ts',
-    'backend/src/services/production-mutation.service.ts', 'backend/src/services/production-cost-ledger.service.ts',
-    'pages/production/ProductionBatchGenealogy.tsx', 'pages/production/ProductionBatchAdjustmentSection.tsx',
-    'pages/production/ProductionWorkspaceDerived.ts', 'services/production.service.ts',
-    'pages/production/ProductionGenealogyReadback.tsx', 'services/productionBatchTrace.ts']) assert(paths.includes(`'${file}'`), file);
-});

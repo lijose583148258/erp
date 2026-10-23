@@ -82,6 +82,17 @@ const detectDatabaseEngine = (value?: string) => {
   return 'unknown';
 };
 
+const allowedListenHosts = new Set(['127.0.0.1', '::1', '0.0.0.0', '::']);
+
+export const resolveListenHost = (value?: string) => {
+  const host = String(value || '').trim();
+  if (!host) return '127.0.0.1';
+  if (!allowedListenHosts.has(host)) {
+    throw new Error(`Invalid AILAODA_LISTEN_HOST '${value}'. Use 127.0.0.1, ::1, 0.0.0.0, or ::.`);
+  }
+  return host;
+};
+
 const isForbiddenSqliteRuntimeDbPath = (candidatePath: string) => {
   const normalized = path.resolve(candidatePath).replace(/\\/g, '/').toLowerCase();
   const prismaRoot = path.join(backendRoot, 'prisma').replace(/\\/g, '/').toLowerCase();
@@ -125,6 +136,7 @@ export const runtime = {
   deploymentMode: normalizeDeploymentMode(process.env.AILAODA_DEPLOYMENT_MODE),
   databaseEngine: detectDatabaseEngine(process.env.DATABASE_URL),
   port: Number(process.env.PORT || 5001),
+  listenHost: resolveListenHost(process.env.AILAODA_LISTEN_HOST),
   corsOrigins: parseList(process.env.CORS_ORIGIN),
   backupDir: resolveProjectRuntimePath(process.env.BACKUP_DIR || 'backups'),
   logDir: resolveProjectRuntimePath(process.env.LOG_DIR || 'logs'),

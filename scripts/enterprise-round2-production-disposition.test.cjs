@@ -46,9 +46,6 @@ test('loss/rework verifier rejects false green conservation evidence', () => {
 });
 
 test('production disposition changes are cumulative cloud Round2 inputs', () => {
-  const root = path.join(__dirname, '..');
-  const workflow = fs.readFileSync(path.join(root, '.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
   const source = fs.readFileSync(path.join(__dirname, 'enterprise-round2-audit-v1.cjs'), 'utf8');
   for (const item of ['loss-return-scrap-rework', 'production-cost-reconciliation']) assert(source.includes(`'${item}'`));
-  for (const file of ['scripts/lib/enterprise-round2-production-disposition.cjs', 'scripts/lib/enterprise-round2-production-disposition-browser.cjs', 'backend/src/services/production-disposition.service.ts', 'backend/src/database/runtime-schema-production-disposition-repair.ts']) assert(workflow.includes(`'${file}'`), file);
 });

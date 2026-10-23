@@ -4,12 +4,9 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const source = fs.readFileSync(require.resolve('./cloud-postgres-promotion-audit-v1.cjs'), 'utf8');
 
-test('read recovery changes trigger cloud replay and exercise write non-retry on CI', () => {
+test('read recovery exercises write non-retry on CI', () => {
   const workflow = fs.readFileSync(require('node:path').join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
-  for (const file of ['backend/src/utils/readOnlyDbRetry.ts', 'backend/src/controllers/customer/customer-query.controller.ts',
-    'backend/src/controllers/customer/customer-read-recovery.test.ts']) assert(workflow.includes(`- '${file}'`));
   assert.match(workflow, /--runTestsByPath backend\/src\/controllers\/customer\/customer-read-recovery\.test\.ts backend\/src\/utils\/dbRetry\.test\.ts/);
-  assert(workflow.includes("- 'backend/src/middleware/auth*.ts'"));
   assert.match(workflow, /dbRetry\.test\.ts backend\/src\/middleware\/auth-read-recovery\.test\.ts backend\/src\/permissions\/casbinAuthorization\.test\.ts/);
 });
 

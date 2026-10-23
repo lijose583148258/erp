@@ -23,8 +23,6 @@ test('unit safety remains cumulative BOM coverage after separately reviewed R2-0
   const bom = read('scripts/lib/enterprise-round2-bom-freeze.cjs');
   assert.match(bom, /unitSafetyProbe\(ctx, signal\)/);
   assert.match(bom, /unitSafetyBrowser\(ctx, page, history.unitSafety.browserFixture/);
-  const paths = read('.github/workflows/enterprise-cloud-sandbox.yml').split('  pull_request:')[1].split('  push:')[0];
-  for (const file of ['scripts/lib/enterprise-round2-unit-safety.cjs', 'backend/src/services/production-unit-safety*.ts', 'backend/src/services/production-query.service.ts', 'pages/production/ProductionBomSection.tsx']) assert(paths.includes(`'${file}'`));
   const baseline = JSON.parse(read('scripts/config/enterprise-regression-baseline-v1.json'));
   assert(baseline.revisions.at(-1).round2Checks.includes('mass-packaging-density-conversion'));
   assert(baseline.revisions.at(-1).round2Checks.includes('conversion-cost-conservation'));
@@ -37,19 +35,11 @@ test('explicit mass-v1 probes remain source-only loadable and cumulative', () =>
   const bom = fs.readFileSync(path.join(__dirname, 'lib/enterprise-round2-bom-freeze.cjs'), 'utf8');
   assert.match(bom, /massConversionProbe\(ctx, signal\)/); assert.match(bom, /massConversionBrowser\(ctx, page, history.massV1.browserFixture/);
 });
-test('mass rule, form and execution changes trigger cloud regression', () => {
-  const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
-  const paths = workflow.split('  pull_request:')[1].split('  push:')[0];
-  for (const file of ['backend/src/domain/production-mass-basis*.ts', 'scripts/lib/enterprise-round2-mass-conversion.cjs', 'backend/src/services/production-completion.validation.ts', 'backend/src/validators/production.ts', 'pages/production/ProductionBomLineGrid.tsx', 'pages/production/ProductionBomMobileRows.tsx', 'pages/production/productionBomLineModel.ts', 'pages/ProductionWorkspaceV2.tsx']) assert(paths.includes("'" + file + "'"), file);
-});
-
 test('material unit governance probes are source-only and cumulatively wired', () => {
   const { materialUnitProbe, materialUnitBrowser } = require('./lib/enterprise-round2-material-unit.cjs');
   assert.equal(typeof materialUnitProbe,'function');assert.equal(typeof materialUnitBrowser,'function');
   const bom=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-bom-freeze.cjs'),'utf8');
   assert(bom.includes('materialUnitProbe(ctx'));assert(bom.includes('materialUnitBrowser(ctx'));
-  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');
-  for(const p of ['scripts/lib/enterprise-round2-material-unit.cjs','backend/src/domain/material-unit-governance.ts','backend/src/services/material-master.service.ts','backend/src/controllers/material.controller.ts','pages/MaterialMaster.tsx','services/material.service.ts'])assert(workflow.includes("'"+p+"'"),p);
 });
 
 
@@ -70,5 +60,4 @@ test('approved density evidence remains independent, while the actual conversion
   const api=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-qc-isolation.cjs'),'utf8'),ui=fs.readFileSync(path.join(__dirname,'lib/enterprise-round2-qc-browser.cjs'),'utf8');assert(api.includes('densityProbe(ctx, signal'));assert(ui.includes('densityBrowser(ctx, browser'));
   const audit=fs.readFileSync(path.join(__dirname,'enterprise-round2-audit-v1.cjs'),'utf8');assert(audit.includes("runner.run('mass-packaging-density-conversion'"));assert(audit.includes("runner.run('conversion-cost-conservation'"));
   const baseline=fs.readFileSync(path.join(__dirname,'config/enterprise-regression-baseline-v1.json'),'utf8');assert(baseline.includes('mass-packaging-density-conversion'));assert(baseline.includes('conversion-cost-conservation'));
-  const workflow=fs.readFileSync(path.join(__dirname,'../.github/workflows/enterprise-cloud-sandbox.yml'),'utf8');for(const p of ['scripts/lib/enterprise-round2-density.cjs','scripts/lib/enterprise-round2-density-conversion.cjs','pages/production/DensityWorkbench.tsx','pages/production/DensityConversionWorkbench.tsx','pages/production/CompleteWorkOrderModal.tsx','backend/src/domain/production-density-basis.ts','backend/src/services/material-density.service*.ts','backend/src/openapi/openapiSchemas.ts'])assert(workflow.includes("'"+p+"'"),p);
 });

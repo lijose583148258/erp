@@ -161,6 +161,14 @@ function checkRuntimePortPolicy(findings) {
     && (!hasStableCorsLiteral || (!hasPowerShellCorsEnv && !hasCmdCorsEnv))) {
     addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must override old local .env CORS_ORIGIN with the stable 5001 origins');
   }
+  if (startStable && !/\$env:AILAODA_LISTEN_HOST\s*=\s*['"]127\.0\.0\.1['"]/i.test(startStable)) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-stable-v2.ps1', 'stable runtime must force the backend listener to 127.0.0.1');
+  }
+
+  const enterpriseSandbox = requireText(findings, 'scripts/start-enterprise-sandbox-v1.ps1', 'runtime-port-policy');
+  if (enterpriseSandbox && !/AILAODA_LISTEN_HOST\s*=\s*['"]127\.0\.0\.1['"]/i.test(enterpriseSandbox)) {
+    addFinding(findings, 'P0', 'runtime-port-policy', 'scripts/start-enterprise-sandbox-v1.ps1', 'enterprise sandbox must force the backend listener to 127.0.0.1');
+  }
 
   const runtimeConfig = requireText(findings, 'backend/src/config/runtime.ts', 'runtime-port-policy');
   if (runtimeConfig) {
@@ -178,6 +186,9 @@ function checkRuntimePortPolicy(findings) {
     if (!/isForbiddenSqliteRuntimeDbPath/.test(runtimeConfig) || !/AILAODA_ALLOW_LEGACY_PRISMA_DB/.test(runtimeConfig)) {
       addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'runtime must quarantine backend/prisma SQLite files unless explicitly overridden');
     }
+    if (!/resolveListenHost/.test(runtimeConfig) || !/AILAODA_LISTEN_HOST/.test(runtimeConfig) || !/127\.0\.0\.1/.test(runtimeConfig)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'runtime must default the listener to loopback and validate AILAODA_LISTEN_HOST');
+    }
     if (/localhost:(3001|3002|4173|5173|5180|8080)|127\.0\.0\.1:(3001|3002|4173|5173|5180|8080)/.test(runtimeConfig)) {
       addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/config/runtime.ts', 'runtime default origins must not keep stale broad dev/foreign ports');
     }
@@ -190,6 +201,16 @@ function checkRuntimePortPolicy(findings) {
     }
     if (/http:\/\/127\.0\.0\.1:5173|http:\/\/localhost:5173|http:\/\/127\.0\.0\.1:5180|http:\/\/localhost:5180/.test(server)) {
       addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/server.ts', 'server CSP must not include 5173/5180');
+    }
+    if (!/app\.listen\(PORT,\s*runtime\.listenHost/.test(server)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', 'backend/src/server.ts', 'server must bind using the validated runtime listener host');
+    }
+  }
+
+  for (const dockerfile of ['Dockerfile', 'backend/Dockerfile', 'Dockerfile.postgres']) {
+    const dockerText = requireText(findings, dockerfile, 'runtime-port-policy');
+    if (dockerText && !/ENV\s+AILAODA_LISTEN_HOST=0\.0\.0\.0/.test(dockerText)) {
+      addFinding(findings, 'P0', 'runtime-port-policy', dockerfile, 'container image must explicitly bind the application listener to 0.0.0.0');
     }
   }
 

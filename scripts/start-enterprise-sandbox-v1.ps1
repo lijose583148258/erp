@@ -94,6 +94,7 @@ $environment = @{
   AILAODA_DEPLOYMENT_MODE = 'saas'
   AILAODA_PRISMA_PROVIDER = 'postgresql'
   SERVE_FRONTEND = 'true'
+  AILAODA_LISTEN_HOST = '127.0.0.1'
   DATABASE_URL = "postgresql://ailaoda:$postgresPassword@127.0.0.1:55432/ailaoda?schema=public"
   JWT_SECRET = Read-Secret '.jwt-secret.txt'
   REDIS_URL = ''
