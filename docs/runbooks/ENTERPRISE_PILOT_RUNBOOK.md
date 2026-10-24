@@ -130,6 +130,24 @@ topology. A short GitHub segment remains smoke or limited observation evidence,
 not formal production admission. No paid model API is required for this
 observation.
 
+### Continuous local observation
+
+For the local single-host pilot, use `HA_SOAK_CONCURRENCY=1` and
+`HA_SOAK_DURATION_MS=86400000`, with an explicit `HA_SOAK_REPORT_PATH` under the
+private pilot evidence directory. This is a low-rate endurance observation, not
+a replacement for the separate 20-role/concurrency acceptance. The default
+eight-worker load can exceed the pilot's shared 10,000-request/15-minute budget
+during a long run; do not disable security limits to get a green duration report.
+
+Use a dedicated random audit account that other tests do not reset. Pin both
+the application release and observer source. The report writes atomic `running`
+checkpoints every 30 seconds, retains non-success HTTP counts, rejects sampling
+gaps above 60 seconds, and checks process-start metrics for both app instances.
+Only the terminal report may say `passed`. A missing/stale checkpoint or changed
+process/release is not a successful completed observation. Keep each daily report
+and review business reconciliation separately; seven synthetic daily reports
+alone do not prove seven days of real-user business acceptance.
+
 ## Controlled Release Checklist
 
 These are required operations and evidence boundaries, not a claim that they
