@@ -89,6 +89,7 @@ foreach ($port in $Ports) {
 }
 
 $postgresPassword = [uri]::EscapeDataString((Read-Secret '.pg-password.txt'))
+$metricsBearerToken = Read-Secret 'observability\metrics-bearer-token.txt'
 $environment = @{
   NODE_ENV = 'production'
   AILAODA_DEPLOYMENT_MODE = 'saas'
@@ -125,7 +126,7 @@ $environment = @{
   SEARCH_RESULT_CACHE_TTL_SECONDS = '5'
   OTEL_EXPORTER_OTLP_ENDPOINT = 'http://127.0.0.1:4318'
   OTEL_SERVICE_NAME = 'ailaoda-erp-crm'
-  AILAODA_METRICS_BEARER_TOKEN = Read-Secret 'observability\metrics-bearer-token.txt'
+  AILAODA_METRICS_BEARER_TOKEN = $metricsBearerToken
   AI_GATEWAY_EXTERNAL_ENABLED = 'false'
   AI_GATEWAY_ENDPOINT = ''
   AI_GATEWAY_ALLOWED_HOSTS = ''
@@ -175,7 +176,7 @@ foreach ($instance in $started) {
   do {
     Start-Sleep -Milliseconds 500
     try {
-      $health = Invoke-RestMethod "http://127.0.0.1:$($instance.Port)/health" -TimeoutSec 3
+      $health = Invoke-RestMethod "http://127.0.0.1:$($instance.Port)/internal/health" -Headers @{ Authorization = "Bearer $metricsBearerToken" } -TimeoutSec 3
       if ($health.status -eq 'ok' -and $health.search.externalConfigured -and $health.telemetry.enabled) { break }
     } catch {}
   } while ((Get-Date) -lt $deadline)

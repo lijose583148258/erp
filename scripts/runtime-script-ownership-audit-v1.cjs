@@ -26,6 +26,9 @@ requireMarkers(enterprisePath, enterprise, [
   '$health = $null',
   "process.Name -ne 'node.exe'",
   "process.CommandLine -notlike '*backend/dist/server.js*'",
+  "Read-Secret 'observability\\metrics-bearer-token.txt'",
+  '/internal/health',
+  'Authorization = "Bearer $metricsBearerToken"',
 ]);
 
 const ownershipCall = enterprise.indexOf('$ownership = Assert-OwnedEnterpriseListener');
