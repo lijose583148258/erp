@@ -44,7 +44,8 @@ rather than rebuilding it in place. The first pinned release is
 only; it does not restart dependency services or make the host reboot-safe.
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start-enterprise-sandbox-v1.ps1 -RuntimeRoot D:\AilaoDaPilot -ArtifactRoot D:\AilaoDaPilot\releases\39f8071c6080
+$release = Get-Content -LiteralPath D:\AilaoDaPilot\runtime\release.json -Raw | ConvertFrom-Json
+& .\scripts\start-enterprise-sandbox-v1.ps1 -RuntimeRoot D:\AilaoDaPilot -ArtifactRoot $release.releaseRoot
 ```
 
 Public `/health` is intentionally minimal. The launcher uses protected
@@ -59,6 +60,13 @@ Its correction passed the procurement/QC chain, but the subsequent full run
 still failed one cross-instance role read and two browser sessions. Keep these
 failures open; a successful narrow probe does not close intermittent failures.
 The 24-hour observation clock must not be declared started from these runs.
+
+Release `b9615274a11b` subsequently completed all 12 steps with 20 authenticated
+users and 20 browser sessions on the two local instances. Its report is
+`D:\AilaoDaPilot\evidence\b961527-20-staff-audit-v1.json`; protected health checks
+passed and both fresh app stderr files had no listener warning. This is one
+successful replay, not closure of the earlier unexplained intermittent failure,
+the separate 37-check acceptance, or duration/recovery evidence.
 
 Each launched app instance writes matching PID and owner records under the isolated runtime `run/` directory. A later start only terminates a listener when its PID, owner record, artifact root, Node executable, and server entrypoint all match; an occupied port without that evidence aborts the launch instead of stopping an unrelated process.
 
