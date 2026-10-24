@@ -51,6 +51,8 @@ const manifest = requireIncludes('output/postgres-server-artifact/manifest.json'
 
 requireExists('output/postgres-server-artifact/backend/dist/server.js');
 requireExists('output/postgres-server-artifact/backend/prisma/generated-client/index.js');
+requireExists('output/postgres-server-artifact/postgres-schema/schema.prisma');
+requireExists('output/postgres-server-artifact/postgres-schema/models/auth-team.prisma');
 requireExists('output/postgres-server-artifact/backend/prisma/postgres-migrations/202607220001_order-import-idempotency/migration.sql');
 requireExists('output/postgres-server-artifact/backend/prisma/postgres-migrations/202607220002_order-import-retention/migration.sql');
 requireExists('output/postgres-server-artifact/backend/dist/maintenance/order-import-retention.js');
@@ -63,6 +65,17 @@ const database = requireIncludes('output/postgres-server-artifact/backend/dist/c
   'require("../../prisma/generated-client")',
   "runtime_1.runtime.databaseEngine === 'sqlite' && sqliteDbPath",
 ]);
+requireIncludes('output/postgres-server-artifact/postgres-schema/schema.prisma', [
+  'provider = "postgresql"',
+  'previewFeatures = ["prismaSchemaFolder"]',
+]);
+if (fs.existsSync(resolve('output/postgres-server-artifact/postgres-schema/generated-client'))) {
+  findings.push({
+    severity: 'P0',
+    file: 'output/postgres-server-artifact/postgres-schema',
+    message: 'provisioning schema must not include the generated Prisma client directory',
+  });
+}
 if (database.includes('require("@prisma/client")')) {
   findings.push({
     severity: 'P0',
@@ -116,6 +129,9 @@ requireIncludes('scripts/build-postgres-server-artifact-v1.cjs', [
   'copy-frontend-dist',
   'postgres-server-artifact',
   'copy-postgres-versioned-migrations',
+  'copy-postgres-provisioning-schema',
+  'validate-postgres-provisioning-schema',
+  'ARTIFACT_SCHEMA_SOURCE',
   'copy-postgres-versioned-migrator',
   'postgres-schema-migrate-v1.cjs apply',
   'postgres-schema-migrate-v1.cjs verify',

@@ -11,6 +11,7 @@ const ARTIFACT_PACKAGE_LOCK_JSON = path.join(ARTIFACT_BACKEND, 'package-lock.jso
 const ARTIFACT_DIST = path.join(ARTIFACT_BACKEND, 'dist');
 const ARTIFACT_PRISMA = path.join(ARTIFACT_BACKEND, 'prisma');
 const ARTIFACT_CLIENT = path.join(ARTIFACT_PRISMA, 'generated-client');
+const ARTIFACT_SCHEMA_SOURCE = path.join(OUTPUT_ROOT, 'postgres-schema');
 const ARTIFACT_ORDER_IMPORT_MIGRATION = path.join(
   ARTIFACT_PRISMA,
   'postgres-migrations',
@@ -214,6 +215,16 @@ function installArtifactDependencies() {
   );
 }
 
+function validateProvisioningSchema() {
+  const prismaCli = path.join(ROOT, 'node_modules', 'prisma', 'build', 'index.js');
+  run(
+    process.execPath,
+    [prismaCli, 'validate', `--schema=${ARTIFACT_SCHEMA_SOURCE}`],
+    'validate-postgres-provisioning-schema',
+    { env: { ...process.env, DATABASE_URL: 'postgresql://probe_user:probe_password@127.0.0.1:5432/ailaoda_probe?schema=public' } },
+  );
+}
+
 function writeManifest() {
   const manifest = {
     artifact: 'postgres-server',
@@ -259,6 +270,8 @@ function verifyArtifact() {
     path.join(ARTIFACT_BACKEND, 'node_modules', 'express', 'package.json'),
     path.join(ARTIFACT_CLIENT, 'index.js'),
     path.join(ARTIFACT_PRISMA, 'schema.prisma'),
+    path.join(ARTIFACT_SCHEMA_SOURCE, 'schema.prisma'),
+    path.join(ARTIFACT_SCHEMA_SOURCE, 'models', 'auth-team.prisma'),
     ARTIFACT_ORDER_IMPORT_MIGRATION,
     ARTIFACT_ORDER_IMPORT_RETENTION_MIGRATION,
     path.join(ARTIFACT_SCRIPTS, 'postgres-schema-migrate-v1.cjs'),
@@ -271,6 +284,7 @@ function verifyArtifact() {
   const database = fs.readFileSync(path.join(ARTIFACT_DIST, 'config', 'database.js'), 'utf8');
   const runtime = fs.readFileSync(path.join(ARTIFACT_DIST, 'config', 'runtime.js'), 'utf8');
   const schema = fs.readFileSync(path.join(ARTIFACT_PRISMA, 'schema.prisma'), 'utf8');
+  const provisioningSchema = fs.readFileSync(path.join(ARTIFACT_SCHEMA_SOURCE, 'schema.prisma'), 'utf8');
   const packageMetadata = JSON.parse(fs.readFileSync(ARTIFACT_PACKAGE_JSON, 'utf8'));
   if (!database.includes('require("../../prisma/generated-client")')) throw new Error('Artifact database.js does not use generated PostgreSQL client.');
   const residualDefaultClientImports = listFilesRecursive(ARTIFACT_DIST)
@@ -281,6 +295,10 @@ function verifyArtifact() {
   }
   if (!runtime.includes("AILAODA_PRISMA_PROVIDER !== 'postgresql'")) throw new Error('Artifact runtime.js is missing PostgreSQL provider marker guard.');
   if (!schema.includes('provider = "postgresql"')) throw new Error('Artifact Prisma schema is not PostgreSQL.');
+  if (!provisioningSchema.includes('provider = "postgresql"')) throw new Error('Artifact provisioning schema is not PostgreSQL.');
+  if (fs.existsSync(path.join(ARTIFACT_SCHEMA_SOURCE, 'generated-client'))) {
+    throw new Error('Artifact provisioning schema must not contain the generated Prisma client.');
+  }
   if (packageMetadata.type !== 'commonjs') throw new Error('Artifact backend package metadata must declare CommonJS.');
   if (!packageMetadata.dependencies?.express) throw new Error('Artifact backend package metadata is missing the Express production dependency.');
   const artifactMoney = require(path.join(ARTIFACT_DIST, 'utils', 'money.js'));
@@ -311,6 +329,7 @@ function main() {
     fs.mkdirSync(ARTIFACT_BACKEND, { recursive: true });
     copyStep('copy-backend-dist', path.join(ROOT, 'backend', 'dist'), ARTIFACT_DIST);
     copyStep('copy-postgres-prisma-schema', SOURCE_POSTGRES_PRISMA, ARTIFACT_PRISMA);
+    copyStep('copy-postgres-provisioning-schema', SOURCE_POSTGRES_PRISMA, ARTIFACT_SCHEMA_SOURCE);
     copyStep(
       'copy-postgres-versioned-migrations',
       SOURCE_POSTGRES_MIGRATIONS,
@@ -329,6 +348,7 @@ function main() {
     patchRuntime();
     patchDatabase();
     installArtifactDependencies();
+    validateProvisioningSchema();
     writeManifest();
     verifyArtifact();
     report.status = 'passed';
