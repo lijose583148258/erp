@@ -18,6 +18,7 @@ on:
   pull_request:
     branches:
       - main
+      - codex/enterprise-certification-real-snapshot-fix
   push:
     branches:
       - main
@@ -326,10 +327,11 @@ jobs:
         run: |
           set -euo pipefail
           sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fontconfig
+          # Compact CJK coverage; the browser raster probe validates actual glyphs.
+          sudo apt-get install -y --no-install-recommends fonts-wqy-microhei fontconfig
           fc-cache -f
           fc-match 'sans-serif:lang=zh-cn' | tee cloud-evidence/chinese-font-match.txt
-          fc-match 'sans-serif:lang=zh-cn' | grep -qi 'NotoSansCJK'
+          fc-match 'sans-serif:lang=zh-cn' | grep -qi 'WenQuanYi Micro Hei'
 
       - name: Start dependency topology
         run: |

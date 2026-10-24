@@ -648,7 +648,8 @@ test('CJK raster evidence rejects tofu/blank glyphs even when DOM Chinese text i
   assert.throws(() => assertCjkRasterEvidence({ ...evidence, glyphs: glyphs.map(glyph => ({ ...glyph, inkPixels: 0 })) }), /blank/);
   assert.throws(() => assertCjkRasterEvidence({ ...evidence, missingSignatures: [] }), /reference signatures/);
   const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
-  assert.match(workflow, /apt-get install[^\n]*fonts-noto-cjk/);
+  assert.match(workflow, /apt-get install[^\n]*fonts-wqy-microhei/);
+  assert.match(workflow, /fc-match[^\n]*WenQuanYi Micro Hei/);
   assert.match(workflow, /id: browser_fonts\s+continue-on-error: true/);
   assert.match(fs.readFileSync(path.join(__dirname, 'enterprise-cloud-business-audit-summary-v1.cjs'), 'utf8'), /\['browser_fonts',/);
 });
@@ -658,9 +659,9 @@ test('BOM freeze probes are discoverable before runtime and browser dependencies
   assert.equal(typeof bomHistoryBrowser, 'function');
 });
 
-test('Enterprise Cloud Sandbox triggers the cumulative gate once for every main PR and direct main push', () => {
+test('Enterprise Cloud Sandbox triggers the cumulative gate once for every release-candidate PR and direct main push', () => {
   const workflow = fs.readFileSync(path.join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8');
-  assert.match(workflow, /pull_request:\r?\n    branches:\r?\n      - main/);
+  assert.match(workflow, /pull_request:\r?\n    branches:\r?\n      - main\r?\n      - codex\/enterprise-certification-real-snapshot-fix/);
   assert.match(workflow, /push:\r?\n    branches:\r?\n      - main/);
   const pullRequestTrigger = workflow.split('  pull_request:')[1].split('  push:')[0];
   const pushTrigger = workflow.split('  push:')[1].split('\n\npermissions:')[0];
