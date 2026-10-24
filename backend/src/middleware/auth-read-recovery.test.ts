@@ -101,3 +101,19 @@ it('role lookup propagates unrelated database errors instead of declaring the ro
   db.authRole.findFirst.mockRejectedValue(error);
   await expect(roleExistsAndActive('sales')).rejects.toBe(error); expect(db.authRole.findFirst).toHaveBeenCalledTimes(1);
 });
+
+it('recovers an unreachable pure authentication read before calling business logic once', async () => {
+  db.user.findUnique.mockRejectedValueOnce(Object.assign(new Error('Synthetic unreachable database'), { code: 'P1001' }));
+  const { res, next } = await request();
+  expect(next).toHaveBeenCalledTimes(1);
+  expect(res.status).not.toHaveBeenCalled();
+});
+
+it('returns 503 rather than invalid credentials for persistent unreachable authentication reads', async () => {
+  db.user.findUnique.mockRejectedValue(Object.assign(new Error('Synthetic unreachable database'), { code: 'P1001' }));
+  const { res, next } = await request();
+  expect(next).not.toHaveBeenCalled();
+  expect(db.user.findUnique).toHaveBeenCalledTimes(5);
+  expect(res.status).toHaveBeenCalledWith(503);
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ errorCode: 'AUTH_DATABASE_UNAVAILABLE' }));
+});

@@ -1,8 +1,8 @@
 import { withDbRetry } from './dbRetry';
 
 describe('database transaction retry classification', () => {
-  it('does not replay an ambiguous P1017 write after connection loss', async () => {
-    const error = Object.assign(new Error('Server has closed the connection.'), { code: 'P1017' });
+  it.each(['P1017', 'P1001'])('does not replay an ambiguous %s write after connection loss', async code => {
+    const error = Object.assign(new Error('Server has closed the connection.'), { code });
     const operation = jest.fn().mockRejectedValue(error);
     await expect(withDbRetry(operation, { baseDelayMs: 0 })).rejects.toBe(error);
     expect(operation).toHaveBeenCalledTimes(1);

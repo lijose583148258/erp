@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { authenticate, authorizePermission, authRoute } from '../middleware/auth';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
+import { isClosedDbConnectionError, withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
 
 const router = Router();
 
@@ -53,7 +54,7 @@ router.get('/', authRoute(async (req, res) => {
             pendingCommissions,
             overdueStats,
             inventoryAlerts,
-        ] = await Promise.all([
+        ] = await withReadOnlyDbRetry(() => Promise.all([
             // 客户统计
             prisma.customer.groupBy({
                 by: ['status'],
@@ -138,7 +139,7 @@ router.get('/', authRoute(async (req, res) => {
                     unit: true,
                 }
             })
-        ]);
+        ]));
 
         // 格式化统计数据
         const customerTotal = customerStats.reduce((sum, s) => sum + s._count, 0);
@@ -213,6 +214,9 @@ router.get('/', authRoute(async (req, res) => {
         });
     } catch (error) {
         logger.error('获取仪表盘数据错误:', error);
+        if (isClosedDbConnectionError(error)) {
+            return res.status(503).json({ success: false, message: '数据库暂时不可用，请稍后重试', errorCode: 'DASHBOARD_DATABASE_UNAVAILABLE' });
+        }
         res.status(500).json({ success: false, message: '服务器内部错误' });
     }
 }));
@@ -226,7 +230,7 @@ router.get('/trends', authRoute(async (req, res) => {
         const thirtyDaysAgo = new Date();
         thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-        const orders = await prisma.order.findMany({
+        const orders = await withReadOnlyDbRetry(() => prisma.order.findMany({
             where: {
                 createdAt: { gte: thirtyDaysAgo },
                 ...(req.user?.role === 'sales' ? { createdBy: req.user.userId } : {}),
@@ -235,7 +239,7 @@ router.get('/trends', authRoute(async (req, res) => {
                 createdAt: true,
                 finalAmount: true,
             },
-        });
+        }));
 
         // 按日期分组
         const dailyData: Record<string, { count: number; amount: number; riskAmount: number }> = {};
@@ -266,6 +270,9 @@ router.get('/trends', authRoute(async (req, res) => {
         });
     } catch (error) {
         logger.error('获取趋势数据错误:', error);
+        if (isClosedDbConnectionError(error)) {
+            return res.status(503).json({ success: false, message: '数据库暂时不可用，请稍后重试', errorCode: 'DASHBOARD_DATABASE_UNAVAILABLE' });
+        }
         res.status(500).json({ success: false, message: '服务器内部错误' });
     }
 }));
