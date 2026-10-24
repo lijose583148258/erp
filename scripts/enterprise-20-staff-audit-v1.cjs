@@ -149,8 +149,11 @@ async function main() {
     const reads = await Promise.all(positions.map(async (p, index) => {
       const client = index % 2 ? secondary : primary;
       const response = await client.apiFetch(p.readPath, { timeoutMs: 25000 }, person(p.job).token);
-      return { job: p.job, status: response.status, instance: index % 2 ? 'secondary' : 'primary', path: p.readPath };
+      return { job: p.job, status: response.status, instance: index % 2 ? 'secondary' : 'primary', path: p.readPath,
+        ...(response.status !== 200 ? { errorCode: response.json?.errorCode || null,
+          message: String(response.json?.message || '').slice(0, 160) } : {}) };
     }));
+    report.roleReads = reads;
     if (reads.some((row) => row.status !== 200)) throw new Error('role read failed: ' + JSON.stringify(reads.filter((row) => row.status !== 200)));
     return { evidence: { completed: reads.length, statuses: reads.map((row) => row.status) } };
   });
@@ -227,6 +230,10 @@ async function main() {
       request: (endpoint, options) => primary.apiFetch(endpoint, options, person('buyer_1').token),
       code: 'E20-PO-' + runKey, name: rawName,
     });
+    // Receiving is only valid after a warehouse has explicitly configured an internal raw-material location.
+    const receiptWarehouse = await production.ensureWarehouseAndLocations(person('warehouse_1').token);
+    const receiptLocation = receiptWarehouse.locations['LOC-RAW'];
+    assert(receiptLocation?.id, 'warehouse receipt location bootstrap failed');
     const fixtureActor = job => ({ id: Number(person(job).user.id), token: person(job).token });
     const fixtureContext = {
       request: (endpoint, { actor, instance = 0, ...options } = {}) => (instance ? secondary : primary).apiFetch(endpoint, options, actor.token),
@@ -262,7 +269,7 @@ async function main() {
       input: { sampleNo: `E20-SAMPLE-${runKey}`, measurements: [{ code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null,
         instrumentNo: 'E20-SYNTHETIC-PH-METER-1' }], note: 'Actual declared retained-sample fixture measurement, not inferred from physical receipt' },
       reason: 'Independent QA reviewed the retained-sample result and frozen incoming specification' });
-    return { evidence: { supplierId: supplier.id, materialId: material.id, purchaseId: purchase.id, receiptCount: receipt.receipts?.length || 0,
+    return { evidence: { supplierId: supplier.id, materialId: material.id, purchaseId: purchase.id, receiptLocationId: receiptLocation.id, receiptCount: receipt.receipts?.length || 0,
       warehouseLedgerStatus: ledger.status, purchaseFixture, receiptSubmission: receipt.submission, quality } };
   });
 
@@ -389,8 +396,9 @@ async function main() {
           const context = await browser.newContext({
             viewport: { width: (i + offset) % 3 === 0 ? 390 : 1366, height: 800 },
           });
+          let page;
           try {
-            const page = await context.newPage();
+            page = await context.newPage();
             const uncaught = [];
             page.on('pageerror', (error) => uncaught.push(String(error.message || error).slice(0, 160)));
             await page.addInitScript(({ token, user }) => {
@@ -413,6 +421,12 @@ async function main() {
             const screenshot = path.join(screenshotDir, p.job + '.png');
             await page.screenshot({ path: screenshot, fullPage: false });
             return { job: p.job, route, url: base, screenshot: path.relative(path.dirname(reportPath), screenshot) };
+          } catch (error) {
+            const screenshot = path.join(screenshotDir, p.job + '-failed.png');
+            const captured = page && await page.screenshot({ path: screenshot, fullPage: false, timeout: 5000 })
+              .then(() => true, () => false);
+            return { job: p.job, error: String(error?.message || error).slice(0, 300),
+              ...(captured ? { screenshot: path.relative(path.dirname(reportPath), screenshot) } : {}) };
           } finally {
             await context.close();
           }
@@ -426,6 +440,7 @@ async function main() {
     } finally {
       await browser.close();
     }
+    report.browserSessions = results;
     if (results.length !== 20 || results.some((row) => row.error)) {
       throw new Error('browser session failures: ' + JSON.stringify(results.filter((row) => row.error)));
     }
