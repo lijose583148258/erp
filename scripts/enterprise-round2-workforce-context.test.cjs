@@ -74,6 +74,49 @@ test('20-login audit retains the existing two-second HA p95 budget instead of ac
   assert.equal(h.report.loginReadbackP95Ms, 3000);
 });
 
+function workspaceReadyHarness(failure) {
+  const source = fs.readFileSync(path.join(__dirname, 'enterprise-20-staff-audit-v1.cjs'), 'utf8');
+  const start = source.indexOf('async function waitForStaffWorkspaceReady(page)');
+  const end = source.indexOf('async function main()', start);
+  assert(start >= 0 && end > start);
+  const events = [];
+  const step = async name => { events.push(name); if (failure === name) throw new Error('blocked: ' + name); };
+  const page = {
+    locator: selector => { assert.equal(selector, '#loading'); return { waitFor: async options => {
+      assert.equal(options.state, 'hidden'); assert.equal(options.timeout, 20000); await step('loading-hidden');
+    } }; },
+    getByTestId: id => { assert.equal(id, 'app-content-scroll'); return {
+      waitFor: async options => { assert.equal(options.state, 'visible'); await step('workspace-visible'); },
+      locator: selector => { assert.match(selector, /button:visible:enabled/); return { first: () => ({ click: async options => {
+        assert.equal(options.trial, true); assert.equal(options.force, undefined); assert.equal(options.timeout, 20000); await step('pointer-trial');
+      } }) }; },
+    }; },
+    waitForFunction: async (predicate, _, options) => { assert.match(predicate.toString(), /document\.fonts\.status/); assert.equal(options.timeout, 20000); await step('fonts-loaded'); },
+  };
+  const run = vm.runInNewContext(source.slice(start, end) + '; waitForStaffWorkspaceReady;');
+  return { run: () => run(page), events };
+}
+
+test('staff screenshot readiness requires bootstrap disappearance, visible workspace and real pointer trial', async () => {
+  const h = workspaceReadyHarness(); const evidence = await h.run();
+  assert.deepEqual(h.events, ['loading-hidden', 'workspace-visible', 'pointer-trial', 'fonts-loaded']);
+  assert.equal(evidence.bootstrapHidden, true); assert.equal(evidence.pointerActionabilityVerified, true);
+});
+
+for (const [failure, expected] of [['loading-hidden', 1], ['workspace-visible', 2], ['pointer-trial', 3], ['fonts-loaded', 4]]) {
+  test('staff screenshot gate does not swallow ' + failure + ' failures or force an interaction', async () => {
+    const h = workspaceReadyHarness(failure); await assert.rejects(h.run(), /blocked:/); assert.equal(h.events.length, expected);
+  });
+}
+
+test('staff browser producer awaits workspace readiness before a successful screenshot record', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'enterprise-20-staff-audit-v1.cjs'), 'utf8');
+  const gate = source.indexOf('const readiness = await waitForStaffWorkspaceReady(page)');
+  const screenshot = source.indexOf('await page.screenshot({ path: screenshot, fullPage: false })', gate);
+  const success = source.indexOf('readiness, screenshot:', screenshot);
+  assert(gate > 0 && screenshot > gate && success > screenshot);
+});
+
 test('material fixture reuses the actual uppercase row for a lowercase run key without another POST', async () => {
   const code = 'E20-FG-pilotb520d3320261026T015649Z-1';
   const existing = { id: 49, code: code.toUpperCase(), status: 'active' }, calls = [];

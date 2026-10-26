@@ -172,6 +172,17 @@ async function loginWorkforceWithReadback() {
   return { evidence: { distinctSessions: sessions.size, existingSessionReadbacks: readbacks, p95Ms, p95LimitMs: 2000 } };
 }
 
+async function waitForStaffWorkspaceReady(page) {
+  await page.locator('#loading').waitFor({ state: 'hidden', timeout: 20000 });
+  const workspace = page.getByTestId('app-content-scroll');
+  await workspace.waitFor({ state: 'visible', timeout: 20000 });
+  const control = workspace.locator('button:visible:enabled,input:visible:enabled,select:visible:enabled,a[href]:visible').first();
+  // Trial checks real pointer actionability without changing business data.
+  await control.click({ trial: true, timeout: 20000 });
+  await page.waitForFunction(() => document.fonts.status === 'loaded', null, { timeout: 20000 });
+  return { bootstrapHidden: true, workspaceVisible: true, pointerActionabilityVerified: true };
+}
+
 async function main() {
   save();
   await step('provision_20_distinct_accounts', positions.map((p) => p.job), async () => {
@@ -454,6 +465,7 @@ async function main() {
             await page.waitForFunction(() =>
               document.body?.innerText.length > 100 && !document.querySelector('input[type="password"]'),
             null, { timeout: 20000 });
+            const readiness = await waitForStaffWorkspaceReady(page);
             const search = page.locator('input[type="search"]:visible').first();
             if (await search.count() && await search.isEnabled()) {
               await search.fill('E20-SYNTHETIC-NO-RESULTS');
@@ -462,7 +474,7 @@ async function main() {
             if (uncaught.length) throw new Error('uncaught browser error: ' + uncaught[0]);
             const screenshot = path.join(screenshotDir, p.job + '.png');
             await page.screenshot({ path: screenshot, fullPage: false });
-            return { job: p.job, route, url: base, screenshot: path.relative(path.dirname(reportPath), screenshot) };
+            return { job: p.job, route, url: base, readiness, screenshot: path.relative(path.dirname(reportPath), screenshot) };
           } catch (error) {
             const screenshot = path.join(screenshotDir, p.job + '-failed.png');
             const captured = page && await page.screenshot({ path: screenshot, fullPage: false, timeout: 5000 })
