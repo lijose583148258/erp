@@ -35,7 +35,12 @@ export function MoneyCell({ value, currency, format }: { value: unknown; currenc
 
 export function QuantityCell({ value, unit, precision = 3 }: { value: unknown; unit?: string; precision?: number }) {
   const amount = typeof value === 'number' ? value : Number(value || 0);
-  const rendered = Number.isFinite(amount) ? Number(amount.toFixed(precision)).toLocaleString() : '-';
+  const rounded = Number(amount.toFixed(precision));
+  // Locale formatting otherwise rounds a second time to its three-place
+  // default. Never turn an entire valid micro-quantity into a displayed zero.
+  const rendered = Number.isFinite(amount) ? (rounded === 0 && amount !== 0
+    ? amount.toLocaleString(undefined, { maximumSignificantDigits: 12 })
+    : rounded.toLocaleString(undefined, { maximumFractionDigits: precision })) : '-';
   return <span className="block text-right font-data font-black tabular-nums">{rendered}{unit ? <span className="ml-1 text-slate-500">{unit}</span> : null}</span>;
 }
 

@@ -5,7 +5,9 @@
  */
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const ExcelJS = require('exceljs');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -20,7 +22,8 @@ const DATA = {
   channelPrivateCustomerName: `CRM-AUDIT-CHANNEL-PRIVATE-${RUN_ID}`,
   mixedAssignedCustomerName: `CRM-AUDIT-MIXED-ASSIGNED-${RUN_ID}`,
   channelUsername: `audit_channel_sales_${RUN_ID}`,
-  channelPassword: `Channel${RUN_ID}!`,
+  channelPassword: `${crypto.randomBytes(24).toString('base64url')}!aA1`,
+  channelReadyPassword: `${crypto.randomBytes(24).toString('base64url')}!bB2`,
   contactPhone: `09${RUN_ID.slice(-8)}`,
   contactEmail: `crm-audit-${RUN_ID}@example.com`,
 };
@@ -146,11 +149,16 @@ async function workbookNames(buffer) {
 
 async function run() {
   try {
-    const admin = await login('admin', 'admin123');
-    const sales = await login('sales', 'sales123');
-    const manager = await login('manager', 'manager123');
-    const finance = await login('finance', 'finance123');
-    const warehouse = await login('warehouse', 'warehouse123');
+    const accounts = await ensureUiAuditAccounts(
+      'crm_permission_ai',
+      ['admin', 'sales', 'manager', 'finance', 'warehouse'],
+      { segmentByRole: { sales: 'direct' } },
+    );
+    const admin = await login(accounts.admin.username, accounts.admin.password);
+    const sales = await login(accounts.sales.username, accounts.sales.password);
+    const manager = await login(accounts.manager.username, accounts.manager.password);
+    const finance = await login(accounts.finance.username, accounts.finance.password);
+    const warehouse = await login(accounts.warehouse.username, accounts.warehouse.password);
     const channelMember = await createTeamMember(admin.token, {
       username: DATA.channelUsername,
       password: DATA.channelPassword,
@@ -158,7 +166,24 @@ async function run() {
       role: 'sales',
       segment: 'channel',
     });
-    const channelSales = await login(DATA.channelUsername, DATA.channelPassword);
+    const initialChannelSales = await login(DATA.channelUsername, DATA.channelPassword);
+    if (initialChannelSales.user.mustChangePassword !== true) {
+      throw new Error('New channel sales user must require an initial password change');
+    }
+    const passwordChange = await apiFetch('/auth/password', {
+      method: 'PUT',
+      data: {
+        oldPassword: DATA.channelPassword,
+        newPassword: DATA.channelReadyPassword,
+      },
+    }, initialChannelSales.token);
+    if (!passwordChange.ok) {
+      throw new Error(`Channel sales password change failed: ${passwordChange.status}`);
+    }
+    const channelSales = await login(DATA.channelUsername, DATA.channelReadyPassword);
+    if (channelSales.user.mustChangePassword) {
+      throw new Error('Channel sales password-change state was not cleared');
+    }
     recordStep({
       step: 'login-role-matrix-and-create-channel-sales',
       result: 'passed',

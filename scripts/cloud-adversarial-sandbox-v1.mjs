@@ -26,7 +26,7 @@ const request = async (pathname, options = {}) => {
     const elapsedMs = performance.now() - started;
     const text = await response.text();
     let json = null;
-    try { json = text ? JSON.parse(text) : null; } catch {}
+    try { json = text ? JSON.parse(text) : null; } catch { json = null; }
     return {
       status: response.status,
       elapsedMs,
@@ -325,9 +325,8 @@ const operationalHeaders = {
 let cursor = 0;
 let loadErrors = 0;
 const worker = async () => {
-  while (true) {
-    const index = cursor++;
-    if (index >= sampleCount) return;
+  while (cursor < sampleCount) {
+    cursor += 1;
     const response = await request('/internal/health', {
       headers: operationalHeaders,
       timeoutMs: 10000,

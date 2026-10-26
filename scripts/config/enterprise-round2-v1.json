@@ -1,0 +1,39 @@
+{
+  "version": "enterprise-round2/v1",
+  "businessPolicy": {
+    "salesOverbooking": "allowed_with_traceable_fulfillment_plan",
+    "physicalStock": "never_negative",
+    "fulfillmentOptions": ["linked_purchase", "linked_production", "approved_substitute", "partial_delivery", "cancel_refund"],
+    "barter": "separate_goods_valuation_offsets_cash_difference_and_reversal"
+  },
+  "roles": [
+    { "job": "owner", "count": 1 },
+    { "job": "sales_lead", "count": 1 },
+    { "job": "sales", "count": 3 },
+    { "job": "buyer", "count": 2 },
+    { "job": "warehouse", "count": 3 },
+    { "job": "production_planner", "count": 1 },
+    { "job": "production_operator", "count": 2 },
+    { "job": "research", "count": 1 },
+    { "job": "qc", "count": 1 },
+    { "job": "qa", "count": 1 },
+    { "job": "receivables", "count": 1 },
+    { "job": "payables", "count": 1 },
+    { "job": "cost_accountant", "count": 1 },
+    { "job": "system_admin", "count": 1 }
+  ],
+  "chains": [
+    { "id": "R2-01", "name": "预售、补单、销售履约与应收", "checks": ["workforce-rbac", "presale-with-fulfillment-plan", "backorder-adjustment-closeout", "sales-reservation-partial-fulfillment", "sales-browser-readback"] },
+    { "id": "R2-02", "name": "采购收货与应付", "checks": ["purchase-partial-receipt-qc-payables", "purchase-browser-readback"] },
+    { "id": "R2-03", "name": "采购单并发编辑", "checks": ["po-stale-edit-conflict", "po-reapproval-browser"] },
+    { "id": "R2-04", "name": "BOM 改版与工单冻结", "checks": ["bom-revision-freeze", "bom-history-browser"] },
+    { "id": "R2-05", "name": "同批次双工单领料", "checks": ["dual-workorder-same-lot", "genealogy-readback"] },
+    { "id": "R2-06", "name": "化工单位换算", "checks": ["mass-packaging-density-conversion", "conversion-cost-conservation"] },
+    { "id": "R2-07", "name": "生产损耗与成本", "checks": ["loss-return-scrap-rework", "production-cost-reconciliation"] },
+    { "id": "R2-08", "name": "20 人库存争抢", "checks": ["stock-20-contention", "stock-contention-browser"] },
+    { "id": "R2-09", "name": "调拨与销售出库竞争", "checks": ["transfer-shipping-contention", "shipping-cost-conservation", "transfer-shipping-browser"] },
+    { "id": "R2-10", "name": "回款核销与等价换物", "checks": ["payment-duplicate-verification", "payment-submit-durable-replay", "payment-event-audit-once", "payment-reversal-browser", "barter-dual-stock-posting-replay", "barter-offset-cash-difference", "barter-negative-cash-adjustment", "barter-partial-fulfillment", "barter-reversal-conservation", "barter-consumed-receipt-reversal-blocked", "barter-browser-readback"] },
+    { "id": "R2-11", "name": "QC 隔离与独立放行", "checks": ["qc-quarantine-blocks-issue", "qa-release-traceability-browser"] },
+    { "id": "R2-12", "name": "数据库故障与重试恢复", "checks": ["database-restart-ambiguous-commit", "recovery-full-ledger-reconciliation"] }
+  ]
+}

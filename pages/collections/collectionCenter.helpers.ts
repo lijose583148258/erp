@@ -58,10 +58,14 @@ export const exportRows = (filename: string, rows: Record<string, unknown>[]) =>
 };
 
 export const paymentBadge = (status: string) => {
+  if (status === 'reversed') return getStatusBorderBadgeClassName('cancelled');
   if (status === 'verified' || status === 'paid') return getStatusBorderBadgeClassName('verified');
   if (status === 'partial') return getStatusBorderBadgeClassName('partial');
   return getStatusBorderBadgeClassName('unknown');
 };
+
+export const paymentStatusLabel = (status: string) => ({ pending: '待核销', verified: '已核销', reversed: '已冲销（原凭证保留）',
+  unpaid: '未回款', partial: '部分回款', paid: '已收齐', overdue: '逾期' }[status] || status);
 
 export const riskBadge = (riskLevel: string) => {
   if (riskLevel === 'critical') return getStatusBorderBadgeClassName('critical');

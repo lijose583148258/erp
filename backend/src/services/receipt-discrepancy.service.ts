@@ -51,7 +51,7 @@ export class ReceiptDiscrepancyService {
     return normalizeDiscrepancyType(value, fallback);
   }
 
-  static async createCaseForRejectedReceipt(tx: TransactionClient, input: CreateReceiptDiscrepancyCaseInput) {
+  static async assertReceiptAllowed(tx: TransactionClient, input: CreateReceiptDiscrepancyCaseInput) {
     const rejectedQuantity = Number(input.quantity || 0);
     if (!Number.isFinite(rejectedQuantity) || rejectedQuantity <= 0.000001) {
       return null;
@@ -80,6 +80,14 @@ export class ReceiptDiscrepancyService {
         varianceRate: decision.varianceRate,
       });
     }
+    return { discrepancyType, decision };
+  }
+
+  static async createCaseForRejectedReceipt(tx: TransactionClient, input: CreateReceiptDiscrepancyCaseInput) {
+    const allowed = await this.assertReceiptAllowed(tx, input);
+    if (!allowed) return null;
+    const { discrepancyType, decision } = allowed;
+    const rejectedQuantity = Number(input.quantity || 0);
 
     const existing = await queryRawCompat<RawRow[]>(tx, 
       `${CASE_SELECT_SQL} WHERE source_type = ? AND source_ref = ? LIMIT 1`,

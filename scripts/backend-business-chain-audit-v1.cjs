@@ -30,6 +30,7 @@ const {
   createCustomer,
   createPurchaseOrder,
   createPurchaseReceipt,
+  releasePurchaseReceipt,
   createSalesOrder,
   createShipment,
   createShipmentReceiptEvent,
@@ -179,7 +180,7 @@ async function run() {
       paidAmount: verifiedOrder.paidAmount,
     });
 
-    const procurementOrder = await createPurchaseOrder(manager, supplier.id, salesOrder.id);
+    const procurementOrder = await createPurchaseOrder(warehouse, supplier.id, salesOrder.id);
     checkpoints.procurementOrder = {
       id: Number(procurementOrder.id),
       orderNo: procurementOrder.orderNo,
@@ -191,7 +192,7 @@ async function run() {
       purchaseOrderNo: procurementOrder.orderNo,
     });
 
-    const approvedPurchaseOrder = await approvePurchaseOrder(manager, procurementOrder.id);
+    const approvedPurchaseOrder = await approvePurchaseOrder(manager, procurementOrder.id, procurementOrder.revision);
     if (String(approvedPurchaseOrder.status) !== 'approved') throw new Error(`expected approved purchase order, got ${approvedPurchaseOrder.status}`);
     recordStep({
       step: 'approve-purchase-order',
@@ -200,10 +201,11 @@ async function run() {
       status: approvedPurchaseOrder.status,
     });
 
-    const purchaseReceipt = await createPurchaseReceipt(manager, procurementOrder.id);
+    const purchaseReceipt = await createPurchaseReceipt(manager, procurementOrder.id, approvedPurchaseOrder.revision);
     checkpoints.purchaseReceipt = {
       receiptNo: purchaseReceipt.receiptNo,
       sourceRef: `PO-${procurementOrder.id}-RCV-${purchaseReceipt.receiptNo}`,
+      supplierBatchNo: DATA.rawBatchNo, batchNo: purchaseReceipt.receiptBatchNo,
       acceptedQuantity: Number(purchaseReceipt.receiptSummary?.acceptedQuantity || 0),
       rejectedQuantity: Number(purchaseReceipt.receiptSummary?.rejectedQuantity || 0),
     };
@@ -215,6 +217,10 @@ async function run() {
       rejectedQuantity: purchaseReceipt.receiptSummary?.rejectedQuantity,
       receiptCount: purchaseReceipt.receiptSummary?.receiptCount,
     });
+    const qualityEvidence = await releasePurchaseReceipt(purchaseReceipt.submission.receipt, warehouse, manager);
+    checkpoints.incomingQuality = qualityEvidence;
+    recordStep({ step: 'inspect-and-independently-release-purchase', result: 'passed', receiptId: purchaseReceipt.submission.receipt.id,
+      qcActorId: qualityEvidence.qcActorId, qaActorId: qualityEvidence.qaActorId });
 
     const purchaseReceiptBack = await readPurchaseReceipts(manager, procurementOrder.id);
     const purchaseReceiptMatch = purchaseReceiptBack.receipts.find((item) => String(item.receiptNo) === String(purchaseReceipt.receiptNo));
@@ -242,7 +248,7 @@ async function run() {
       caseNo: purchaseDiscrepancies[0]?.caseNo || null,
     });
 
-    const rawStockRows = await readStockBalance(manager.token, DATA.rawItem, DATA.rawBatchNo, 'LOC-RAW');
+    const rawStockRows = await readStockBalance(manager.token, DATA.rawItem, purchaseReceipt.receiptBatchNo, 'LOC-RAW');
     if (rawStockRows.length === 0) throw new Error('raw stock balance readback missing after procurement receipt');
     const rawQuantity = rawStockRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
     if (Math.abs(rawQuantity - DATA.procurementAcceptedQuantity) > 0.000001) {

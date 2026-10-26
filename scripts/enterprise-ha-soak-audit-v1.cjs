@@ -3,17 +3,31 @@ const path = require('path');
 const { ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
 
 const root = process.cwd();
-const reportPath = path.join(root, 'output/audit/enterprise-ha-soak-audit-v1.json');
+const reportPath = path.resolve(process.env.HA_SOAK_REPORT_PATH || path.join(root, 'output/audit/enterprise-ha-soak-audit-v1.json'));
 const durationMs = Math.max(30_000, Number(process.env.HA_SOAK_DURATION_MS || 600_000));
 const concurrency = Math.max(1, Math.min(40, Number(process.env.HA_SOAK_CONCURRENCY || 8)));
 const maxRssMb = Math.max(256, Number(process.env.HA_SOAK_MAX_RSS_MB || 1024));
 const maxRssGrowthMb = Math.max(32, Number(process.env.HA_SOAK_MAX_RSS_GROWTH_MB || 256));
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
-const report = { name: 'Enterprise HA Soak Audit', version: '1.1', status: 'failed', startedAt: new Date().toISOString(), durationMs, concurrency, instances, checks: [] };
+const maxSampleGapMs = 60_000;
+if (!Number.isFinite(durationMs) || !Number.isFinite(concurrency)) throw new Error('Invalid soak duration or concurrency.');
+const report = { name: 'Enterprise HA Soak Audit', version: '1.2', status: 'running', sourceCommit: process.env.GITHUB_SHA || null,
+  startedAt: new Date().toISOString(), durationMs, concurrency, instances, checks: [] };
 const latencies = [];
 const statuses = new Map();
 const instanceRequests = new Map(instances.map(instance => [instance, 0]));
 let requestIndex = 0;
+let lastCheckpoint = 0;
+let lastActivity = 0;
+let maximumSampleGapMs = 0;
+let processContinuity = true;
+let observationStopped = false;
+const saveReport = () => {
+  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+  const tempPath = `${reportPath}.${process.pid}.tmp`;
+  fs.writeFileSync(tempPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  fs.renameSync(tempPath, reportPath);
+};
 
 const check = (name, passed, details = {}, fatal = false) => {
   report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
@@ -48,29 +62,49 @@ async function memorySnapshot(token) {
   return Promise.all(instances.map(async instance => {
     const response = await fetch(`${instance}/metrics`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(5000) });
     const text = await response.text();
-    return { instance, rss: metricValue(text, 'ailaoda_process_resident_memory_bytes'), heapUsed: metricValue(text, 'ailaoda_process_heap_used_bytes') };
+    return { instance, rss: metricValue(text, 'ailaoda_process_resident_memory_bytes'), heapUsed: metricValue(text, 'ailaoda_process_heap_used_bytes'),
+      processStartedAt: metricValue(text, 'ailaoda_process_started_at_seconds') };
   }));
 }
 
 async function main() {
+  saveReport();
   const token = await login();
   const headers = { authorization: `Bearer ${token}` };
   const before = await memorySnapshot(token);
-  check('memory-metrics-available', before.every(item => Number.isFinite(item.rss) && Number.isFinite(item.heapUsed)), { before }, true);
+  check('memory-metrics-available', before.every(item => Number.isFinite(item.rss) && Number.isFinite(item.heapUsed) && Number.isFinite(item.processStartedAt)), { before }, true);
   const routes = ['/internal/health', '/internal/ready', '/api/v1/dashboard', '/api/v1/customers?page=1&pageSize=30', '/api/v1/orders?page=1&pageSize=30'];
-  const deadline = Date.now() + durationMs;
+  const observationStarted = performance.now();
+  const deadline = observationStarted + durationMs;
+  report.observationStartedAt = new Date().toISOString();
+  lastActivity = Date.now();
   const worker = async () => {
-    while (Date.now() < deadline) {
+    while (!observationStopped && performance.now() < deadline) {
+      const now = Date.now();
+      maximumSampleGapMs = Math.max(maximumSampleGapMs, now - lastActivity);
+      lastActivity = now;
       const index = requestIndex++;
       const instance = instances[index % instances.length];
       instanceRequests.set(instance, (instanceRequests.get(instance) || 0) + 1);
       const route = routes[index % routes.length];
       await fetchTimed(`${instance}${route}`, { headers });
+      if (Date.now() - lastCheckpoint >= 30_000) {
+        lastCheckpoint = Date.now();
+        const current = await memorySnapshot(token);
+        processContinuity = processContinuity && current.every((item, index) => item.processStartedAt === before[index].processStartedAt);
+        report.progress = { lastSampleAt: new Date().toISOString(), requests: latencies.length,
+          statuses: Object.fromEntries(statuses), maximumSampleGapMs, processContinuity, memory: current };
+        saveReport();
+      }
       await new Promise(resolve => setTimeout(resolve, 500));
     }
   };
   await Promise.all(Array.from({ length: concurrency }, worker));
+  maximumSampleGapMs = Math.max(maximumSampleGapMs, Date.now() - lastActivity);
+  check('uninterrupted-sampling', maximumSampleGapMs <= maxSampleGapMs, { maximumSampleGapMs, maxSampleGapMs });
   const after = await memorySnapshot(token);
+  report.observedDurationMs = performance.now() - observationStarted;
+  check('same-process-lifetime', processContinuity && after.every((item, index) => item.processStartedAt === before[index].processStartedAt), { before, after });
   const memory = after.map((item, index) => ({
     instance: item.instance,
     beforeRssMb: before[index].rss / 1_048_576,
@@ -95,10 +129,9 @@ async function main() {
   report.status = 'passed';
 }
 
-main().catch(error => { report.error = String(error.message || error); process.exitCode = 1; }).finally(() => {
+main().catch(error => { observationStopped = true; report.status = 'failed'; report.error = String(error.message || error); process.exitCode = 1; }).finally(() => {
   report.finishedAt = new Date().toISOString();
-  fs.mkdirSync(path.dirname(reportPath), { recursive: true });
-  fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+  saveReport();
   console.log(`Enterprise HA Soak Audit: ${report.status.toUpperCase()}`);
   console.log(`Report: ${reportPath}`);
 });

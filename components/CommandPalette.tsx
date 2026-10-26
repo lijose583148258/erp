@@ -1,5 +1,5 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence, useReducedMotion } from 'framer-motion';
 import {
     Search,
     Command,
@@ -14,6 +14,7 @@ import { useAppContext } from '../app/AppContext';
 import { canOpenModule } from '../app/permissions';
 import { getModuleAliases, getModuleDescription, getModuleLabel, getNavigationModules } from './navigation/moduleRegistry';
 import api from '../utils/api';
+import { useDialogFocus } from '../app/useDialogFocus';
 
 interface CommandItem {
     id: string;
@@ -34,7 +35,9 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
     const { t, theme, toggleTheme, notify, language, currentUser } = useAppContext();
     const [query, setQuery] = useState('');
     const [selectedIndex, setSelectedIndex] = useState(0);
-    const inputRef = useRef<HTMLInputElement>(null);
+    const dialogRef = useRef<HTMLDivElement>(null);
+    const reduceMotion = useReducedMotion();
+    useDialogFocus(isOpen, dialogRef, onClose);
 
     // Define commands
     const navigationCommands = useMemo<CommandItem[]>(() => getNavigationModules()
@@ -94,10 +97,8 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
         setSelectedIndex(0);
     }, [query]);
 
-    // Focus input on open
     useEffect(() => {
         if (isOpen) {
-            setTimeout(() => inputRef.current?.focus(), 100);
             setQuery('');
         }
     }, [isOpen]);
@@ -106,9 +107,11 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (e.key === 'ArrowDown') {
             e.preventDefault();
+            if (!filteredCommands.length) return;
             setSelectedIndex(prev => (prev + 1) % filteredCommands.length);
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
+            if (!filteredCommands.length) return;
             setSelectedIndex(prev => (prev - 1 + filteredCommands.length) % filteredCommands.length);
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -117,6 +120,8 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                 onClose();
             }
         } else if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
             onClose();
         }
     }, [filteredCommands, selectedIndex, onClose]);
@@ -130,36 +135,53 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.12 }}
                         onClick={onClose}
                         className="absolute inset-0 bg-slate-900/60 backdrop-blur-sm"
                     />
 
                     {/* Palette Container */}
                     <motion.div
-                        initial={{ opacity: 0, scale: 0.95, y: -20 }}
-                        animate={{ opacity: 1, scale: 1, y: 0 }}
-                        exit={{ opacity: 0, scale: 0.95, y: -20 }}
+                        ref={dialogRef}
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="command-palette-title"
+                        aria-describedby="command-palette-description"
+                        tabIndex={-1}
+                        initial={reduceMotion ? false : { opacity: 0, y: -8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={reduceMotion ? { opacity: 1 } : { opacity: 0, y: -8 }}
+                        transition={{ duration: reduceMotion ? 0 : 0.15, ease: [0.16, 1, 0.3, 1] }}
                         className="relative w-full max-w-2xl bg-white dark:bg-slate-900 rounded-[32px] shadow-2xl border border-slate-100 dark:border-slate-800 overflow-hidden"
                     >
+                        <h2 id="command-palette-title" className="sr-only">快捷操作</h2>
+                        <p id="command-palette-description" className="sr-only">输入功能、单据或操作名称；使用上下方向键选择，Enter 执行，Escape 关闭。</p>
                         {/* Search Input */}
                         <div className="flex items-center px-6 py-5 border-b border-slate-50 dark:border-slate-800">
                             <Search className="w-5 h-5 text-slate-400 mr-4" />
                             <input
-                                ref={inputRef}
+                                data-autofocus
+                                data-testid="command-palette-input"
                                 type="text"
                                 placeholder={t.commandSearch}
+                                aria-label={t.commandSearch}
+                                role="combobox"
+                                aria-expanded="true"
+                                aria-controls="command-palette-results"
+                                aria-activedescendant={filteredCommands[selectedIndex] ? `command-option-${filteredCommands[selectedIndex].id}` : undefined}
+                                aria-autocomplete="list"
                                 className="flex-1 bg-transparent border-none outline-none text-lg font-bold text-slate-900 dark:text-white placeholder-slate-300 dark:placeholder-slate-600"
                                 value={query}
                                 onChange={(e) => setQuery(e.target.value)}
                                 onKeyDown={handleKeyDown}
                             />
                             <div className="flex items-center gap-1 px-2 py-1 bg-slate-100 dark:bg-slate-800 rounded-lg">
-                                <span className="text-[10px] font-black text-slate-400">ESC</span>
+                                <span className="text-xs font-black text-slate-400">ESC</span>
                             </div>
                         </div>
 
                         {/* Results List */}
-                        <div className="max-h-[60vh] overflow-y-auto no-scrollbar py-2">
+                        <div id="command-palette-results" role="listbox" aria-label="快捷操作结果" className="max-h-[60vh] overflow-y-auto no-scrollbar py-2">
                             {filteredCommands.length > 0 ? (
                                 <div className="space-y-4 px-3">
                                     {/* Categorized rendering could go here, but for simplicity we list all */}
@@ -168,7 +190,7 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                                         if (catCmds.length === 0) return null;
                                         return (
                                             <div key={cat} className="space-y-1">
-                                                <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-slate-400 opacity-50">
+                                                <div className="px-3 py-2 text-xs font-black uppercase tracking-widest text-slate-400 opacity-50">
                                                     {cat === 'navigation' ? t.navQuickJump : cat === 'actions' ? t.navBusinessOps : t.navSysMgmt}
                                                 </div>
                                                 {catCmds.map((cmd) => {
@@ -177,9 +199,12 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                                                     return (
                                                         <button
                                                             key={cmd.id}
+                                                            id={`command-option-${cmd.id}`}
+                                                            role="option"
+                                                            aria-selected={isSelected}
                                                             onClick={() => { cmd.action(); onClose(); }}
                                                             onMouseEnter={() => setSelectedIndex(realIdx)}
-                                                            className={`w-full flex items-center px-4 py-3.5 rounded-2xl transition-all text-left ${isSelected
+                                                            className={`flex w-full items-center rounded-2xl px-4 py-3.5 text-left transition-[background-color,color,box-shadow] duration-150 motion-reduce:transition-none ${isSelected
                                                                 ? 'bg-blue-600 shadow-lg shadow-blue-200 dark:shadow-none'
                                                                 : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
                                                                 }`}
@@ -220,17 +245,17 @@ const CommandPalette: React.FC<{ isOpen: boolean; onClose: () => void; setActive
                         {/* Footer */}
                         <div className="px-6 py-4 bg-slate-50/50 dark:bg-slate-800/10 border-t border-slate-50 dark:border-slate-800 flex items-center justify-between">
                             <div className="flex items-center gap-4">
-                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
-                                    <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border rounded-md shadow-sm">Enter</kbd>
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
+                                    <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border rounded-md shadow-sm">↑ ↓</kbd>
                                     <span>{t.ctrlSelect}</span>
                                 </div>
-                                <div className="flex items-center gap-1.5 text-[10px] font-bold text-slate-400">
+                                <div className="flex items-center gap-1.5 text-xs font-bold text-slate-400">
                                     <kbd className="px-1.5 py-0.5 bg-white dark:bg-slate-800 border rounded-md shadow-sm">Enter</kbd>
                                     <span>{t.ctrlConfirm}</span>
                                 </div>
                             </div>
-                            <div className="text-[10px] font-black italic text-blue-500 uppercase tracking-tighter">
-                                Opus 5.0 Core
+                            <div className="text-xs font-black text-blue-500">
+                                快捷操作
                             </div>
                         </div>
                     </motion.div>

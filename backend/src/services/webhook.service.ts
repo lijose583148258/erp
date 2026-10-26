@@ -7,7 +7,8 @@ export type WebhookEventType =
   | 'order.status_changed'
   | 'order.completed'
   | 'payment.submitted'
-  | 'payment.verified';
+  | 'payment.verified'
+  | 'payment.reversed';
 
 export type WebhookEvent = {
   id?: string;
@@ -78,6 +79,38 @@ export const buildWebhookSignature = (secret: string, timestamp: string, body: s
 
 const shouldSendEvent = (endpoint: WebhookEndpoint, event: WebhookEvent) =>
   !endpoint.events?.length || endpoint.events.includes(event.type);
+
+export type WebhookDeliveryResult = { ok: true } | { ok: false; errorCode: string };
+
+// Awaitable transport for durable deliveries. No credentials/URLs in receipts,
+// no redirect forwarding, and a hard deadline shorter than the outbox lease.
+export const deliverDurableWebhook = async (
+  endpoint: WebhookEndpoint,
+  event: WebhookEvent & { id: string; occurredAt: string },
+): Promise<WebhookDeliveryResult> => {
+  const timestamp = new Date().toISOString();
+  const body = JSON.stringify(event);
+  const secret = endpoint.secret || process.env.AILAODA_WEBHOOK_SECRET || '';
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    'x-ailaoda-event': event.type,
+    'x-ailaoda-event-id': event.id,
+    'x-ailaoda-timestamp': timestamp,
+  };
+  if (secret) headers['x-ailaoda-signature'] = `sha256=${buildWebhookSignature(secret, timestamp, body)}`;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), Math.min(DEFAULT_TIMEOUT_MS, readTimeoutMs()));
+  try {
+    const response = await fetch(endpoint.url, { method: 'POST', headers, body, signal: controller.signal, redirect: 'error' });
+    // We only need the status; cancel the body to release the connection.
+    await response.body?.cancel();
+    return response.ok ? { ok: true } : { ok: false, errorCode: `HTTP_${response.status}` };
+  } catch {
+    return { ok: false, errorCode: controller.signal.aborted ? 'TIMEOUT' : 'NETWORK_ERROR' };
+  } finally {
+    clearTimeout(timer);
+  }
+};
 
 const deliverWebhook = async (endpoint: WebhookEndpoint, event: WebhookEvent) => {
   const secret = endpoint.secret || process.env.AILAODA_WEBHOOK_SECRET || '';

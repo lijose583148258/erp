@@ -6,12 +6,10 @@ process.exit(1);
 const files = [
   'barter-browser-audit-v2.cjs',
   'barter-agreement-browser-audit-v1.cjs',
-  'browser-focused-audit-v1.cjs',
   'browser-focused-audit-v2.cjs',
   'browser-acceptance-audit.cjs',
   'browser-acceptance-audit-v2.cjs',
   'browser-acceptance-audit-v3.cjs',
-  'e2e-smoke.cjs'
 ];
 
 for (const file of files) {

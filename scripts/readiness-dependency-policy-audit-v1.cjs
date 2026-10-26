@@ -12,14 +12,20 @@ const check = (name, passed, details = {}) => {
 const readReport = relative => JSON.parse(fs.readFileSync(path.join(root, relative), 'utf8').replace(/^\uFEFF/, ''));
 
 async function main() {
+  const metricsToken = String(process.env.METRICS_BEARER_TOKEN || process.env.AILAODA_METRICS_BEARER_TOKEN || '').trim();
+  check('metrics-token-configured', Boolean(metricsToken));
   const readiness = await Promise.all(instances.map(async instance => {
-    const response = await fetch(`${instance}/api/v1/ready`, { signal: AbortSignal.timeout(5000) });
+    const response = await fetch(`${instance}/internal/ready`, {
+      headers: { authorization: `Bearer ${metricsToken}` },
+      signal: AbortSignal.timeout(5000),
+    });
     return { instance, status: response.status, body: await response.json() };
   }));
   check('both-app-instances-ready', readiness.every(item => item.status === 200 && item.body.status === 'ready'), { readiness });
   check('critical-dependencies-explicit', readiness.every(item => JSON.stringify(item.body.dependencyPolicy?.critical) === JSON.stringify(['database', 'redis'])));
   check('degradable-dependencies-explicit', readiness.every(item => ['search', 'objectStorage', 'telemetry'].every(name => item.body.dependencyPolicy?.degradable?.includes(name))));
   check('degradable-topology-visible', readiness.every(item => item.body.degradable?.search?.endpointCount >= 2 && item.body.degradable?.objectStorage?.s3EndpointCount >= 2 && item.body.degradable?.telemetry?.enabled === true));
+  check('search-indexes-ready', readiness.every(item => item.body.degradable?.search?.ready === true && item.body.degradable?.search?.initialization?.status === 'ready'));
 
   const storageFailover = readReport('output/audit/object-storage-failover-audit-v1.json');
   const searchFailover = readReport('output/audit/meilisearch-failover-audit-v1.json');

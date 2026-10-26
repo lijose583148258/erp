@@ -1,4 +1,4 @@
-import ExcelJS from 'exceljs';
+import SpreadsheetWorkbook from '../infrastructure/spreadsheet-workbook';
 import type { Prisma } from '@prisma/client';
 import prisma from '../config/database';
 import {
@@ -10,6 +10,8 @@ import { decorateCommercialOrderState } from '../utils/orderCommercialState';
 import { AuthRequest } from '../middleware/auth';
 import { buildOrderDataScopeWhere, mergeWhereAnd } from '../utils/recordAccess';
 import { buildOrderSearchWhereAsync } from './search.service';
+import { ORDER_FULFILLMENT_SHIPMENT_SELECT, ORDER_FULFILLMENT_CANCELLATION_SELECT, addOrderReservationReadback } from './order-fulfillment.service';
+import { withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
 
 export const DEFAULT_PAGE_SIZE = 20;
 export const MAX_PAGE_SIZE = 100;
@@ -47,6 +49,7 @@ const ORDER_DETAIL_INCLUDE = {
     items: true,
     shipments: {
         select: {
+            ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
             id: true,
             shipmentNo: true,
             status: true,
@@ -96,8 +99,10 @@ const ORDER_DETAIL_INCLUDE = {
     receivableAdjustments: {
         orderBy: { createdAt: 'desc' as const },
         select: {
+            ...ORDER_FULFILLMENT_CANCELLATION_SELECT,
             id: true,
             adjustmentNo: true,
+              requestKey: true,
             adjustmentType: true,
             amount: true,
             status: true,
@@ -168,7 +173,7 @@ const getOrderDetailById = async (orderId: number, req?: AuthRequest) => {
         ),
         include: ORDER_DETAIL_INCLUDE,
     });
-    return order ? formatOrderDetail(order) : null;
+    return order ? (await addOrderReservationReadback(prisma, [formatOrderDetail(order)]))[0] : null;
 };
 
 export const OrderWorkspaceService = {
@@ -202,84 +207,91 @@ export const OrderWorkspaceService = {
             filters.createdAt = createdAt;
         }
 
-        const where = mergeWhereAnd(
-            filters,
-            req ? buildOrderDataScopeWhere(req, { includeFinanceAll: true }) : {},
-        );
+        // Search/cache preparation is not replayed. Recover the complete pure
+        // read, including scoped orders and their reservation evidence together.
+        return withReadOnlyDbRetry(async () => {
+            const where = mergeWhereAnd(
+                filters,
+                req ? buildOrderDataScopeWhere(req, { includeFinanceAll: true }) : {},
+            );
 
-        const [orders, total] = await Promise.all([
-            prisma.order.findMany({
-                where,
-                select: {
-                    id: true,
-                    orderNo: true,
-                    totalAmount: true,
-                    discountAmount: true,
-                    finalAmount: true,
-                    currency: true,
-                    paymentTerms: true,
-                    paidAmount: true,
-                    receivableAdjustmentAmount: true,
-                    paymentStatus: true,
-                    status: true,
-                    commissionRate: true,
-                    commissionAmount: true,
-                    notes: true,
-                    createdAt: true,
-                    updatedAt: true,
-                    shipments: {
-                        select: {
-                            status: true,
-                            shippedAt: true,
-                            deliveredAt: true,
+            const [orders, total] = await Promise.all([
+                prisma.order.findMany({
+                    where,
+                    select: {
+                        id: true,
+                        orderNo: true,
+                        totalAmount: true,
+                        discountAmount: true,
+                        finalAmount: true,
+                        currency: true,
+                        paymentTerms: true,
+                        paidAmount: true,
+                        receivableAdjustmentAmount: true,
+                        paymentStatus: true,
+                        status: true,
+                        commissionRate: true,
+                        commissionAmount: true,
+                        notes: true,
+                        createdAt: true,
+                        updatedAt: true,
+                        items: true,
+                        receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
+                        shipments: {
+                            select: {
+                                ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
+                                status: true,
+                                shippedAt: true,
+                                deliveredAt: true,
+                            },
                         },
-                    },
-                    paymentRecords: {
-                        select: {
-                            status: true,
+                        paymentRecords: {
+                            select: {
+                                status: true,
+                            },
                         },
+                        contract: { select: { id: true, contractNo: true } },
+                        customer: { select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true, riskLevel: true } },
+                        creator: { select: { id: true, username: true } },
+                        _count: { select: { items: true, shipments: true } },
                     },
-                    contract: { select: { id: true, contractNo: true } },
-                    customer: { select: { id: true, name: true, nameZh: true, nameEn: true, nameVi: true, riskLevel: true } },
-                    creator: { select: { id: true, username: true } },
-                    _count: { select: { items: true, shipments: true } },
+                    orderBy: { [resolvedSortBy]: resolvedSortOrder } as Prisma.OrderOrderByWithRelationInput,
+                    skip: offset,
+                    take: limit,
+                }),
+                prisma.order.count({ where }),
+            ]);
+
+            const formattedOrders = orders.map((o) => decorateCommercialOrderState({
+                ...o,
+                paidAmount: Number(o.paidAmount),
+                receivableAdjustmentAmount: Number(o.receivableAdjustmentAmount),
+                effectiveReceivableAmount: Math.max(0, Number(o.finalAmount) - Number(o.receivableAdjustmentAmount || 0)),
+                outstandingAmount: Math.max(0, Number(o.finalAmount) - Number(o.receivableAdjustmentAmount || 0) - Number(o.paidAmount)),
+                paymentStatus: o.paymentStatus,
+                contractNo: o.contract?.contractNo || null,
+                commissionRate: o.commissionRate ? Number(o.commissionRate) : null,
+                commissionAmount: o.commissionAmount ? Number(o.commissionAmount) : null,
+                customerName: o.customer.nameZh || o.customer.nameEn || o.customer.nameVi || o.customer.name,
+                customerNameZh: o.customer.nameZh || null,
+                customerNameEn: o.customer.nameEn || null,
+                customerNameVi: o.customer.nameVi || null,
+                customerRiskLevel: o.customer.riskLevel,
+                creatorName: o.creator.username,
+                itemCount: o._count.items,
+                shipmentCount: o._count.shipments,
+            }));
+
+            return {
+                data: await addOrderReservationReadback(prisma, formattedOrders),
+                meta: {
+                    page: resolvedPage,
+                    pageSize: limit,
+                    total,
+                    totalPages: Math.ceil(total / limit),
                 },
-                orderBy: { [resolvedSortBy]: resolvedSortOrder } as Prisma.OrderOrderByWithRelationInput,
-                skip: offset,
-                take: limit,
-            }),
-            prisma.order.count({ where }),
-        ]);
-
-        const formattedOrders = orders.map((o) => decorateCommercialOrderState({
-            ...o,
-            paidAmount: Number(o.paidAmount),
-            receivableAdjustmentAmount: Number(o.receivableAdjustmentAmount),
-            effectiveReceivableAmount: Math.max(0, Number(o.finalAmount) - Number(o.receivableAdjustmentAmount || 0)),
-            outstandingAmount: Math.max(0, Number(o.finalAmount) - Number(o.receivableAdjustmentAmount || 0) - Number(o.paidAmount)),
-            paymentStatus: o.paymentStatus,
-            contractNo: o.contract?.contractNo || null,
-            commissionRate: o.commissionRate ? Number(o.commissionRate) : null,
-            commissionAmount: o.commissionAmount ? Number(o.commissionAmount) : null,
-            customerName: o.customer.nameZh || o.customer.nameEn || o.customer.nameVi || o.customer.name,
-            customerNameZh: o.customer.nameZh || null,
-            customerNameEn: o.customer.nameEn || null,
-            customerNameVi: o.customer.nameVi || null,
-            customerRiskLevel: o.customer.riskLevel,
-            creatorName: o.creator.username,
-            itemCount: o._count.items,
-            shipmentCount: o._count.shipments,
-        }));
-
-        return {
-            data: formattedOrders,
-            meta: {
-                page: resolvedPage,
-                pageSize: limit,
-                total,
-                totalPages: Math.ceil(total / limit),
-            },
-        };
+            };
+        });
     },
 
     async getOrderStats(req?: AuthRequest) {
@@ -351,8 +363,11 @@ export const OrderWorkspaceService = {
                 creator: { select: { username: true } },
                 contract: { select: { contractNo: true } },
                 _count: { select: { items: true } },
+                items: true,
+                receivableAdjustments: { select: ORDER_FULFILLMENT_CANCELLATION_SELECT },
                 shipments: {
                     select: {
+                        ...ORDER_FULFILLMENT_SHIPMENT_SELECT,
                         status: true,
                         shippedAt: true,
                         deliveredAt: true,
@@ -367,7 +382,7 @@ export const OrderWorkspaceService = {
             orderBy: { createdAt: 'desc' },
         });
 
-        const workbook = new ExcelJS.Workbook();
+        const workbook = new SpreadsheetWorkbook();
         const worksheet = workbook.addWorksheet('Orders');
 
         worksheet.columns = [

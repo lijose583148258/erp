@@ -1,4 +1,4 @@
-const CACHE_VERSION = 'ailaoda-pwa-v1';
+const CACHE_VERSION = 'ailaoda-pwa-v3';
 const APP_SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -62,7 +62,7 @@ async function networkFirstNavigation(request) {
       cache.put('/index.html', response.clone());
     }
     return response;
-  } catch (_error) {
+  } catch {
     return (await caches.match('/offline.html')) || Response.error();
   }
 }

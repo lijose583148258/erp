@@ -1,6 +1,7 @@
 /**
  * 采购 API 全链路审计（纯 fetch，不依赖浏览器）
- * 链路：login → 创建供应商 → 创建采购单 → 回读 → 审批 → 发货 → 收货入库 → 库存回读 → B2B 同步收货
+ * 链路：login → 创建供应商 → 明确报价/来料规范 → 独立审批 → 实收 → QC/QA → 库存回读
+ * B2B 状态同步不能造出物理收货；同键并发实收只能登记一份库存/成本/应付。
  */
 const fs = require('fs');
 const path = require('path');
@@ -9,6 +10,8 @@ const {
   createProcurementAuditData,
 } = require('./lib/procurement-api-audit-support.cjs');
 const { createAuditPrismaClient, ensureUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const assert = require('node:assert/strict');
+const { explicitPurchaseSources, releasePurchaseFixture } = require('./lib/purchase-quality-audit-fixture.cjs');
 
 const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
 const OUTPUT_DIR = path.join(process.cwd(), 'output', 'playwright');
@@ -25,8 +28,14 @@ const MANAGER_ACCOUNT = {
   password: process.env.AUDIT_MANAGER_PASSWORD || 'ProcurementAuditManager12345!',
   role: 'manager',
 };
+const APPROVER_ACCOUNT = { username: 'procurement_audit_approver', password: 'ProcurementAuditApprover12345!', role: 'manager' };
+const QC_ACCOUNT = { username: 'procurement_audit_qc', password: 'ProcurementAuditQC12345!', role: 'warehouse' };
 
 const DATA = createProcurementAuditData(RUN_ID);
+const SOURCES = explicitPurchaseSources({ quoteRef: `API-QUOTE-${RUN_ID}`, specificationRef: `API-SPEC-${RUN_ID}`,
+  specificationRevision: '1', taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0,
+  characteristics: [{ code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8',
+    testMethod: 'Isolated fixture calibrated pH meter', required: true }] });
 
 const report = {
   appUrl: APP_URL,
@@ -59,12 +68,42 @@ const {
   prisma,
 });
 
+async function releaseActualReceipt(receipt, qc, qa) {
+  return releasePurchaseFixture({ request: (endpoint, { actor, ...options } = {}) => apiFetch(endpoint, options, actor.token),
+    dataOf: response => { assert(response.ok, JSON.stringify(response.json)); return response.json.data; } }, {
+    receiptId: receipt.id, qcActor: { ...qc, id: qc.user.id }, qaActor: { ...qa, id: qa.user.id },
+    key: `api-${RUN_ID}-qc-${receipt.id}`, input: { sampleNo: `API-SAMPLE-${RUN_ID}-${receipt.id}`, measurements: [
+      { code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null, instrumentNo: 'API-AUDIT-PH-1' },
+    ] }, reason: 'Independent QA reviewed actual isolated fixture measurements',
+  });
+}
+
+async function assertNoReceiptEffects(purchaseOrderId, expectedStatus) {
+  const order = await prisma.purchaseOrder.findUnique({ where: { id: Number(purchaseOrderId) } });
+  assert.equal(order.status, expectedStatus);
+  assert.equal(await prisma.purchaseReceipt.count({ where: { purchaseOrderId: Number(purchaseOrderId) } }), 0);
+  const references = { OR: [{ sourceRef: `PO-${purchaseOrderId}` }, { sourceRef: { startsWith: `PO-${purchaseOrderId}-RCV-` } }] };
+  assert.equal(await prisma.stockEntry.count({ where: { sourceType: 'procurement_receipt', ...references } }), 0);
+  assert.equal(await prisma.productBatch.count({ where: { batchNo: { startsWith: `PO-${purchaseOrderId}-RCV-` } } }), 0);
+  assert.equal(await prisma.inventoryCostLedger.count({ where: { productBatch: { batchNo: { startsWith: `PO-${purchaseOrderId}-RCV-` } } } }), 0);
+  assert.equal(await prisma.supplierPayment.count({ where: { purchaseReceipt: { purchaseOrderId: Number(purchaseOrderId) } } }), 0);
+  assert.equal(await prisma.auditLog.count({ where: { resource: 'purchase_order', resourceId: Number(purchaseOrderId), action: 'CREATE_RECEIPT' } }), 0);
+  return { status: order.status, receiptCount: 0, stockEntryCount: 0, batchCount: 0, costLedgerCount: 0, paymentCount: 0, receiptAuditCount: 0 };
+}
+
 async function run() {
   try {
     await ensureUiAuditUser(SALES_ACCOUNT);
     await ensureUiAuditUser(MANAGER_ACCOUNT);
+    await ensureUiAuditUser(APPROVER_ACCOUNT);
+    await ensureUiAuditUser(QC_ACCOUNT);
     // 步骤 1：管理员登录
     const manager = await login(MANAGER_ACCOUNT.username, MANAGER_ACCOUNT.password);
+    const approver = await login(APPROVER_ACCOUNT.username, APPROVER_ACCOUNT.password);
+    const qc = await login(QC_ACCOUNT.username, QC_ACCOUNT.password);
+    assert.notEqual(manager.user.id, approver.user.id);
+    assert.notEqual(qc.user.id, approver.user.id);
+    report.sourceGovernance = { authorId: manager.user.id, approverId: approver.user.id, inspectorId: qc.user.id, sources: SOURCES };
     recordStep({ step: 'login-manager', result: 'passed', userId: manager.user.id });
 
     // 步骤 2：创建供应商
@@ -189,6 +228,7 @@ async function run() {
         quantity: DATA.purchaseQuantity,
         unit: 'kg',
         ...procurementCostPayload(),
+        ...SOURCES,
         eta: '2026-04-30',
       },
     }, manager.token);
@@ -228,8 +268,8 @@ async function run() {
     // 步骤 7：审批采购单
     const approvePO = await apiFetch(`/procurement/orders/${purchaseOrder.id}/status`, {
       method: 'PATCH',
-      data: { status: 'approved' },
-    }, manager.token);
+      data: { status: 'approved', expectedRevision: purchaseOrder.revision },
+    }, approver.token);
     if (!approvePO.ok) {
       throw new Error(`审批采购单失败: ${approvePO.status}`);
     }
@@ -238,22 +278,37 @@ async function run() {
     // 步骤 8：发货
     const dispatchPO = await apiFetch(`/procurement/orders/${purchaseOrder.id}/status`, {
       method: 'PATCH',
-      data: { status: 'in_transit' },
+      data: { status: 'in_transit', expectedRevision: purchaseOrder.revision },
     }, manager.token);
     if (!dispatchPO.ok) {
       throw new Error(`发货失败: ${dispatchPO.status}`);
     }
     recordStep({ step: 'dispatch-purchase-order', result: 'passed', purchaseOrderId: purchaseOrder.id });
 
-    // 步骤 9：收货并生成库存凭证
-    const receivePO = await apiFetch(`/procurement/orders/${purchaseOrder.id}/status`, {
+    // 步骤 9：旧状态按钮不能代替实收，拒绝后所有物理/应付事实仍为空。
+    const legacyReceive = await apiFetch(`/procurement/orders/${purchaseOrder.id}/status`, {
       method: 'PATCH',
-      data: { status: 'received' },
+      data: { status: 'received', expectedRevision: purchaseOrder.revision },
+    }, manager.token);
+    assert.equal(legacyReceive.status, 409);
+    recordStep({ step: 'block-status-only-receipt', result: 'passed', status: legacyReceive.status,
+      noEffects: await assertNoReceiptEffects(purchaseOrder.id, 'in_transit') });
+    const receiptRequest = { quantity: DATA.purchaseQuantity, acceptedQuantity: DATA.purchaseQuantity, rejectedQuantity: 0,
+      batchNo: `API-SUPPLIER-LOT-${RUN_ID}`, expectedRevision: purchaseOrder.revision, note: 'Actual main audit delivery' };
+    const receiptKey = `api-${RUN_ID}-main-receipt`;
+    const receivePO = await apiFetch(`/procurement/orders/${purchaseOrder.id}/receipts`, {
+      method: 'POST', headers: { 'Idempotency-Key': receiptKey }, data: receiptRequest,
     }, manager.token);
     if (!receivePO.ok) {
       throw new Error(`收货失败: ${receivePO.status} — ${JSON.stringify(receivePO.json)}`);
     }
     recordStep({ step: 'receive-purchase-order', result: 'passed', purchaseOrderId: purchaseOrder.id });
+    const actualReceipt = receivePO.json.data.submission.receipt;
+    assert.equal(actualReceipt.supplierBatchNo, receiptRequest.batchNo);
+    assert.equal(Number(actualReceipt.payableAmountNative), DATA.purchasePrice * DATA.purchaseQuantity);
+    assert.equal(Number(actualReceipt.payableAmountBase), DATA.purchasePrice * DATA.purchaseQuantity / DATA.purchaseExchangeRate);
+    assert.notEqual(Number(actualReceipt.payableAmountBase), expectedMainCost.landedCostAmount, 'Supplier AP is not landed inventory cost');
+    report.quality = await releaseActualReceipt(actualReceipt, qc, approver);
 
     // 步骤 10：库存余额与库存凭证回读
     const receiptEvidence = await verifyProcurementReceipt(
@@ -261,6 +316,7 @@ async function run() {
       purchaseOrder.id,
       DATA.purchaseItem,
       DATA.purchaseQuantity,
+      actualReceipt,
     );
     const receiptCostEvidence = await verifyProcurementReceiptCost(
       receiptEvidence.sourceRef,
@@ -274,18 +330,22 @@ async function run() {
     recordStep({ step: 'verify-procurement-receipt-cost', result: 'passed', ...receiptCostEvidence });
 
     // 步骤 11：重复收货不得重复入库
-    const duplicateReceive = await apiFetch(`/procurement/orders/${purchaseOrder.id}/status`, {
-      method: 'PATCH',
-      data: { status: 'received' },
+    const duplicateReceive = await apiFetch(`/procurement/orders/${purchaseOrder.id}/receipts`, {
+      method: 'POST', headers: { 'Idempotency-Key': receiptKey }, data: receiptRequest,
     }, manager.token);
-    if (!duplicateReceive.ok && duplicateReceive.status !== 409) {
+    if (!duplicateReceive.ok) {
       throw new Error(`重复收货返回异常: ${duplicateReceive.status} — ${JSON.stringify(duplicateReceive.json)}`);
     }
+    assert.equal(duplicateReceive.json.data.replayed, true);
+    assert.deepEqual(duplicateReceive.json.data.submission, receivePO.json.data.submission);
+    assert.equal(await prisma.purchaseReceipt.count({ where: { purchaseOrderId: Number(purchaseOrder.id) } }), 1);
+    assert.equal(await prisma.auditLog.count({ where: { resource: 'purchase_order', resourceId: Number(purchaseOrder.id), action: 'CREATE_RECEIPT' } }), 1);
     const duplicateEvidence = await verifyProcurementReceipt(
       manager.token,
       purchaseOrder.id,
       DATA.purchaseItem,
       DATA.purchaseQuantity,
+      actualReceipt,
     );
     if (duplicateEvidence.entryCount !== receiptEvidence.entryCount) {
       throw new Error(`重复收货后凭证数量异常: ${duplicateEvidence.entryCount}`);
@@ -297,7 +357,7 @@ async function run() {
       sourceRef: duplicateEvidence.sourceRef,
     });
 
-    // 步骤 12：B2B 销售状态 delivered 同步为采购 received，并自动入库
+    // 步骤 12：B2B delivered 同步不能造出实收；之后正常登记实际交货。
     const syncSalesOrder = await createSalesOrder(
       sales.token,
       auditCustomer.id,
@@ -313,6 +373,7 @@ async function run() {
         quantity: DATA.syncPurchaseQuantity,
         unit: 'kg',
         ...procurementCostPayload(),
+        ...SOURCES,
         eta: '2026-05-05',
         isB2B: true,
       },
@@ -334,18 +395,27 @@ async function run() {
       method: 'POST',
       data: { salesStatus: 'delivered' },
     }, manager.token);
-    if (!syncB2B.ok) {
-      throw new Error(`B2B 同步失败: ${syncB2B.status} — ${JSON.stringify(syncB2B.json)}`);
-    }
-    const syncedPO = syncB2B.json?.data?.purchaseOrder;
-    if (String(syncedPO?.status) !== 'received') {
-      throw new Error(`B2B 同步后期望 received，实际 ${syncedPO?.status}`);
-    }
+    assert.equal(syncB2B.status, 409, 'A sales delivered signal cannot create physical purchase receipts');
+    const noSyncEffects = await assertNoReceiptEffects(syncPurchaseOrder.id, 'pending');
+    const syncApproval = await apiFetch(`/procurement/orders/${syncPurchaseOrder.id}/status`, {
+      method: 'PATCH', data: { status: 'approved', expectedRevision: syncPurchaseOrder.revision },
+    }, approver.token);
+    assert(syncApproval.ok, JSON.stringify(syncApproval.json));
+    const syncReceive = await apiFetch(`/procurement/orders/${syncPurchaseOrder.id}/receipts`, {
+      method: 'POST', headers: { 'Idempotency-Key': `api-${RUN_ID}-b2b-actual` }, data: {
+        quantity: DATA.syncPurchaseQuantity, acceptedQuantity: DATA.syncPurchaseQuantity, rejectedQuantity: 0,
+        batchNo: `API-B2B-SUPPLIER-LOT-${RUN_ID}`, expectedRevision: syncPurchaseOrder.revision,
+      },
+    }, manager.token);
+    assert(syncReceive.ok, JSON.stringify(syncReceive.json));
+    const syncReceipt = syncReceive.json.data.submission.receipt;
+    const syncQuality = await releaseActualReceipt(syncReceipt, qc, approver);
     const syncReceiptEvidence = await verifyProcurementReceipt(
       manager.token,
       syncPurchaseOrder.id,
       DATA.syncPurchaseItem,
       DATA.syncPurchaseQuantity,
+      syncReceipt,
     );
     const syncReceiptCostEvidence = await verifyProcurementReceiptCost(
       syncReceiptEvidence.sourceRef,
@@ -356,6 +426,7 @@ async function run() {
     report.b2bSync = {
       salesOrderId: String(syncSalesOrder.id),
       purchaseOrderId: String(syncPurchaseOrder.id),
+      blockedSyncStatus: syncB2B.status, noSyncEffects, quality: syncQuality,
       receiptEvidence: syncReceiptEvidence,
       receiptCostEvidence: syncReceiptCostEvidence,
     };
@@ -378,6 +449,7 @@ async function run() {
         quantity: DATA.racePurchaseQuantity,
         unit: 'kg',
         ...procurementCostPayload(),
+        ...SOURCES,
         eta: '2026-05-10',
         isB2B: true,
       },
@@ -392,42 +464,42 @@ async function run() {
 
     const raceApprove = await apiFetch(`/procurement/orders/${racePurchaseOrder.id}/status`, {
       method: 'PATCH',
-      data: { status: 'approved' },
-    }, manager.token);
+      data: { status: 'approved', expectedRevision: racePurchaseOrder.revision },
+    }, approver.token);
     if (!raceApprove.ok) {
       throw new Error(`并发收货采购单审批失败: ${raceApprove.status}`);
     }
     const raceDispatch = await apiFetch(`/procurement/orders/${racePurchaseOrder.id}/status`, {
       method: 'PATCH',
-      data: { status: 'in_transit' },
+      data: { status: 'in_transit', expectedRevision: racePurchaseOrder.revision },
     }, manager.token);
     if (!raceDispatch.ok) {
       throw new Error(`并发收货采购单发货失败: ${raceDispatch.status}`);
     }
 
-    const raceResponses = await Promise.all([
-      apiFetch(`/procurement/orders/${racePurchaseOrder.id}/status`, {
-        method: 'PATCH',
-        data: { status: 'received' },
-      }, manager.token),
-      apiFetch(`/procurement/orders/${racePurchaseOrder.id}/status`, {
-        method: 'PATCH',
-        data: { status: 'received' },
-      }, manager.token),
-    ]);
+    const raceRequest = { quantity: DATA.racePurchaseQuantity, acceptedQuantity: DATA.racePurchaseQuantity, rejectedQuantity: 0,
+      batchNo: `API-RACE-SUPPLIER-LOT-${RUN_ID}`, expectedRevision: racePurchaseOrder.revision };
+    const raceResponses = await Promise.all([0, 1].map(() => apiFetch(`/procurement/orders/${racePurchaseOrder.id}/receipts`, {
+      method: 'POST', headers: { 'Idempotency-Key': `api-${RUN_ID}-concurrent` }, data: raceRequest,
+    }, manager.token)));
     const raceStatuses = raceResponses.map((item) => item.status);
-    const invalidRaceStatus = raceResponses.find((item) => !item.ok && item.status !== 409);
+    const invalidRaceStatus = raceResponses.find((item) => !item.ok);
     if (invalidRaceStatus) {
       throw new Error(`并发收货返回异常: ${raceStatuses.join(',')} — ${JSON.stringify(invalidRaceStatus.json)}`);
     }
-    if (!raceResponses.some((item) => item.ok)) {
-      throw new Error(`并发收货没有任何一次成功: ${raceStatuses.join(',')}`);
-    }
+    assert.equal(raceResponses.filter(item => item.json.data.replayed === false).length, 1);
+    assert.equal(raceResponses.filter(item => item.json.data.replayed === true).length, 1);
+    assert.deepEqual(raceResponses[0].json.data.submission, raceResponses[1].json.data.submission);
+    const raceReceipt = raceResponses[0].json.data.submission.receipt;
+    assert.equal(await prisma.purchaseReceipt.count({ where: { purchaseOrderId: Number(racePurchaseOrder.id) } }), 1);
+    assert.equal(await prisma.auditLog.count({ where: { resource: 'purchase_order', resourceId: Number(racePurchaseOrder.id), action: 'CREATE_RECEIPT' } }), 1);
+    const raceQuality = await releaseActualReceipt(raceReceipt, qc, approver);
     const raceReceiptEvidence = await verifyProcurementReceipt(
       manager.token,
       racePurchaseOrder.id,
       DATA.racePurchaseItem,
       DATA.racePurchaseQuantity,
+      raceReceipt,
     );
     const raceReceiptCostEvidence = await verifyProcurementReceiptCost(
       raceReceiptEvidence.sourceRef,
@@ -439,6 +511,7 @@ async function run() {
       salesOrderId: String(raceSalesOrder.id),
       purchaseOrderId: String(racePurchaseOrder.id),
       statuses: raceStatuses,
+      quality: raceQuality,
       receiptEvidence: raceReceiptEvidence,
       receiptCostEvidence: raceReceiptCostEvidence,
     };

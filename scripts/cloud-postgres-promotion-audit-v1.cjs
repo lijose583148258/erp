@@ -7,10 +7,10 @@ const reportPath = path.join(process.cwd(), 'output/audit/cloud-postgres-promoti
 const instances = ['http://127.0.0.1:5006', 'http://127.0.0.1:5008'];
 const runId = new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14);
 const customerName = `PG-FAILOVER-${runId}`;
-const report = { name: 'Cloud PostgreSQL Streaming Promotion Audit', version: '1.0', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
+const report = { name: 'Cloud PostgreSQL Streaming Promotion Audit', version: '1.1', status: 'failed', startedAt: new Date().toISOString(), checks: [] };
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
 const check = (name, passed, details = {}) => {
-  report.checks.push({ name, status: passed ? 'passed' : 'failed', ...details });
+  report.checks.push({ ...details, name, status: passed ? 'passed' : 'failed' });
   if (!passed) throw new Error(`Check failed: ${name}`);
 };
 const compose = (...args) => execFileSync('docker', ['compose', ...args], { encoding: 'utf8' }).trim();
@@ -87,7 +87,7 @@ async function main() {
   });
   const createdBody = await create.json();
   const customerId = createdBody?.data?.id;
-  check('write-succeeds-after-promotion', create.status === 201 && Boolean(customerId), { status: create.status, customerId });
+  check('write-succeeds-after-promotion', create.status === 201 && Boolean(customerId), { httpStatus: create.status, customerId });
 
   const read = await fetch(`${instances[1]}/api/v1/customers/${customerId}`, {
     headers: { authorization: `Bearer ${token}` },
@@ -96,7 +96,7 @@ async function main() {
   const readBody = await read.json();
   const readCustomer = readBody?.data;
   check('cross-instance-read-after-promotion', read.ok && String(readCustomer?.id) === String(customerId), {
-    status: read.status,
+    httpStatus: read.status,
     customerId: readCustomer?.id || null,
   });
 

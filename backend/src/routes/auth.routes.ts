@@ -36,16 +36,20 @@ const loginAccountKey = (request: Request) => {
     return `${address}:${usernameHash}`;
 };
 
-const loginAccountLimiter = rateLimit({
+export const createLoginAccountLimiter = () => rateLimit({
     windowMs: Number(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || 15 * 60 * 1000),
     max: Number(process.env.LOGIN_RATE_LIMIT_MAX || 8),
     standardHeaders: true,
     legacyHeaders: false,
-    skipSuccessfulRequests: false,
+    // The strict per-account budget protects password guessing, not normal
+    // sign-ins. Successful logins must not lock a real user out after eight
+    // reconnects, browser tabs, or mobile/desktop session renewals.
+    skipSuccessfulRequests: true,
     keyGenerator: loginAccountKey,
     store: createLoginRateLimitStore('account'),
     message: loginRateLimitMessage,
 });
+const loginAccountLimiter = createLoginAccountLimiter();
 
 const loginValidation = [
     body('username')

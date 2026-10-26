@@ -49,11 +49,11 @@ function runProbe(mode, options = {}) {
 
   let parsed = null;
   try {
-    const jsonStart = result.stdout.indexOf('{');
-    const jsonEnd = result.stdout.lastIndexOf('}');
-    parsed = jsonStart >= 0 && jsonEnd >= jsonStart
-      ? JSON.parse(result.stdout.slice(jsonStart, jsonEnd + 1))
-      : null;
+    // Prisma/logger output may contain other JSON objects. Parse only the
+    // worker's dedicated result line, never a slice spanning unrelated logs.
+    const prefix = 'RBAC_FALLBACK_PROBE_RESULT ';
+    const line = String(result.stdout || '').split(/\r?\n/).find(value => value.startsWith(prefix));
+    parsed = line ? JSON.parse(line.slice(prefix.length)) : null;
   } catch {
     parsed = null;
   }
@@ -79,7 +79,8 @@ function main() {
   const fallbackProbe = runProbe('fallback', { allowFallback: true });
 
   const findings = [];
-  if (strictProbe.status !== 0) {
+  if (strictProbe.status !== 0 || strictProbe.parsed?.mode !== 'strict'
+      || strictProbe.parsed.allowed !== false || !strictProbe.parsed.errorMessage) {
     findings.push({
       level: 'P0',
       area: 'strict',
@@ -87,7 +88,8 @@ function main() {
       probe: strictProbe,
     });
   }
-  if (fallbackProbe.status !== 0) {
+  if (fallbackProbe.status !== 0 || fallbackProbe.parsed?.mode !== 'fallback'
+      || fallbackProbe.parsed.allowed !== true || fallbackProbe.parsed.errorMessage !== null) {
     findings.push({
       level: 'P0',
       area: 'fallback',

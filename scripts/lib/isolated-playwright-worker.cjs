@@ -77,7 +77,7 @@ async function safeScreenshot(page, outputDir, screenshotsDir, fileName, timeout
       await page.screenshot({ path: screenshotPath, fullPage: true });
     });
     return toRelative(outputDir, screenshotPath);
-  } catch (error) {
+  } catch {
     return null;
   }
 }
@@ -232,7 +232,11 @@ async function auditRoute(page, route, state, config, report, timeouts) {
     }
 
     await page.goto(`${config.appUrl.replace(/\/?$/, '/')}${route.hash}`, {
-      waitUntil: 'domcontentloaded',
+      // Parallel Chromium workers can delay DOMContentLoaded while chunks and
+      // service-worker work are contending for CPU. The acceptance condition
+      // below is the rendered business text, so wait for navigation commit and
+      // let the explicit route assertion judge readiness.
+      waitUntil: 'commit',
       timeout: timeouts.pageLoad,
     });
     await page.waitForLoadState('networkidle', { timeout: timeouts.networkIdle }).catch(() => {});

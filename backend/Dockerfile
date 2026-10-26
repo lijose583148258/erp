@@ -4,6 +4,7 @@ FROM node:20-bookworm-slim AS build
 WORKDIR /app
 
 COPY package.json package-lock.json ./
+COPY packages ./packages
 RUN npm ci
 
 COPY prisma ./prisma
@@ -19,6 +20,7 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV AILAODA_BLOCK_DEMO_CREDENTIALS=true
 ENV PORT=5001
+ENV AILAODA_LISTEN_HOST=0.0.0.0
 ENV SERVE_FRONTEND=false
 ENV DATABASE_URL=file:/data/stable.db
 ENV BACKUP_DIR=/data/backups
@@ -29,6 +31,7 @@ ENV BACKUP_MAX_FILES=800
 ENV BACKUP_MAX_TOTAL_MB=8192
 
 COPY --chown=node:node package.json package-lock.json ./
+COPY --chown=node:node packages ./packages
 RUN npm ci --omit=dev
 
 COPY --from=build --chown=node:node /app/dist ./dist

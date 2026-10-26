@@ -149,7 +149,7 @@ function Invoke-PostgresCapture {
         if ($LASTEXITCODE -ne 0) {
             Fail "Command failed: $FilePath $($Arguments -join ' ')`n$output"
         }
-        return [string]::Join([Environment]::NewLine, $output)
+        return [string]::Join([Environment]::NewLine, @($output))
     } finally {
         foreach ($key in $ExtraEnv.Keys) {
             [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process')
@@ -177,11 +177,10 @@ if ($resolvedDataDir -match '[^\x00-\x7F]') {
     Fail "PostgreSQL DataDir must use an ASCII-only path on Windows: $resolvedDataDir"
 }
 $resolvedLogDir = Join-Path $runtimeRootResolved.Path 'logs'
-$resolvedSocketDir = Join-Path $runtimeRootResolved.Path 'run'
 $passwordFile = Join-Path $runtimeRootResolved.Path '.pg-password.txt'
 $statusFile = Join-Path $runtimeRootResolved.Path 'postgres-rehearsal.json'
 
-foreach ($dir in @($resolvedDataDir, $resolvedLogDir, $resolvedSocketDir)) {
+foreach ($dir in @($resolvedDataDir, $resolvedLogDir)) {
     if (-not (Test-Path -LiteralPath $dir)) {
         New-Item -ItemType Directory -Path $dir -Force | Out-Null
     }
@@ -224,7 +223,7 @@ $pgCtlArgs = @(
     'start',
     '-D', $resolvedDataDir,
     '-l', (Join-Path $resolvedLogDir 'postgres.log'),
-    '-o', """-p $Port -k `"$resolvedSocketDir`""""
+    '-o', "-p $Port"
 )
 Invoke-PostgresCommand -FilePath $pgCtlExe -Arguments $pgCtlArgs
 

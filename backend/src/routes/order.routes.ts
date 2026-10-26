@@ -1,14 +1,17 @@
 import { Router } from 'express';
 import { OrderController } from '../controllers/order.controller';
+import salesFulfillmentRoutes from './sales-fulfillment.routes';
 import { authenticate, authorizePermission } from '../middleware/auth';
 import { validateZod } from '../middleware/validateZod';
 import { createOrderSchema, importOrdersSchema, orderPaymentVerifyParamsSchema, orderQuerySchema, idParamSchema, paymentSchema, statusUpdateSchema, updateOrderSchema } from '../validators';
+import { createOrderQuantityCancellationSchema } from '../validators/receivable-adjustment';
 
 const router = Router();
 const orderController = new OrderController();
 
 // 所有订单路由都需要认证
 router.use(authenticate);
+router.use('/:id/fulfillment-plans', salesFulfillmentRoutes);
 
 /**
  * @route GET /api/orders
@@ -34,6 +37,9 @@ router.get('/export', authorizePermission('orders.export'), orderController.expo
  * @access Private
  */
 router.get('/:id', authorizePermission('orders.read'), validateZod(idParamSchema, 'params'), orderController.getOrderById);
+
+router.post('/:id/quantity-cancellations', authorizePermission('orders.update'),
+    validateZod(idParamSchema, 'params'), validateZod(createOrderQuantityCancellationSchema), orderController.createQuantityCancellation);
 
 /**
  * @route POST /api/orders

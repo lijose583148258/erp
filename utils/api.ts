@@ -1,6 +1,7 @@
 import axios, { AxiosResponse, InternalAxiosRequestConfig } from 'axios';
 import { reportClientIssue } from './clientIssue';
 import { clearAuthStorage, safeStorage } from './browserStorage';
+import { MATERIAL_READINESS_EVENT, MATERIAL_RELEASE_REQUIRED } from './materialReadiness';
 
 export type ApiRequestOptions = {
     signal?: AbortSignal;
@@ -10,6 +11,7 @@ export type ApiClientError = Error & {
     status?: number;
     errorCode?: string;
     issues?: unknown[];
+    details?: Record<string, unknown>;
     isCanceled?: boolean;
     isTimeout?: boolean;
 };
@@ -108,6 +110,7 @@ api.interceptors.response.use(
                 staleAuthError.status = error.response?.status;
                 staleAuthError.issues = error.response?.data?.issues;
                 (staleAuthError as ApiClientError).errorCode = error.response?.data?.errorCode;
+                (staleAuthError as ApiClientError).details = error.response?.data?.details;
                 return Promise.reject(staleAuthError);
             }
             clearAuthStorage();
@@ -130,7 +133,16 @@ api.interceptors.response.use(
         enrichedError.status = error.response?.status;
         enrichedError.errorCode = error.response?.data?.errorCode;
         enrichedError.issues = error.response?.data?.issues;
+        enrichedError.details = error.response?.data?.details;
         enrichedError.isTimeout = isTimeout;
+        if (
+            enrichedError.errorCode === MATERIAL_RELEASE_REQUIRED
+            && typeof window !== 'undefined'
+        ) {
+            window.dispatchEvent(new CustomEvent(MATERIAL_READINESS_EVENT, {
+                detail: enrichedError.details,
+            }));
+        }
         return Promise.reject(enrichedError);
     }
 );

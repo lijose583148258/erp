@@ -6,10 +6,10 @@ import {
   PERMISSION_DEFINITIONS,
   Permission,
   ROLE_POLICIES,
-  isBuiltInRole,
 } from '../permissions/permissionRegistry';
-import { resetAuthorizationEnforcer } from '../permissions/casbinAuthorization';
 import { writeRoleAuditLog } from './role-audit.service';
+import { withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
+import { executeRawCompat } from '../utils/raw-sql-compat';
 
 export interface AuthRoleView {
   id: number;
@@ -45,14 +45,33 @@ type RoleRow = {
   updatedAt: string | Date;
 };
 
-type RolePermissionRow = {
-  roleCode: string;
-  permissionCode: string;
-};
-
 const ROLE_CODE_PATTERN = /^[a-z][a-z0-9_:-]{1,49}$/;
 let authorizationSeeded = false;
 let authorizationSeedPromise: Promise<void> | null = null;
+
+export const MATERIAL_MASTER_PERMISSION_BACKFILL = {
+  code: '2026-08-01-material-master-permissions-v1',
+  grants: {
+    admin: ['materials.read', 'materials.write', 'materials.govern'],
+    manager: ['materials.read', 'materials.write'],
+    sales: ['materials.read'],
+    warehouse: ['materials.read'],
+    finance: ['materials.read'],
+  },
+} as const satisfies {
+  code: string;
+  grants: Record<BuiltInRole, readonly Permission[]>;
+};
+
+export const PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL = {
+  code: '2026-10-14-procurement-quality-payables-separation-v1',
+  grants: {
+    admin: ['procurement.quality.inspect', 'procurement.quality.release', 'procurement.payment.record', 'procurement.payment.verify'],
+    manager: ['procurement.quality.release'],
+    warehouse: ['procurement.quality.inspect'],
+    finance: ['procurement.payment.record', 'procurement.payment.verify'],
+  },
+} as const satisfies { code: string; grants: Partial<Record<BuiltInRole, readonly Permission[]>> };
 
 const toBool = (value: number | boolean) => value === true || value === 1;
 
@@ -124,6 +143,22 @@ async function upsertSystemRoles() {
       where: { code: role },
       select: { dataScopesJson: true },
     });
+    if (!existingRole) {
+      // Create a new system role and its defaults atomically. The provider-neutral
+      // insert claim also prevents a second node from reseeding a role it did not create.
+      await prisma.$transaction(async tx => {
+        const claimed = await executeRawCompat(tx,
+          `INSERT INTO auth_roles(code,name,description,is_system,is_active,data_scopes_json,created_at,updated_at)
+           VALUES(?, ?, ?, TRUE, TRUE, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP) ON CONFLICT(code) DO NOTHING`,
+          role, role, `Built-in ${role} role`, JSON.stringify(policy.dataScopes));
+        if (claimed !== 1) return;
+        for (const permissionCode of policy.permissions) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode: role, permissionCode } },
+            create: { roleCode: role, permissionCode }, update: {} });
+        }
+      });
+      continue;
+    }
     await prisma.authRole.upsert({
       where: { code: role },
       create: {
@@ -138,28 +173,12 @@ async function upsertSystemRoles() {
         name: role,
         description: `Built-in ${role} role`,
         isSystem: true,
-        isActive: true,
         dataScopesJson: existingRole?.dataScopesJson || JSON.stringify(policy.dataScopes),
       },
     });
 
-    const existingPermissions = await prisma.authRolePermission.count({
-      where: { roleCode: role },
-    });
-    if (existingPermissions === 0) {
-      await replaceRolePermissions(role, [...policy.permissions]);
-    }
-  }
-}
-
-async function replaceRolePermissions(roleCode: string, permissions: Permission[]) {
-  await prisma.authRolePermission.deleteMany({ where: { roleCode } });
-  for (const permission of permissions) {
-    await prisma.authRolePermission.upsert({
-      where: { roleCode_permissionCode: { roleCode, permissionCode: permission } },
-      create: { roleCode, permissionCode: permission },
-      update: {},
-    });
+    // Existing empty policies are intentional deny-all; defaults belong only to
+    // the role creation transaction, never to restart-time permission repair.
   }
 }
 
@@ -287,6 +306,91 @@ async function applyAuthorizationPolicyMigrations() {
       'Grant the governed aggregate-only AI assistant boundary to built-in roles without granting access to protected business records.',
     );
   }
+
+  const productionQualitySeparationCode = '2026-08-01-production-quality-separation-v1';
+  if (!(await hasPolicyMigration(productionQualitySeparationCode))) {
+    await grantMissingRolePermissions('admin', ['production.quality.inspect', 'production.quality.release']);
+    await grantMissingRolePermissions('manager', ['production.quality.release']);
+    await grantMissingRolePermissions('warehouse', ['production.quality.inspect']);
+    await markPolicyMigration(
+      productionQualitySeparationCode,
+      'Separate production inspection entry from quality release; inspectors cannot review their own inspection record.',
+    );
+  }
+
+  if (!(await hasPolicyMigration(MATERIAL_MASTER_PERMISSION_BACKFILL.code))) {
+    for (const [role, permissions] of Object.entries(MATERIAL_MASTER_PERMISSION_BACKFILL.grants) as Array<[BuiltInRole, readonly Permission[]]>) {
+      await grantMissingRolePermissions(role, [...permissions]);
+    }
+    await markPolicyMigration(
+      MATERIAL_MASTER_PERMISSION_BACKFILL.code,
+      'Backfill canonical material-master access for existing built-in roles without replacing user-managed role policies.',
+    );
+  }
+
+  const paymentReversalPolicy = '2026-10-03-payment-reversal-separation-v1';
+  if (!(await hasPolicyMigration(paymentReversalPolicy))) {
+    for (const role of ['admin','finance'] as const) {
+      await grantMissingRolePermissions(role, ['orders.payment.reversal.request', 'orders.payment.reversal.review']);
+    }
+    await markPolicyMigration(paymentReversalPolicy, 'Grant original cash reversal request/review to finance and admin only; service enforces independent people. Preserve all existing/custom role policies.');
+  }
+
+  const procurementSplitCode = '2026-10-05-procurement-responsibility-split-v1';
+  if (!(await hasPolicyMigration(procurementSplitCode))) {
+    await prisma.$transaction(async tx => {
+      const legacy = await tx.authRolePermission.findMany({
+        where: { permissionCode: 'procurement.write' }, select: { roleCode: true }, orderBy: { roleCode: 'asc' },
+      });
+      for (const { roleCode } of legacy) {
+        for (const permissionCode of ['procurement.approve', 'procurement.receive']) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode, permissionCode } },
+            create: { roleCode, permissionCode }, update: {} });
+        }
+      }
+      await tx.authPolicyMigration.upsert({ where: { code: procurementSplitCode },
+        create: { code: procurementSplitCode, description: 'Preserve existing procurement.write holders with explicit approval/receipt grants once; subsequent administrator revocations remain effective.' }, update: {} });
+    });
+  }
+
+  if (!(await hasPolicyMigration(PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL.code))) {
+    await prisma.$transaction(async tx => {
+      const claimed = await executeRawCompat(tx,
+        `INSERT INTO auth_policy_migrations(code,description,applied_at)
+         VALUES(?, ?, CURRENT_TIMESTAMP) ON CONFLICT(code) DO NOTHING`,
+        PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL.code,
+        'Add bounded incoming-QC/QA and supplier-payment duties once; preserve custom and revoked policies. Services enforce independent actors.');
+      if (claimed !== 1) return;
+      for (const [roleCode, permissions] of Object.entries(PURCHASE_QUALITY_PAYABLE_PERMISSION_BACKFILL.grants)) {
+        if (await tx.authRolePermission.count({ where: { roleCode } }) === 0) continue;
+        for (const permissionCode of permissions) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode, permissionCode } },
+            create: { roleCode, permissionCode }, update: {} });
+        }
+      }
+    });
+  }
+
+  const productionSplitCode = '2026-10-05-production-responsibility-split-v1';
+  if (!(await hasPolicyMigration(productionSplitCode))) {
+    // Replace only existing umbrella grants, including custom roles. Commit the
+    // replacement and marker together; a restart never restores revoked grants.
+    await prisma.$transaction(async tx => {
+      const legacy = await tx.authRolePermission.findMany({
+        where: { permissionCode: 'production.write' }, select: { roleCode: true }, orderBy: { roleCode: 'asc' },
+      });
+      for (const { roleCode } of legacy) {
+        for (const permissionCode of ['production.bom.write', 'production.plan.write', 'production.execute']) {
+          await tx.authRolePermission.upsert({ where: { roleCode_permissionCode: { roleCode, permissionCode } },
+            create: { roleCode, permissionCode }, update: {} });
+        }
+      }
+      await tx.authRolePermission.deleteMany({ where: { permissionCode: 'production.write' } });
+      await tx.authPermission.deleteMany({ where: { code: 'production.write' } });
+      await tx.authPolicyMigration.upsert({ where: { code: productionSplitCode },
+        create: { code: productionSplitCode, description: 'Replace existing production.write grants with explicit BOM, planning and execution permissions; retain other policies and independent QC/QA gates.' }, update: {} });
+    });
+  }
 }
 
 export async function ensureAuthorizationPolicySeed() {
@@ -297,7 +401,6 @@ export async function ensureAuthorizationPolicySeed() {
       await upsertPermissionDefinitions();
       await upsertSystemRoles();
       await applyAuthorizationPolicyMigrations();
-      resetAuthorizationEnforcer();
       authorizationSeeded = true;
     })().catch((error) => {
       authorizationSeeded = false;
@@ -357,29 +460,26 @@ export async function listRoles(): Promise<AuthRoleView[]> {
 }
 
 export async function roleExistsAndActive(roleCode: string): Promise<boolean> {
-  try {
-    await ensureAuthorizationPolicySeed();
-    const role = await prisma.authRole.findFirst({
-      where: { code: roleCode, isActive: true },
-      select: { id: true },
-    });
-    return role !== null;
-  } catch {
-    return false;
-  }
+  // Seeding may write; only the following authoritative read can be replayed.
+  await ensureAuthorizationPolicySeed();
+  const role = await withReadOnlyDbRetry(() => prisma.authRole.findFirst({
+    where: { code: roleCode, isActive: true },
+    select: { id: true },
+  }));
+  return role !== null;
 }
 
 export async function getPermissionsForRole(roleCode: string): Promise<Permission[]> {
   await ensureAuthorizationPolicySeed();
 
-  const rows = await prisma.authRolePermission.findMany({
+  const rows = await withReadOnlyDbRetry(() => prisma.authRolePermission.findMany({
     where: {
       roleCode,
       role: { isActive: true },
     },
     select: { permissionCode: true },
     orderBy: { permissionCode: 'asc' },
-  });
+  }));
 
   const permissions = rows
     .map((row) => row.permissionCode)
@@ -390,10 +490,10 @@ export async function getPermissionsForRole(roleCode: string): Promise<Permissio
 export async function getDataScopesForRole(roleCode: string): Promise<DataScope[]> {
   await ensureAuthorizationPolicySeed();
 
-  const role = await prisma.authRole.findFirst({
+  const role = await withReadOnlyDbRetry(() => prisma.authRole.findFirst({
     where: { code: roleCode, isActive: true },
     select: { dataScopesJson: true },
-  });
+  }));
 
   const scopes = parseDataScopes(role?.dataScopesJson || null);
   return scopes;
@@ -426,7 +526,6 @@ export async function createRole(input: SaveRoleInput, operatorId?: number): Pro
     }
   });
 
-  resetAuthorizationEnforcer();
   const role = (await listRoles()).find((item) => item.code === input.code);
   if (!role) throw new Error('Role was created but could not be read back.');
   await writeRoleAuditLog({
@@ -482,7 +581,6 @@ export async function updateRole(roleCode: string, input: SaveRoleInput, operato
     }
   });
 
-  resetAuthorizationEnforcer();
   const role = (await listRoles()).find((item) => item.code === roleCode);
   if (!role) throw new Error('Role was updated but could not be read back.');
   await writeRoleAuditLog({

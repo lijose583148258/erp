@@ -503,6 +503,7 @@ $previousBackupMaxTotalMb = $env:BACKUP_MAX_TOTAL_MB
 $previousBlockDemoCredentials = $env:AILAODA_BLOCK_DEMO_CREDENTIALS
 $previousServeFrontend = $env:SERVE_FRONTEND
 $previousPort = $env:PORT
+$previousListenHost = $env:AILAODA_LISTEN_HOST
 try {
   $env:NODE_ENV = 'production'
   $env:CORS_ORIGIN = $stableCorsOrigin
@@ -514,6 +515,7 @@ try {
   $env:AILAODA_BLOCK_DEMO_CREDENTIALS = $stableBlockDemoCredentials
   $env:SERVE_FRONTEND = 'true'
   $env:PORT = '5001'
+  $env:AILAODA_LISTEN_HOST = '127.0.0.1'
 
   $server = Start-Process -FilePath $nodeCmd `
     -ArgumentList @($backendDistEntry) `
@@ -533,6 +535,7 @@ try {
   $env:AILAODA_BLOCK_DEMO_CREDENTIALS = $previousBlockDemoCredentials
   $env:SERVE_FRONTEND = $previousServeFrontend
   $env:PORT = $previousPort
+  $env:AILAODA_LISTEN_HOST = $previousListenHost
 }
 
 $healthy = $false

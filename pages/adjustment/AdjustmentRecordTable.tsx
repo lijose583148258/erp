@@ -4,6 +4,7 @@ import type { AdjustmentRecord } from '../../services/adjustment.service';
 import { useAppContext } from '../../app/AppContext';
 import type { AdjustmentDomainMeta, AdjustmentStatusMeta } from './adjustment.constants';
 import { getAdjustmentTargetLabel } from './adjustment.helpers';
+import { MobileRecordCard, MobileRecordState } from '../../components/ui/MobileRecordCard';
 
 interface AdjustmentRecordTableProps {
   records: AdjustmentRecord[];
@@ -44,7 +45,12 @@ const AdjustmentRecordTable = ({
   domainMeta,
   statusMeta,
 }: AdjustmentRecordTableProps) => {
-  const { t } = useAppContext();
+  const { t, language } = useAppContext();
+  const mobileActionCopy = {
+    zh: { selected: '当前已选中', view: '查看调整详情' },
+    en: { selected: 'Currently selected', view: 'View adjustment details' },
+    vi: { selected: 'Đang được chọn', view: 'Xem chi tiết điều chỉnh' },
+  }[language];
 
   return (
     <div className="rounded-[36px] border border-slate-100 bg-white shadow-sm overflow-hidden dark:border-slate-800 dark:bg-slate-900">
@@ -62,7 +68,34 @@ const AdjustmentRecordTable = ({
           {loading ? t.adjustmentLoading : `${filteredCount} ${t.records}`}
         </div>
       </div>
-      <div className="overflow-x-auto">
+      <div data-mobile-card-list className="space-y-3 p-4 md:hidden">
+        {loading ? <MobileRecordState text={t.adjustmentLoading} /> : records.length ? records.map(record => (
+          <MobileRecordCard
+            key={`${record.id}-mobile`}
+            title={record.adjustmentNo}
+            subtitle={record.targetRef || record.orderNo || record.batchNo || t.adjustmentManual}
+            status={statusMeta[record.status].label}
+            fields={[
+              { label: t.adjustmentColDomain, value: domainMeta[record.domain].label },
+              { label: t.adjustmentColTarget, value: getAdjustmentLabel(record) },
+              { label: t.adjustmentColDelta, value: renderDelta(record) },
+              { label: t.adjustmentColTime, value: new Date(record.createdAt).toLocaleString() },
+              { label: t.adjustmentColReason, value: record.reason, fullWidth: true },
+            ]}
+            action={(
+              <button
+                type="button"
+                data-testid={`adjustment-mobile-row-${record.id}`}
+                onClick={() => onSelect(record.id)}
+                className={`min-h-11 w-full rounded-xl px-4 py-3 text-sm font-black transition-colors duration-150 motion-reduce:transition-none ${record.id === selectedId ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-800 hover:bg-slate-200 dark:bg-slate-800 dark:text-white dark:hover:bg-slate-700'}`}
+              >
+                {record.id === selectedId ? mobileActionCopy.selected : mobileActionCopy.view}
+              </button>
+            )}
+          />
+        )) : <MobileRecordState text={t.adjustmentNoRecords} />}
+      </div>
+      <div className="hidden overflow-x-auto md:block">
         <table className="w-full text-left">
           <thead>
             <tr className="border-b border-slate-50 dark:border-slate-800">

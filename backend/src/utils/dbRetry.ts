@@ -14,8 +14,13 @@ const isTransientDbError = (error: unknown) => {
   const err = error as any;
   const code = String(err.code || '');
   const message = String(err.message || '');
+  // Prisma wraps PostgreSQL raw-query serialization/deadlock errors as P2010,
+  // not P2034. Retry the whole transaction, never just the failed statement.
+  const rawTransactionConflict = code === 'P2010'
+    && ['40001', '40P01'].includes(String(err.meta?.code || ''));
 
   return (
+    rawTransactionConflict ||
     TRANSIENT_PATTERNS.some(pattern => code.includes(pattern) || message.includes(pattern)) ||
     /database is locked|SQLITE_BUSY/i.test(message)
   );

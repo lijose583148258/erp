@@ -66,19 +66,18 @@ const connectionPromises = new WeakMap<Redis, Promise<void>>();
 
 export const ensureRedisConnected = async (client: Redis) => {
   if (client.status === 'ready') return;
-  if (client.status === 'wait') {
-    let connecting = connectionPromises.get(client);
-    if (!connecting) {
-      connecting = client.connect()
-        .then(() => undefined)
-        .finally(() => connectionPromises.delete(client));
-      connectionPromises.set(client, connecting);
-    }
-    await connecting;
+
+  const existingConnection = connectionPromises.get(client);
+  if (existingConnection) {
+    await existingConnection;
     return;
   }
-  if (client.status === 'connecting' || client.status === 'connect') {
-    await new Promise<void>((resolve, reject) => {
+
+  let connection: Promise<void>;
+  if (client.status === 'wait') {
+    connection = client.connect().then(() => undefined);
+  } else if (client.status === 'connecting' || client.status === 'connect') {
+    connection = new Promise<void>((resolve, reject) => {
       const onReady = () => {
         cleanup();
         resolve();
@@ -94,9 +93,13 @@ export const ensureRedisConnected = async (client: Redis) => {
       client.once('ready', onReady);
       client.once('error', onError);
     });
-    return;
+  } else {
+    throw new Error(`Redis client is not connectable (status=${client.status}).`);
   }
-  throw new Error(`Redis client is not connectable (status=${client.status}).`);
+
+  const trackedConnection = connection.finally(() => connectionPromises.delete(client));
+  connectionPromises.set(client, trackedConnection);
+  await trackedConnection;
 };
 
 let healthClient: Redis | null | undefined;

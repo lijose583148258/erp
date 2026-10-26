@@ -1,5 +1,6 @@
 const fs = require('fs');
 const path = require('path');
+const { ensureUiAuditAccounts } = require('./lib/ui-audit-user.cjs');
 const {
   createConcurrencyApiClient,
   createConcurrencyAuditData,
@@ -115,7 +116,7 @@ async function auditOrderDuplicatePayments(tokens) {
     notes: `concurrency-audit ${RUN_ID}`,
   });
 
-  const paymentPayload = {
+  const paymentPayload = { idempotencyKey: require('node:crypto').randomUUID(),
     amount: DATA.order.amount,
     method: 'bank_transfer',
     payerName: `Payer ${RUN_ID}`,
@@ -517,10 +518,14 @@ async function run() {
   const started = Date.now();
   try {
     const tokens = await withTimeout('login-roles', 20000, async () => {
+      const accounts = await ensureUiAuditAccounts(
+        'concurrency_reconcile',
+        ['sales', 'finance', 'manager'],
+      );
       const [sales, finance, manager] = await Promise.all([
-        login('sales', 'sales123'),
-        login('finance', 'finance123'),
-        login('manager', 'manager123'),
+        login(accounts.sales.username, accounts.sales.password),
+        login(accounts.finance.username, accounts.finance.password),
+        login(accounts.manager.username, accounts.manager.password),
       ]);
       return { sales, finance, manager };
     });

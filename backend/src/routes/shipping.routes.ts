@@ -3,6 +3,8 @@ import { authenticate, authorizePermission } from '../middleware/auth';
 import { validateZod } from '../middleware/validateZod';
 import { createShipmentSchema, updateShipmentStatusSchema, uploadShipmentReceiptSchema, createShipmentReceiptEventSchema, idParamSchema } from '../validators';
 import { ShippingController } from '../controllers/shipping.controller';
+import { reserveShipmentSchema, releaseShipmentSchema } from '../services/shipment-stock-reservation.service';
+import { shipmentSupplementSchema } from '../services/shipment-supplement.service';
 
 const router = Router();
 const controller = new ShippingController();
@@ -14,6 +16,12 @@ router.use(authenticate);
  * @desc 获取物流列表
  */
 router.get('/', authorizePermission('shipping.read'), controller.getShipments);
+router.get('/submissions/:key', authorizePermission('shipping.write'), controller.getSubmission);
+router.get('/:id/supplement', authorizePermission('shipping.read'), validateZod(idParamSchema, 'params'), controller.readSupplement);
+router.patch('/:id/supplement', authorizePermission('shipping.write'), validateZod(idParamSchema, 'params'), validateZod(shipmentSupplementSchema), controller.supplement);
+router.get('/:id/reservation', authorizePermission('shipping.read'), validateZod(idParamSchema, 'params'), controller.readReservation);
+router.post('/:id/reserve', authorizePermission('shipping.write'), validateZod(idParamSchema, 'params'), validateZod(reserveShipmentSchema), controller.reserveStock);
+router.post('/:id/release-reservation', authorizePermission('shipping.write'), validateZod(idParamSchema, 'params'), validateZod(releaseShipmentSchema), controller.releaseStock);
 
 /**
  * @route POST /api/shipping

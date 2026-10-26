@@ -13,7 +13,7 @@ function listGovernedBrowserScripts() {
   const packageJson = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
   const referenced = new Set();
   for (const command of Object.values(packageJson.scripts || {})) {
-    for (const match of String(command).matchAll(/(?:\.\\|\.\/)?scripts[\\/](?<file>[A-Za-z0-9_.-]+\.(?:cjs|mjs|js|ts|tsx|ps1))/g)) {
+    for (const match of String(command).matchAll(/(?:\.\\|\.\/)?scripts[\\/](?<file>[A-Za-z0-9_.-]+\.(?:cjs|mjs|js|tsx|ts|ps1))/g)) {
       if (match.groups?.file) referenced.add(match.groups.file);
     }
   }

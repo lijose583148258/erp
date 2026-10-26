@@ -1,0 +1,45 @@
+CREATE TABLE IF NOT EXISTS "sales_fulfillment_plans" (
+  "id" SERIAL NOT NULL,
+  "plan_no" TEXT NOT NULL,
+  "idempotency_key" TEXT NOT NULL,
+  "request_fingerprint" TEXT NOT NULL,
+  "order_id" INTEGER NOT NULL,
+  "order_item_id" INTEGER NOT NULL,
+  "fulfillment_option" TEXT NOT NULL,
+  "planned_quantity" DOUBLE PRECISION NOT NULL,
+  "unit" TEXT NOT NULL,
+  "source_document_id" INTEGER,
+  "source_document_no" TEXT,
+  "source_reference" TEXT,
+  "source_snapshot" TEXT,
+  "expected_fulfillment_at" TIMESTAMP(3) NOT NULL,
+  "note" TEXT,
+  "status" TEXT NOT NULL DEFAULT 'draft',
+  "accepted_quantity_at_approval" DOUBLE PRECISION,
+  "approved_by" INTEGER,
+  "approved_at" TIMESTAMP(3),
+  "closeout_idempotency_key" TEXT,
+  "closeout_snapshot" TEXT,
+  "closed_by" INTEGER,
+  "closed_at" TIMESTAMP(3),
+  "created_by" INTEGER NOT NULL,
+  "created_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updated_at" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "sales_fulfillment_plans_pkey" PRIMARY KEY ("id"),
+  CONSTRAINT "sales_fulfillment_plans_plan_no_key" UNIQUE ("plan_no"),
+  CONSTRAINT "sales_fulfillment_plans_idempotency_key_key" UNIQUE ("idempotency_key"),
+  CONSTRAINT "sales_fulfillment_plans_closeout_idempotency_key_key" UNIQUE ("closeout_idempotency_key"),
+  CONSTRAINT "sales_fulfillment_plans_option_check" CHECK ("fulfillment_option" IN ('linked_purchase', 'linked_production', 'approved_substitute', 'partial_delivery', 'cancel_refund')),
+  CONSTRAINT "sales_fulfillment_plans_quantity_check" CHECK ("planned_quantity" > 0),
+  CONSTRAINT "sales_fulfillment_plans_status_check" CHECK ("status" IN ('draft', 'approved', 'closed', 'cancelled')),
+  CONSTRAINT "sales_fulfillment_plans_order_id_fkey" FOREIGN KEY ("order_id") REFERENCES "orders"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "sales_fulfillment_plans_order_item_id_fkey" FOREIGN KEY ("order_item_id") REFERENCES "order_items"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "sales_fulfillment_plans_approved_by_fkey" FOREIGN KEY ("approved_by") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "sales_fulfillment_plans_closed_by_fkey" FOREIGN KEY ("closed_by") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE,
+  CONSTRAINT "sales_fulfillment_plans_created_by_fkey" FOREIGN KEY ("created_by") REFERENCES "users"("id") ON DELETE RESTRICT ON UPDATE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS "sales_fulfillment_plans_order_id_idx" ON "sales_fulfillment_plans"("order_id");
+CREATE INDEX IF NOT EXISTS "sales_fulfillment_plans_order_item_id_idx" ON "sales_fulfillment_plans"("order_item_id");
+CREATE INDEX IF NOT EXISTS "sales_fulfillment_plans_status_expected_idx" ON "sales_fulfillment_plans"("status", "expected_fulfillment_at");
+CREATE INDEX IF NOT EXISTS "sales_fulfillment_plans_option_source_idx" ON "sales_fulfillment_plans"("fulfillment_option", "source_document_id");

@@ -5,6 +5,18 @@ import { logger } from '../../utils/logger';
 import { CustomerQueryService } from '../../services/customer-query.service';
 import { loadCustomerForRequest, loadOrderStats } from './customer.persistence';
 import { buildCustomerPayload } from './customer.payload';
+import { isClosedDbConnectionError, withReadOnlyDbRetry } from '../../utils/readOnlyDbRetry';
+
+function respondCustomerQueryError(res: Response, error: unknown) {
+  if (isClosedDbConnectionError(error)) {
+    return res.status(503).json({
+      success: false,
+      message: '数据库暂时不可用，请稍后重试',
+      errorCode: 'CUSTOMER_DATABASE_UNAVAILABLE',
+    } as ApiResponse);
+  }
+  return res.status(500).json({ success: false, message: '服务器内部错误' } as ApiResponse);
+}
 
 export async function getCustomers(req: AuthRequest, res: Response) {
     try {
@@ -17,10 +29,7 @@ export async function getCustomers(req: AuthRequest, res: Response) {
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户列表错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
+      return respondCustomerQueryError(res, error);
     }
   }
 
@@ -34,36 +43,36 @@ export async function getCustomerStats(req: AuthRequest, res: Response) {
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户统计错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
+      return respondCustomerQueryError(res, error);
     }
   }
 
 export async function getCustomerById(req: AuthRequest, res: Response) {
     try {
       const id = Number(req.params.id);
-      const customer = await loadCustomerForRequest(req, id);
+      // Readiness may have recovered one pool connection while another still
+      // points at the old primary. Rebuild this pure read, including access
+      // scope, on recovery; never retry the response or any mutation handler.
+      const data = await withReadOnlyDbRetry(async () => {
+        const customer = await loadCustomerForRequest(req, id);
+        if (!customer) return null;
+        const statsMap = await loadOrderStats([customer.id]);
+        return buildCustomerPayload(customer, statsMap.get(customer.id));
+      });
 
-      if (!customer) {
+      if (!data) {
         return res.status(404).json({
           success: false,
           message: '客户不存在',
         } as ApiResponse);
       }
 
-      const [statsMap] = await Promise.all([loadOrderStats([customer.id])]);
-
       return res.json({
         success: true,
-        data: buildCustomerPayload(customer, statsMap.get(customer.id)),
+        data,
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户详情错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
+      return respondCustomerQueryError(res, error);
     }
   }

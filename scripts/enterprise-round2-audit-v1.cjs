@@ -1,0 +1,781 @@
+const path = require('node:path');
+const fs = require('node:fs');
+const crypto = require('node:crypto');
+const assert = require('node:assert/strict');
+const catalog = require('./config/enterprise-round2-v1.json');
+const { createRound2Runner, synchronizedBurst } = require('./lib/enterprise-round2-runner.cjs');
+const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
+const { ensureUiAuditUser, createAuditPrismaClient } = require('./lib/ui-audit-user.cjs');
+const { purchaseRevisionProbe } = require('./lib/enterprise-round2-procurement.cjs');
+const { barterPartialFulfillmentProbe, assertBarterBrowserChain } = require('./lib/enterprise-round2-barter-partial.cjs');
+const { barterNegativeCashProbe } = require('./lib/enterprise-round2-barter-negative.cjs');
+const { bomFreezeProbe, bomHistoryBrowser } = require('./lib/enterprise-round2-bom-freeze.cjs');
+const { productionLotProbe, genealogyReadback } = require('./lib/enterprise-round2-production-lot.cjs');
+const { qcIsolationProbe } = require('./lib/enterprise-round2-qc-isolation.cjs');
+const { densityConversionProbe, assertDensityCostConservation } = require('./lib/enterprise-round2-density-conversion.cjs');
+const { productionDispositionProbe, assertProductionDispositionCostReconciliation } = require('./lib/enterprise-round2-production-disposition.cjs');
+const { readRegressionStamp, verifyFresh } = require('./lib/enterprise-regression.cjs');
+const { ROUND2_MAX_RUNTIME_MS } = require('./lib/enterprise-round2-supervision.cjs');
+
+const reportPath = path.resolve(process.env.ROUND2_REPORT_PATH || 'output/audit/enterprise-round2-v1.json');
+const urls = [process.env.APP_URL, process.env.SECONDARY_APP_URL].map(value => String(value || '').replace(/\/$/, ''));
+const runId = `r2-${Date.now()}-${crypto.randomBytes(3).toString('hex')}`;
+const runner = createRound2Runner({ catalog, reportPath, metadata: {
+  runId, commit: process.env.GITHUB_SHA || process.env.ROUND2_COMMIT || null,
+  dirtySource: process.env.ROUND2_DIRTY || null, sourceHash: process.env.ROUND2_SOURCE_HASH || null, builtAt: process.env.ROUND2_BUILT_AT || null,
+  supervisionKey: process.env.ROUND2_SUPERVISION_KEY || null,
+  provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite', appUrls: urls,
+  scope: process.env.ROUND2_BROWSER === 'true' ? 'API+database probes with selected procurement, finance, barter and production browser readbacks; not full workforce acceptance' : 'API+database probes; not full workforce/browser acceptance',
+  loadCohort: '20 distinct warehouse actors, separate from the planned workforce',
+} });
+const implemented = ['po-stale-edit-conflict', 'stock-20-contention', 'transfer-shipping-contention', 'shipping-cost-conservation', 'payment-duplicate-verification',
+  'barter-dual-stock-posting-replay', 'barter-offset-cash-difference', 'barter-reversal-conservation', 'barter-consumed-receipt-reversal-blocked', 'barter-partial-fulfillment'];
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('po-reapproval-browser', 'purchase-browser-readback', 'stock-contention-browser', 'transfer-shipping-browser');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('purchase-partial-receipt-qc-payables');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('sales-reservation-partial-fulfillment', 'sales-browser-readback');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('barter-browser-readback');
+implemented.push('barter-negative-cash-adjustment');
+implemented.push('bom-revision-freeze');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('bom-history-browser');
+implemented.push('dual-workorder-same-lot', 'qc-quarantine-blocks-issue', 'mass-packaging-density-conversion', 'conversion-cost-conservation');
+implemented.push('loss-return-scrap-rework', 'production-cost-reconciliation');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('genealogy-readback', 'qa-release-traceability-browser');
+if (process.env.ROUND2_BROWSER === 'true') implemented.push('payment-event-audit-once', 'payment-submit-durable-replay', 'payment-reversal-browser');
+if (process.env.ROUND2_SALES_PLAN_REPORT) implemented.push('presale-with-fulfillment-plan');
+if (process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT) implemented.push('backorder-adjustment-closeout');
+if (process.env.ROUND2_POSTGRES_RECOVERY === 'true') implemented.push('database-restart-ambiguous-commit', 'recovery-full-ledger-reconciliation');
+const actors = {};
+runner.report.regression = readRegressionStamp();
+let prisma;
+let workforce;
+const workforceActions = [];
+let workforceOperations;
+
+async function request(endpoint, { actor = actors.admin, instance = 0, method = 'GET', data, signal, headers = {} } = {}) {
+  const signals = [AbortSignal.timeout(20_000), ...(signal ? [signal] : [])];
+  const response = await fetch(`${urls[instance]}/api${endpoint}`, {
+    method, headers: { 'content-type': 'application/json', ...headers, ...(actor?.token ? { authorization: `Bearer ${actor.token}` } : {}) },
+    body: data === undefined ? undefined : JSON.stringify(data), signal: AbortSignal.any(signals),
+  });
+  const raw = await response.text();
+  let json;
+  try { json = JSON.parse(raw); } catch { json = { message: raw.slice(0, 300) }; }
+  const result = { ok: response.ok, status: response.status, json };
+  if (workforce?.actors.some(person => person.id === actor?.id) && !endpoint.startsWith('/auth/')) {
+    workforceActions.push({ actorId: actor.id, role: actor.role, instance, method, path: endpoint,
+      sent: data === undefined ? null : JSON.parse(JSON.stringify(data)),
+      key: Object.entries(headers).find(([name]) => name.toLowerCase() === 'idempotency-key')?.[1] || null,
+      status: response.status, json: JSON.parse(JSON.stringify(json)) });
+  }
+  return result;
+}
+function dataOf(result, statuses = [200, 201]) {
+  assert(statuses.includes(result.status), `HTTP ${result.status}: ${JSON.stringify(result.json)}`);
+  assert(result.json?.data, 'Response has no data');
+  return result.json.data;
+}
+const micro = value => Math.round(Number(value) * 1_000_000);
+const cents = value => Math.round(Number(value) * 100);
+function verify(requirements, evidence) {
+  const violations = Object.entries(requirements).filter(([, passed]) => !passed).map(([name]) => name);
+  if (violations.length) { const error = new Error(violations.join('; ')); error.evidence = { ...evidence, violations }; throw error; }
+  return evidence;
+}
+
+async function setup(signal) {
+  assert.equal(process.env.ROUND2_ALLOW_MUTATIONS, 'true', 'Explicit isolated-sandbox mutation opt-in is required');
+  assert(urls[0] && urls[1] && urls[0] !== urls[1], 'Two distinct application URLs are required');
+  assert(process.env.DATABASE_URL || process.env.AUDIT_DATABASE_URL, 'An explicit audit database is required; no stable-runtime fallback');
+  for (const url of urls) assert(['127.0.0.1', 'localhost', '[::1]'].includes(new URL(url).hostname), 'Only isolated loopback sandboxes are supported');
+  prisma = createAuditPrismaClient();
+  const password = crypto.randomBytes(24).toString('base64url') + '!Aa1';
+  const definitions = [['admin', 'admin'], ['sales', 'sales'], ['finance1', 'finance'], ['finance2', 'finance'], ['buyer1', 'manager'], ['buyer2', 'manager'],
+    ...Array.from({ length: 20 }, (_, index) => [`stock${index}`, 'warehouse'])];
+  for (const [job, role] of definitions) {
+    signal.throwIfAborted();
+    const username = `${runId}_${job}`;
+    await ensureUiAuditUser({ username, password, role, segment: role === 'sales' ? 'direct' : 'mixed' });
+    const login = dataOf(await request('/auth/login', { actor: null, method: 'POST', data: { username, password }, signal }));
+    assert(login.token && login.user?.id, 'Invalid login identity');
+    actors[job] = { id: login.user.id, job, role, token: login.token,
+      loginUser: { id: login.user.id, role: login.user.role, permissions: login.user.permissions, dataScopes: login.user.dataScopes } };
+  }
+  // Cross-instance token readiness, before measuring business writes.
+  dataOf(await request('/warehouses', { instance: 1, signal }));
+  if (process.env.ROUND2_BROWSER === 'true') {
+    // ONE cohort for this entire run. Bootstrap and the separate twenty-user
+    // warehouse load cohort remain fixtures, never workforce participation.
+    workforce = await require('./lib/enterprise-round2-workforce.cjs').createWorkforce({
+      request: (endpoint, { auth, ...options } = {}) => request(endpoint,
+        { ...options, actor: auth ? { token: auth } : null, signal }),
+      dataOf, bootstrapToken: actors.admin.token, runId: `${runId}-workforce`, password, catalog,
+    });
+  }
+}
+
+async function stockFixture(label, signal, { valued = true } = {}) {
+  const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
+    code: `${runId}-${label}`, name: `${runId}-${label}`, category: 'finished_good', unit: 'kg' });
+  let warehouses = dataOf(await request('/warehouses', { signal }));
+  let source = warehouses.flatMap(wh => wh.locations || []).find(loc => loc.code === 'LOC-FG');
+  const warehouse = dataOf(await request('/warehouses', { method: 'POST', signal,
+    data: { code: `${runId}-${label}`, name: `Round2 ${label}`, type: 'physical' } }));
+  if (!source) source = dataOf(await request(`/warehouses/${warehouse.id}/locations`, { method: 'POST', signal,
+    data: { code: 'LOC-FG', name: 'Round2 finished goods', type: 'internal' } }));
+  const destination = dataOf(await request(`/warehouses/${warehouse.id}/locations`, { method: 'POST', signal,
+    data: { code: `${runId}-${label}-dest`, name: `Round2 destination ${label}`, type: 'internal' } }));
+  const batchNo = `${runId}-${label}-batch`;
+  const stock = dataOf(await request('/warehouses/stock-balances', { method: 'POST', signal,
+    data: { locationId: source.id, materialId: material.id, productName: material.nameZh, batchNo, quantity: 100, unit: 'kg',
+      unitCost: valued ? 10 : undefined, sourceRef: `${runId}-${label}-seed`, reason: 'isolated round2 fixture' } }));
+  return { material, source, destination, stock, batchNo };
+}
+
+async function readStock(fixture, signal) {
+  const where = { materialId: fixture.material.id, batchNo: fixture.batchNo };
+  const balances = await prisma.stockBalance.findMany({ where, orderBy: { id: 'asc' } });
+  const movements = await prisma.stockMovement.findMany({ where, orderBy: { id: 'asc' } });
+  const entries = await prisma.stockEntry.findMany({ where: { movements: { some: where } }, orderBy: { id: 'asc' } });
+  const batch = await prisma.productBatch.findUnique({ where: { batchNo: fixture.batchNo } });
+  const costs = batch ? await prisma.inventoryCostLedger.findMany({ where: { batchId: batch.id }, orderBy: { id: 'asc' } }) : [];
+  const api = await Promise.all(urls.map((_, instance) => request(`/warehouses/stock-balances?batchNo=${encodeURIComponent(fixture.batchNo)}&pageSize=100`, { instance, signal })));
+  const apiBalances = api.map(result => dataOf(result).filter(row => Number(row.materialId) === fixture.material.id && row.batchNo === fixture.batchNo));
+  return { balances, movements, entries, batch, costs, apiBalances };
+}
+function stockInvariants(state) {
+  return {
+    no_negative_physical_stock: state.balances.every(row => Number(row.quantity) >= 0),
+    balances_equal_posted_movements: state.balances.every(row => micro(row.quantity) === state.movements.filter(m => m.stockBalanceId === row.id).reduce((sum, m) => sum + micro(m.quantityDelta), 0)),
+    movements_have_no_negative_state: state.movements.every(row => Number(row.quantityBefore) >= 0 && Number(row.quantityAfter) >= 0),
+    movement_arithmetic_matches: state.movements.every(row => micro(row.quantityBefore) + micro(row.quantityDelta) === micro(row.quantityAfter)),
+    both_instances_match_database: state.apiBalances.every(rows => state.balances.every(balance =>
+      rows.some(row => Number(row.id) === balance.id && micro(row.quantity) === micro(balance.quantity)))),
+  };
+}
+
+async function stockContention(signal) {
+  const fixture = await stockFixture('stock20', signal);
+  const cohort = Array.from({ length: 20 }, (_, index) => ({ ...actors[`stock${index}`], index }));
+  const responses = await synchronizedBurst(cohort, async actor => {
+    const requestId = `${runId}-take-${actor.index}`;
+    const result = await request(`/warehouses/stock-balances/${fixture.stock.id}/transfer`, { actor, instance: actor.index % 2, method: 'POST', signal,
+      data: { toLocationId: fixture.destination.id, quantity: 10, requestId } });
+    return { status: result.status, requestId, message: result.json?.message, instance: actor.index % 2 };
+  }, signal);
+  let state = await readStock(fixture, signal);
+  const winners = responses.filter(row => row.status === 201);
+  const evidence = { materialId: fixture.material.id, stockId: fixture.stock.id, responses, state };
+  const requirements = {
+    ...stockInvariants(state),
+    exactly_ten_successes: winners.length === 10,
+    remaining_ten_are_business_conflicts: responses.filter(row => row.status === 409).length === 10,
+    source_exhausted_not_negative: micro(state.balances.find(row => row.id === fixture.stock.id)?.quantity) === 0,
+    total_physical_quantity_conserved: state.balances.reduce((sum, row) => sum + micro(row.quantity), 0) === micro(100),
+    one_voucher_per_winner_no_loser_voucher: responses.every(row => state.entries.filter(entry => entry.sourceRef === `warehouse_transfer:${row.requestId}`).length === (row.status === 201 ? 1 : 0)),
+    complete_two_sided_movements: state.movements.length === 1 + winners.length * 2,
+  };
+  if (winners.length) {
+    const winner = winners[0];
+    const replay = await request(`/warehouses/stock-balances/${fixture.stock.id}/transfer`, { actor: cohort.find(actor => actor.id === winner.actorId), instance: 1 - winner.instance, method: 'POST', signal,
+      data: { toLocationId: fixture.destination.id, quantity: 10, requestId: winner.requestId } });
+    const after = await readStock(fixture, signal);
+    requirements.replay_does_not_post_again = replay.status === 201 && after.movements.length === state.movements.length && after.entries.length === state.entries.length
+      && JSON.stringify(after.balances) === JSON.stringify(state.balances);
+    evidence.replayStatus = replay.status;
+  }
+  verify(requirements, evidence);
+  if (workforce) evidence.workforce = await require('./lib/enterprise-round2-stock-workforce.cjs').stockWorkforceProbe(
+    { workforce, request, dataOf, prisma, runId, urls }, evidence, signal);
+  return evidence;
+}
+
+async function customer(signal, person = actors.sales) {
+  return dataOf(await request('/customers', { actor: person, method: 'POST', signal, data: {
+    name: `${runId}-${crypto.randomBytes(3).toString('hex')}`, creditLimit: 100000, termsDays: 30,
+    segment: 'direct', poolState: 'private', salespersonId: person.id,
+    contactName: 'Synthetic round2', contactPhone: '0900000000',
+  } }));
+}
+async function shipment(fixture, signal, quantity = 60, { salesperson = actors.sales, warehouse = actors.stock0 } = {}) {
+  const buyer = await customer(signal, salesperson);
+  return dataOf(await request('/shipping', { actor: warehouse, method: 'POST', signal, data: {
+    customerId: buyer.id, materialId: fixture.material.id, productName: fixture.material.nameZh,
+    quantity, unit: 'kg', batchNo: fixture.batchNo, carrier: 'Round2 synthetic',
+  } }));
+}
+async function transferShipping(signal) {
+  const fixture = await stockFixture('transfer-ship', signal);
+  const warehouse = workforce ? [workforce.byJob.warehouse[1], workforce.byJob.warehouse[2]] : [actors.stock0, actors.stock1];
+  const salesperson = workforce?.byJob.sales[1] || actors.sales;
+  const delivery = await shipment(fixture, signal, 60, { salesperson, warehouse: warehouse[1] });
+  const requestId = `${runId}-compete`;
+  const responses = await synchronizedBurst(warehouse, async actor => {
+    const transfer = actor.id === warehouse[0].id;
+    const result = await request(transfer ? `/warehouses/stock-balances/${fixture.stock.id}/transfer` : `/shipping/${delivery.id}/status`, {
+      actor, instance: transfer ? 0 : 1, method: transfer ? 'POST' : 'PATCH', signal,
+      data: transfer ? { toLocationId: fixture.destination.id, quantity: 60, requestId } : { status: 'in_transit' },
+    });
+    return { actorId: actor.id, role: actor.role, status: result.status, operation: transfer ? 'transfer' : 'shipping', message: result.json?.message };
+  }, signal);
+  const state = await readStock(fixture, signal);
+  const persisted = await prisma.shipment.findUnique({ where: { id: delivery.id } });
+  const shippingWon = responses.find(row => row.operation === 'shipping').status === 200;
+  const transferWon = responses.find(row => row.operation === 'transfer').status === 201;
+  return verify({
+    ...stockInvariants(state), exactly_one_operation_succeeded: Number(shippingWon) + Number(transferWon) === 1,
+    loser_received_conflict: responses.filter(row => row.status === 409).length === 1,
+    source_quantity_is_40: micro(state.balances.find(row => row.id === fixture.stock.id)?.quantity) === micro(40),
+    destination_matches_transfer: micro(state.balances.find(row => row.locationId === fixture.destination.id)?.quantity || 0) === micro(transferWon ? 60 : 0),
+    shipment_status_matches_posting: persisted.status === (shippingWon ? 'in_transit' : 'pending'),
+    shipping_voucher_exactly_once: state.entries.filter(row => row.sourceType === 'shipping_issue' && row.sourceRef === delivery.shipmentNo).length === Number(shippingWon),
+    transfer_voucher_exactly_once: state.entries.filter(row => row.sourceRef === `warehouse_transfer:${requestId}`).length === Number(transferWon),
+  }, { stockId: fixture.stock.id, shipmentId: delivery.id, responses, state, persisted });
+}
+
+async function shippingCost(signal) {
+  const warehouse = workforce?.byJob.warehouse[2] || actors.stock0;
+  const shipmentPeople = { salesperson: workforce?.byJob.sales[1] || actors.sales, warehouse };
+  const fixture = await stockFixture('ship-cost', signal);
+  const delivery = await shipment(fixture, signal, 60, shipmentPeople);
+  dataOf(await request(`/shipping/${delivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } }));
+  const state = await readStock(fixture, signal);
+  const finalDelivery = await shipment(fixture, signal, 40, shipmentPeople);
+  dataOf(await request(`/shipping/${finalDelivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } }));
+  const depleted = await readStock(fixture, signal);
+  const unvalued = await stockFixture('ship-unvalued', signal, { valued: false });
+  const unvaluedDelivery = await shipment(unvalued, signal, 60, shipmentPeople);
+  const unvaluedBefore = await readStock(unvalued, signal);
+  const denied = await request(`/shipping/${unvaluedDelivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } });
+  const unvaluedAfter = await readStock(unvalued, signal);
+  const deniedShipment = await prisma.shipment.findUnique({ where: { id: unvaluedDelivery.id } });
+  return verify({
+    ...stockInvariants(state), physical_balance_40: state.balances.reduce((sum, row) => sum + micro(row.quantity), 0) === micro(40),
+    product_batch_balance_40: micro(state.batch?.stockQuantity) === micro(40),
+    inventory_cost_balance_400: state.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === cents(400),
+    inventory_cost_quantity_40: state.costs.reduce((sum, row) => sum + micro(row.quantityDelta), 0) === micro(40),
+    final_quantity_and_cost_zero: micro(depleted.batch?.stockQuantity) === 0 && depleted.balances.every(row => micro(row.quantity) === 0)
+      && depleted.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === 0
+      && depleted.costs.reduce((sum, row) => sum + micro(row.quantityDelta), 0) === 0,
+    unvalued_stock_requires_reconciliation: denied.status === 409 && denied.json.message.startsWith('STOCK_COST_RECONCILIATION_REQUIRED'),
+    unvalued_rejection_leaves_no_half_posting: deniedShipment.status === 'pending' && JSON.stringify(unvaluedAfter) === JSON.stringify(unvaluedBefore),
+  }, { shipmentId: delivery.id, expected: { quantity: 40, unitCost: 10, cost: 400 }, state, depleted,
+    unvalued: { status: denied.status, message: denied.json?.message, before: unvaluedBefore, after: unvaluedAfter } });
+}
+
+async function paymentVerification(signal) {
+  const buyer = await customer(signal);
+  const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
+    code: `${runId}-payment`, name: `${runId}-payment`, category: 'finished_good' });
+  const order = dataOf(await request('/orders', { actor: actors.sales, method: 'POST', signal, data: {
+    customerId: buyer.id, items: [{ materialId: material.id, productName: material.nameZh, quantity: 10, unit: 'kg', unitPrice: 100 }], paymentTerms: 30,
+  } }));
+  dataOf(await request(`/orders/${order.id}/payment`, { actor: actors.sales, method: 'POST', signal,
+    data: { idempotencyKey: require('node:crypto').randomUUID(), amount: 300, method: 'bank_transfer', payerName: 'Round2 synthetic', note: runId } }));
+  const before = dataOf(await request(`/orders/${order.id}`, { actor: actors.finance1, signal }));
+  const payment = before.paymentRecords.find(row => row.status === 'pending');
+  assert(payment?.id, 'Pending payment is missing');
+  const responses = await synchronizedBurst([actors.finance1, actors.finance2], async actor => {
+    const result = await request(`/orders/${order.id}/payment/${payment.id}/verify`, { actor, instance: actor.id === actors.finance1.id ? 0 : 1, method: 'POST', signal });
+    return { status: result.status, message: result.json?.message };
+  }, signal);
+  const replayResponses = await Promise.all(urls.map(async (_, instance) => request(`/collections/payments/${payment.id}/verify`, {
+    actor: actors.finance2, instance, method: 'POST', signal,
+  })));
+  const events = await prisma.businessEvent.findMany({ where: { eventKey: `payment.verified:${payment.id}` }, include: { deliveries: true } });
+  const audits = await prisma.auditLog.findMany({ where: { action: 'PAYMENT_VERIFIED', resource: 'payment', resourceId: payment.id } });
+  const eventPayload = events.length === 1 ? JSON.parse(events[0].payloadJson) : null;
+  const readbacks = await Promise.all(urls.map(async (_, instance) => dataOf(await request(`/orders/${order.id}`, { actor: actors.finance1, instance, signal }))));
+  const persisted = await prisma.order.findUnique({ where: { id: order.id }, include: { paymentRecords: true } });
+  const reconciliation = await require('./lib/payment-adjustment-reconciliation.cjs').paymentAdjustmentReconciliation({ request, dataOf, actors, prisma, runId, urls, reportPath }, signal);
+  // Exercise the shared rebuild via real barter APIs, not a direct DB write.
+  const mixed = await barterFixture('payment-ledger-rebuild', true, signal);
+  dataOf(await request('/adjustments', { actor: actors.finance1, method: 'POST', signal, data: {
+    domain: 'finance', targetType: 'order', orderId: mixed.order.id, amountDelta: 10, status: 'posted',
+    reasonCategory: 'payment_correction', reason: `${runId} cash adjustment before barter`,
+  } }));
+  dataOf(await postBarter(mixed, actors.finance1, 0, signal));
+  const mixedPosted = await readBarter(mixed, signal); assert.equal(mixedPosted.order.paidAmount, 160);
+  dataOf(await request(`/barter/settlements/${mixed.settlement.id}/reverse`, { actor: actors.finance2, instance: 1, method: 'POST', signal,
+    data: { reason: `${runId} original barter reversal, keep cash adjustment` } }));
+  const mixedReversed = await readBarter(mixed, signal); assert.equal(mixedReversed.order.paidAmount, 10);
+  const mixedReadbacks = await Promise.all([0, 1].map(async instance => dataOf(await request(`/orders/${mixed.order.id}`, { actor: actors.finance2, instance, signal }))));
+  assert(mixedReadbacks.every(row => Number(row.paidAmount) === 10));
+  reconciliation.barterRebuild = { posted: mixedPosted, reversed: mixedReversed,
+    adjustments: await prisma.adjustmentRecord.findMany({ where: { orderId: mixed.order.id } }),
+    readbacks: mixedReadbacks.map(row => ({ id: Number(row.id), paidAmount: Number(row.paidAmount) })) };
+  require('./lib/payment-adjustment-proof.cjs').verifyPaymentAdjustmentProof(reconciliation);
+  return verify({
+    repeated_verification_is_idempotent: responses.every(row => row.status === 200),
+    exactly_one_verified_payment: persisted.paymentRecords.length === 1 && persisted.paymentRecords[0].status === 'verified',
+    paid_amount_is_300_not_600: cents(persisted.paidAmount) === cents(300),
+    payment_status_partial: persisted.paymentStatus === 'partial',
+    both_instances_agree: readbacks.every(row => cents(row.paidAmount) === cents(300) && row.paymentRecords.length === 1),
+    cross_entry_replays_succeed: replayResponses.every(row => row.status === 200 && row.json?.data?.alreadyVerified === true),
+    verification_audit_and_event_once: events.length === 1 && audits.length === 1 &&
+      JSON.parse(audits[0].details).eventId === eventPayload?.id && eventPayload?.data?.auditId === audits[0].id,
+    committed_event_has_delivery: events[0]?.deliveries.some(row => row.channel === 'realtime'),
+  }, { orderId: order.id, paymentId: payment.id, responses, paidAmount: persisted.paidAmount,
+    paymentStatus: persisted.paymentStatus, payments: persisted.paymentRecords, events, audits,
+    reconciliation, replayResponses: replayResponses.map(row => ({ httpStatus: row.status, data: row.json?.data })),
+    readbacks: readbacks.map(row => ({ id: row.id, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus })) });
+}
+
+async function barterFixture(label, unequal, signal, { agreement: createAgreement = false, currency = 'CNY' } = {}) {
+  const salesperson = workforce?.byJob.sales[2] || actors.sales;
+  const approver = workforce?.byJob.owner[0] || actors.admin;
+  const our = await stockFixture(label, signal);
+  const incoming = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
+    code: `${runId}-${label}-raw`, name: `${runId}-${label}-raw`, category: 'raw_material', unit: 'kg' });
+  const warehouses = dataOf(await request('/warehouses', { signal }));
+  let raw = warehouses.flatMap(wh => wh.locations || []).find(loc => loc.code === 'LOC-RAW');
+  if (!raw) raw = dataOf(await request(`/warehouses/${our.destination.warehouseId}/locations`, { method: 'POST', signal,
+    data: { code: 'LOC-RAW', name: 'Round2 raw material', type: 'internal' } }));
+  const buyer = await customer(signal, salesperson);
+  const order = dataOf(await request('/orders', { actor: salesperson, method: 'POST', signal, data: {
+    customerId: buyer.id, items: [{ materialId: our.material.id, productName: our.material.nameZh, quantity: 10, unit: 'kg', unitPrice: 20 }], paymentTerms: 30,
+  } }));
+  const receivedBatch = `${runId}-${label}-incoming`;
+  const payload = {
+    counterpartyType: 'customer', counterpartyName: buyer.name, customerId: buyer.id, orderId: order.id,
+    settlementMode: unequal === 'negative' ? 'cash_refund' : unequal ? 'mixed' : 'barter', currency, note: runId,
+    items: [
+      { side: 'our', materialId: our.material.id, itemName: our.material.nameZh, unit: 'kg', quantity: 10, unitPrice: 20, sourceDocument: our.batchNo },
+      { side: 'counterparty', materialId: incoming.id, itemName: incoming.nameZh, unit: 'kg', quantity: 20, unitPrice: unequal === 'negative' ? 12.5 : unequal ? 7.5 : 10, sourceDocument: receivedBatch },
+    ],
+  };
+  const agreement = createAgreement ? dataOf(await request('/barter/agreements', { actor: salesperson, method: 'POST', signal, data: payload })) : null;
+  const settlement = dataOf(await request(agreement ? `/barter/agreements/${agreement.id}/batches` : '/barter/settlements', {
+    actor: salesperson, method: 'POST', signal, data: agreement ? { items: payload.items, note: runId } : payload,
+  }));
+  dataOf(await request(`/barter/settlements/${settlement.id}/approve`, { actor: approver, method: 'PATCH', signal, data: { note: runId } }));
+  return { our, incoming: { material: incoming, batchNo: receivedBatch }, settlement, order, agreement, offset: unequal === 'negative' ? 200 : unequal ? 150 : 200 };
+}
+function financialDutyContext() {
+  if(!workforce)return {};
+  return {workforce,paymentActors:{sales:workforce.byJob.sales[2],requester:workforce.byJob.receivables[0],reviewer:workforce.byJob.owner[0]},
+    barterActors:{sales:workforce.byJob.sales[2],approver:workforce.byJob.owner[0],poster:workforce.byJob.receivables[0],reverser:workforce.byJob.payables[0]}};
+}
+async function readBarter(ctx, signal) {
+  const [our, incoming, settlement, order, api] = await Promise.all([
+    readStock(ctx.our, signal), readStock(ctx.incoming, signal),
+    prisma.barterSettlement.findUnique({ where: { id: ctx.settlement.id }, include: { offsetPostings: true, reversalLogs: true } }),
+    prisma.order.findUnique({ where: { id: ctx.order.id }, include: { paymentRecords: true } }),
+    Promise.all(urls.map(async (_, instance) => dataOf(await request(`/barter/settlements/${ctx.settlement.id}`, { actor: workforce?.byJob.receivables[0] || actors.finance1, instance, signal })))),
+  ]);
+  return { our, incoming, settlement, order, api: api.map(row => ({ id: row.id, status: row.status, cashDifference: row.cashDifference })) };
+}
+async function postBarter(ctx, actor, instance, signal) {
+  return request(`/barter/settlements/${ctx.settlement.id}/post`, { actor, instance, method: 'POST', signal, data: { postingAmount: ctx.offset, note: runId } });
+}
+async function barterPosting(signal) {
+  const ctx = await barterFixture('barter-post', false, signal);
+  const posters = workforce ? [workforce.byJob.receivables[0], workforce.byJob.payables[0]] : [actors.finance1, actors.finance2];
+  const responses = await synchronizedBurst(posters, async actor => {
+    const result = await postBarter(ctx, actor, actor.id === posters[0].id ? 0 : 1, signal);
+    return { actorId: actor.id, role: actor.role, status: result.status, message: result.json?.message };
+  }, signal);
+  const state = await readBarter(ctx, signal);
+  const replay = await postBarter(ctx, posters[0], 1, signal);
+  const after = await readBarter(ctx, signal);
+  return verify({
+    ...stockInvariants(state.our), ...Object.fromEntries(Object.entries(stockInvariants(state.incoming)).map(([key, value]) => [`incoming_${key}`, value])),
+    one_post_succeeded_other_is_conflict: responses.filter(row => row.status === 200).length === 1 && responses.filter(row => row.status === 409).length === 1,
+    two_stock_legs_once: state.our.entries.filter(row => row.sourceType === 'barter_issue').length === 1 && state.incoming.entries.filter(row => row.sourceType === 'barter_receipt').length === 1,
+    outgoing_physical_90: state.our.balances.reduce((sum, row) => sum + micro(row.quantity), 0) === micro(90),
+    incoming_physical_20: state.incoming.balances.reduce((sum, row) => sum + micro(row.quantity), 0) === micro(20),
+    batch_quantities_match_stock: micro(state.our.batch?.stockQuantity) === micro(90) && micro(state.incoming.batch?.stockQuantity) === micro(20),
+    outgoing_carrying_cost_not_sale_value: state.our.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === cents(900),
+    incoming_has_valuation: state.incoming.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === cents(200),
+    exactly_one_offset_and_payment: state.settlement.offsetPostings.length === 1 && state.order.paymentRecords.length === 1 && cents(state.order.paidAmount) === cents(200),
+    replay_is_noop: replay.status === 409 && JSON.stringify(after) === JSON.stringify(state),
+    both_instances_see_posted: state.api.every(row => row.status === 'posted'),
+  }, { settlementId: ctx.settlement.id, responses, replayStatus: replay.status, state });
+}
+async function barterDifference(signal) {
+  const ctx = await barterFixture('barter-difference', true, signal);
+  dataOf(await postBarter(ctx, workforce?.byJob.receivables[0] || actors.finance1, 0, signal));
+  const state = await readBarter(ctx, signal);
+  return verify({
+    sale_valuation_200_incoming_150: cents(state.settlement.totalPartyAValue) === cents(200) && cents(state.settlement.totalPartyBValue) === cents(150),
+    cash_difference_is_50_not_received: cents(state.settlement.cashDifference) === cents(50) && state.order.paymentRecords.every(row => row.method === 'barter'),
+    offset_only_150: state.settlement.offsetPostings.length === 1 && cents(state.settlement.offsetPostings[0].offsetAmount) === cents(150),
+    outstanding_50_remains: cents(state.order.finalAmount) - cents(state.order.paidAmount) === cents(50) && state.order.paymentStatus === 'partial',
+    both_instances_agree: state.api.every(row => row.status === 'posted' && cents(row.cashDifference) === cents(50)),
+  }, { scope: 'Positive cash difference stays receivable; cash collection and opposite-direction refund not yet covered', state });
+}
+async function barterReversal(signal) {
+  const ctx = await barterFixture('barter-reverse', true, signal);
+  const posters = workforce ? [workforce.byJob.receivables[0], workforce.byJob.payables[0]] : [actors.finance1, actors.finance2];
+  dataOf(await postBarter(ctx, posters[0], 0, signal));
+  const posted = await readBarter(ctx, signal);
+  const responses = await synchronizedBurst(posters, async actor => {
+    const result = await request(`/barter/settlements/${ctx.settlement.id}/reverse`, { actor, instance: actor.id === posters[0].id ? 0 : 1, method: 'POST', signal, data: { reason: 'Round2 exact reversal' } });
+    return { actorId: actor.id, role: actor.role, status: result.status, message: result.json?.message };
+  }, signal);
+  const state = await readBarter(ctx, signal);
+  return verify({
+    ...stockInvariants(state.our),
+    reverse_succeeds_other_is_idempotent_or_conflict: responses.some(row => row.status === 200) && responses.every(row => [200, 409].includes(row.status)),
+    status_and_reversal_log_once: state.settlement.status === 'reversed' && state.settlement.reversalLogs.length === 1,
+    both_stock_legs_reversed_once: state.our.entries.filter(row => row.sourceType === 'barter_issue_reversal').length === 1 && state.incoming.entries.filter(row => row.sourceType === 'barter_receipt_reversal').length === 1,
+    original_quantity_restored: state.our.balances.reduce((sum, row) => sum + micro(row.quantity), 0) === micro(100) && state.incoming.balances.reduce((sum, row) => sum + micro(row.quantity), 0) === 0,
+    batch_traceability_retained: micro(state.our.batch?.stockQuantity) === micro(100) && state.incoming.batch && micro(state.incoming.batch.stockQuantity) === 0,
+    carrying_cost_reversed_exactly: state.our.costs.length >= 3 && state.incoming.costs.length >= 2 && state.our.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === cents(1000) && state.incoming.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === 0,
+    financial_offset_reversed_not_deleted: state.settlement.offsetPostings.length === 1 && state.order.paymentRecords.length === 1 && state.order.paymentRecords[0].status !== 'verified' && cents(state.order.paidAmount) === 0,
+    both_instances_see_reversed: state.api.every(row => row.status === 'reversed'),
+  }, { settlementId: ctx.settlement.id, responses, posted, state });
+}
+
+async function barterConsumedReversal(signal) {
+  const ctx = await barterFixture('barter-consumed', true, signal);
+  const financier = workforce?.byJob.receivables[0] || actors.finance1;
+  const warehouse = workforce?.byJob.warehouse[2] || actors.stock0;
+  dataOf(await postBarter(ctx, financier, 0, signal));
+  const receipt = await readStock(ctx.incoming, signal);
+  const raw = receipt.balances[0];
+  dataOf(await request(`/warehouses/stock-balances/${raw.id}/transfer`, { actor: warehouse, method: 'POST', signal,
+    data: { toLocationId: ctx.our.source.id, quantity: 20, requestId: `${runId}-barter-consume-transfer` } }));
+  const delivery = await shipment(ctx.incoming, signal, 10, { salesperson: workforce?.byJob.sales[1] || actors.sales, warehouse });
+  dataOf(await request(`/shipping/${delivery.id}/status`, { actor: warehouse, method: 'PATCH', signal, data: { status: 'in_transit' } }));
+  const before = await readBarter(ctx, signal);
+  const result = await request(`/barter/settlements/${ctx.settlement.id}/reverse`, { actor: financier, method: 'POST', signal,
+    data: { reason: 'Must reject: part of received goods already consumed by shipment' } });
+  const after = await readBarter(ctx, signal);
+  return verify({
+    partial_consumption_real: micro(before.incoming.batch?.stockQuantity) === micro(10) && before.incoming.costs.reduce((sum, row) => sum + cents(row.costAmountDelta), 0) === cents(75),
+    reversal_rejected: result.status === 409,
+    entire_transaction_rolled_back: JSON.stringify(after) === JSON.stringify(before),
+    no_financial_or_reversal_side_effect: after.settlement.status === 'posted' && after.settlement.reversalLogs.length === 0 && cents(after.order.paidAmount) === cents(150),
+    no_negative_stock: after.incoming.balances.every(row => Number(row.quantity) >= 0),
+  }, { settlementId: ctx.settlement.id, shipmentId: delivery.id, reversalStatus: result.status, reversalMessage: result.json?.message, before, after });
+}
+
+async function runInventoryBrowser(id, source) {
+  if (process.env.ROUND2_BROWSER !== 'true') return;
+  if (!source) { runner.block(id, 'Stock race did not reconcile; no browser pass can be inferred'); return; }
+  const { inventoryRaceBrowser } = require('./lib/enterprise-round2-inventory-browser.cjs');
+  await runner.run(id, signal => inventoryRaceBrowser({ actors, workforce, request, dataOf, urls, reportPath, runId }, source, signal), { timeoutMs: 120000 });
+}
+
+async function purchaseQualityPayables(signal) {
+  const qualityRunId = `${runId}-quality`;
+  const material = await ensureReleasedMaterial({ request: (endpoint, options) => request(endpoint, { ...options, signal }),
+    code: qualityRunId, name: qualityRunId, category: 'raw_material', unit: 'kg' });
+  const supplier = dataOf(await request('/procurement/suppliers', { actor: actors.buyer1, method: 'POST', signal,
+    data: { name: `${qualityRunId}-supplier`, category: 'Raw Materials', contact: 'Explicit synthetic' } }));
+  const api = await require('./lib/purchase-quality-payables-api-proof.cjs').purchaseQualityPayablesApiProbe({ request, dataOf, actors, prisma,
+    runId: qualityRunId, material, supplier }, signal);
+  const { purchaseQualityPayablesBrowser, verifyPurchaseQualityBrowserProof } = require('./lib/enterprise-round2-purchase-quality-browser.cjs');
+  let browser;
+  try { browser = await purchaseQualityPayablesBrowser({ request, dataOf, prisma, runId: qualityRunId, urls, reportPath }, api, signal); }
+  catch (error) { error.evidence = { version: 'purchase-quality-payables-chain/v1', status: 'failed', phase: 'role-browser', api, browser: error.evidence || null }; throw error; }
+  const browserVerification = verifyPurchaseQualityBrowserProof(browser);
+  return { version: 'purchase-quality-payables-chain/v1', status: 'passed', api, browser, browserVerification,
+    scope: 'Real receipt AP/QC/QA/external supplier-payment API and four least-privilege browser roles; not all20 workforce, refunds, bank execution or full37' };
+}
+
+async function runSharedSales() {
+  const { sharedSalesChain } = require('./lib/enterprise-round2-sales.cjs');
+  const shared = await runner.run('sales-reservation-partial-fulfillment', signal => sharedSalesChain({ request, dataOf, prisma, runId, urls, reportPath,
+    bootstrap: actors.admin, catalog, ensureReleasedMaterial, workforce }, signal), { timeoutMs: 240000 });
+  if (shared) await runner.run('sales-browser-readback', () => require('./lib/enterprise-round2-sales-proof.cjs').verifySharedSalesBrowser(shared));
+  else runner.block('sales-browser-readback', 'The same shared150 order role/API/browser chain did not complete; no separate screenshot may replace it');
+}
+
+function purchaseRevisionContext() {
+  return { request, dataOf, prisma, runId, verify,
+    actors: workforce ? { ...actors, buyer1: workforce.byJob.buyer[0], buyer2: workforce.byJob.buyer[1], sales: workforce.byJob.sales[1] } : actors,
+    ...(workforce ? { workforce, receiptActors: { receivers: [workforce.byJob.warehouse[1], workforce.byJob.warehouse[2]],
+      qc: workforce.byJob.qc[0], qa: workforce.byJob.qa[0] } } : {}),
+  };
+}
+
+async function runPostgresRecovery() {
+  if (process.env.ROUND2_POSTGRES_RECOVERY !== 'true') return;
+  const revision = require('./config/enterprise-regression-baseline-v1.json').revisions.find(row => row.id === 'shared-sales-real-role-chain-v1');
+  assert(revision?.round2Checks.length === 34, 'Keep the reviewed pre-recovery obligations intact');
+  const priorChecks = revision.round2Checks.map(id => runner.report.checks.find(check => check.id === id));
+  const source = await runner.run('database-restart-ambiguous-commit', signal => {
+    // Keep the existing 15m total ceiling. Never stop a database when its full
+    // bounded experiment + independent restoration cannot fit before it.
+    const elapsed = Date.now() - Date.parse(runner.report.startedAt);
+    assert(elapsed >= 0 && elapsed + 315000 < ROUND2_MAX_RUNTIME_MS, 'Insufficient owned PostgreSQL experiment/cleanup budget before the absolute Round2 deadline');
+    return require('./lib/enterprise-round2-postgres-recovery.cjs').postgresRecoveryProbe({ request, dataOf, actors, workforce, prisma, runId,
+      urls, reportPath, stockFixture, priorChecks }, signal);
+  }, { timeoutMs: 300000 });
+  if (source) await runner.run('recovery-full-ledger-reconciliation', () =>
+    require('./lib/enterprise-round2-postgres-recovery-proof.cjs').verifyPostgresLedgerRecovery(source, { runId, priorChecks: runner.report.checks }), { timeoutMs: 60000 });
+  else runner.block('recovery-full-ledger-reconciliation', 'Actual owned PostgreSQL crash, original request and cleanup did not reconcile; no independent summary may substitute');
+}
+
+async function readWorkforceOperations(signal) {
+  if (!workforce) return;
+  const actor = workforce.byJob.system_admin[0], owner = workforce.byJob.owner[0];
+  const shared = runner.report.checks.find(check => check.id === 'sales-reservation-partial-fulfillment')?.evidence;
+  const evidence = { actorId: actor.id, role: actor.role, nodes: [], denial: null };
+  workforceOperations = evidence;
+  for (const instance of [0, 1]) {
+    const status = await request('/system/status', { actor, instance, signal });
+    const backups = await request('/system/backups', { actor, instance, signal });
+    const auditPath = `/audit?userId=${owner.id}&page=1&pageSize=100`;
+    const audit = await request(auditPath, { actor, instance, signal });
+    evidence.nodes.push({ instance, status, backups, auditPath, audit });
+    const state = dataOf(status); assert(['sqlite-file', 'external'].includes(state.database?.databaseType));
+    assert(Array.isArray(dataOf(backups)), 'Read the existing backup catalog, not a fabricated restore verdict');
+    const logs = dataOf(audit); assert(Array.isArray(logs));
+    if (shared?.manifest?.supplierPaymentId) assert(logs.some(row => row.resource === 'supplier_payment'
+      && row.resourceId === shared.manifest.supplierPaymentId && row.userId === owner.id), 'Administrator must read the actual independently verified supplier payment audit');
+  }
+  // Reuse a real successful request from this run; a nonexistent customer or
+  // unresolved material would not be a valid control for the role boundary.
+  const positives = shared?.actions?.filter(row => row.method === 'POST' && row.path === '/orders'
+    && row.status === 201 && row.json?.success === true && row.json.data?.id === shared.manifest?.orderId) || [];
+  assert.equal(positives.length, 1, 'System administrator denial requires the existing successful shared sales order');
+  const positiveControl = positives[0], sales = workforce.byJob.sales[0];
+  assert.equal(positiveControl.actorId, sales.id); assert.equal(positiveControl.role, sales.role);
+  assert.equal(positiveControl.job, 'sales');
+  assert.equal(positiveControl.sent.customerId, shared.manifest.customerId);
+  assert(Array.isArray(positiveControl.sent.items) && positiveControl.sent.items.length > 0);
+  const current = await request('/auth/me', { actor, instance: 1, signal }), profile = dataOf(current);
+  assert.equal(current.status, 200); assert.equal(profile.id, actor.id);
+  for (const key of ['username', 'role', 'segment']) assert.equal(profile[key], actor.profile[key], `Current administrator ${key}`);
+  assert.equal(profile.isActive, true); assert.equal(profile.mustChangePassword, false);
+  for (const key of ['permissions', 'dataScopes']) {
+    assert(Array.isArray(profile[key])); assert.equal(new Set(profile[key]).size, profile[key].length);
+    assert.deepEqual([...profile[key]].sort(), [...actor.profile[key]].sort(), `Current administrator ${key}`);
+  }
+  assert(!profile.permissions.includes('orders.create') && !profile.permissions.includes('*') && !profile.dataScopes.includes('all'));
+  // createOrder touches the customer for serialization, writes order/items,
+  // then writes a CREATE business audit. HTTP denial logs are not business writes.
+  const snapshot = async () => ({
+    order: await prisma.order.findMany({ orderBy: { id: 'asc' } }),
+    orderItem: await prisma.orderItem.findMany({ orderBy: { id: 'asc' } }),
+    customer: await prisma.customer.findMany({ orderBy: { id: 'asc' } }),
+    auditLog: await prisma.auditLog.findMany({ where: { resource: 'order', action: 'CREATE' }, orderBy: { id: 'asc' } }),
+  });
+  const before = await snapshot();
+  const original = before.order.find(row => row.id === shared.manifest.orderId);
+  assert(original && original.createdBy === sales.id && original.customerId === shared.manifest.customerId);
+  assert(before.customer.some(row => row.id === shared.manifest.customerId && row.status === 'active'));
+  assert(before.orderItem.some(row => row.orderId === original.id));
+  assert.equal(before.auditLog.filter(row => row.resourceId === original.id && row.userId === sales.id).length, 1);
+  const sent = JSON.parse(JSON.stringify(positiveControl.sent));
+  const denied = await request('/orders', { actor, instance: 1, method: 'POST', data: sent, signal });
+  const after = await snapshot();
+  evidence.denial = { actorId: actor.id, instance: 1, method: 'POST', path: '/orders', sent,
+    profileStatus: current.status, profile, positiveControl, status: denied.status, json: denied.json, before, after };
+  assert.equal(denied.status, 403); assert.equal(denied.json.success, false);
+  assert.deepEqual(denied.json.requiredPermissions, ['orders.create']);
+  assert.deepEqual(after, before, 'System administrator denial changed order-create business facts');
+}
+
+function attachWorkforcePreparation() {
+  if (!workforce) return;
+  // Publish only public identities. Never replace a previous proof or failure
+  // while preserving evidence after an interrupted business chain.
+  const preparation = runner.report.workforcePreparation ||= {
+    version: 'enterprise-round2-workforce-preparation/v1',
+    scope: 'Same-cohort business participation evidence; not all20 native-browser acceptance',
+    businessParticipationAccepted: false,
+    actors: workforce.actors.map(({ id, job, index, role, profile, profilesByInstance }) => ({ id, job, index, role, profile, profilesByInstance })),
+  };
+  preparation.actions = workforceActions;
+  preparation.operations = workforceOperations;
+  return preparation;
+}
+
+async function readCurrentWorkforceProfiles(preparation, signal) {
+  // The final read must use the original actors, including sessions refreshed
+  // by PostgreSQL recovery. A 401/403 is evidence, not a stale-profile fallback.
+  for (const person of preparation.actors) {
+    person.currentProfilesByInstance = {};
+    person.currentProfileResponsesByInstance = {};
+  }
+  await Promise.all(workforce.actors.flatMap(actor => [0, 1].map(async instance => {
+    const person = preparation.actors.find(row => row.id === actor.id);
+    let response;
+    try { response = await request('/auth/me', { actor, instance, signal }); }
+    catch (error) { response = { ok: false, status: 0, json: null, error: String(error.message || error) }; }
+    person.currentProfileResponsesByInstance[instance] = response;
+    person.currentProfilesByInstance[instance] = response.status === 200 && response.json?.success === true
+      ? response.json.data || null : null;
+  })));
+}
+
+async function finalizeWorkforceParticipation() {
+  const preparation = attachWorkforcePreparation();
+  if (!preparation || preparation.finalization) return;
+  if (process.env.ROUND2_ONLY_CHECK) {
+    preparation.verificationNotRunReason = 'Single-check diagnostic, not cumulative workforce acceptance';
+    return;
+  }
+  preparation.finalization = { startedAt: new Date().toISOString() };
+  try {
+    await readCurrentWorkforceProfiles(preparation, AbortSignal.timeout(45000));
+    const provider = runner.report.metadata.provider;
+    const priorChecks = runner.report.checks.filter(check => check.id !== 'workforce-rbac');
+    if (provider === 'postgresql' && (priorChecks.length !== 36 || priorChecks.some(check => check.status !== 'passed'))) {
+      preparation.verificationNotRunReason = 'All 36 same-run pre-workforce checks must pass before PostgreSQL workforce acceptance';
+      return;
+    }
+    const verifyParticipation = () => {
+      const proof = require('./lib/enterprise-round2-workforce-proof.cjs').verifyWorkforceParticipation(runner.report,
+        { requirePostgres: provider === 'postgresql' });
+      preparation.verification = proof;
+      return proof;
+    };
+    if (provider === 'postgresql') {
+      const proof = await runner.run('workforce-rbac', verifyParticipation);
+      if (!proof) throw new Error(runner.report.checks.find(check => check.id === 'workforce-rbac').error || 'Workforce participation verification failed');
+      preparation.businessParticipationAccepted = true;
+      runner.report.metadata.scope = 'Verified same-cohort 20-position participation across 12 business chains with selected native-browser evidence; not all20 native-browser coverage';
+    } else {
+      // SQLite proves the available eleven business chains and twenty duties;
+      // it cannot execute the PostgreSQL recovery or promote workforce-rbac.
+      verifyParticipation();
+    }
+  } catch (error) {
+    preparation.verificationError = String(error.message || error);
+    throw error;
+  } finally {
+    preparation.finalization.finishedAt = new Date().toISOString();
+  }
+}
+
+function recordExecutionError(error) {
+  const message = String(error.message || error);
+  runner.report.executionError = runner.report.executionError ? `${runner.report.executionError}; ${message}` : message;
+}
+
+async function main() {
+  try {
+    await setup(AbortSignal.timeout(90_000));
+  } catch (error) {
+    for (const id of implemented) runner.block(id, `Setup failed: ${error.message}`);
+    runner.report.setupError = String(error.message || error);
+    return;
+  }
+  if (process.env.ROUND2_ONLY_CHECK) {
+    assert(['payment-event-audit-once', 'payment-submit-durable-replay', 'purchase-browser-readback', 'purchase-partial-receipt-qc-payables', 'inventory-browser', 'po-stale-edit-conflict', 'shared-sales'].includes(process.env.ROUND2_ONLY_CHECK));
+    if (process.env.ROUND2_ONLY_CHECK === 'shared-sales') { await runSharedSales(); return; }
+    if (process.env.ROUND2_ONLY_CHECK === 'po-stale-edit-conflict') {
+      await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe(purchaseRevisionContext(), signal));
+      return;
+    }
+    assert.equal(process.env.ROUND2_BROWSER, 'true');
+    if (process.env.ROUND2_ONLY_CHECK === 'purchase-partial-receipt-qc-payables') {
+      await runner.run('purchase-partial-receipt-qc-payables', purchaseQualityPayables, { timeoutMs: 180000 });
+      return;
+    }
+    if (process.env.ROUND2_ONLY_CHECK === 'inventory-browser') {
+      await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
+      await runInventoryBrowser('transfer-shipping-browser', await runner.run('transfer-shipping-contention', transferShipping));
+      return;
+    }
+    if (process.env.ROUND2_ONLY_CHECK === 'purchase-browser-readback') {
+      const { purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
+      await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+      return;
+    }
+    if (process.env.ROUND2_ONLY_CHECK === 'payment-submit-durable-replay') {
+      const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
+      await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath, ...financialDutyContext() }, signal), { timeoutMs: 180000 });
+      return;
+    }
+    const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
+    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, workforce, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+    return;
+  }
+  if (process.env.ROUND2_SALES_PLAN_REPORT) await runner.run('presale-with-fulfillment-plan', () => {
+    const source = JSON.parse(fs.readFileSync(process.env.ROUND2_SALES_PLAN_REPORT, 'utf8'));
+    assert(runner.report.regression, 'Presale proof must belong to the current cumulative run');
+    verifyFresh(source, runner.report.regression, runner.report.metadata.provider, Date.now());
+    assert.equal(source.status, 'passed');
+    const proof = require('./lib/sales-fulfillment-plan-proof.cjs').verifyPresaleProof(source);
+    return { ...proof, sourceRunId: source.runId, sourceReportSha256: crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex') };
+  });
+  if (process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT) await runner.run('backorder-adjustment-closeout', () => {
+    const source = JSON.parse(fs.readFileSync(process.env.ROUND2_CUSTOMER_CANCELLATION_REPORT, 'utf8'));
+    assert(runner.report.regression, 'Cancellation proof must belong to the current cumulative run');
+    verifyFresh(source, runner.report.regression, runner.report.metadata.provider, Date.now());
+    const proof = require('./lib/customer-quantity-cancellation-proof.cjs').verifyCustomerCancellation(source);
+    return { ...proof, sourceRunId: source.runId, sourceReportSha256: crypto.createHash('sha256').update(JSON.stringify(source)).digest('hex') };
+  });
+  if (process.env.ROUND2_BROWSER === 'true') await runSharedSales();
+  await runInventoryBrowser('stock-contention-browser', await runner.run('stock-20-contention', stockContention));
+  await runner.run('po-stale-edit-conflict', signal => purchaseRevisionProbe(purchaseRevisionContext(), signal));
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { purchaseRevisionBrowser, purchaseRoleBrowser } = require('./lib/enterprise-round2-procurement-browser.cjs');
+    await runner.run('po-reapproval-browser', signal => purchaseRevisionBrowser({ ...purchaseRevisionContext(), urls, reportPath }, signal), { timeoutMs: 120000 });
+    await runner.run('purchase-browser-readback', signal => purchaseRoleBrowser({ request, dataOf, prisma, runId, urls, reportPath }, signal), { timeoutMs: 120000 });
+    await runner.run('purchase-partial-receipt-qc-payables', purchaseQualityPayables, { timeoutMs: 180000 });
+  }
+  await runInventoryBrowser('transfer-shipping-browser', await runner.run('transfer-shipping-contention', transferShipping));
+  await runner.run('shipping-cost-conservation', shippingCost);
+  await runner.run('payment-duplicate-verification', paymentVerification);
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { paymentEventAuditProbe } = require('./lib/enterprise-round2-payment-event.cjs');
+    await runner.run('payment-event-audit-once', signal => paymentEventAuditProbe({ request, dataOf, actors, workforce, prisma, runId, urls, reportPath }, signal), { timeoutMs: 180000 });
+  }
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { paymentSubmitProbe } = require('./lib/enterprise-round2-payment-submit.cjs');
+    await runner.run('payment-submit-durable-replay', signal => paymentSubmitProbe({ request, dataOf, actors, prisma, runId, urls, reportPath, ...financialDutyContext() }, signal), { timeoutMs: 180000 });
+  }
+  await runner.run('barter-dual-stock-posting-replay', barterPosting);
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { paymentReversalAcceptanceProbe } = require('./lib/enterprise-round2-payment-reversal.cjs');
+    await runner.run('payment-reversal-browser', signal => paymentReversalAcceptanceProbe({ request, dataOf, actors, prisma, runId, urls, reportPath, ...financialDutyContext() }, signal), { timeoutMs: 240000 });
+  }
+  await runner.run('barter-offset-cash-difference', barterDifference);
+  await runner.run('barter-reversal-conservation', barterReversal);
+  await runner.run('barter-consumed-receipt-reversal-blocked', barterConsumedReversal);
+  const barterPartial = await runner.run('barter-partial-fulfillment', signal => barterPartialFulfillmentProbe({
+    request, dataOf, actors, prisma, runId, stockFixture, readStock, customer, verify, ensureReleasedMaterial, urls, reportPath, ...financialDutyContext(),
+  }, signal), { timeoutMs: 120000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    if (barterPartial) await runner.run('barter-browser-readback', () => assertBarterBrowserChain(barterPartial));
+    else runner.block('barter-browser-readback', 'Sales/finance UI chain or inventory/payment reconciliation did not complete');
+  }
+  await runner.run('barter-negative-cash-adjustment', signal => barterNegativeCashProbe({
+    request, dataOf, actors, prisma, barterFixture, readBarter, runId, urls, reportPath, ...financialDutyContext(),
+  }, signal), { timeoutMs: 120000 });
+  const bomContext = { request, dataOf, actors, prisma, runId, ensureReleasedMaterial, urls, reportPath,
+    ...(workforce ? { workforce, productionActors: {
+      research: workforce.byJob.research[0], planner: workforce.byJob.production_planner[0],
+      operators: workforce.byJob.production_operator, qc: workforce.byJob.qc[0], qa: workforce.byJob.qa[0],
+      cost: workforce.byJob.cost_accountant[0], warehouse: workforce.byJob.warehouse[1],
+    } } : {}),
+  };
+  const frozen = await runner.run('bom-revision-freeze', signal => bomFreezeProbe(bomContext, signal), { timeoutMs: 90000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    if (frozen) await runner.run('bom-history-browser', signal => bomHistoryBrowser(bomContext, frozen.history, signal), { timeoutMs: 90000 });
+    else runner.block('bom-history-browser', 'BOM API chain did not complete; no browser pass can be inferred');
+  }
+  const qc = await runner.run('qc-quarantine-blocks-issue', signal => qcIsolationProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    const { qcReleaseBrowser } = require('./lib/enterprise-round2-qc-browser.cjs');
+    if (qc) await runner.run('qa-release-traceability-browser', signal => qcReleaseBrowser(bomContext, qc, signal), { timeoutMs: 120000 });
+    else runner.block('qa-release-traceability-browser', 'QC isolation API proof did not complete');
+  }
+  const densityConversion = await runner.run('mass-packaging-density-conversion', signal => densityConversionProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (densityConversion) await runner.run('conversion-cost-conservation', () => assertDensityCostConservation(densityConversion), { timeoutMs: 30000 });
+  else runner.block('conversion-cost-conservation', 'Approved actual-batch density conversion did not complete');
+  const disposition = await runner.run('loss-return-scrap-rework', signal => productionDispositionProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (disposition) await runner.run('production-cost-reconciliation', () => assertProductionDispositionCostReconciliation(disposition), { timeoutMs: 30000 });
+  else runner.block('production-cost-reconciliation', 'Physical scrap and rework disposition did not complete');
+  const lot = await runner.run('dual-workorder-same-lot', signal => productionLotProbe(bomContext, signal), { timeoutMs: 120000 });
+  if (process.env.ROUND2_BROWSER === 'true') {
+    if (lot) await runner.run('genealogy-readback', signal => genealogyReadback(bomContext, lot, signal), { timeoutMs: 90000 });
+    else runner.block('genealogy-readback', 'Dual work order reconciliation did not complete');
+  }
+  await runPostgresRecovery();
+  await readWorkforceOperations(AbortSignal.timeout(45000));
+}
+
+main().catch(recordExecutionError).finally(async () => {
+  try { await finalizeWorkforceParticipation(); } catch (error) { recordExecutionError(error); }
+  try { if (prisma) await prisma.$disconnect(); } catch (error) { recordExecutionError(error); }
+  const report = runner.finish();
+  console.log(JSON.stringify({ status: report.status, passed: report.summary.passedChecks, failed: report.summary.failedChecks, remaining: report.summary.remainingChecks, reportPath }));
+  process.exitCode = report.status === 'passed' ? 0 : report.summary.failedChecks || report.executionError || report.setupError ? 1 : 2;
+});

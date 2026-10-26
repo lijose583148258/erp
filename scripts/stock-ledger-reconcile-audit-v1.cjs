@@ -48,7 +48,15 @@ const normalizeRows = (rows) => rows.map(normalizeRow);
 const placeholders = (values) => values.map(() => '?').join(',');
 
 async function queryRows(sql, ...params) {
-  return normalizeRows(await prisma.$queryRawUnsafe(sql, ...params));
+  try {
+    return normalizeRows(await prisma.$queryRawUnsafe(sql, ...params));
+  } catch (error) {
+    const queryName = String(sql)
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 140);
+    throw new Error(`stock ledger query failed [${queryName}]: ${error.message || error}`);
+  }
 }
 
 async function getRuntimeDbPath() {
@@ -81,8 +89,8 @@ async function findIdempotentDuplicateEntries() {
        COUNT(*) AS entryCount,
        GROUP_CONCAT(id) AS entryIds,
        GROUP_CONCAT(entry_no) AS entryNos,
-       MIN(created_at) AS firstCreatedAt,
-       MAX(created_at) AS lastCreatedAt
+       CAST(MIN(created_at) AS TEXT) AS firstCreatedAt,
+       CAST(MAX(created_at) AS TEXT) AS lastCreatedAt
      FROM stock_entries
      WHERE source_ref IS NOT NULL
        AND source_ref <> ''
@@ -296,8 +304,8 @@ async function getSourceSummary() {
        status,
        COUNT(*) AS entryCount,
        COUNT(DISTINCT source_ref) AS sourceRefCount,
-       MIN(created_at) AS firstCreatedAt,
-       MAX(created_at) AS lastCreatedAt
+       CAST(MIN(created_at) AS TEXT) AS firstCreatedAt,
+       CAST(MAX(created_at) AS TEXT) AS lastCreatedAt
      FROM stock_entries
      GROUP BY source_type, status
      ORDER BY entryCount DESC, sourceType ASC`,

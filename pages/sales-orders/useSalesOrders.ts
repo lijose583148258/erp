@@ -94,6 +94,9 @@ export const useSalesOrders = () => {
         handleCommissionAudit,
         handleStatusUpdate,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft,
+        handleShipmentCreated,
         handleManualComplete,
     } = useSalesOrderActions({
         canAuditCommission,
@@ -105,6 +108,8 @@ export const useSalesOrders = () => {
         openPaymentModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
     } = useSalesOrderPayments({
         selectedOrder,
         paymentForm,
@@ -312,6 +317,7 @@ export const useSalesOrders = () => {
 
     const openEditModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
+        if (!detailedOrder) return;
         setSelectedOrder(detailedOrder);
         setFormData({
             id: detailedOrder.id,
@@ -334,6 +340,7 @@ export const useSalesOrders = () => {
 
     const openHistoryModal = async (order: SalesOrder) => {
         const detailedOrder = await hydrateOrderDetail(order);
+        if (!detailedOrder) return;
         setSelectedOrder(detailedOrder);
         setHistoryTab('payments');
         setIsHistoryOpen(true);
@@ -351,6 +358,7 @@ export const useSalesOrders = () => {
     };
 
     return {
+        upsertOrder,
         t,
         language,
         formatPrice,
@@ -434,10 +442,15 @@ export const useSalesOrders = () => {
         openHistoryModal,
         handleVerifyPayment,
         handleRecordPayment,
+        isRecordingPayment,
+        hasUnconfirmedPayment,
         openCollectionAction,
         refreshSelectedOrder,
         updateDimensionalItem,
         handleQuickShip,
+        shipmentOrderId,
+        closeShipmentDraft,
+        handleShipmentCreated,
         handleManualComplete,
     };
 };

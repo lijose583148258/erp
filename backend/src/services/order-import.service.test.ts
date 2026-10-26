@@ -125,6 +125,45 @@ describe('order import governance', () => {
     expect(harness.idempotency.complete).toHaveBeenCalledWith(71, 'lease-test', expect.objectContaining({ success: 1 }));
   });
 
+  it('uses the same decimal line-rounding contract for imported orders', async () => {
+    const harness = createHarness({
+      id: 28,
+      status: 'active',
+      salespersonId: 10,
+      poolState: 'private',
+      segment: 'direct',
+    });
+    const req = requestFor({
+      userId: 10,
+      username: 'direct-sales',
+      role: 'sales',
+      segment: 'direct',
+      dataScopes: ['own_customers'],
+    });
+
+    const response = await harness.service.importOrders(importPayload(28, {
+      items: [
+        { productName: 'Resin A', quantity: 1, unitPrice: 1.005, unit: 'kg' },
+        { productName: 'Resin B', quantity: 3, unitPrice: 0.1, unit: 'kg' },
+      ],
+    }), req, 'idem-decimal-28');
+
+    expect(requireResult(response)).toMatchObject({ success: 1, failed: 0 });
+    expect(harness.checkCredit).toHaveBeenCalledWith(28, 1.31, harness.tx);
+    expect(harness.tx.order.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        totalAmount: 1.31,
+        finalAmount: 1.31,
+        items: {
+          create: expect.arrayContaining([
+            expect.objectContaining({ productName: 'Resin A', totalPrice: 1.01 }),
+            expect.objectContaining({ productName: 'Resin B', totalPrice: 0.3 }),
+          ]),
+        },
+      }),
+    }));
+  });
+
   it('preserves the row failure when customer credit validation rejects the import', async () => {
     const harness = createHarness({
       id: 22,
@@ -176,6 +215,37 @@ describe('order import governance', () => {
     expect(harness.tx.order.create).not.toHaveBeenCalled();
     expect(harness.runTransaction).not.toHaveBeenCalled();
     expect(harness.idempotency.renewLease).not.toHaveBeenCalled();
+  });
+
+  it('keeps non-numeric money input as a row-level validation failure', async () => {
+    const harness = createHarness({
+      id: 29,
+      status: 'active',
+      salespersonId: 10,
+      poolState: 'private',
+      segment: 'direct',
+    });
+    const req = requestFor({
+      userId: 10,
+      username: 'direct-sales',
+      role: 'sales',
+      segment: 'direct',
+      dataScopes: ['own_customers'],
+    });
+
+    const response = await harness.service.importOrders(importPayload(29, {
+      items: [{ productName: 'Resin A', quantity: 1, unitPrice: 'not-a-number' }],
+    }), req, 'idem-invalid-money-29');
+
+    const result = requireResult(response);
+    expect(result).toMatchObject({ success: 0, failed: 1 });
+    expect(result.errors[0].message).toContain('non-negative number');
+    expect(harness.runTransaction).not.toHaveBeenCalled();
+    expect(harness.idempotency.complete).toHaveBeenCalledWith(
+      71,
+      'lease-test',
+      expect.objectContaining({ failed: 1 }),
+    );
   });
 
   it('keeps a committed row successful when the follow-up audit write fails', async () => {

@@ -123,9 +123,8 @@ const main = async () => {
   const startedAt = performance.now();
 
   const worker = async () => {
-    while (true) {
+    while (nextIndex < totalRequests) {
       const index = nextIndex++;
-      if (index >= totalRequests) return;
       const target = targets[index % targets.length];
       const route = routes[index % routes.length];
       const started = performance.now();

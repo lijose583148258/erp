@@ -43,6 +43,7 @@ const CONTRACT_DATA = {
   bomStatus: 'active',
   formulationMode: 'percentage',
   outputUnit: 'kg',
+  shelfLifeDays: '365',
   standardBatchSize: '1000',
   batchSizeUnit: 'kg',
   density: '1.12',

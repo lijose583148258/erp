@@ -4,6 +4,12 @@ model ReceivableAdjustment {
   adjustmentType String    @map("adjustment_type")
   customerId     Int       @map("customer_id")
   orderId        Int       @map("order_id")
+  // Only explicit customer quantity-cancellation credits use these fields.
+  // Ordinary monetary adjustments never change delivery obligations.
+  orderItemId    Int?      @map("order_item_id")
+  cancelledQuantity Float? @map("cancelled_quantity")
+  requestKey     String?   @unique @map("request_key")
+  requestFingerprint String? @map("request_fingerprint")
   amount         Float
   currency       String    @default("CNY")
   exchangeRate   Float     @default(1.0) @map("exchange_rate")
@@ -24,12 +30,14 @@ model ReceivableAdjustment {
 
   customer       Customer  @relation(fields: [customerId], references: [id], onDelete: Cascade)
   order          Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  orderItem      OrderItem? @relation(fields: [orderItemId], references: [id], onDelete: Restrict)
   creator        User      @relation("ReceivableAdjustmentCreator", fields: [createdBy], references: [id])
   poster         User?     @relation("ReceivableAdjustmentPoster", fields: [postedBy], references: [id], onDelete: SetNull)
   reverser       User?     @relation("ReceivableAdjustmentReverser", fields: [reversedBy], references: [id], onDelete: SetNull)
 
   @@index([customerId])
   @@index([orderId])
+  @@index([orderItemId])
   @@index([status])
   @@index([adjustmentType])
   @@index([createdAt])

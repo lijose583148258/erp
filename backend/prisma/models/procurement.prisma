@@ -29,6 +29,7 @@ model Supplier {
 model PurchaseOrder {
   id            Int      @id @default(autoincrement())
   supplierId    Int      @map("supplier_id")
+  materialId    Int?     @map("material_id")
   item          String
   quantity      Float
   unit          String
@@ -45,6 +46,9 @@ model PurchaseOrder {
   landedUnitCost   Float @default(0) @map("landed_unit_cost")
   eta           DateTime
   status        String   @default("pending")
+  revision      Int      @default(0)
+  supplierPayableBasisJson String? @map("supplier_payable_basis_json")
+  incomingQualityPlanJson  String? @map("incoming_quality_plan_json")
   salesOrderRef String?  @map("sales_order_ref")
   salesOrderId  Int?     @map("sales_order_id")
   isB2B         Boolean  @default(false) @map("is_b2b")
@@ -52,10 +56,12 @@ model PurchaseOrder {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   supplier      Supplier @relation(fields: [supplierId], references: [id])
+  material      Material? @relation(fields: [materialId], references: [id], onDelete: SetNull)
   salesOrder    Order?   @relation(fields: [salesOrderId], references: [id])
   receipts      PurchaseReceipt[]
 
   @@index([supplierId])
+  @@index([materialId])
   @@index([status])
   @@index([salesOrderId])
   @@map("purchase_orders")
@@ -70,19 +76,96 @@ model PurchaseReceipt {
   rejectedQuantity  Float         @default(0) @map("rejected_quantity")
   unit              String        @default("kg")
   batchNo           String?       @map("batch_no")
+  supplierBatchNo   String?       @map("supplier_batch_no")
+  batchId           Int?          @unique @map("batch_id")
   stockEntryRef     String?       @map("stock_entry_ref")
   discrepancyReason String?       @map("discrepancy_reason")
   note              String?
   receivedBy        Int?          @map("received_by")
+  submissionKey     String?       @map("submission_key")
+  submissionFingerprint String?   @map("submission_fingerprint")
+  submissionJson    String?       @map("submission_json")
+  payableAmountNative Decimal?    @map("payable_amount_native")
+  payableAmountBase Decimal?      @map("payable_amount_base")
+  payableSnapshotJson String?     @map("payable_snapshot_json")
+  incomingQualityPlanJson String? @map("incoming_quality_plan_json")
   receivedAt        DateTime      @default(now()) @map("received_at")
   createdAt         DateTime      @default(now()) @map("created_at")
 
   purchaseOrder     PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
   receiver          User?         @relation("PurchaseReceiptReceiver", fields: [receivedBy], references: [id], onDelete: SetNull)
+  batch             ProductBatch? @relation(fields: [batchId], references: [id], onDelete: Restrict)
+  qualityChecks     IncomingQualityCheck[]
+  supplierPayments  SupplierPayment[]
 
   @@index([purchaseOrderId])
   @@index([stockEntryRef])
+  @@unique([purchaseOrderId, submissionKey])
   @@map("purchase_receipts")
+}
+
+model IncomingQualityCheck {
+  id                   Int             @id @default(autoincrement())
+  checkNo              String          @unique @map("check_no")
+  purchaseReceiptId    Int             @map("purchase_receipt_id")
+  revision             Int             @default(1)
+  requestKey           String          @map("request_key")
+  fingerprint          String
+  submissionJson       String          @map("submission_json")
+  status               String          @default("submitted")
+  result               String
+  sampleNo             String?         @map("sample_no")
+  measurementsJson     String          @map("measurements_json")
+  note                 String?
+  inspectorUserId      Int             @map("inspector_user_id")
+  checkedAt            DateTime        @default(now()) @map("checked_at")
+  reviewedByUserId     Int?            @map("reviewed_by_user_id")
+  reviewedAt           DateTime?       @map("reviewed_at")
+  reviewNote           String?         @map("review_note")
+  decision             String?
+  reviewJson           String?         @map("review_json")
+
+  purchaseReceipt      PurchaseReceipt @relation(fields: [purchaseReceiptId], references: [id], onDelete: Restrict)
+  inspector            User            @relation("IncomingQualityInspector", fields: [inspectorUserId], references: [id], onDelete: Restrict)
+  reviewer             User?           @relation("IncomingQualityReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([purchaseReceiptId, revision])
+  @@unique([purchaseReceiptId, requestKey])
+  @@index([status])
+  @@map("incoming_quality_checks")
+}
+
+model SupplierPayment {
+  id                     Int             @id @default(autoincrement())
+  paymentNo              String          @unique @map("payment_no")
+  purchaseReceiptId      Int             @map("purchase_receipt_id")
+  amountNative           Decimal         @map("amount_native")
+  currency               String
+  baseAmount             Decimal         @map("base_amount")
+  status                 String          @default("draft")
+  requestKey             String          @map("request_key")
+  fingerprint            String
+  submissionJson         String          @map("submission_json")
+  method                 String
+  date                   DateTime
+  paymentAccountRef      String          @map("payment_account_ref")
+  externalTransactionRef String          @map("external_transaction_ref")
+  evidenceRef            String          @map("evidence_ref")
+  note                   String?
+  submittedByUserId      Int             @map("submitted_by_user_id")
+  createdAt              DateTime        @default(now()) @map("created_at")
+  verifiedByUserId       Int?            @map("verified_by_user_id")
+  verifiedAt             DateTime?       @map("verified_at")
+  verificationJson       String?         @map("verification_json")
+
+  purchaseReceipt        PurchaseReceipt @relation(fields: [purchaseReceiptId], references: [id], onDelete: Restrict)
+  submitter              User            @relation("SupplierPaymentSubmitter", fields: [submittedByUserId], references: [id], onDelete: Restrict)
+  verifier               User?           @relation("SupplierPaymentVerifier", fields: [verifiedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([purchaseReceiptId, requestKey])
+  @@index([paymentAccountRef, externalTransactionRef], map: "supplier_payments_account_transaction_idx")
+  @@index([status])
+  @@map("supplier_payments")
 }
 
 // 样品表

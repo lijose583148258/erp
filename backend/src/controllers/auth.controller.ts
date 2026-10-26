@@ -1,5 +1,5 @@
 import { Response } from 'express';
-import bcrypt from 'bcryptjs';
+import { comparePassword, hashPassword, PasswordWorkCapacityError } from '../services/auth-password-work.service';
 import prisma from '../config/database';
 import { generateToken } from '../utils/jwt';
 import { logger } from '../utils/logger';
@@ -53,7 +53,7 @@ export class AuthController {
                 return res.status(403).json({ success: false, message: '角色不存在或已禁用，请联系管理员' } as ApiResponse);
             }
 
-            const isPasswordValid = await bcrypt.compare(password, user.passwordHash);
+            const isPasswordValid = await comparePassword(password, user.passwordHash);
             if (!isPasswordValid) {
                 logger.warn(`登录失败: 用户 ${username} 密码错误`);
                 return res.status(401).json({ success: false, message: '用户名或密码错误' } as ApiResponse);
@@ -153,6 +153,9 @@ export class AuthController {
 
             return res.json(response);
         } catch (error) {
+            if (error instanceof PasswordWorkCapacityError) {
+                return res.status(503).json({ success: false, message: '密码计算服务繁忙，请稍后重试', errorCode: 'PASSWORD_WORK_CAPACITY' } as ApiResponse);
+            }
             logger.error('登录错误:', error);
             return res.status(500).json(serverError);
         }
@@ -179,7 +182,7 @@ export class AuthController {
                 return res.status(400).json({ success: false, message: '用户名已存在' } as ApiResponse);
             }
 
-            const passwordHash = await bcrypt.hash(password, 12);
+            const passwordHash = await hashPassword(password);
             const newUser = await prisma.user.create({
                 data: {
                     username,
@@ -215,6 +218,9 @@ export class AuthController {
                 message: '账号创建成功',
             } as ApiResponse);
         } catch (error) {
+            if (error instanceof PasswordWorkCapacityError) {
+                return res.status(503).json({ success: false, message: '密码计算服务繁忙，请稍后重试', errorCode: 'PASSWORD_WORK_CAPACITY' } as ApiResponse);
+            }
             logger.error('注册错误:', error);
             return res.status(500).json(serverError);
         }
@@ -378,6 +384,9 @@ export class AuthController {
 
             return res.json({ success: true, message: '密码修改成功' } as ApiResponse);
         } catch (error) {
+            if (error instanceof PasswordWorkCapacityError) {
+                return res.status(503).json({ success: false, message: '密码计算服务繁忙，请稍后重试', errorCode: 'PASSWORD_WORK_CAPACITY' } as ApiResponse);
+            }
             if (error instanceof AuthPasswordError) {
                 return res.status(error.statusCode).json({
                     success: false,

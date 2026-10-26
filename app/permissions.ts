@@ -19,6 +19,8 @@ export type FrontendPermission =
   | 'orders.shippingReady.read'
   | 'orders.payment.record'
   | 'orders.payment.verify'
+  | 'orders.payment.reversal.request'
+  | 'orders.payment.reversal.review'
   | 'collections.read'
   | 'collections.sync'
   | 'collections.reminder.write'
@@ -52,7 +54,11 @@ export type FrontendPermission =
   | 'assets.read'
   | 'assets.write'
   | 'production.read'
-  | 'production.write'
+  | 'production.bom.write'
+  | 'production.plan.write'
+  | 'production.execute'
+  | 'production.quality.inspect'
+  | 'production.quality.release'
   | 'production.cost.read'
   | 'adjustments.read'
   | 'adjustments.write'
@@ -64,7 +70,16 @@ export type FrontendPermission =
   | 'procurement.suppliers.read'
   | 'procurement.read'
   | 'procurement.write'
+  | 'procurement.approve'
+  | 'procurement.receive'
+  | 'procurement.quality.inspect'
+  | 'procurement.quality.release'
+  | 'procurement.payment.record'
+  | 'procurement.payment.verify'
   | 'procurement.b2b.read'
+  | 'materials.read'
+  | 'materials.write'
+  | 'materials.govern'
   | 'commercial.read'
   | 'commercial.workflow.manage'
   | 'commercial.notification.write'
@@ -89,6 +104,7 @@ export const MENU_PERMISSION_BY_MODULE: Record<string, FrontendPermission> = {
   rma: 'rma.read',
   team: 'team.read',
   assets: 'assets.read',
+  materials: 'materials.read',
   production: 'production.read',
   warehouse: 'warehouse.read',
   procurement: 'procurement.read',
@@ -116,6 +132,8 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'orders.shippingReady.read',
     'orders.payment.record',
     'orders.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -146,10 +164,18 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'team.read',
     'team.write',
     'authorization.roles.manage',
+    'procurement.quality.inspect',
+    'procurement.quality.release',
+    'procurement.payment.record',
+    'procurement.payment.verify',
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
+    'production.quality.inspect',
+    'production.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -161,7 +187,12 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
+    'materials.govern',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -218,7 +249,11 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
+    'production.quality.release',
+    'procurement.quality.release',
     'production.cost.read',
     'adjustments.read',
     'adjustments.write',
@@ -230,7 +265,11 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
+    'materials.read',
+    'materials.write',
     'commercial.read',
     'commercial.workflow.manage',
     'commercial.notification.write',
@@ -264,6 +303,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'rma.read',
     'rma.write',
     'procurement.b2b.read',
+    'materials.read',
   ],
   warehouse: [
     'dashboard.read',
@@ -279,7 +319,11 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'assets.read',
     'assets.write',
     'production.read',
-    'production.write',
+    'production.bom.write',
+    'production.plan.write',
+    'production.execute',
+    'production.quality.inspect',
+    'procurement.quality.inspect',
     'adjustments.read',
     'adjustments.write',
     'adjustments.apply',
@@ -290,7 +334,10 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'procurement.suppliers.read',
     'procurement.read',
     'procurement.write',
+    'procurement.approve',
+    'procurement.receive',
     'procurement.b2b.read',
+    'materials.read',
   ],
   finance: [
     'dashboard.read',
@@ -298,6 +345,10 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'orders.export',
     'orders.payment.record',
     'orders.payment.verify',
+    'procurement.payment.record',
+    'procurement.payment.verify',
+    'orders.payment.reversal.request',
+    'orders.payment.reversal.review',
     'collections.read',
     'collections.sync',
     'collections.reminder.write',
@@ -323,6 +374,7 @@ export const FRONTEND_ROLE_PERMISSIONS: Record<BuiltInUserRole, readonly Fronten
     'adjustments.reverse',
     'procurement.suppliers.read',
     'procurement.read',
+    'materials.read',
   ],
 };
 
@@ -334,7 +386,9 @@ function getUserPermissions(userOrRole: CurrentUser | UserRole): readonly string
   if (typeof userOrRole === 'string') {
     return getBuiltInRolePermissions(userOrRole);
   }
-  return userOrRole.permissions?.length ? userOrRole.permissions : getBuiltInRolePermissions(userOrRole.role);
+  // A resolved empty policy is a deliberate deny-all, not a legacy role hint.
+  if (userOrRole.permissions === undefined) return getBuiltInRolePermissions(userOrRole.role);
+  return Array.isArray(userOrRole.permissions) ? userOrRole.permissions : [];
 }
 
 export function can(userOrRole: CurrentUser | UserRole, permission: FrontendPermission): boolean {
@@ -350,6 +404,11 @@ export function hasDataScope(userOrRole: CurrentUser | UserRole, scope: string):
 }
 
 export function canOpenModule(userOrRole: CurrentUser | UserRole, moduleId: string): boolean {
+  if (moduleId === 'procurement') {
+    // Quality-only actors use the redacted incoming-QC workspace, not priced PO lists.
+    return can(userOrRole, 'procurement.read') || can(userOrRole, 'procurement.quality.inspect')
+      || can(userOrRole, 'procurement.quality.release');
+  }
   const permission = MENU_PERMISSION_BY_MODULE[moduleId];
   return permission ? can(userOrRole, permission) : false;
 }

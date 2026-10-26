@@ -425,7 +425,7 @@ const ReceiptDiscrepancyWorkbench: React.FC = () => {
                     type="checkbox"
                     checked={ruleDraft.requiresQualityCheck}
                     onChange={(event) => setRuleDraft((current) => ({ ...current, requiresQualityCheck: event.target.checked }))}
-                    className="h-4 w-4 rounded border-slate-300 text-blue-600"
+                    className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
                   />
                   要求质检介入
                 </label>

@@ -25,7 +25,7 @@ const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordM
                 <button
                     type="button"
                     onClick={onOpenRecordMove}
-                    className="flex min-h-11 items-center justify-center rounded-[24px] bg-indigo-600 px-8 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl transition-all hover:scale-105 active:scale-95"
+ className="flex min-h-11 items-center justify-center rounded-[24px] bg-indigo-600 px-8 py-4 text-xs font-black uppercase tracking-widest text-white shadow-xl transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none"
                 >
                     {t.recordMove || 'Record Move'}
                 </button>
@@ -50,7 +50,7 @@ const ShippingAssetsPanel: React.FC<Props> = ({ t, assetSummaries, onOpenRecordM
                         <button
                             type="button"
                             onClick={() => onQuickReturn(summary.customerId)}
-                            className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black uppercase tracking-wide text-white shadow-sm transition hover:bg-emerald-700 active:scale-[0.98]"
+                            className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl bg-emerald-600 px-4 py-2.5 text-xs font-black uppercase tracking-wide text-white shadow-sm transition-colors duration-150 hover:bg-emerald-700 motion-reduce:transition-none"
                         >
                             {t.receiveBack || 'Return'}
                         </button>

@@ -15,6 +15,7 @@ import {
   statusBadge,
 } from './collectionCenter.helpers';
 import type { CollectionActionPermissions } from './useCollectionCenter';
+import CollectionPaymentReversalButton from './CollectionPaymentReversalButton';
 
 type DetailTab = 'ledger' | 'promises' | 'disputes' | 'holds' | 'milestones';
 
@@ -28,6 +29,7 @@ type Props = {
   milestones: CollectionMilestoneRecord[];
   formatPrice: (value?: number | null) => string;
   onVerifyPayment: (paymentId: number) => Promise<void>;
+  onOpenPaymentReversal: (payment: CollectionLedgerRecord) => void;
   onPromiseStatus: (promiseId: number, status: 'kept' | 'missed' | 'cancelled') => Promise<void>;
   onDisputeStatus: (disputeId: number, status: 'reviewing' | 'resolved' | 'rejected' | 'withdrawn') => Promise<void>;
   onReleaseHold: (item: CollectionHoldRecord) => Promise<void>;
@@ -45,6 +47,7 @@ const tabs: Array<{ id: DetailTab; label: string }> = [
 const paymentStatusLabelMap: Record<string, string> = {
   pending: '待核销',
   verified: '已核销',
+  reversed: '已冲销（原凭证保留）',
   unpaid: '未回款',
   partial: '部分回款',
   paid: '已收齐',
@@ -95,6 +98,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
   milestones,
   formatPrice,
   onVerifyPayment,
+  onOpenPaymentReversal,
   onPromiseStatus,
   onDisputeStatus,
   onReleaseHold,
@@ -159,12 +163,12 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
       return (
         <div className="space-y-3">
           {detail.relatedLedger.map((row) => (
-            <div key={row.id} className="rounded-[20px] border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/30">
+            <div key={row.id} data-testid={`collection-payment-detail-${row.id}`} className="rounded-[20px] border border-slate-100 bg-slate-50/70 p-4 dark:border-slate-800 dark:bg-slate-800/30">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900 dark:text-white">{formatPrice(row.amount)}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${paymentBadge(row.status)}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${paymentBadge(row.status)}`}>
                       {paymentStatusLabelMap[row.status] || row.status}
                     </span>
                   </div>
@@ -173,7 +177,9 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                   </div>
                   {row.note ? <div className="mt-1 text-xs font-bold text-slate-400 dark:text-slate-500">{row.note}</div> : null}
                 </div>
-                {row.status !== 'verified' && permissions.canVerifyPayment ? (
+                <div className="flex flex-wrap gap-2">
+                <CollectionPaymentReversalButton payment={row} permissions={permissions} onOpen={onOpenPaymentReversal} location="detail" />
+                {row.status === 'pending' && permissions.canVerifyPayment ? (
                   <button
                     type="button"
                     onClick={() => void onVerifyPayment(row.id)}
@@ -182,6 +188,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                     核销该笔
                   </button>
                 ) : null}
+                </div>
               </div>
             </div>
           ))}
@@ -199,7 +206,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900">{row.promiseNo}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
                       {promiseStatusLabelMap[row.status] || row.status}
                     </span>
                   </div>
@@ -232,7 +239,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900">{row.disputeNo}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
                       {disputeStatusLabelMap[row.status] || row.status}
                     </span>
                   </div>
@@ -267,7 +274,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
                 <div>
                   <div className="flex items-center gap-2">
                     <div className="text-sm font-black text-slate-900 dark:text-white">{holdScopeLabelMap[row.scope] || row.scope}</div>
-                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${row.status ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
+                    <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${row.status ? 'bg-rose-50 text-rose-700 border-rose-100' : 'bg-slate-50 text-slate-500 border-slate-100'}`}>
                       {row.status ? '生效中' : '已释放'}
                     </span>
                   </div>
@@ -297,7 +304,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
               <div>
                 <div className="flex items-center gap-2">
                   <div className="text-sm font-black text-slate-900 dark:text-white">{row.title}</div>
-                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
+                  <span className={`inline-flex rounded-full border px-2 py-0.5 text-xs font-black tracking-[0.14em] ${statusBadge(row.status)}`}>
                     {milestoneStatusLabelMap[row.status] || row.status}
                   </span>
                 </div>
@@ -360,7 +367,7 @@ const CollectionCurrentOrderDetail: React.FC<Props> = ({
             { label: '剩余未收', value: formatPrice(detail.outstandingAmount), accent: true },
           ].map((item) => (
             <div key={item.label} className={`rounded-[20px] border px-4 py-3 ${item.accent ? 'border-rose-100 bg-rose-50/70 text-rose-700' : 'border-slate-100 bg-slate-50/70 text-slate-600'} dark:border-slate-800 dark:bg-slate-800/30`}>
-              <div className="text-[10px] font-black uppercase tracking-[0.14em] opacity-70">{item.label}</div>
+              <div className="text-xs font-black uppercase tracking-[0.14em] opacity-70">{item.label}</div>
               <div className="mt-1 text-sm font-black">{item.value}</div>
             </div>
           ))}

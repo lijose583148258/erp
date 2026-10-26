@@ -6,7 +6,8 @@ export type ReceivableAdjustmentType =
   | 'discount_allowance'
   | 'bad_debt_writeoff'
   | 'short_payment_writeoff'
-  | 'fx_difference';
+  | 'fx_difference'
+  | 'order_quantity_cancellation';
 
 export type ReceivableAdjustmentStatus = 'pending' | 'posted' | 'reversed' | 'posting' | 'reversing';
 
@@ -14,6 +15,11 @@ export interface ReceivableAdjustmentRecord {
   id: number;
   adjustmentNo: string;
   adjustmentType: ReceivableAdjustmentType;
+  orderItemId: number | null;
+  cancelledQuantity: number | null;
+  unit: string | null;
+  productName: string | null;
+  createdBy: number;
   customerId: number;
   customerName: string | null;
   customerNameZh?: string | null;
@@ -58,7 +64,7 @@ export interface ReceivableAdjustmentListResponse {
 
 export interface CreateReceivableAdjustmentPayload {
   orderId: number;
-  adjustmentType: ReceivableAdjustmentType;
+  adjustmentType: Exclude<ReceivableAdjustmentType, 'order_quantity_cancellation'>;
   amount: number;
   currency?: string;
   exchangeRate?: number;
@@ -85,6 +91,11 @@ const mapReceivableAdjustment = (value: unknown): ReceivableAdjustmentRecord => 
     id: toNumberValue(item.id),
     adjustmentNo: toStringValue(item.adjustmentNo),
     adjustmentType: toStringValue(item.adjustmentType, 'credit_memo') as ReceivableAdjustmentType,
+    orderItemId: item.orderItemId == null ? null : toNumberValue(item.orderItemId),
+    cancelledQuantity: item.cancelledQuantity == null ? null : toNumberValue(item.cancelledQuantity),
+    unit: toOptionalString(item.unit) || null,
+    productName: toOptionalString(item.productName) || null,
+    createdBy: toNumberValue(item.createdBy),
     customerId: toNumberValue(item.customerId),
     customerName: toOptionalString(item.customerName) || null,
     customerNameZh: toOptionalString(item.customerNameZh) || null,
@@ -118,6 +129,11 @@ const mapReceivableAdjustment = (value: unknown): ReceivableAdjustmentRecord => 
 };
 
 export const receivableAdjustmentService = {
+  async requestQuantityCancellation(orderId: string, payload: { orderItemId: number; quantity: number;
+    expectedUpdatedAt: string; idempotencyKey: string; reason: string }): Promise<ReceivableAdjustmentRecord> {
+    const response = await api.post<unknown, ApiDataResponse<unknown>>(`/orders/${orderId}/quantity-cancellations`, payload);
+    return mapReceivableAdjustment(response.data);
+  },
   async getAll(params?: {
     page?: number;
     pageSize?: number;

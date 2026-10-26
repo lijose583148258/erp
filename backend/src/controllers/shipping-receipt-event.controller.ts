@@ -6,8 +6,12 @@ import { AuthRequest } from '../middleware/auth';
 import { AppError, ErrorCode } from '../middleware/errorHandler';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { compareReceiptQuantity } from '../utils/receiptQuantity';
 import { ReceiptDiscrepancyService } from '../services/receipt-discrepancy.service';
+import type { CreateReceiptDiscrepancyCaseInput } from '../services/receipt-discrepancy.types';
 import { storeReceiptFile } from '../services/shipping-receipt-file.service';
+import { shipmentReceiptSubmissionKey, shipmentReceiptFacts, readShipmentReceiptSubmission, recordShipmentReceiptSubmission,
+    recordShipmentReceiptRejection, rejectedShipmentReceiptError } from '../services/shipment-receipt-submission.service';
 import {
     buildShipmentReceiptSummary,
     canManageShipping,
@@ -29,8 +33,10 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
         const inputQuantity = Number(req.body.quantity || 0);
         const acceptedQuantity = Number(req.body.acceptedQuantity ?? inputQuantity);
         const rejectedQuantity = Number(req.body.rejectedQuantity ?? 0);
+        const key = shipmentReceiptSubmissionKey(req.get('Idempotency-Key'));
+        const facts = shipmentReceiptFacts({ ...req.body, quantity: inputQuantity, acceptedQuantity, rejectedQuantity });
 
-        if (Math.abs((acceptedQuantity + rejectedQuantity) - inputQuantity) > 0.000001) {
+        if (compareReceiptQuantity(acceptedQuantity + rejectedQuantity, inputQuantity) !== 0) {
             return res.status(400).json({ success: false, message: '签收数量必须等于正常签收与异常数量之和' });
         }
 
@@ -61,30 +67,68 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 throw new AppError('SHIPMENT_NOT_FOUND', 404, ErrorCode.NOT_FOUND);
             }
 
+            const prior = key ? await readShipmentReceiptSubmission(tx, shipmentId, key, req.user!.userId, facts) : null;
+            const bundle = async () => ({ shipment, receiptSummary: await buildShipmentReceiptSummary(tx, shipment),
+                receipts: await listShipmentReceiptEvents(tx, shipment.id), discrepancyCases: (await ReceiptDiscrepancyService.listCases(tx, {
+                    relatedModule: 'shipping', relatedId: shipment.id, page: 1, pageSize: 100 })).items });
+            if (prior) return { ...(await bundle()), submission: prior, replayed: true, discrepancyCase: null };
+            const reject = async (code: Parameters<typeof recordShipmentReceiptRejection>[5]) => {
+                if (!key) throw new AppError(code, 409, ErrorCode.CONFLICT);
+                return { rejectedSubmission: await recordShipmentReceiptRejection(tx, shipmentId, req.user!.userId, key, facts, code,
+                    { ipAddress: req.ip, userAgent: req.get('user-agent') }) };
+            };
+
             if (shipment.status === 'delivered') {
-                throw new AppError('SHIPMENT_ALREADY_DELIVERED', 409, ErrorCode.CONFLICT);
+                return reject('SHIPMENT_ALREADY_DELIVERED');
             }
 
             if (shipment.status === 'pending') {
-                throw new AppError('SHIPMENT_MUST_BE_DISPATCHED_FIRST', 409, ErrorCode.CONFLICT);
+                return reject('SHIPMENT_MUST_BE_DISPATCHED_FIRST');
             }
 
             if (!['in_transit', 'exception'].includes(shipment.status)) {
-                throw new AppError('SHIPMENT_STATUS_NOT_RECEIVABLE', 409, ErrorCode.CONFLICT);
+                return reject('SHIPMENT_STATUS_NOT_RECEIVABLE');
             }
 
             const totals = await getShipmentReceiptTotals(tx, shipment.id);
-            const remainingQuantity = Number(shipment.quantity || 0) - totals.processedQuantity;
-            if (remainingQuantity <= 0.000001) {
-                throw new AppError('SHIPMENT_ALREADY_FULLY_RECEIVED', 409, ErrorCode.CONFLICT);
+            if (compareReceiptQuantity(totals.processedQuantity, shipment.quantity) >= 0) {
+                return reject('SHIPMENT_ALREADY_FULLY_RECEIVED');
             }
-            if (inputQuantity - remainingQuantity > 0.000001) {
-                throw new AppError(
-                    'SHIPMENT_RECEIPT_EXCEEDS_REMAINING',
-                    409,
-                    ErrorCode.CONFLICT,
-                    { remainingQuantity, inputQuantity },
-                );
+            if (compareReceiptQuantity(inputQuantity + totals.processedQuantity, shipment.quantity) > 0) {
+                return reject('SHIPMENT_RECEIPT_EXCEEDS_REMAINING');
+            }
+
+            const receiptNo = buildBusinessNo('SPR');
+            const discrepancyInput: CreateReceiptDiscrepancyCaseInput = {
+                sourceType: 'shipment_receipt',
+                sourceRef: receiptNo,
+                relatedModule: 'shipping',
+                relatedId: shipment.id,
+                businessRef: shipment.shipmentNo,
+                counterpartyType: 'customer',
+                counterpartyId: shipment.customerId,
+                counterpartyName: shipment.customer ? getCustomerDisplayName(shipment.customer) : null,
+                productName: shipment.productName,
+                quantity: rejectedQuantity,
+                unit: shipment.unit || 'kg',
+                referenceQuantity: Number(shipment.quantity || 0),
+                discrepancyType: ReceiptDiscrepancyService.normalizeDiscrepancyType(req.body.discrepancyType, 'customer_short_signed'),
+                reason: req.body.discrepancyReason || '签收异常待处理',
+                severity: rejectedQuantity / Math.max(inputQuantity, 1) >= 0.5 ? 'high' : 'normal',
+                suggestedAction: 'after_sales_or_reship_review',
+                note: req.body.note || null,
+                createdBy: req.user?.userId || null,
+            };
+            // Only a read-only, pre-write policy rejection may commit a sealed intent.
+            // The later case creation independently rechecks policy and must roll back
+            // the whole receipt transaction if a rule changes in between.
+            try {
+                await ReceiptDiscrepancyService.assertReceiptAllowed(tx, discrepancyInput);
+            } catch (error) {
+                if (error instanceof AppError && error.statusCode === 409 && error.message === 'RECEIPT_DISCREPANCY_BLOCKED_BY_TOLERANCE') {
+                    return reject('RECEIPT_DISCREPANCY_BLOCKED_BY_TOLERANCE');
+                }
+                throw error;
             }
 
             const hasReceiptFile = Boolean(req.body.fileName && req.body.mimeType && req.body.dataUrl);
@@ -101,7 +145,6 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 }
             }
 
-            const receiptNo = buildBusinessNo('SPR');
             const receivedAt = new Date();
             await executeRawCompat(tx, 
                 `INSERT INTO shipment_receipts
@@ -114,8 +157,8 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 rejectedQuantity,
                 shipment.unit || 'kg',
                 signedReceiptUrl,
-                req.body.discrepancyReason || null,
-                req.body.note || null,
+                facts.discrepancyReason,
+                facts.note,
                 req.user?.userId || null,
                 receivedAt,
             );
@@ -124,35 +167,14 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 `SELECT id FROM shipment_receipts WHERE receipt_no = ? LIMIT 1`,
                 receiptNo,
             );
-            const discrepancyType = ReceiptDiscrepancyService.normalizeDiscrepancyType(
-                req.body.discrepancyType,
-                'customer_short_signed',
-            );
             const discrepancyCase = await ReceiptDiscrepancyService.createCaseForRejectedReceipt(tx, {
-                sourceType: 'shipment_receipt',
-                sourceRef: receiptNo,
+                ...discrepancyInput,
                 sourceId: receiptRows[0]?.id ? Number(receiptRows[0].id) : null,
-                relatedModule: 'shipping',
-                relatedId: shipment.id,
-                businessRef: shipment.shipmentNo,
-                counterpartyType: 'customer',
-                counterpartyId: shipment.customerId,
-                counterpartyName: shipment.customer ? getCustomerDisplayName(shipment.customer) : null,
-                productName: shipment.productName,
-                quantity: rejectedQuantity,
-                unit: shipment.unit || 'kg',
-                referenceQuantity: Number(shipment.quantity || 0),
-                discrepancyType,
-                reason: req.body.discrepancyReason || '签收异常待处理',
-                severity: rejectedQuantity / Math.max(inputQuantity, 1) >= 0.5 ? 'high' : 'normal',
-                suggestedAction: 'after_sales_or_reship_review',
-                note: req.body.note || null,
-                createdBy: req.user?.userId || null,
             });
 
             const nextTotals = await getShipmentReceiptTotals(tx, shipment.id);
             const shipmentQuantity = Number(shipment.quantity || 0);
-            const isFullyProcessed = nextTotals.processedQuantity + 0.000001 >= shipmentQuantity;
+            const isFullyProcessed = compareReceiptQuantity(nextTotals.processedQuantity, shipmentQuantity) >= 0;
             const nextStatus = rejectedQuantity > 0
                 ? 'exception'
                 : (isFullyProcessed ? 'delivered' : 'in_transit');
@@ -170,9 +192,14 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 await syncOrderShipmentState(tx, shipment.orderId);
             }
 
+            const submission = await recordShipmentReceiptSubmission(tx, shipmentId, Number(receiptRows[0].id), req.user!.userId, key, facts,
+                { ipAddress: req.ip, userAgent: req.get('user-agent') });
+
             return {
                 shipment: updated,
                 receiptNo,
+                submission,
+                replayed: false,
                 receiptSummary: await buildShipmentReceiptSummary(tx, shipment),
                 receipts: await listShipmentReceiptEvents(tx, shipment.id),
                 discrepancyCases: (await ReceiptDiscrepancyService.listCases(tx, {
@@ -185,19 +212,8 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
             };
         }), { label: 'createShipmentReceiptEvent' });
 
+        if ('rejectedSubmission' in result) throw rejectedShipmentReceiptError(result.rejectedSubmission);
         const shipmentDetail = await getShipmentDetail(result.shipment.id);
-
-        await prisma.auditLog.create({
-            data: {
-                userId: req.user!.userId,
-                action: 'CREATE_RECEIPT_EVENT',
-                resource: 'shipment',
-                resourceId: result.shipment.id,
-                details: `新增签收批次 ${result.receiptNo}`,
-                ipAddress: req.ip,
-                userAgent: req.get('user-agent'),
-            },
-        });
 
         return res.status(201).json({
             success: true,
@@ -207,6 +223,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
                 receipts: result.receipts,
                 discrepancyCases: result.discrepancyCases,
                 discrepancyCase: result.discrepancyCase,
+                ...(result.submission ? { submission: result.submission, replayed: result.replayed } : {}),
             },
             message: '签收批次已记录',
         });
@@ -229,6 +246,7 @@ export async function createShippingReceiptEvent(req: AuthRequest, res: Response
         return res.status(statusCode).json({
             success: false,
             message: messages[message] || (statusCode === 500 ? '服务器内部错误' : message),
+            ...(error instanceof AppError && error.details && 'rejectedSubmission' in error.details ? { errorCode: message } : {}),
             details,
         });
     }

@@ -1,0 +1,234 @@
+const fs = require('node:fs'), path = require('node:path'), assert = require('node:assert/strict');
+const { expect } = require('playwright/test');
+const { launchBrowserWithGuard } = require('./browser-launch-guard.cjs');
+const { verifyRenderedCjk } = require('./browser-cjk-font-guard.cjs');
+const { restartIsolatedApps } = require('./enterprise-round2-app-restart.cjs');
+const { loginUiAuditUser } = require('./ui-audit-user.cjs');
+const { paymentWorkforceActors, paymentWorkforceProfile, paymentNativeRequest } = require('./enterprise-round2-payment-actor-proof.cjs');
+
+async function paymentSubmitBrowser(ctx, order, snapshot, e, signal) {
+  const { actors, request, dataOf, runId, urls, reportPath } = ctx, orderId = Number(order.id);
+  const duties = paymentWorkforceActors(ctx), salesActor = duties?.sales || actors.sales;
+  const requester = duties?.requester || actors.finance1, readActors = duties ? [duties.requester, duties.reviewer] : [actors.finance1, actors.finance2];
+  const sessions = new Map();
+  const native = async (req, actor, instance, method, endpoint, status, phase) => {
+    if (!duties) return;
+    e.workforce.nativeRequests.push({ phase, ...await paymentNativeRequest(req, actor, sessions.get(actor), instance,
+      { origin: new URL(urls[instance]).origin, method, path: endpoint, status }) });
+  };
+  const folder = path.join(path.dirname(reportPath), `${runId}-payment-submit`); fs.mkdirSync(folder, { recursive: true });
+  const browser = (await launchBrowserWithGuard({ retryLimit: 1 })).browser;
+  const abort = () => { void browser.close().catch(() => {}); }; signal.addEventListener('abort', abort, { once: true });
+  e.browserErrors = []; e.screenshots = [];
+  async function bootstrapFailureReadbacks() {
+    const response = await fetch(`${urls[0]}/`, { signal }); assert.equal(response.status, 200);
+    const html = await response.text();
+    const entry = html.match(/<script\b(?=[^>]*\btype=["']module["'])[^>]*\bsrc=["']([^"']+)["']/)?.[1];
+    assert(entry, 'The real deployed index must identify its main module');
+    const main = new URL(entry, urls[0]); assert.equal(main.origin, new URL(urls[0]).origin);
+    assert.match(main.pathname, /^\/assets\/index-[^/]+\.js$/);
+    const proof = { version: 'bootstrap-script-failure/v1', mainEntryPath: main.pathname, cases: [] };
+    for (const [kind, blockedPath] of [['legacy-script', '/app-shell.js'], ['main-entry', main.pathname]]) {
+      const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
+      const failedScriptPaths = [];
+      page.on('requestfailed', req => { if (req.resourceType() === 'script') failedScriptPaths.push(new URL(req.url()).pathname); });
+      try {
+        await page.route(url => url.origin === main.origin && url.pathname === blockedPath, route => route.abort('failed'));
+        await page.goto(`${urls[0]}/`, { waitUntil: 'load', timeout: 20000 });
+        if (kind === 'legacy-script') {
+          await expect(page.locator('#loading')).toHaveCount(0);
+          const input = page.locator('#root input[type="password"]');
+          await input.click(); await input.fill('bootstrap-probe'); await expect(input).toHaveValue('bootstrap-probe');
+        } else {
+          // The legacy compatibility timer (500ms + 300ms fade) has expired.
+          await page.waitForTimeout(900); await expect(page.locator('#loading')).toBeVisible();
+          await expect(page.locator('#root')).toBeEmpty();
+        }
+        assert.deepEqual(failedScriptPaths, [blockedPath]);
+        const actual = await page.evaluate(() => ({ rootChildren: document.getElementById('root').childElementCount,
+          loadingCount: document.querySelectorAll('#loading').length, readyState: document.readyState }));
+        const screenshot = path.join(folder, `bootstrap-${kind}.png`); await page.screenshot({ path: screenshot });
+        proof.cases.push({ kind, blockedPath, failedScriptPaths, ...actual, screenshot });
+      } finally { await page.close(); }
+    }
+    return proof;
+  }
+  async function open(actor, instance, hash) {
+    // Route faults must reach the network, not a cached service-worker response.
+    const page = await browser.newPage({ viewport: { width: 1440, height: 1000 }, serviceWorkers: 'block' });
+    await page.context().tracing.start({ screenshots: true, snapshots: true });
+    page.setDefaultTimeout(15000); page.setDefaultNavigationTimeout(20000); page.on('pageerror', err => e.browserErrors.push(err.message));
+    const collectionRead = duties && hash === 'collections' ? page.waitForResponse(response =>
+      new URL(response.url()).origin === new URL(urls[instance]).origin && new URL(response.url()).pathname === '/api/collections/workbench' && response.request().method() === 'GET') : null;
+    if (collectionRead) void collectionRead.catch(() => {});
+    if (duties) {
+      const login = await loginUiAuditUser(page, `${urls[instance]}/`, { account: actor.account, reuseExistingAccount: true,
+        storage: { 'ailao.language': 'zh', language: 'zh-CN' } });
+      paymentWorkforceProfile(login.user, actor); actor.token = login.token; sessions.set(actor, login.token);
+      const current = page.waitForResponse(response => new URL(response.url()).origin === new URL(urls[instance]).origin &&
+        new URL(response.url()).pathname === '/api/auth/me' && response.request().method() === 'GET');
+      void current.catch(() => {});
+      await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' });
+      const response = await current; assert.equal(response.status(), 200);
+      const profile = paymentWorkforceProfile((await response.json()).data, actor);
+      const checked = await paymentNativeRequest(response.request(), actor, login.token, instance,
+        { origin: new URL(urls[instance]).origin, method: 'GET', path: '/api/auth/me', status: response.status() });
+      const duty = Object.keys(duties).find(key => duties[key] === actor);
+      e.workforce.sessions.push({ duty, actorId: actor.id, instance, profile, authorizationMatched: checked.authorizationMatched });
+    } else {
+      await page.addInitScript(({ token, user }) => {
+        for (const k of ['token', 'auth_token', 'erp_auth_token']) localStorage.setItem(k, token);
+        for (const k of ['user', 'currentUser', 'erp_current_user']) localStorage.setItem(k, JSON.stringify(user));
+        localStorage.setItem('ailao.language', 'zh'); localStorage.setItem('language', 'zh-CN');
+      }, { token: actor.token, user: { id: String(actor.id), name: actor.job, role: actor.role, segment: 'mixed' } });
+      await page.goto(`${urls[instance]}/#${hash}`, { waitUntil: 'domcontentloaded' });
+    }
+    await page.locator('#loading').waitFor({ state: 'hidden' });
+    if (collectionRead) {
+      const response = await collectionRead; assert.equal(response.status(), 200);
+      await native(response.request(), actor, instance, 'GET', '/api/collections/workbench', response.status(), 'collections-readback');
+      const payment = (await response.json()).data.ledger.find(row => Number(row.id) === e.browser.originalReceipt.paymentId);
+      assert(payment && Number(payment.amount) === 300 && payment.status === 'verified', 'Native workbench did not read the actual registered payment');
+      e.workforce.nativeRequests.at(-1).payment = { id: Number(payment.id), amount: Number(payment.amount), status: payment.status };
+    }
+    return page;
+  }
+  try {
+    e.bootstrapRecovery = await bootstrapFailureReadbacks();
+    const sales = await open(salesActor, 0, 'orders');
+    const openRegistration = async () => {
+      await sales.getByTestId('sales-desk-payments').click(); await sales.getByTestId('sales-order-search').fill(order.orderNo);
+      await sales.getByTestId(`sales-order-row-${orderId}`).getByTestId('sales-order-payment-button').click();
+      await expect(sales.getByTestId('sales-order-payment-modal')).toBeVisible();
+    };
+    await openRegistration(); const modal = sales.getByTestId('sales-order-payment-modal');
+    await modal.getByTestId('sales-order-payment-amount').fill('300'); await modal.locator('input[type="text"]').last().fill(`${runId}-lost-ack`);
+    e.browser = { actorId: salesActor.id, role: duties ? salesActor.role : 'sales', faultRequests: 0 };
+    const pattern = `**/api/orders/${orderId}/payment`;
+    await sales.route(pattern, async route => {
+      e.browser.faultRequests++; e.browser.payload = route.request().postDataJSON();
+      const res = await route.fetch({ timeout: 15000 });
+      await native(route.request(), salesActor, 0, 'POST', `/api/orders/${orderId}/payment`, res.status(), 'lost-ack');
+      e.browser.committedResponse = { status: res.status(), json: await res.json() };
+      await route.abort('failed'); // Discard a real committed success, not a mocked business response.
+    });
+    await modal.getByTestId('sales-order-payment-confirm').click({ clickCount: 2 });
+    await expect(modal.getByTestId('sales-order-payment-confirm')).toBeEnabled();
+    await expect(sales.getByText('提交结果未确认。原请求身份已保留；请重试确认，不会另建一笔回款。', { exact: true })).toBeVisible();
+    assert.equal(e.browser.faultRequests, 1); assert.equal(e.browser.committedResponse.status, 200);
+    e.browser.originalReceipt = e.browser.committedResponse.json.paymentSubmission;
+    e.browser.storageBefore = await sales.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => k.startsWith('ailaoda.payment-intent/v1.'))));
+    assert.equal(Object.keys(e.browser.storageBefore).length, 1);
+    await expect(modal.getByTestId('sales-order-payment-amount')).toBeDisabled(); e.browser.lockedUnknownFacts = true;
+    const unknown = path.join(folder, 'sales-unknown-ack.png'); await sales.screenshot({ path: unknown });
+    e.screenshots.push({ kind: 'unknown-ack', path: unknown, font: await verifyRenderedCjk(sales, '[data-testid="sales-order-payment-modal"]') });
+    await sales.unroute(pattern); e.beforeAppCrash = await snapshot();
+    e.restart = await restartIsolatedApps(urls, signal, async () => { assert.deepEqual(await snapshot(), e.beforeAppCrash); });
+    // Reproduce the cloud's failed optional chunk fetch after restart. It must
+    // not unmount the sales page or discard the durable unacknowledged payment.
+    const aiPattern = '**/assets/AIAssistant-*.js';
+    e.optionalAiModuleFailure = { failedRequests: 0, startedAt: new Date().toISOString() };
+    await sales.route(aiPattern, async route => { e.optionalAiModuleFailure.failedRequests++; await route.abort('failed'); });
+    // Exercise the existing user-facing recovery too: a core page chunk can fail
+    // during network change. One explicit UI reload, never a business POST retry loop.
+    const pagePattern = '**/assets/SalesOrders-*.js';
+    e.businessPageRecovery = { failedRequests: 0, reloadClicks: 0 };
+    await sales.route(pagePattern, async route => { e.businessPageRecovery.failedRequests++; await route.abort('failed'); });
+    await sales.reload(); await sales.locator('#loading').waitFor({ state: 'hidden' });
+    await expect(sales.getByRole('heading', { name: '当前页面加载失败', exact: true })).toBeVisible();
+    assert(e.businessPageRecovery.failedRequests >= 1);
+    e.businessPageRecovery.issues = await sales.evaluate(() => window.__AILAODA_CLIENT_ISSUES__ || []);
+    assert(e.businessPageRecovery.issues.some(issue => issue.scope === 'page-error-boundary:orders'));
+    assert(!e.businessPageRecovery.issues.some(issue => issue.scope === 'root-error-boundary'));
+    e.businessPageRecovery.storageAtFailure = await sales.evaluate(() => Object.fromEntries(Object.entries(localStorage).filter(([k]) => k.startsWith('ailaoda.payment-intent/v1.'))));
+    assert.deepEqual(e.businessPageRecovery.storageAtFailure, e.browser.storageBefore);
+    assert.deepEqual(await snapshot(), e.beforeAppCrash);
+    await sales.unroute(pagePattern);
+    await sales.getByRole('button', { name: '重新加载页面', exact: true }).click();
+    e.businessPageRecovery.reloadClicks++;
+    await expect(sales.getByTestId('sales-desk-payments')).toBeVisible();
+    await expect(sales.getByRole('heading', { name: '当前页面加载失败', exact: true })).toHaveCount(0);
+    e.businessPageRecovery.recovered = true;
+    await expect(sales.getByTestId('ai-tools-unavailable')).toBeVisible();
+    assert(e.optionalAiModuleFailure.failedRequests >= 1);
+    e.optionalAiModuleFailure.issues = await sales.evaluate(() => window.__AILAODA_CLIENT_ISSUES__ || []);
+    assert(e.optionalAiModuleFailure.issues.some(issue => issue.scope === 'page-error-boundary:ai-tools'));
+    assert(!e.optionalAiModuleFailure.issues.some(issue => issue.scope === 'root-error-boundary'));
+    e.optionalAiModuleFailure.screenshot = path.join(folder, 'sales-ai-unavailable-payment-preserved.png');
+    await sales.screenshot({ path: e.optionalAiModuleFailure.screenshot });
+    await openRegistration();
+    const restored = sales.getByTestId('sales-order-payment-modal');
+    await expect(restored.getByTestId('payment-submission-unconfirmed')).toBeVisible();
+    await expect(restored.getByTestId('sales-order-payment-amount')).toHaveValue('300');
+    const ack = sales.waitForResponse(res => new URL(res.url()).pathname === `/api/orders/${orderId}/payment` && res.request().method() === 'POST');
+    await restored.getByTestId('sales-order-payment-confirm').click(); const recovered = await ack;
+    e.browser.recoveredResponse = { status: recovered.status(), json: await recovered.json() };
+    await native(recovered.request(), salesActor, 0, 'POST', `/api/orders/${orderId}/payment`, recovered.status(), 'recovered-ack');
+    assert.equal(recovered.status(), 200); assert.equal(e.browser.recoveredResponse.json.replayed, true);
+    assert.deepEqual(e.browser.recoveredResponse.json.paymentSubmission, e.browser.originalReceipt);
+    await expect(restored).toBeHidden();
+    e.browser.storageAfter = await sales.evaluate(() => Object.keys(localStorage).filter(k => k.startsWith('ailaoda.payment-intent/v1.')));
+    assert.deepEqual(e.browser.storageAfter, []); assert.deepEqual(await snapshot(), e.beforeAppCrash);
+    const id = e.browser.originalReceipt.paymentId;
+    dataOf(await request(`/orders/${orderId}/payment/${id}/verify`, { actor: duties ? requester : actors.finance2, instance: 1, method: 'POST', signal }));
+    e.finalSnapshot = await snapshot(); assert.equal(e.finalSnapshot.payments.length, 3); assert.equal(e.finalSnapshot.submissions.length, 3);
+    assert.equal(e.finalSnapshot.audits.length, 3); assert.equal(Number(e.finalSnapshot.order.paidAmount), 900);
+    for (const index of [0,1]) {
+      const replay = await request(`/orders/${orderId}/payment`, { actor: salesActor, instance: index, method: 'POST', signal, data: e.browser.payload });
+      assert.equal(replay.status, 200); assert.deepEqual(replay.json.paymentSubmission, e.browser.originalReceipt);
+    }
+    e.afterAllReplays = await snapshot(); assert.deepEqual(e.afterAllReplays, e.finalSnapshot);
+    e.apiReadbacks = await Promise.all(urls.map(async (_, instance) => {
+      const actor = duties ? readActors[instance] : actors.finance1;
+      const row = dataOf(await request(`/orders/${orderId}`, { actor, instance, signal }));
+      assert.equal(Number(row.paidAmount), 900); assert.equal(row.paymentRecords.length, 3);
+      return { instance, ...(duties ? { actorId: actor.id } : {}), orderId, paidAmount: row.paidAmount, paymentStatus: row.paymentStatus, count: row.paymentRecords.length };
+    }));
+    await sales.unroute(aiPattern);
+    await sales.reload(); await expect(sales.getByTestId('ai-assistant-open')).toBeVisible();
+    await expect(sales.getByTestId('sales-desk-payments')).toBeVisible();
+    await expect(sales.getByTestId('ai-tools-unavailable')).toHaveCount(0);
+    e.optionalAiModuleFailure.afterRecovery = await snapshot();
+    assert.deepEqual(e.optionalAiModuleFailure.afterRecovery, e.finalSnapshot);
+    e.optionalAiModuleFailure.recovered = true;
+    e.optionalAiModuleFailure.finishedAt = new Date().toISOString();
+    for (const [index, actor] of readActors.entries()) {
+      const page = await open(actor, index, 'collections'); await page.getByTestId('collection-tab-ledger').click();
+      await page.getByTestId('collection-ledger-search').fill(order.orderNo);
+      await page.getByRole('button', { name: '显示或隐藏表格列', exact: true }).first().click();
+      const columns = page.getByRole('dialog', { name: '选择要显示的表格列' });
+      for (const label of ['收款单', '金额', '状态']) await columns.getByRole('checkbox', { name: `显示列：${label}`, exact: true }).setChecked(true);
+      for (const label of ['订单号', '客户', '方式', '录入时间']) await columns.getByRole('checkbox', { name: `显示列：${label}`, exact: true }).setChecked(false);
+      await page.keyboard.press('Escape'); await page.getByTestId(`collection-ledger-row-${id}`).getByText(`#${id}`, { exact: true }).click();
+      const card = page.getByTestId(`collection-payment-detail-${id}`); await card.scrollIntoViewIfNeeded();
+      const status = card.getByText('已核销', { exact: true }), amount = card.getByText(/300\.00/).first();
+      await expect(status).toBeVisible(); await expect(amount).toBeVisible();
+      const hit = el => { const r=el.getBoundingClientRect(), top=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2); return !!top&&(top===el||el.contains(top)); };
+      const statusVisible = await status.evaluate(hit), amountVisible = await amount.evaluate(hit); assert(statusVisible && amountVisible);
+      const file = path.join(folder, `finance-${index + 1}-registered-once.png`); await page.screenshot({ path: file });
+      e.screenshots.push({ kind: 'finance-readback', actorId: actor.id, ...(duties ? { instance: index } : {}), path: file, statusVisible, amountVisible, text: await card.innerText(),
+        font: await verifyRenderedCjk(page, `[data-testid="collection-payment-detail-${id}"]`) });
+    }
+    assert.equal(e.browserErrors.length, 0);
+  } catch (error) {
+    // Keep the failing page and network evidence; a locator timeout alone cannot
+    // distinguish authentication, lazy-module loading, and business UI failures.
+    e.browserFailure = [];
+    for (const [index, context] of browser.contexts().entries()) {
+      const page = context.pages()[0], failure = { index };
+      try {
+        failure.page = await page.evaluate(() => ({ url: location.href, text: document.body.innerText.slice(0, 8000),
+          issues: window.__AILAODA_CLIENT_ISSUES__ || [] }));
+        failure.screenshot = path.join(folder, `failure-${index}.png`);
+        await page.screenshot({ path: failure.screenshot, timeout: 5000 });
+        failure.trace = path.join(folder, `failure-${index}.zip`);
+        await context.tracing.stop({ path: failure.trace });
+      } catch (captureError) { failure.captureError = captureError.message; }
+      e.browserFailure.push(failure);
+    }
+    throw error;
+  } finally {
+    signal.removeEventListener('abort', abort); await browser.close(); fs.writeFileSync(path.join(folder, 'evidence.json'), JSON.stringify(e, null, 2));
+  }
+}
+module.exports = { paymentSubmitBrowser };

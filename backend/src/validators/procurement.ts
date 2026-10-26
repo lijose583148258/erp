@@ -1,4 +1,9 @@
 import { z } from 'zod';
+import { incomingQualityPlanSchema, supplierPayableTermsSchema } from '../domain/purchase-governance';
+
+export const confirmPurchaseSourcesSchema = z.object({ expectedRevision: z.number().int().nonnegative(), expectedUpdatedAt: z.string().datetime(),
+  supplierPayableTerms: supplierPayableTermsSchema, incomingQualityPlan: incomingQualityPlanSchema,
+  reason: z.string().trim().min(3).max(1000) }).strict();
 
 const purchaseStatusSchema = z.enum(['pending', 'approved', 'in_transit', 'received', 'cancelled', 'confirmed', 'shipped', 'delivered']);
 const receiptDiscrepancyTypeSchema = z.enum([
@@ -67,6 +72,7 @@ export const updateContractSchema = z.object({
 
 export const createPurchaseOrderSchema = z.object({
   supplierId: z.coerce.number().int().positive(),
+  materialId: z.coerce.number().int().positive().optional().nullable(),
   item: z.string().trim().min(1),
   quantity: z.coerce.number().positive(),
   unit: z.string().trim().min(1),
@@ -84,12 +90,29 @@ export const createPurchaseOrderSchema = z.object({
   salesOrderRef: z.string().trim().optional(),
   salesOrderId: z.coerce.number().int().positive().optional().nullable(),
   isB2B: z.coerce.boolean().optional(),
+  supplierPayableTerms: supplierPayableTermsSchema.optional(),
+  incomingQualityPlan: incomingQualityPlanSchema.optional(),
 }).passthrough();
 
+// A complete, explicitly priced amendment; identity/currency/FX are immutable here.
+export const revisePurchaseOrderSchema = z.object({
+  expectedRevision: z.number().int().nonnegative(),
+  expectedUpdatedAt: z.string().datetime(),
+  quantity: z.number().finite().positive(),
+  price: z.number().finite().nonnegative(),
+  taxAmount: z.number().finite().nonnegative(),
+  eta: z.string().refine(value => /^\d{4}-\d{2}-\d{2}$/.test(value)
+    && !Number.isNaN(Date.parse(value)) && new Date(value).toISOString().slice(0, 10) === value, '预计到货日期无效'),
+  reason: z.string().trim().min(3).max(1000),
+  supplierPayableTerms: supplierPayableTermsSchema.optional(),
+  incomingQualityPlan: incomingQualityPlanSchema.optional(),
+}).strict();
+
 export const createPurchaseReceiptSchema = z.object({
-  quantity: z.coerce.number().positive(),
-  acceptedQuantity: z.coerce.number().nonnegative().optional(),
-  rejectedQuantity: z.coerce.number().nonnegative().optional(),
+  expectedRevision: z.number().int().nonnegative().optional(), // V1 committed replay remains readable without inventing new facts.
+  quantity: z.coerce.number().finite().positive().multipleOf(0.000001),
+  acceptedQuantity: z.coerce.number().finite().nonnegative().multipleOf(0.000001).optional(),
+  rejectedQuantity: z.coerce.number().finite().nonnegative().multipleOf(0.000001).optional(),
   discrepancyType: receiptDiscrepancyTypeSchema.optional(),
   batchNo: z.string().trim().optional(),
   receivedAt: z.string().trim().optional(),

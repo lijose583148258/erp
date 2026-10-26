@@ -17,6 +17,7 @@ const getMsdsMeta = (row: Shipment, t: Record<string, string>) => {
 export const buildShipmentColumns = (
     t: Record<string, string>,
     canWrite: boolean,
+    language?: string,
 ): Column<Shipment>[] => [
     {
         header: t.shipmentId,
@@ -104,6 +105,10 @@ export const buildShipmentColumns = (
                 >
                     {row.status === 'delivered' ? t.delivered : row.status === 'in_transit' ? t.activeTransit : row.status === 'pending' ? t.dispatchPending : (t.exception || '异常')}
                 </span>
+                <span data-testid={`shipment-reserved-${row.id}`} className="text-xs text-indigo-700 dark:text-indigo-300">
+                    {language === 'en' ? 'Physical hold' : language === 'vi' ? 'Giữ kho' : '实物预留'}: {row.stockReservation && typeof row.stockReservation.activeQuantity === 'number' && Number.isFinite(row.stockReservation.activeQuantity) && row.stockReservation.activeQuantity >= 0
+                        ? `${row.stockReservation.activeQuantity} ${row.unit || ''}` : language === 'en' ? 'Not verified' : language === 'vi' ? 'Chưa xác minh' : '待核实'}
+                </span>
             </div>
         )
     },
@@ -123,7 +128,7 @@ export const buildShipmentColumns = (
         accessor: (row) => (
             <div className="flex flex-col gap-2">
                 {row.signedReceiptUrl ? (
-                    <a data-testid={`shipment-receipt-link-${row.id}`} href={row.signedReceiptUrl} target="_blank" rel="noreferrer" className="flex items-center text-emerald-600 hover:scale-105 transition-transform">
+ <a data-testid={`shipment-receipt-link-${row.id}`} href={row.signedReceiptUrl} target="_blank" rel="noreferrer" className="flex items-center text-emerald-600 transition-transform">
                         <ImageIcon size={14} className="mr-1.5" />
                         <span className="text-xs font-bold">{t.viewReceipt}</span>
                     </a>
@@ -145,6 +150,9 @@ export const buildShipmentColumns = (
 export const renderSparkline = (values: number[]) => {
     const width = 160;
     const height = 48;
+    if (values.length < 2) return <svg width={width} height={height} className="block" aria-label="Single temperature snapshot">
+        {values.length === 1 && <circle cx={width / 2} cy={height / 2} r={3} fill="#06b6d4" />}
+    </svg>;
     const max = Math.max(...values);
     const min = Math.min(...values);
     const range = max - min || 1;

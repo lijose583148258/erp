@@ -1,6 +1,7 @@
 import { Plus } from 'lucide-react';
 import type { Dispatch, SetStateAction } from 'react';
 import type { InboundFormErrors, InboundFormState, WarehouseLocationOption } from './warehouseWorkspaceTypes';
+import { MaterialMasterCombobox } from '../../components/materials/MaterialMasterCombobox';
 
 const INBOUND_REASON_OPTIONS = [
   { value: '', label: '-- 选择补录原因 --' },
@@ -34,7 +35,7 @@ export function WarehouseInboundPanel({
   canWrite,
 }: WarehouseInboundPanelProps) {
   const controlClassName = (hasError: boolean) =>
-    `w-full bg-white dark:bg-slate-800 border rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all ${
+ `w-full bg-white dark:bg-slate-800 border rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${
       hasError
         ? 'border-rose-300 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/20'
         : 'border-slate-200 dark:border-slate-700'
@@ -106,16 +107,29 @@ export function WarehouseInboundPanel({
           </div>
 
           <div>
-            <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">产品名称 *</label>
-            <input data-testid="warehouse-inbound-product-input" type="text" placeholder="如：丁酮 (MEK)" value={inboundForm.productName}
-              onChange={e => {
+            <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">统一物料 *</label>
+            <MaterialMasterCombobox
+              dataTestId="warehouse-inbound-product-input"
+              value={inboundForm.productName}
+              selectedMaterialId={inboundForm.materialId || null}
+              error={inboundErrors.materialId || inboundErrors.productName}
+              onTextChange={(value) => {
+                clearInboundError('materialId');
                 clearInboundError('productName');
-                setInboundForm(form => ({ ...form, productName: e.target.value }));
+                setInboundForm(form => ({ ...form, materialId: 0, productName: value }));
               }}
-              aria-invalid={Boolean(inboundErrors.productName)}
-              aria-describedby={inboundErrors.productName ? 'warehouse-inbound-product-error' : undefined}
-              className={controlClassName(Boolean(inboundErrors.productName))} />
-            {inboundErrors.productName ? <p id="warehouse-inbound-product-error" className="mt-2 text-xs font-bold text-rose-600 dark:text-rose-300">{inboundErrors.productName}</p> : null}
+              onClearSelection={() => setInboundForm(form => ({ ...form, materialId: 0 }))}
+              onSelect={(material) => {
+                clearInboundError('materialId');
+                clearInboundError('productName');
+                setInboundForm(form => ({
+                  ...form,
+                  materialId: material.id,
+                  productName: material.nameZh,
+                  unit: material.baseUnit,
+                }));
+              }}
+            />
           </div>
 
           <div>
@@ -147,7 +161,8 @@ export function WarehouseInboundPanel({
             <div className="w-24">
               <label className="block text-xs font-black text-slate-500 uppercase tracking-wider mb-2">单位</label>
               <select data-testid="warehouse-inbound-unit-select" value={inboundForm.unit} onChange={e => setInboundForm(form => ({ ...form, unit: e.target.value }))}
-                className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all">
+                disabled={Boolean(inboundForm.materialId)}
+ className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none">
                 {['kg', 'L', '桶', '瓶', '个', '吨'].map(unit => <option key={unit} value={unit}>{unit}</option>)}
               </select>
             </div>
@@ -202,7 +217,7 @@ export function WarehouseInboundPanel({
             placeholder="记录盘点人、审批口径或应急背景，便于后续追溯"
             value={inboundForm.note}
             onChange={e => setInboundForm(form => ({ ...form, note: e.target.value }))}
-            className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-all"
+ className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-4 py-3 text-sm font-bold focus:ring-2 focus:ring-amber-500 focus:border-transparent transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none"
           />
         </div>
 
@@ -213,7 +228,7 @@ export function WarehouseInboundPanel({
         )}
 
         <button data-testid="warehouse-inbound-confirm-button" onClick={handleInbound} disabled={inboundSaving || !canWrite}
-          className={`w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-emerald-500/30 hover:shadow-xl active:scale-[0.98] transition-all ${inboundSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
+ className={`w-full py-4 bg-gradient-to-r from-emerald-500 to-teal-600 text-white rounded-2xl font-black text-sm shadow-lg shadow-emerald-500/30 hover:shadow-xl transition-[background-color,border-color,color,box-shadow,opacity,transform] duration-150 motion-reduce:transition-none ${inboundSaving ? 'opacity-70 cursor-not-allowed' : ''}`}>
           {inboundSaving ? '应急补录 / 盘盈入库处理中...' : '确认应急补录 / 盘盈入库'}
         </button>
       </div>

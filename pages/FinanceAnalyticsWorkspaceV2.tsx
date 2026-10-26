@@ -1,15 +1,19 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Download, RefreshCcw, TrendingUp, ReceiptText, Clock3, AlertTriangle, WalletCards, ShieldCheck, Users2, FileText } from 'lucide-react';
 import { useAppContext } from '../app/AppContext';
+import { can, hasDataScope } from '../app/permissions';
 import { DocumentInputGuide } from '../components/ui/DocumentInputGuide';
 import { financeAnalyticsService, FinanceWorkspace } from '../services/financeAnalytics.service';
 import FinanceLedgerPanel from './finance/FinanceLedgerPanel';
 import FinanceCashflowPanel from './finance/FinanceCashflowPanel';
 import ReceivableAdjustmentPanel from './finance/ReceivableAdjustmentPanel';
+import SupplierPayablesPanel from './finance/SupplierPayablesPanel';
+import { MobileRecordCard, MobileRecordState } from '../components/ui/MobileRecordCard';
 import { getCustomerDisplayName } from '../utils/customerName';
 
 const FinanceAnalyticsWorkspaceV2: React.FC = () => {
-  const { t, notify, formatPrice, language } = useAppContext();
+  const { t, notify, formatPrice, language, currentUser } = useAppContext();
+  const canReadSupplierPayables = can(currentUser, 'finance.read') && hasDataScope(currentUser, 'finance_visible') && hasDataScope(currentUser, 'procurement_visible');
   const [workspace, setWorkspace] = useState<FinanceWorkspace | null>(null);
   const [loading, setLoading] = useState(false);
   const isInitialLoading = loading && !workspace;
@@ -102,7 +106,7 @@ const FinanceAnalyticsWorkspaceV2: React.FC = () => {
   };
 
   return (
-    <div className="space-y-8 pb-16 animate-in fade-in slide-in-from-bottom-4 duration-500">
+    <div className="space-y-8 pb-16 motion-safe:animate-in motion-safe:fade-in motion-safe:duration-200">
       <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div>
           <h1 className="text-3xl font-black tracking-tight text-slate-900 dark:text-white">
@@ -133,7 +137,7 @@ const FinanceAnalyticsWorkspaceV2: React.FC = () => {
         testId="finance-document-input-guide"
         eyebrow="财务经营 / 单据职责路线"
         title="先看经营结果，再进入正确的单据动作"
-        description="财务经营页是分析与应收调整入口，真实收款核销仍在回款中心。看板只看经营结果；折让、坏账、短款、汇差进入应收调整；库存或生产差异不在财务页直接改。"
+        description="客户真实收款核销在回款中心；应收调整与供应商实收应付分别处理。供应商付款仅登记外部付款证据，QA 放行前不能核验；不在此执行银行转账或直接修改库存。"
         tone="emerald"
         steps={[
           { title: '经营看板', description: '查看收入、已收、应收、逾期、账龄和现金流，不在看板里直接改钱。', badge: '看结果' },
@@ -224,6 +228,11 @@ const FinanceAnalyticsWorkspaceV2: React.FC = () => {
         <FinanceCashflowPanel data={cashflow} />
       </div>
 
+      {canReadSupplierPayables && <SupplierPayablesPanel
+        canRecord={can(currentUser, 'procurement.payment.record')}
+        canVerify={can(currentUser, 'procurement.payment.verify')}
+        currentUserId={currentUser.id} />}
+
       <ReceivableAdjustmentPanel />
     </div>
   );
@@ -242,7 +251,21 @@ const TrendBar = ({ label, value, max, color, formatPrice }: { label: string; va
 const RecentPaymentsTable = ({ rows, loading, t, formatPrice, customerLabel, statusLabel }: any) => (
   <section className="rounded-[20px] border border-slate-200 bg-white/70 p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
     <h2 className="mb-5 text-xl font-black text-slate-900 dark:text-white">{t.historyTab || '最近回款'}</h2>
-    <div className="overflow-x-auto">
+    <div data-mobile-card-list className="space-y-3 md:hidden">
+      {loading ? <MobileRecordState text={t.loading || '正在加载...'} /> : rows.length ? rows.map((record: any) => (
+        <MobileRecordCard
+          key={record.id}
+          title={record.orderNo || `#${record.id}`}
+          subtitle={customerLabel(record)}
+          status={statusLabel(record.status)}
+          fields={[
+            { label: t.id || '编号', value: record.id, mono: true },
+            { label: t.amount || '金额', value: formatPrice(record.amount), tone: 'positive' },
+          ]}
+        />
+      )) : <MobileRecordState text={t.emptyState || '暂无记录'} />}
+    </div>
+    <div className="hidden overflow-x-auto md:block">
       <table className="w-full text-left">
         <thead><tr><Th>{t.id || '编号'}</Th><Th>{t.orderNo || '订单'}</Th><Th>{t.customer || '客户'}</Th><Th>{t.amount || '金额'}</Th><Th>{t.status || '状态'}</Th></tr></thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -260,7 +283,26 @@ const RecentPaymentsTable = ({ rows, loading, t, formatPrice, customerLabel, sta
 const RecentAdjustmentsTable = ({ rows, loading, t, customerLabel, statusLabel }: any) => (
   <section className="rounded-[20px] border border-slate-200 bg-white/70 p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
     <h2 className="mb-5 text-xl font-black text-slate-900 dark:text-white">{t.adjustment || '最近调整'}</h2>
-    <div className="overflow-x-auto">
+    <div data-mobile-card-list className="space-y-3 md:hidden">
+      {loading ? <MobileRecordState text={t.loading || '正在加载...'} /> : rows.length ? rows.map((record: any) => {
+        const delta = Number(record.amountDelta || record.quantityDelta || 0);
+        return (
+          <MobileRecordCard
+            key={record.id}
+            title={record.adjustmentNo || `#${record.id}`}
+            subtitle={record.targetRef || record.orderNo || record.batchNo || customerLabel(record) || '--'}
+            status={statusLabel(record.status)}
+            fields={[
+              { label: t.amount || '变动', value: `${delta >= 0 ? '+' : ''}${record.amountDelta ?? record.quantityDelta ?? 0}`, tone: delta >= 0 ? 'positive' : 'negative' },
+              { label: t.notes || '原因', value: record.reason || '--', fullWidth: true },
+              { label: '业务域', value: record.domain || '--' },
+              { label: t.customer || '对象', value: customerLabel(record) || '--' },
+            ]}
+          />
+        );
+      }) : <MobileRecordState text={t.emptyState || '暂无记录'} />}
+    </div>
+    <div className="hidden overflow-x-auto md:block">
       <table className="w-full text-left">
         <thead><tr><Th>{t.id || '编号'}</Th><Th>{t.customer || '对象'}</Th><Th>{t.amount || '变动'}</Th><Th>{t.notes || '原因'}</Th><Th>{t.status || '状态'}</Th></tr></thead>
         <tbody className="divide-y divide-slate-100 dark:divide-slate-800">

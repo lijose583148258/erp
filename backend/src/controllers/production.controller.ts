@@ -2,13 +2,16 @@
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
 import { ApiResponse } from '../types/api.types';
-import { ProductionService, ProductionQualityResult, ProductionWorkOrderStatus } from '../services/production.service';
+import { ProductionService, ProductionWorkOrderStatus } from '../services/production.service';
 import { ProductionCompletionValidationError } from '../services/production-mutation.service';
+import { StockMovementConflictError } from '../services/stock-movement.errors';
+import { ProductionDispositionService } from '../services/production-disposition.service';
 import { createProductionAuditLog, toNumber } from './production.helpers';
 import { canUseAnyOperationalDataScope, canUseOperationalDataScope } from '../utils/recordAccess';
 
 const resolveProductionStatusCode = (message: string) => {
-  if (message.toLowerCase().includes('not found')) return 404;
+  if (message.includes('_NOT_FOUND') || message.toLowerCase().includes('not found')) return 404;
+  if (message.startsWith('QC_') || message.startsWith('WORK_ORDER_') || message.startsWith('BOM_UNIT_') || message.startsWith('PRODUCTION_LOSS_')) return 409;
   if (
     message.includes('cannot') ||
     message.includes('Invalid') ||
@@ -62,12 +65,15 @@ export class ProductionController {
     try {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
       const {
+        materialId,
+        packagingRevisionId,
         productName,
         version,
         bomType,
         status,
         formulationMode,
         outputUnit,
+        shelfLifeDays,
         standardBatchSize,
         batchSizeUnit,
         density,
@@ -76,6 +82,7 @@ export class ProductionController {
         effectiveTo,
         processJson,
         qualitySpecJson,
+        qualityCharacteristics = [],
         notes,
         items = [],
       } = req.body;
@@ -84,12 +91,15 @@ export class ProductionController {
       }
 
       const created = await ProductionService.createBom({
+        materialId: toNumber(materialId) ?? null,
+        packagingRevisionId: toNumber(packagingRevisionId) ?? null,
         productName: String(productName),
         version: version ? String(version) : null,
         bomType: bomType ? String(bomType) : null,
         status: status ? String(status) : null,
         formulationMode: formulationMode ? String(formulationMode) : null,
         outputUnit: String(outputUnit),
+        shelfLifeDays: Number(shelfLifeDays),
         standardBatchSize: standardBatchSize !== undefined ? toNumber(standardBatchSize) : null,
         batchSizeUnit: batchSizeUnit ? String(batchSizeUnit) : null,
         density: density !== undefined ? toNumber(density) : null,
@@ -98,6 +108,7 @@ export class ProductionController {
         effectiveTo: effectiveTo ? String(effectiveTo) : null,
         processJson: processJson ? String(processJson) : null,
         qualitySpecJson: qualitySpecJson ? String(qualitySpecJson) : null,
+        qualityCharacteristics: Array.isArray(qualityCharacteristics) ? qualityCharacteristics : [],
         notes: notes ? String(notes) : null,
         items: Array.isArray(items) ? items : [],
       }, req.user!.userId);
@@ -108,7 +119,8 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to create production bom', error);
       const message = error instanceof Error ? error.message : 'Failed to create production bom';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      const status = message.startsWith('BOM_MATERIAL_') ? 409 : resolveProductionStatusCode(message);
+      res.status(status).json({ success: false, message } as ApiResponse);
     }
   }
 
@@ -140,7 +152,7 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to preview consumption', error);
       const message = error instanceof Error ? error.message : 'Failed to preview consumption';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
   async getBatchCostLedger(req: AuthRequest, res: Response) {
@@ -160,6 +172,53 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to load batch cost ledger', error);
       res.status(500).json({ success: false, message: 'Failed to load batch cost ledger' } as ApiResponse);
+    }
+  }
+
+  async getBatchTrace(req: AuthRequest, res: Response) {
+    try {
+      if (!canReadProduction(req)) return rejectProductionRead(res);
+      const data = await ProductionService.getBatchTrace(Number(req.params.batchId));
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to load batch trace', error);
+      const message = error instanceof Error ? error.message : 'Failed to load batch trace';
+      return res.status(message.includes('not found') ? 404 : 500).json({ success: false, message } as ApiResponse);
+    }
+  }
+
+  async listWorkOrderDispositions(req: AuthRequest, res: Response) {
+    try {
+      if (!canReadProduction(req)) return rejectProductionRead(res);
+      const data = await ProductionDispositionService.listByWorkOrder(Number(req.params.id));
+      return res.json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to load production dispositions', error);
+      const message = error instanceof Error ? error.message : 'Failed to load production dispositions';
+      return res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
+    }
+  }
+
+  async createWorkOrderDisposition(req: AuthRequest, res: Response) {
+    try {
+      if (!canWriteProduction(req)) return rejectProductionWrite(res);
+      const data = await ProductionDispositionService.create({
+        workOrderId: Number(req.params.id),
+        type: req.body.type,
+        quantity: Number(req.body.quantity),
+        reason: String(req.body.reason),
+        note: req.body.note === undefined || req.body.note === null ? null : String(req.body.note),
+        idempotencyKey: String(req.body.idempotencyKey),
+        stockBalanceId: req.body.stockBalanceId == null ? null : Number(req.body.stockBalanceId),
+        sourceDispositionId: req.body.sourceDispositionId == null ? null : Number(req.body.sourceDispositionId),
+        destinationLocationId: req.body.destinationLocationId == null ? null : Number(req.body.destinationLocationId),
+      }, req.user!.userId);
+      return res.status(201).json({ success: true, data } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to post production disposition', error);
+      const message = error instanceof Error ? error.message : 'Failed to post production disposition';
+      const conflict = error instanceof StockMovementConflictError || message.startsWith('PRODUCTION_DISPOSITION_');
+      return res.status(conflict ? 409 : resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
 
@@ -205,7 +264,7 @@ export class ProductionController {
     } catch (error) {
       logger.error('Failed to create production work order', error);
       const message = error instanceof Error ? error.message : 'Failed to create production work order';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
 
@@ -218,17 +277,15 @@ export class ProductionController {
         return res.status(400).json({ success: false, message: 'Missing status' } as ApiResponse);
       }
 
-      const updated = await ProductionService.updateWorkOrderStatus(Number(id), String(status) as ProductionWorkOrderStatus, consumptionRecords);
-      await createProductionAuditLog(req, 'UPDATE_PRODUCTION_WORK_ORDER_STATUS', {
-        workOrderId: Number(id),
-        status,
-      }, Number(id));
+      const updated = await ProductionService.updateWorkOrderStatus(Number(id), String(status) as ProductionWorkOrderStatus, consumptionRecords, {
+        userId: req.user!.userId, ipAddress: req.ip, userAgent: req.get('user-agent'),
+      });
 
       res.json({ success: true, data: updated } as ApiResponse);
     } catch (error) {
       logger.error('Failed to update production work order status', error);
       const message = error instanceof Error ? error.message : 'Failed to update production work order status';
-      res.status(resolveProductionStatusCode(message)).json({
+      res.status(error instanceof ProductionCompletionValidationError || error instanceof StockMovementConflictError ? 409 : resolveProductionStatusCode(message)).json({
         success: false,
         message,
         issues: error instanceof ProductionCompletionValidationError ? error.issues : undefined,
@@ -265,30 +322,40 @@ export class ProductionController {
     try {
       if (!canWriteProduction(req)) return rejectProductionWrite(res);
       const { id } = req.params;
-      const { result, defectRate, note, checkedBy } = req.body;
-      if (!result) {
-        return res.status(400).json({ success: false, message: 'Missing result' } as ApiResponse);
-      }
+      const { sampleNo, defectRate, note, measurements } = req.body;
 
       const created = await ProductionService.createQualityCheck(Number(id), {
-        result: String(result) as ProductionQualityResult,
+        sampleNo: String(sampleNo),
         defectRate: toNumber(defectRate) ?? null,
         note: note ? String(note) : null,
-        checkedBy: checkedBy ? String(checkedBy) : null,
-      });
-
-      await createProductionAuditLog(req, 'CREATE_PRODUCTION_QC', {
-        workOrderId: Number(id),
-        checkNo: created.checkNo,
-        result: created.result,
-      }, created.id);
+        measurements,
+      }, { userId: req.user!.userId, username: req.user!.username, ipAddress: req.ip, userAgent: req.get('user-agent') });
 
       res.status(201).json({ success: true, data: created } as ApiResponse);
     } catch (error) {
       logger.error('Failed to create production qc', error);
       const message = error instanceof Error ? error.message : 'Failed to create production qc';
-      res.status(500).json({ success: false, message } as ApiResponse);
+      res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
+    }
+  }
+
+  async reviewQualityCheck(req: AuthRequest, res: Response) {
+    try {
+      if (!canWriteProduction(req)) return rejectProductionWrite(res);
+      const workOrderId = Number(req.params.id);
+      const qualityCheckId = Number(req.params.checkId);
+      const { decision, reviewNote } = req.body;
+      const updated = await ProductionService.reviewQualityCheck(
+        workOrderId,
+        qualityCheckId,
+        { decision, reviewNote },
+        { userId: req.user!.userId, username: req.user!.username, ipAddress: req.ip, userAgent: req.get('user-agent') },
+      );
+      return res.json({ success: true, data: updated } as ApiResponse);
+    } catch (error) {
+      logger.error('Failed to review production qc', error);
+      const message = error instanceof Error ? error.message : 'Failed to review production qc';
+      return res.status(resolveProductionStatusCode(message)).json({ success: false, message } as ApiResponse);
     }
   }
 }
-

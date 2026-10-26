@@ -16,8 +16,10 @@ export const writeNumberPreference = (key: string, value: number) => {
 export const readStringArrayPreference = (key: string, fallback: string[]) => {
   if (!isBrowser()) return fallback;
   try {
-    const parsed = JSON.parse(window.localStorage.getItem(key) || '[]');
-    return Array.isArray(parsed) && parsed.every((item) => typeof item === 'string') ? parsed : fallback;
+    const raw = window.localStorage.getItem(key);
+    if (!raw) return fallback;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.length > 0 && parsed.every((item) => typeof item === 'string' && item.length > 0) ? parsed : fallback;
   } catch {
     return fallback;
   }

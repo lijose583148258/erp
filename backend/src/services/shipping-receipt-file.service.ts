@@ -23,7 +23,7 @@ function looksLikeReceiptFile(buffer: Buffer, mimeType: string) {
   return false;
 }
 
-function decodeReceiptDataUrl(dataUrl: string, mimeType: string) {
+export function decodeReceiptDataUrl(dataUrl: string, mimeType: string) {
   const match = dataUrl.match(/^data:([^;,]+);base64,(.+)$/);
   if (!match) throw new Error('INVALID_DATA_URL');
   if (match[1] !== mimeType) throw new Error('MIME_MISMATCH');

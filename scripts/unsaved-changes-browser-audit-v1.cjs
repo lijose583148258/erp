@@ -1,12 +1,14 @@
 const fs = require('fs');
 const path = require('path');
 const { launchBrowserWithGuard, markReportFromLaunchError } = require('./lib/browser-launch-guard.cjs');
-const { loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { ensureUiAuditAccounts, loginUiAuditUser } = require('./lib/ui-audit-user.cjs');
+const { readRegressionStamp } = require('./lib/enterprise-regression.cjs');
 
-const APP_URL = process.env.APP_URL || 'http://127.0.0.1:5001/';
-const REPORT_PATH = path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json');
+const APP_URL = String(process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/+$/, '') + '/';
+const REPORT_PATH = path.resolve(process.env.ROUND2_REPORT_PATH || path.join(process.cwd(), 'output', 'playwright', 'unsaved-changes-browser-audit-v1.json'));
 const UNSAVED_TEXT = '\u672a\u4fdd\u5b58';
-const report = { startedAt: new Date().toISOString(), status: 'running', steps: [] };
+const report = { startedAt: new Date().toISOString(), status: 'running', steps: [], regression: readRegressionStamp(),
+  provider: process.env.AUDIT_PRISMA_PROVIDER || 'sqlite' };
 
 function recordStep(step, details = {}) {
   if (typeof step === 'object' && step !== null) {
@@ -68,30 +70,58 @@ async function clickWhenStable(locator, attempts = 5) {
   throw lastError;
 }
 
-async function seedLogin(page) {
+async function seedLogin(page, account) {
   await loginUiAuditUser(page, APP_URL, {
-    account: {
-      username: 'ui_unsaved_admin',
-      password: 'AuditSmoke12345!',
-      role: 'admin',
-    },
+    account,
     storage: {
       'ailao.language': 'zh',
     },
   });
+  await page.goto(APP_URL, { waitUntil: 'domcontentloaded' });
+}
+
+async function prepareAuditPage(page) {
   await page.addInitScript(() => {
     Object.keys(localStorage)
       .filter((key) => key.startsWith('ailao.salesOrderDraft.'))
       .forEach((key) => localStorage.removeItem(key));
+    // Hold only the real initial-dialog focus callback, then release it between
+    // fill's focus and native input. This deterministically tests the lost-edit race.
+    const state = window.__AILAODA_DIALOG_FOCUS_AUDIT__ = { armed: false, callbacks: [], events: [], nextId: -1 };
+    const record = (event, details = {}) => state.events.push({ event, at: performance.now(),
+      active: document.activeElement?.getAttribute('data-testid') || document.activeElement?.tagName, ...details });
+    const setTimer = window.setTimeout.bind(window), clearTimer = window.clearTimeout.bind(window);
+    window.setTimeout = (callback, delay, ...args) => {
+      if (state.armed && delay === 0 && typeof callback === 'function' && String(callback).includes('data-autofocus')) {
+        const id = state.nextId--; state.callbacks.push({ id, callback, args });
+        record('held-real-dialog-focus', { id, source: String(callback) }); return id;
+      }
+      return setTimer(callback, delay, ...args);
+    };
+    window.clearTimeout = id => {
+      if (id < 0) { state.callbacks = state.callbacks.filter(c => c.id !== id); return; }
+      clearTimer(id);
+    };
+    state.release = () => {
+      if (state.callbacks.length !== 1) throw new Error(`Expected one dialog focus callback, got ${state.callbacks.length}`);
+      const held = state.callbacks.shift(); state.armed = false;
+      record('release-real-dialog-focus'); held.callback(...held.args); record('after-real-dialog-focus');
+    };
+    document.addEventListener('input', event => {
+      const target = event.target?.getAttribute('data-testid');
+      if (['sales-order-notes', 'sales-order-customer-select'].includes(target)) record('input', { target, value: event.target.value });
+    });
   });
 }
 
 async function answerNextDialog(page, accept) {
+  report.pendingDialog = { module: report.activeModule, accept, startedAt: new Date().toISOString() };
   return new Promise((resolve, reject) => {
     const onDialog = async (dialog) => {
       clearTimeout(timeout);
       page.off('dialog', onDialog);
       const message = dialog.message();
+      (report.dialogs ||= []).push({ ...report.pendingDialog, type: dialog.type(), message, observedAt: new Date().toISOString() });
       if (accept) await dialog.accept();
       else await dialog.dismiss();
       resolve(message);
@@ -107,11 +137,35 @@ async function answerNextDialog(page, accept) {
 
 async function verifySalesOrder(page) {
   await openModule(page, 'orders', 'sales-order-create-button');
+  await page.evaluate(() => { window.__AILAODA_DIALOG_FOCUS_AUDIT__.armed = true; });
   await clickWhenStable(page.locator('[data-testid="sales-order-create-button"]'));
   const modal = page.locator('[data-testid="sales-order-editor-modal"]');
   await modal.waitFor({ state: 'visible', timeout: 10000 });
+  await page.waitForFunction(() => window.__AILAODA_DIALOG_FOCUS_AUDIT__.callbacks.length === 1, null, { timeout: 5000 });
+  await page.evaluate(() => {
+    document.querySelector('[data-testid="sales-order-notes"]').addEventListener('focus', () => {
+      window.__AILAODA_DIALOG_FOCUS_AUDIT__.release();
+    }, { once: true });
+  });
   await modal.locator('[data-testid="sales-order-notes"]').fill('UNSAVED-AUDIT');
   await page.waitForTimeout(1000);
+  report.salesBeforeClose = await page.evaluate(() => ({
+    dirtyState: window.__AILAODA_UNSAVED_STATE__ || null,
+    notesPreserved: document.querySelector('[data-testid="sales-order-notes"]')?.value === 'UNSAVED-AUDIT',
+  }));
+  report.salesFocusRace = await page.evaluate(() => ({
+    remainingCallbacks: window.__AILAODA_DIALOG_FOCUS_AUDIT__.callbacks.length,
+    events: window.__AILAODA_DIALOG_FOCUS_AUDIT__.events,
+    customerQuery: document.querySelector('[data-testid="sales-order-customer-select"]')?.value,
+  }));
+  expect(report.salesBeforeClose.notesPreserved, 'delayed dialog focus stole the sales notes input');
+  expect(report.salesBeforeClose.dirtyState?.dirtySourceIds?.includes('sales-order-editor'), 'sales notes edit did not register as dirty');
+  const focusEvents = report.salesFocusRace.events;
+  expect(focusEvents.filter(e => e.event === 'held-real-dialog-focus').length === 1, 'missing real dialog focus scheduling proof');
+  expect(focusEvents.filter(e => e.event === 'release-real-dialog-focus').length === 1, 'dialog focus scheduling was not released once');
+  expect(focusEvents.some(e => e.event === 'after-real-dialog-focus' && e.active === 'sales-order-notes'), 'dialog focus moved away from user input');
+  expect(focusEvents.some(e => e.event === 'input' && e.target === 'sales-order-notes' && e.value === 'UNSAVED-AUDIT'), 'notes native input evidence missing');
+  expect(!focusEvents.some(e => e.event === 'input' && e.target === 'sales-order-customer-select' && e.value === 'UNSAVED-AUDIT'), 'notes input was redirected into customer search');
 
   const dismissDialog = answerNextDialog(page, false);
   await modal.locator('[data-testid="sales-order-editor-close"]').click();
@@ -179,6 +233,7 @@ async function verifyCrmCreate(page) {
 }
 
 async function openModule(page, moduleId, readyTestId) {
+  report.activeModule = moduleId;
   await page.goto(`${APP_URL}#${moduleId}`, { waitUntil: 'domcontentloaded' });
   await page.evaluate((nextModuleId) => localStorage.setItem('ailao.activeTab', nextModuleId), moduleId);
   await page.reload({ waitUntil: 'domcontentloaded' });
@@ -388,42 +443,52 @@ async function verifyWarehouseForms(page) {
 async function main() {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   let browser;
+  let context;
   try {
+    const accounts = await ensureUiAuditAccounts('unsaved_changes', ['admin']);
     const launched = await launchBrowserWithGuard({ recordStep, retryLimit: 1, waitMs: 800 });
     browser = launched.browser;
     report.launcher = launched.launcher;
-    const salesPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(salesPage);
+    context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+
+    const bootstrapPage = await context.newPage();
+    await seedLogin(bootstrapPage, accounts.admin);
+    await bootstrapPage.close();
+
+    const newAuditPage = async () => {
+      const page = await context.newPage();
+      page.on('pageerror', error => {
+        if ((report.pageErrors ||= []).length < 20) report.pageErrors.push({ module: report.activeModule, message: error.message });
+      });
+      await prepareAuditPage(page);
+      return page;
+    };
+
+    const salesPage = await newAuditPage();
     await verifySalesOrder(salesPage);
     await salesPage.close();
 
-    const crmPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(crmPage);
+    const crmPage = await newAuditPage();
     await verifyCrmCreate(crmPage);
     await crmPage.close();
 
-    const productionPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(productionPage);
+    const productionPage = await newAuditPage();
     await verifyProductionBom(productionPage);
     await productionPage.close();
 
-    const workOrderPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(workOrderPage);
+    const workOrderPage = await newAuditPage();
     await verifyProductionWorkOrder(workOrderPage);
     await workOrderPage.close();
 
-    const productionBatchesPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(productionBatchesPage);
+    const productionBatchesPage = await newAuditPage();
     await verifyProductionBatchSubTabClean(productionBatchesPage);
     await productionBatchesPage.close();
 
-    const adjustmentPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(adjustmentPage);
+    const adjustmentPage = await newAuditPage();
     await verifyAdjustment(adjustmentPage);
     await adjustmentPage.close();
 
-    const warehousePage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-    await seedLogin(warehousePage);
+    const warehousePage = await newAuditPage();
     await verifyWarehouseForms(warehousePage);
     await warehousePage.close();
 
@@ -433,8 +498,7 @@ async function main() {
       ['adjustment', 'adjustment-create-form'],
       ['warehouse', 'warehouse-tab-overview'],
     ]) {
-      const cleanPage = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
-      await seedLogin(cleanPage);
+      const cleanPage = await newAuditPage();
       await verifyCleanNavigation(cleanPage, moduleId, readyTestId);
       await cleanPage.close();
     }
@@ -442,12 +506,26 @@ async function main() {
     report.status = 'passed';
   } catch (error) {
     report.error = String(error?.message || error);
+    const page = context?.pages().at(-1);
+    if (page && !page.isClosed()) {
+      report.failureState = await page.evaluate(() => ({
+        route: window.location.hash,
+        dirtyState: window.__AILAODA_UNSAVED_STATE__ || null,
+        salesEditorPresent: Boolean(document.querySelector('[data-testid="sales-order-editor-modal"]')),
+        notesPreserved: document.querySelector('[data-testid="sales-order-notes"]')?.value === 'UNSAVED-AUDIT',
+      })).catch(diagnosticError => ({ error: diagnosticError.message }));
+      const screenshot = path.join(path.dirname(REPORT_PATH), 'unsaved-changes-failure.png');
+      await page.screenshot({ path: screenshot, timeout: 5000 })
+        .then(() => { report.failureScreenshot = screenshot; })
+        .catch(diagnosticError => { report.screenshotError = diagnosticError.message; });
+    }
     markReportFromLaunchError(report, error);
     console.error(`Unsaved changes browser audit failed: ${report.error}`);
     if (report.status !== 'blocked_env') process.exitCode = 1;
   } finally {
     report.finishedAt = new Date().toISOString();
     fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
+    if (context) await context.close();
     if (browser) await browser.close();
   }
 }

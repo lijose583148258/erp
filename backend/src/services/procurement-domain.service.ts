@@ -1,4 +1,12 @@
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { AppError, ErrorCode } from '../middleware/errorHandler';
+import {
+  addMoney,
+  multiplyMoney,
+  prorateMoney,
+  roundMoney,
+  subtractMoney,
+} from '../utils/money';
 
 export function normalizeSupplierAliases(value: unknown): string[] {
   if (!value) return [];
@@ -148,10 +156,6 @@ export function toFiniteNumber(value: unknown, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-export function roundMoney(value: number) {
-  return Number(value.toFixed(2));
-}
-
 export function calculatePurchaseValuation(input: {
   quantity: unknown;
   price: unknown;
@@ -169,19 +173,30 @@ export function calculatePurchaseValuation(input: {
   const currency = normalizeCurrency(input.currency);
   const exchangeRate = Math.max(toFiniteNumber(input.exchangeRate, 1), 0.000001);
   const taxRate = Math.max(toFiniteNumber(input.taxRate, 0), 0);
-  const itemAmount = price * quantity;
-  const baseItemAmount = currency === 'CNY' ? itemAmount : itemAmount / exchangeRate;
+  const itemAmount = multiplyMoney(price, quantity);
+  const baseItemAmount = currency === 'CNY'
+    ? itemAmount
+    : prorateMoney(itemAmount, 1, exchangeRate);
   const explicitTaxAmount = input.taxAmount === undefined || input.taxAmount === null || input.taxAmount === ''
     ? null
     : toFiniteNumber(input.taxAmount, 0);
-  const taxAmount = explicitTaxAmount === null ? baseItemAmount * (taxRate / 100) : explicitTaxAmount;
+  const taxAmount = explicitTaxAmount === null
+    ? multiplyMoney(baseItemAmount, taxRate, 0.01)
+    : roundMoney(explicitTaxAmount);
   const freightCost = toFiniteNumber(input.freightCost, 0);
   const dutyCost = toFiniteNumber(input.dutyCost, 0);
   const insuranceCost = toFiniteNumber(input.insuranceCost, 0);
   const otherCost = toFiniteNumber(input.otherCost, 0);
   // Extra costs are stored in the base accounting currency (CNY). Only item price is converted from order currency.
-  const landedCostAmount = roundMoney(baseItemAmount + taxAmount + freightCost + dutyCost + insuranceCost + otherCost);
-  const landedUnitCost = quantity > 0 ? roundMoney(landedCostAmount / quantity) : 0;
+  const landedCostAmount = addMoney(
+    baseItemAmount,
+    taxAmount,
+    freightCost,
+    dutyCost,
+    insuranceCost,
+    otherCost,
+  );
+  const landedUnitCost = quantity > 0 ? prorateMoney(landedCostAmount, 1, quantity) : 0;
 
   return {
     currency,
@@ -207,17 +222,35 @@ export function resolveReceiptCostAmount(
   order: { landedCostAmount?: number | null; landedUnitCost?: number | null; price?: number | null; quantity?: number | null },
   quantityDelta: number,
   acceptedQuantityBefore = 0,
+  postedCostBefore?: number,
 ) {
-  const landedCostAmount = toFiniteNumber(order.landedCostAmount, 0);
-  const orderQuantity = toFiniteNumber(order.quantity, 0);
-  const unitCost = resolveReceiptUnitCost(order);
-  if (landedCostAmount > 0 && orderQuantity > 0) {
-    const acceptedQuantityAfter = acceptedQuantityBefore + quantityDelta;
-    if (acceptedQuantityAfter >= orderQuantity - 0.000001) {
-      return roundMoney(landedCostAmount - roundMoney(unitCost * acceptedQuantityBefore));
-    }
+  const landedCostAmount = order.landedCostAmount;
+  const orderQuantity = order.quantity;
+  const isMoney = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
+    && value >= 0 && Number.isSafeInteger(Math.round(value * 100)) && Math.abs(roundMoney(value) - value) < 0.0000001;
+  if (!isMoney(landedCostAmount) || !Number.isFinite(orderQuantity) || Number(orderQuantity) <= 0
+    || (landedCostAmount === 0 && order.price !== 0)) {
+    throw new AppError('PURCHASE_RECEIPT_COST_BASIS_REQUIRED', 409, ErrorCode.CONFLICT);
   }
-  return roundMoney(unitCost * quantityDelta);
+  const actualCostBefore = postedCostBefore ?? (acceptedQuantityBefore === 0 ? 0 : undefined);
+  if (!isMoney(actualCostBefore) || !Number.isFinite(quantityDelta) || quantityDelta <= 0
+    || !Number.isFinite(acceptedQuantityBefore) || acceptedQuantityBefore < 0
+    || (acceptedQuantityBefore === 0 && actualCostBefore !== 0)) {
+    throw new AppError('PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED', 409, ErrorCode.CONFLICT);
+  }
+  const acceptedQuantityAfter = new Prisma.Decimal(acceptedQuantityBefore).plus(quantityDelta).toNumber();
+  if (acceptedQuantityAfter > Number(orderQuantity) + 0.000001) {
+    throw new AppError('PURCHASE_RECEIPT_EXCEEDS_REMAINING', 409, ErrorCode.CONFLICT);
+  }
+  // Subtract actual immutable receipt costs, not a rounded unit cost or an
+  // ideal historical fraction. This also preserves cents across upgrades.
+  const targetCost = acceptedQuantityAfter >= Number(orderQuantity) - 0.000001
+    ? landedCostAmount : prorateMoney(landedCostAmount, acceptedQuantityAfter, orderQuantity);
+  const costDelta = subtractMoney(targetCost, actualCostBefore);
+  if (costDelta < 0) {
+    throw new AppError('PURCHASE_RECEIPT_COST_RECONCILIATION_REQUIRED', 409, ErrorCode.CONFLICT);
+  }
+  return costDelta;
 }
 
 export function normalizePurchaseStatus(status: string | null | undefined) {

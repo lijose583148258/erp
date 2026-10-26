@@ -1,4 +1,6 @@
 const fs = require('fs');
+const assert = require('node:assert/strict');
+const { explicitPurchaseSources, releasePurchaseFixture } = require('./purchase-quality-audit-fixture.cjs');
 
 const PNG_1X1 =
   'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9qsKQAAAAASUVORK5CYII=';
@@ -264,7 +266,7 @@ function createBackendBusinessChainContext({
   async function recordPayment(sales, orderId, amount) {
     const response = await expectOk('record payment', () => apiFetch(`/orders/${orderId}/payment`, {
       method: 'POST',
-      data: {
+      data: { idempotencyKey: require('node:crypto').randomUUID(),
         amount,
         method: data.paymentMethod,
         payerName: data.customerName,
@@ -285,7 +287,11 @@ function createBackendBusinessChainContext({
     return order;
   }
 
-  async function createPurchaseOrder(manager, supplierId, salesOrderId) {
+  async function createPurchaseOrder(buyer, supplierId, salesOrderId) {
+    const sources = explicitPurchaseSources({ quoteRef: `CHAIN-QUOTE-${runId}`, specificationRef: `CHAIN-SPEC-${runId}`,
+      specificationRevision: '1', taxTreatment: 'none_or_third_party', supplierTaxAmount: 0, supplierChargesAmount: 0,
+      characteristics: [{ code: 'PH', name: 'pH', valueType: 'numeric', unit: null, lowerLimit: '7', upperLimit: '8',
+        testMethod: 'Isolated business-chain fixture calibrated pH meter', required: true }] });
     const response = await expectOk('create purchase order', () => apiFetch('/procurement/orders', {
       method: 'POST',
       data: {
@@ -294,34 +300,40 @@ function createBackendBusinessChainContext({
         quantity: data.procurementQuantity,
         unit: 'kg',
         price: 15,
+        ...sources,
         eta: '2026-05-31',
         salesOrderId: Number(salesOrderId),
         isB2B: true,
       },
-    }, manager.token));
+    }, buyer.token));
     const order = unwrapData(response);
     if (!order?.id) throw new Error('create purchase order returned missing id');
     return order;
   }
 
-  async function approvePurchaseOrder(manager, purchaseOrderId) {
+  async function approvePurchaseOrder(approver, purchaseOrderId, expectedRevision) {
+    assert(Number.isInteger(expectedRevision) && expectedRevision >= 0, 'An independently reviewed procurement revision is required');
     const response = await expectOk('approve purchase order', () => apiFetch(`/procurement/orders/${purchaseOrderId}/status`, {
       method: 'PATCH',
-      data: { status: 'approved' },
-    }, manager.token));
+      data: { status: 'approved', expectedRevision },
+    }, approver.token));
     const order = unwrapData(response);
     if (!order?.id) throw new Error('approve purchase order returned missing order');
     return order;
   }
 
-  async function createPurchaseReceipt(manager, purchaseOrderId) {
+  async function createPurchaseReceipt(manager, purchaseOrderId, expectedRevision) {
+    assert(Number.isInteger(expectedRevision) && expectedRevision >= 0, 'Receipt must name the independently approved revision');
+    const requestKey = `business-chain-${runId}-purchase-${purchaseOrderId}`;
     const response = await expectOk('create purchase receipt', () => apiFetch(`/procurement/orders/${purchaseOrderId}/receipts`, {
       method: 'POST',
+      headers: { 'Idempotency-Key': requestKey },
       data: {
         quantity: data.procurementQuantity,
         acceptedQuantity: data.procurementAcceptedQuantity,
         rejectedQuantity: data.procurementRejectedQuantity,
         batchNo: data.rawBatchNo,
+        expectedRevision,
         discrepancyReason: 'accept partial receipt for audit',
         note: `backend-business-chain-audit ${runId}`,
       },
@@ -332,7 +344,20 @@ function createBackendBusinessChainContext({
       throw new Error('create purchase receipt returned missing purchaseOrder/receipt row');
     }
     responseData.receiptNo = receipt.receiptNo;
+    assert.equal(receipt.supplierBatchNo, data.rawBatchNo);
+    assert.equal(receipt.batchNo, `PO-${purchaseOrderId}-RCV-${receipt.receiptNo}`);
+    responseData.receiptBatchNo = receipt.batchNo;
     return responseData;
+  }
+
+  async function releasePurchaseReceipt(receipt, qcActor, qaActor) {
+    return releasePurchaseFixture({ request: (endpoint, { actor, ...options } = {}) => apiFetch(endpoint, options, actor.token),
+      dataOf: response => { assert(response.ok, JSON.stringify(response.json)); return unwrapData(response); } }, {
+      receiptId: receipt.id, qcActor: { ...qcActor, id: qcActor.user.id }, qaActor: { ...qaActor, id: qaActor.user.id },
+      key: `business-chain-${runId}-qc-${receipt.id}`, input: { sampleNo: `CHAIN-SAMPLE-${runId}-${receipt.id}`, measurements: [
+        { code: 'PH', unit: null, measuredNumeric: '7.5', measuredText: null, instrumentNo: 'CHAIN-AUDIT-PH-1' },
+      ] }, reason: 'Independent QA reviewed actual business-chain delivery measurements',
+    });
   }
 
   async function readPurchaseReceipts(manager, purchaseOrderId) {
@@ -468,6 +493,7 @@ function createBackendBusinessChainContext({
     createCustomer,
     createPurchaseOrder,
     createPurchaseReceipt,
+    releasePurchaseReceipt,
     createSalesOrder,
     createShipment,
     createShipmentReceiptEvent,

@@ -1,13 +1,16 @@
 import crypto from 'crypto';
 import { IncomingMessage, Server } from 'http';
 import { Socket } from 'net';
+import { performance } from 'perf_hooks';
 import { isTokenBlacklisted } from './auth-token-store.service';
 import { logger } from '../utils/logger';
 import { JwtPayload, verifyToken } from '../utils/jwt';
 import { createRedisClient, ensureRedisConnected, isRedisConfigured } from '../infrastructure/redis-runtime';
+import { canReadPaymentRealtime } from './payment-realtime-access.service';
 
 export type RealtimeNotificationEvent = {
-  type: 'order.created' | 'order.updated' | 'order.status_changed' | 'order.completed' | 'payment.submitted' | 'payment.verified';
+  id?: string;
+  type: 'order.created' | 'order.updated' | 'order.status_changed' | 'order.completed' | 'payment.submitted' | 'payment.verified' | 'payment.reversed';
   title: string;
   message: string;
   resourceType: 'order' | 'payment' | 'system';
@@ -16,6 +19,9 @@ export type RealtimeNotificationEvent = {
   audience?: {
     roles?: string[];
     userIds?: number[];
+    // Explicit opt-in for durable verified/reversed payment hints only. The
+    // legacy roles array remains on the wire; current read policy authorizes.
+    paymentReadAccess?: 'current-policy-v1';
   };
   occurredAt?: string;
 };
@@ -24,6 +30,7 @@ type RealtimeClient = {
   id: string;
   socket: Socket;
   user: JwtPayload;
+  token: string;
   connectedAt: number;
 };
 
@@ -70,13 +77,13 @@ const closeSocket = (socket: Socket, code = 1008, reason = 'Unauthorized') => {
   socket.end();
 };
 
-const authenticateUpgrade = async (request: IncomingMessage): Promise<JwtPayload | null> => {
+const authenticateUpgrade = async (request: IncomingMessage): Promise<{ user: JwtPayload; token: string } | null> => {
   const host = request.headers.host || 'localhost';
   const url = new URL(request.url || '/', `http://${host}`);
   const token = url.searchParams.get('token');
   if (!token || await isTokenBlacklisted(token)) return null;
   try {
-    return verifyToken(token);
+    return { user: verifyToken(token), token };
   } catch {
     return null;
   }
@@ -96,7 +103,28 @@ const isAudienceMatch = (client: RealtimeClient, event: RealtimeNotificationEven
     (!userIds?.length || userIds.includes(client.user.userId));
 };
 
+const hasPaymentReadAccess = (event: RealtimeNotificationEvent) => (
+  Boolean(event.audience && Object.prototype.hasOwnProperty.call(event.audience, 'paymentReadAccess'))
+);
+
+const validatePaymentReadAccess = (event: RealtimeNotificationEvent) => {
+  const audience = event.audience;
+  if (audience?.paymentReadAccess !== 'current-policy-v1' || event.resourceType !== 'payment'
+      || !['payment.verified', 'payment.reversed'].includes(event.type)
+      || typeof event.id !== 'string' || !event.id.trim()
+      || typeof event.resourceId !== 'number' || !Number.isSafeInteger(event.resourceId) || event.resourceId <= 0) {
+    throw new Error('Invalid payment realtime read scope');
+  }
+  if (audience.userIds !== undefined && (!Array.isArray(audience.userIds)
+      || audience.userIds.some(id => !Number.isSafeInteger(id) || id <= 0))) {
+    throw new Error('Invalid payment realtime recipient restriction');
+  }
+};
+
 const deliverLocalNotification = (event: RealtimeNotificationEvent) => {
+  // Scoped delivery is async and must not fall through to the legacy matcher,
+  // including malformed/false/unknown opt-in values arriving through Redis.
+  if (hasPaymentReadAccess(event)) return 0;
   let delivered = 0;
   for (const client of clients.values()) {
     if (!isAudienceMatch(client, event)) continue;
@@ -111,6 +139,38 @@ const deliverLocalNotification = (event: RealtimeNotificationEvent) => {
   return delivered;
 };
 
+const deliverPaymentReadNotification = async (event: RealtimeNotificationEvent) => {
+  validatePaymentReadAccess(event);
+  const recipients = [...clients.values()].filter(client => event.audience!.userIds === undefined
+    || event.audience!.userIds.includes(client.user.userId));
+  if (!recipients.length) return;
+  const deadline = performance.now() + 3_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    // Concurrent bounded reads, not 20 serial permission waits. No callback
+    // writes a frame: a late query result after timeout cannot leak a hint.
+    const allowed = await Promise.race([
+      Promise.all(recipients.map(client => canReadPaymentRealtime(client.token, event.resourceId as number))),
+      new Promise<never>((_, reject) => { timer = setTimeout(() => reject(new Error('Payment realtime authorization unavailable')), 3_000); }),
+    ]);
+    if (performance.now() >= deadline) throw new Error('Payment realtime authorization unavailable');
+    for (const [index, client] of recipients.entries()) {
+      if (!allowed[index] || clients.get(client.id) !== client) continue;
+      try { sendToClient(client, event); } catch {
+        logger.warn('Payment realtime socket delivery failed'); clients.delete(client.id);
+      }
+    }
+  } catch {
+    // Never include tokens, query arguments or dependency errors in a bus log.
+    throw new Error('Payment realtime authorization unavailable');
+  } finally { if (timer) clearTimeout(timer); }
+};
+
+const deliverDurableLocalNotification = async (event: RealtimeNotificationEvent) => {
+  if (hasPaymentReadAccess(event)) await deliverPaymentReadNotification(event);
+  else deliverLocalNotification(event);
+};
+
 const startRealtimeBus = async () => {
   if (!publisher || !subscriber) return;
   if (busStartPromise) return busStartPromise;
@@ -122,7 +182,8 @@ const startRealtimeBus = async () => {
       try {
         const envelope = JSON.parse(payload) as { origin?: string; event?: RealtimeNotificationEvent };
         if (!envelope.event || envelope.origin === instanceId) return;
-        deliverLocalNotification(envelope.event);
+        void deliverDurableLocalNotification(envelope.event)
+          .catch(() => logger.warn('Realtime local delivery unavailable'));
       } catch (error) {
         logger.warn('Realtime Redis event could not be decoded', error);
       }
@@ -137,7 +198,7 @@ const startRealtimeBus = async () => {
   return busStartPromise;
 };
 
-const acceptUpgrade = (request: IncomingMessage, socket: Socket, user: JwtPayload) => {
+const acceptUpgrade = (request: IncomingMessage, socket: Socket, user: JwtPayload, token: string) => {
   const key = request.headers['sec-websocket-key'];
   if (typeof key !== 'string') {
     socket.destroy();
@@ -155,7 +216,7 @@ const acceptUpgrade = (request: IncomingMessage, socket: Socket, user: JwtPayloa
   ].join('\r\n'));
 
   const id = crypto.randomUUID();
-  const client: RealtimeClient = { id, socket, user, connectedAt: Date.now() };
+  const client: RealtimeClient = { id, socket, user, token, connectedAt: Date.now() };
   clients.set(id, client);
   socket.on('close', () => clients.delete(id));
   socket.on('error', () => clients.delete(id));
@@ -175,12 +236,12 @@ export const attachRealtimeNotifications = (server: Server) => {
     const tcpSocket = socket as Socket;
 
     void authenticateUpgrade(request)
-      .then((user) => {
-        if (!user) {
+      .then((identity) => {
+        if (!identity) {
           closeSocket(tcpSocket);
           return;
         }
-        acceptUpgrade(request, tcpSocket, user);
+        acceptUpgrade(request, tcpSocket, identity.user, identity.token);
       })
       .catch((error) => {
         logger.warn('Realtime authentication failed', error);
@@ -190,6 +251,7 @@ export const attachRealtimeNotifications = (server: Server) => {
 };
 
 export const publishRealtimeNotification = (event: RealtimeNotificationEvent): number => {
+  if (hasPaymentReadAccess(event)) return 0;
   const delivered = deliverLocalNotification(event);
   if (publisher) {
     void startRealtimeBus()
@@ -200,6 +262,16 @@ export const publishRealtimeNotification = (event: RealtimeNotificationEvent): n
       });
   }
   return delivered;
+};
+
+// Acknowledges bus acceptance, not proof that an online user read the hint.
+export const publishDurableRealtimeNotification = async (event: RealtimeNotificationEvent & { id: string }) => {
+  if (hasPaymentReadAccess(event)) validatePaymentReadAccess(event);
+  if (publisher) {
+    await startRealtimeBus();
+    await publisher.publish(busChannel, JSON.stringify({ origin: instanceId, event }));
+  }
+  await deliverDurableLocalNotification(event);
 };
 
 export const getRealtimeNotificationStatus = () => ({

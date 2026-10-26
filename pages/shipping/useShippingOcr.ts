@@ -4,11 +4,16 @@ import { shipmentService } from '../../services/shipping.service';
 import { customerService } from '../../src/services/customer.service';
 import { matchCustomer, OcrDocumentData, parseOcrDocument } from '../../services/smartFormService';
 import { reportClientIssue } from '../../utils/clientIssue';
+import type { MaterialMaster } from '../../services/material.service';
+import { useAppContext } from '../../app/AppContext';
+import { readShipmentIntent, prepareShipmentIntent, clearShipmentIntent, confirmShipmentSubmission, shipmentIntentPayload, isConfirmedShipmentRejection,
+    type ShipmentIntent, type ShipmentSubmissionResult } from '../../services/shipmentSubmissionIntent';
 
 type Notify = (type: 'success' | 'error' | 'info' | 'warning', message: string) => void;
 type ShippingTab = 'logistics' | 'assets';
 
 type UseShippingOcrOptions = {
+    canWrite: boolean;
     t: Record<string, string>;
     notify: Notify;
     customers: Customer[];
@@ -33,9 +38,21 @@ const readAsDataUrl = (file: File) => new Promise<string>((resolve, reject) => {
     reader.readAsDataURL(file);
 });
 
-export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTab, loadData }: UseShippingOcrOptions) => {
+export const useShippingOcr = ({ canWrite, t, notify, customers, setCustomers, setActiveTab, loadData }: UseShippingOcrOptions) => {
+    const { currentUser } = useAppContext();
+    const actor = String(currentUser.id);
+    const shipmentBusy = useRef(false);
+    const [pendingShipment, setPendingShipment] = useState<ShipmentIntent | null>(null);
+    const [isShipmentSubmitting, setIsShipmentSubmitting] = useState(false);
+    const [shipmentStorageError, setShipmentStorageError] = useState('');
+    useEffect(() => {
+        try { setPendingShipment(readShipmentIntent(localStorage, actor, 'ocr')); setShipmentStorageError(''); }
+        catch (error) { setPendingShipment(null); setShipmentStorageError(error instanceof Error ? error.message : String(error)); }
+    }, [actor]);
     const [ocrText, setOcrText] = useState('');
     const [ocrResult, setOcrResult] = useState<OcrDocumentData | null>(null);
+    const [ocrMaterialQuery, setOcrMaterialQuery] = useState('');
+    const [ocrMaterial, setOcrMaterial] = useState<MaterialMaster | null>(null);
     const [isOcrProcessing, setIsOcrProcessing] = useState(false);
     const [ocrImage, setOcrImage] = useState<string | null>(null);
     const [ocrImages, setOcrImages] = useState<string[]>([]);
@@ -49,6 +66,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
             setActiveTab('logistics');
             setOcrText('');
             setOcrResult(null);
+            setOcrMaterialQuery('');
+            setOcrMaterial(null);
         };
         window.addEventListener('command:ocr-shipment', handleOcr as EventListener);
         return () => window.removeEventListener('command:ocr-shipment', handleOcr as EventListener);
@@ -72,6 +91,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         setTimeout(() => {
             const parsed = parseOcrDocument(normalizedText, 'shipment');
             setOcrResult(parsed);
+            setOcrMaterialQuery(parsed.productName?.trim() || '');
+            setOcrMaterial(null);
             setIsOcrProcessing(false);
             notify('success', t.autoFillSuccess || 'Recognized successfully');
         }, 1200);
@@ -127,6 +148,8 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         setPreviewMode('single');
         setOcrText('');
         setOcrResult(null);
+        setOcrMaterialQuery('');
+        setOcrMaterial(null);
         if (ocrFileInputRef.current) {
             ocrFileInputRef.current.value = '';
         }
@@ -137,52 +160,79 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
     };
 
     const handleApplyOcr = async () => {
-        if (!ocrResult) return;
-        let candidateCustomers = customers;
-        let matched = ocrResult.customerName
-            ? matchCustomer(ocrResult.customerName, toCustomerMatchItems(candidateCustomers))
-            : null;
-
-        if (!matched && ocrResult.customerName) {
-            try {
-                candidateCustomers = await customerService.getAll();
-                setCustomers(candidateCustomers);
-                matched = matchCustomer(ocrResult.customerName, toCustomerMatchItems(candidateCustomers));
-            } catch (err) {
-                reportClientIssue('shipping.ocr-customer-refresh', err);
-                notify('warning', '客户列表刷新失败，已先使用当前页面客户数据继续匹配');
-            }
-        }
-
-        if (!matched) {
-            notify('error', t.ocrMissingText || '未识别到可匹配的客户名称');
-            return;
-        }
-
-        const productName = ocrResult.productName?.trim();
-        const quantity = Number(ocrResult.quantity);
-        if (!productName || !Number.isFinite(quantity) || quantity <= 0) {
-            notify('error', 'OCR 未识别到完整的发运信息，请补全品名和数量后再应用到表单');
-            return;
-        }
-
+        if (!canWrite) { notify('error', '当前角色没有发货写入权限。'); return; }
+        if (shipmentBusy.current) return;
+        shipmentBusy.current = true; setIsShipmentSubmitting(true);
+        let freshIntent: ShipmentIntent | null = null;
+        const complete = async (intent: ShipmentIntent, result: ShipmentSubmissionResult) => {
+            await confirmShipmentSubmission(intent, result); clearShipmentIntent(localStorage, intent);
+            setPendingShipment(null); setOcrText(''); setOcrResult(null);
+            notify('success', `${t.ocrApplied} ${result.shipment.shipmentNo || result.shipment.id}`);
+            await loadData();
+        };
         try {
+            const prior = readShipmentIntent(localStorage, actor, 'ocr');
+            if (prior) {
+                setPendingShipment(prior);
+                const result = await shipmentService.findSubmission(prior.key)
+                    ?? await shipmentService.createSubmission(shipmentIntentPayload(prior), prior.key);
+                await complete(prior, result); return;
+            }
+            if (!ocrResult) return;
+            let candidateCustomers = customers;
+            let matched = ocrResult.customerName
+                ? matchCustomer(ocrResult.customerName, toCustomerMatchItems(candidateCustomers))
+                : null;
+
+            if (!matched && ocrResult.customerName) {
+                try {
+                    candidateCustomers = await customerService.getAll();
+                    setCustomers(candidateCustomers);
+                    matched = matchCustomer(ocrResult.customerName, toCustomerMatchItems(candidateCustomers));
+                } catch (err) {
+                    reportClientIssue('shipping.ocr-customer-refresh', err);
+                    notify('warning', '客户列表刷新失败，已先使用当前页面客户数据继续匹配');
+                }
+            }
+
+            if (!matched) {
+                notify('error', t.ocrMissingText || '未识别到可匹配的客户名称');
+                return;
+            }
+
+            const productName = ocrResult.productName?.trim();
+            const quantity = Number(ocrResult.quantity);
+            if (!productName || !Number.isFinite(quantity) || quantity <= 0) {
+                notify('error', 'OCR 未识别到完整的发运信息，请补全品名和数量后再应用到表单');
+                return;
+            }
+            if (!ocrMaterial) {
+                notify('warning', 'OCR 只提供识别建议；创建发货单前必须人工选择已发布的统一物料。');
+                return;
+            }
+
             const payload: Partial<Shipment> = {
                 customerId: String(matched.id),
-                productName,
+                materialId: String(ocrMaterial.id),
+                productName: ocrMaterial.nameZh,
                 quantity,
-                unit: ocrResult.unit || 'kg',
+                unit: ocrMaterial.baseUnit,
                 batchNo: ocrResult.batchNo,
                 carrier: ocrResult.carrier,
                 trackingNo: ocrResult.trackingNo
             };
-            await shipmentService.create(payload);
-            notify('success', t.ocrApplied);
-            setOcrText('');
-            setOcrResult(null);
-            loadData();
-        } catch {
-            notify('error', t.ocrApplyFailed);
+            const intent = prepareShipmentIntent(localStorage, actor, 'ocr', payload);
+            freshIntent = intent;
+            setPendingShipment(intent);
+            await complete(intent, await shipmentService.createSubmission(shipmentIntentPayload(intent), intent.key));
+        } catch (error) {
+            if (freshIntent && await isConfirmedShipmentRejection(freshIntent, error)) {
+                try { clearShipmentIntent(localStorage, freshIntent); setPendingShipment(null); }
+                catch (storageError) { setShipmentStorageError(storageError instanceof Error ? storageError.message : String(storageError)); }
+            }
+            notify('error', error instanceof Error ? error.message : t.ocrApplyFailed);
+        } finally {
+            shipmentBusy.current = false; setIsShipmentSubmitting(false);
         }
     };
 
@@ -190,6 +240,17 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         ocrText,
         setOcrText,
         ocrResult,
+        ocrMaterialQuery,
+        ocrMaterial,
+        setOcrMaterialQuery: (value: string) => {
+            setOcrMaterialQuery(value);
+            setOcrMaterial(null);
+        },
+        clearOcrMaterial: () => setOcrMaterial(null),
+        selectOcrMaterial: (material: MaterialMaster) => {
+            setOcrMaterial(material);
+            setOcrMaterialQuery(material.nameZh);
+        },
         isOcrProcessing,
         ocrImage,
         ocrImages,
@@ -203,5 +264,6 @@ export const useShippingOcr = ({ t, notify, customers, setCustomers, setActiveTa
         clearAllImages,
         togglePreviewMode,
         handleApplyOcr,
+        pendingShipment, isShipmentSubmitting, shipmentStorageError,
     };
 };

@@ -24,7 +24,6 @@ const REVIEW_HINTS = [
   'debug',
   'focused',
   'probe',
-  'e2e-smoke',
   'dual-port-audit.cjs',
 ];
 
@@ -37,7 +36,6 @@ const SCRIPT_CLASSIFICATION_OVERRIDES = {
   'browser-cdp-probe.cjs': 'runtime-diagnostic-probe',
   'browser-runtime-probe.cjs': 'runtime-diagnostic-probe',
   'crm-dom-probe-v1.cjs': 'manual-diagnostic-probe',
-  'e2e-smoke.cjs': 'legacy-smoke-review-before-use',
   'procurement-debug-v1.cjs': 'manual-diagnostic-probe',
   'warehouse-filter-network-probe.cjs': 'manual-diagnostic-probe',
 };
@@ -72,16 +70,28 @@ function listFiles(dirPath) {
 function npmReferencedScriptFiles(packageJson) {
   const files = new Set();
   for (const command of Object.values(packageJson.scripts || {})) {
-    const matches = String(command).matchAll(/(?:\.\\|\.\/)?scripts[\\/]([A-Za-z0-9_.-]+\.(?:cjs|mjs|js|ts|tsx|ps1))/g);
+    const matches = String(command).matchAll(/(?:\.\\|\.\/)?scripts[\\/]([A-Za-z0-9_.-]+\.(?:cjs|mjs|js|tsx|ts|ps1))/g);
     for (const match of matches) files.add(match[1]);
   }
   return files;
 }
 
-function classifyScript(fileName, referencedFiles) {
+function workflowReferencedScriptFiles() {
+  const files = new Set();
+  const workflowDir = path.join(ROOT, '.github', 'workflows');
+  for (const workflowPath of listFiles(workflowDir).filter((filePath) => /\.ya?ml$/i.test(filePath))) {
+    const source = fs.readFileSync(workflowPath, 'utf8');
+    const matches = source.matchAll(/(?:\.\\|\.\/)?scripts[\\/]([A-Za-z0-9_.-]+\.(?:cjs|mjs|js|tsx|ts|ps1))/g);
+    for (const match of matches) files.add(match[1]);
+  }
+  return files;
+}
+
+function classifyScript(fileName, npmReferencedFiles, workflowReferencedFiles) {
   const lower = fileName.toLowerCase();
   if (SCRIPT_CLASSIFICATION_OVERRIDES[fileName]) return SCRIPT_CLASSIFICATION_OVERRIDES[fileName];
-  if (referencedFiles.has(fileName)) return 'active-npm-entry';
+  if (npmReferencedFiles.has(fileName)) return 'active-npm-entry';
+  if (workflowReferencedFiles.has(fileName)) return 'active-workflow-entry';
   if (lower.includes('audit') || lower.includes('verify')) return 'manual-audit-asset';
   if (lower.includes('start') || lower.includes('stop') || lower.includes('check') || lower.includes('package')) return 'runtime-support-asset';
   if (lower.includes('repair') || lower.includes('clean')) return 'manual-repair-asset';
@@ -195,7 +205,7 @@ function writeReports(report) {
   lines.push('', '## 下一步', '');
   lines.push('- 新增壳或安装器前，先更新本台账。');
   lines.push('- 如果要断开旧入口，先将入口改为明确失败提示，不直接删除历史资料。');
-  lines.push('- 每日审计只使用 `active-npm-entry` 和 `runtime-support-asset`。');
+  lines.push('- 每日审计只使用 `active-npm-entry`、`active-workflow-entry` 和 `runtime-support-asset`。');
 
   const md = `${lines.join('\n')}\n`;
   fs.writeFileSync(MD_REPORT, md, 'utf8');
@@ -204,7 +214,8 @@ function writeReports(report) {
 
 function main() {
   const packageJson = readJson(path.join(ROOT, 'package.json'));
-  const referencedFiles = npmReferencedScriptFiles(packageJson);
+  const npmReferencedFiles = npmReferencedScriptFiles(packageJson);
+  const workflowReferencedFiles = workflowReferencedScriptFiles();
   const scriptsDir = path.join(ROOT, 'scripts');
   const scripts = fs.readdirSync(scriptsDir, { withFileTypes: true })
     .filter((entry) => entry.isFile())
@@ -212,8 +223,9 @@ function main() {
       const stat = fs.statSync(path.join(scriptsDir, entry.name));
       return {
         file: entry.name,
-        classification: classifyScript(entry.name, referencedFiles),
-        npmReferenced: referencedFiles.has(entry.name),
+        classification: classifyScript(entry.name, npmReferencedFiles, workflowReferencedFiles),
+        npmReferenced: npmReferencedFiles.has(entry.name),
+        workflowReferenced: workflowReferencedFiles.has(entry.name),
         bytes: stat.size,
         lastWriteTime: stat.mtime.toISOString(),
       };
@@ -237,7 +249,8 @@ function main() {
     },
     summary: {
       npmScriptCount: Object.keys(packageJson.scripts || {}).length,
-      npmReferencedScriptFiles: referencedFiles.size,
+      npmReferencedScriptFiles: npmReferencedFiles.size,
+      workflowReferencedScriptFiles: workflowReferencedFiles.size,
       scriptFiles: scripts.length,
       scriptClassifications,
       entrypoints: collectEntrypoints().length,

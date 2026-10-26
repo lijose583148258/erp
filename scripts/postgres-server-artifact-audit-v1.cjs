@@ -34,6 +34,14 @@ function requireExists(file) {
   }
 }
 
+function listFilesRecursive(rootDir) {
+  if (!fs.existsSync(rootDir)) return [];
+  return fs.readdirSync(rootDir, { withFileTypes: true }).flatMap((entry) => {
+    const filePath = path.join(rootDir, entry.name);
+    return entry.isDirectory() ? listFilesRecursive(filePath) : [filePath];
+  });
+}
+
 const manifest = requireIncludes('output/postgres-server-artifact/manifest.json', [
   '"artifact": "postgres-server"',
   '"prismaProvider": "postgresql"',
@@ -43,6 +51,8 @@ const manifest = requireIncludes('output/postgres-server-artifact/manifest.json'
 
 requireExists('output/postgres-server-artifact/backend/dist/server.js');
 requireExists('output/postgres-server-artifact/backend/prisma/generated-client/index.js');
+requireExists('output/postgres-server-artifact/postgres-schema/schema.prisma');
+requireExists('output/postgres-server-artifact/postgres-schema/models/auth-team.prisma');
 requireExists('output/postgres-server-artifact/backend/prisma/postgres-migrations/202607220001_order-import-idempotency/migration.sql');
 requireExists('output/postgres-server-artifact/backend/prisma/postgres-migrations/202607220002_order-import-retention/migration.sql');
 requireExists('output/postgres-server-artifact/backend/dist/maintenance/order-import-retention.js');
@@ -55,11 +65,45 @@ const database = requireIncludes('output/postgres-server-artifact/backend/dist/c
   'require("../../prisma/generated-client")',
   "runtime_1.runtime.databaseEngine === 'sqlite' && sqliteDbPath",
 ]);
+requireIncludes('output/postgres-server-artifact/postgres-schema/schema.prisma', [
+  'provider = "postgresql"',
+  'previewFeatures = ["prismaSchemaFolder"]',
+]);
+if (fs.existsSync(resolve('output/postgres-server-artifact/postgres-schema/generated-client'))) {
+  findings.push({
+    severity: 'P0',
+    file: 'output/postgres-server-artifact/postgres-schema',
+    message: 'provisioning schema must not include the generated Prisma client directory',
+  });
+}
 if (database.includes('require("@prisma/client")')) {
   findings.push({
     severity: 'P0',
     file: 'output/postgres-server-artifact/backend/dist/config/database.js',
     message: 'PostgreSQL server artifact must not use the default SQLite Prisma client package.',
+  });
+}
+
+const residualDefaultClientImports = listFilesRecursive(resolve('output/postgres-server-artifact/backend/dist'))
+  .filter(filePath => filePath.endsWith('.js'))
+  .filter(filePath => /require\((["'])@prisma\/client\1\)/.test(fs.readFileSync(filePath, 'utf8')));
+for (const filePath of residualDefaultClientImports) {
+  findings.push({
+    severity: 'P0',
+    file: path.relative(ROOT, filePath).replace(/\\/g, '/'),
+    message: 'PostgreSQL server artifact runtime must not import the default SQLite Prisma client package.',
+  });
+}
+try {
+  const artifactMoney = require(resolve('output/postgres-server-artifact/backend/dist/utils/money.js'));
+  if (artifactMoney.addMoney('0.10', '0.20') !== 0.3) {
+    throw new Error('unexpected Decimal result');
+  }
+} catch (error) {
+  findings.push({
+    severity: 'P0',
+    file: 'output/postgres-server-artifact/backend/dist/utils/money.js',
+    message: `generated PostgreSQL Prisma client Decimal runtime smoke failed: ${error instanceof Error ? error.message : String(error)}`,
   });
 }
 
@@ -76,6 +120,8 @@ requireIncludes('output/postgres-server-artifact/backend/prisma/schema.prisma', 
 requireIncludes('scripts/build-postgres-server-artifact-v1.cjs', [
   'audit:db:postgres-artifact',
   'require("../../prisma/generated-client")',
+  'patchedRuntimeImportCount',
+  'residualDefaultClientImports',
   'AILAODA_PRISMA_PROVIDER',
   "packageMetadata.type = 'commonjs'",
   'npm ci --omit=dev --ignore-scripts',
@@ -83,6 +129,9 @@ requireIncludes('scripts/build-postgres-server-artifact-v1.cjs', [
   'copy-frontend-dist',
   'postgres-server-artifact',
   'copy-postgres-versioned-migrations',
+  'copy-postgres-provisioning-schema',
+  'validate-postgres-provisioning-schema',
+  'ARTIFACT_SCHEMA_SOURCE',
   'copy-postgres-versioned-migrator',
   'postgres-schema-migrate-v1.cjs apply',
   'postgres-schema-migrate-v1.cjs verify',

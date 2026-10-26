@@ -3,6 +3,8 @@ import { Check, FileText, Receipt, Search, ShieldCheck, Users } from 'lucide-rea
 import { Customer } from '../../types';
 import { getCustomerDisplayName } from '../../utils/customerName';
 import type { SalesOrderFormData } from './useSalesOrders';
+import { useAppContext } from '../../app/AppContext';
+import { can } from '../../app/permissions';
 
 type Props = {
     language: 'zh' | 'en' | 'vi';
@@ -35,6 +37,7 @@ const SalesOrderHeaderForm: React.FC<Props> = ({
     updateOrderHeader,
     formatPrice,
 }) => {
+    const { currentUser } = useAppContext();
     const filteredContracts = contracts.filter((contract: any) => !formData.customerId || String(contract.customerId) === String(formData.customerId));
     const selectedCustomer = customers.find((customer) => String(customer.id) === String(formData.customerId));
     const selectedCustomerLabel = selectedCustomer ? getCustomerDisplayName(selectedCustomer, language) : '';
@@ -94,8 +97,9 @@ const SalesOrderHeaderForm: React.FC<Props> = ({
         <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900/70">
             <div className="mb-5 flex items-start justify-between gap-4">
                 <div>
-                    <h3 className="text-lg font-black tracking-tight text-slate-900 dark:text-white">
-                        {t.orderHeaderTitle || '订单头表单'}
+                    <div className="text-xs font-black uppercase tracking-[0.18em] text-blue-600 dark:text-blue-300">第 1 步 · 确认客户与交易条件</div>
+                    <h3 className="mt-1 text-lg font-black tracking-tight text-slate-900 dark:text-white">
+                        {t.orderHeaderTitle || '订单基本信息'}
                     </h3>
                     <p className="mt-1.5 text-sm text-slate-500">
                         {t.orderHeaderHint || '客户、合同、账期和备注放在这里维护，明细行单独走网格。'}
@@ -273,7 +277,7 @@ const SalesOrderHeaderForm: React.FC<Props> = ({
                         </div>
                     </div>
 
-                    <div className="space-y-3 lg:col-span-2">
+                    {can(currentUser, 'contracts.read') && <div className="space-y-3 lg:col-span-2">
                         <SectionLabel
                             icon={<FileText size={14} />}
                             title={t.linkContractTitle || '关联合同'}
@@ -292,7 +296,7 @@ const SalesOrderHeaderForm: React.FC<Props> = ({
                                 </option>
                             ))}
                         </select>
-                    </div>
+                    </div>}
 
                     <div className="space-y-3 lg:col-span-2 xl:col-span-4">
                         <SectionLabel

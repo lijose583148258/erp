@@ -9,11 +9,17 @@ type ToastStackProps = {
 
 const ToastStack: React.FC<ToastStackProps> = ({ notifications, onDismiss }) => {
     return (
-        <div className="fixed top-6 left-1/2 -translate-x-1/2 z-[150] space-y-2 w-full max-w-sm px-4">
+        <div
+            aria-live="polite"
+            aria-relevant="additions removals"
+            className="pointer-events-none fixed top-6 left-1/2 z-[150] flex w-full max-w-sm -translate-x-1/2 flex-col-reverse gap-2 px-4"
+        >
             {notifications.map(n => (
                 <div
                     key={n.id}
-                    className={`flex items-center p-4 rounded-2xl shadow-2xl backdrop-blur-md border animate-in slide-in-from-top-4 fade-in duration-300 ${
+                    role={n.type === 'error' ? 'alert' : 'status'}
+                    data-testid="global-toast"
+                    className={`pointer-events-auto flex max-h-56 items-start overflow-y-auto p-4 rounded-2xl shadow-2xl backdrop-blur-md border animate-in slide-in-from-top-4 fade-in duration-300 ${
                         n.type === 'success'
                             ? 'bg-emerald-50/90 border-emerald-100 text-emerald-800'
                             : n.type === 'error'
@@ -39,7 +45,7 @@ const ToastStack: React.FC<ToastStackProps> = ({ notifications, onDismiss }) => 
                         {n.type === 'warning' && <AlertTriangle size={16} />}
                         {n.type === 'info' && <Info size={16} />}
                     </div>
-                    <span className="min-w-0 flex-1 break-words text-sm font-bold">{n.message}</span>
+                    <span className="min-w-0 flex-1 whitespace-pre-line break-words text-sm font-bold leading-relaxed">{n.message}</span>
                     <button
                         type="button"
                         onClick={() => onDismiss(n.id)}

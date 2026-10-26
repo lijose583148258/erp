@@ -3,6 +3,7 @@ WORKDIR /app
 
 COPY package.json package-lock.json ./
 COPY backend/package.json backend/package-lock.json ./backend/
+COPY backend/packages ./backend/packages
 RUN npm ci
 RUN cd backend && npm ci
 
@@ -17,6 +18,7 @@ ENV NODE_ENV=production
 ENV AILAODA_BLOCK_DEMO_CREDENTIALS=true
 ENV SERVE_FRONTEND=true
 ENV PORT=5001
+ENV AILAODA_LISTEN_HOST=0.0.0.0
 ENV FRONTEND_DIST_DIR=/app/dist
 ENV DATABASE_URL=file:/data/stable.db
 ENV BACKUP_DIR=/data/backups
@@ -30,6 +32,7 @@ COPY --from=build --chown=node:node /app/dist ./dist
 COPY --from=build --chown=node:node /app/backend/dist ./backend/dist
 COPY --from=build --chown=node:node /app/backend/prisma ./backend/prisma
 COPY --chown=node:node backend/package.json backend/package-lock.json ./backend/
+COPY --chown=node:node backend/packages ./backend/packages
 
 RUN cd backend && npm ci --omit=dev && npx prisma generate --schema=prisma/schema.prisma
 RUN mkdir -p /data/backups /data/logs /data/uploads \
