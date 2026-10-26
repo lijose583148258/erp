@@ -10,6 +10,15 @@ test('read recovery exercises write non-retry on CI', () => {
   assert.match(workflow, /dbRetry\.test\.ts backend\/src\/middleware\/auth-read-recovery\.test\.ts backend\/src\/permissions\/casbinAuthorization\.test\.ts/);
 });
 
+test('cloud reconnect gate executes the actual list service and previous read recovery cases', () => {
+  const workflow = fs.readFileSync(require('node:path').join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const command = workflow.match(/- name: Verify read-only reconnect boundary\n\s+run: ([^\n]+)/)?.[1] || '';
+  for (const file of ['services/customer-query-read-recovery.test.ts', 'services/customer-query.service.test.ts',
+    'utils/readOnlyDbRetry.test.ts', 'routes/dashboard-read-recovery.test.ts']) {
+    assert(command.split(/\s+/).includes(`backend/src/${file}`), `Cloud reconnect command must execute ${file}`);
+  }
+});
+
 test('promotion audit verdict and name cannot be overwritten by detail fields', () => {
   const checkSource = source.slice(source.indexOf('const check ='), source.indexOf('const compose ='));
   const report = { checks: [] };

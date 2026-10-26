@@ -288,7 +288,7 @@ jobs:
         run: npm run test:contract:cloud-topology
 
       - name: Verify read-only reconnect boundary
-        run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/controllers/customer/customer-read-recovery.test.ts backend/src/utils/dbRetry.test.ts backend/src/middleware/auth-read-recovery.test.ts backend/src/permissions/casbinAuthorization.test.ts
+        run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/controllers/customer/customer-read-recovery.test.ts backend/src/utils/dbRetry.test.ts backend/src/middleware/auth-read-recovery.test.ts backend/src/permissions/casbinAuthorization.test.ts backend/src/services/customer-query-read-recovery.test.ts backend/src/services/customer-query.service.test.ts backend/src/utils/readOnlyDbRetry.test.ts backend/src/routes/dashboard-read-recovery.test.ts
 
       - name: Verify payment event delivery boundaries
         run: |
