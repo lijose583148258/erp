@@ -14,6 +14,7 @@ import {
 import { resolveOrderItemMaterialIdentities } from '../services/order-item-material-identity';
 import { buildBusinessNo } from '../utils/businessNo';
 import { withDbRetry } from '../utils/dbRetry';
+import { isClosedDbConnectionError } from '../utils/readOnlyDbRetry';
 import { compareMoney } from '../utils/money';
 import { publishRealtimeNotification } from '../services/realtime-notification.service';
 import { SearchIndexService } from '../services/search-index.service';
@@ -76,6 +77,13 @@ export class OrderController {
             } as ApiResponse);
         } catch (error) {
             logger.error('Get orders error:', error);
+            if (isClosedDbConnectionError(error)) {
+                return res.status(503).json({
+                    success: false,
+                    message: '数据库暂时不可用，请稍后重试',
+                    errorCode: 'ORDER_DATABASE_UNAVAILABLE',
+                } as ApiResponse);
+            }
             return res.status(500).json({
                 success: false,
                 message: '服务器内部错误',
