@@ -10,6 +10,7 @@ import {
 } from '../controllers/customer/customer.persistence';
 import { DEFAULT_CUSTOMER_PAGE_SIZE, MAX_CUSTOMER_PAGE_SIZE } from '../controllers/customer/customer.types';
 import { buildCustomerSearchWhereAsync } from './search.service';
+import { withReadOnlyDbRetry } from '../utils/readOnlyDbRetry';
 
 export type CustomerListQuery = {
   page?: unknown;
@@ -72,51 +73,55 @@ export const CustomerQueryService = {
   async listCustomers(query: CustomerListQuery, req: AuthRequest) {
     const resolved = resolveCustomerListQuery(query);
     const filters = await buildCustomerListFilters(query);
-    const where = buildCustomerWhere(req, filters);
 
-    const [customers, total] = await Promise.all([
-      prisma.customer.findMany({
-        where,
-        skip: resolved.offset,
-        take: resolved.pageSize,
-        orderBy: { [resolved.sortBy]: resolved.sortOrder } as Prisma.CustomerOrderByWithRelationInput,
-        include: {
-          salesperson: { select: { id: true, username: true } },
-          poolUpdatedByUser: { select: { id: true, username: true } },
+    // Keep search/cache preparation outside recovery. Rebuild the complete pure
+    // database read so a failed relation lookup cannot return previous partial data.
+    return withReadOnlyDbRetry(async () => {
+      const where = buildCustomerWhere(req, filters);
+      const [customers, total] = await Promise.all([
+        prisma.customer.findMany({
+          where,
+          skip: resolved.offset,
+          take: resolved.pageSize,
+          orderBy: { [resolved.sortBy]: resolved.sortOrder } as Prisma.CustomerOrderByWithRelationInput,
+          include: {
+            salesperson: { select: { id: true, username: true } },
+            poolUpdatedByUser: { select: { id: true, username: true } },
+          },
+        }),
+        prisma.customer.count({ where }),
+      ]);
+
+      const [addressMap, contactMap, orderStatsMap] = await Promise.all([
+        loadCustomerAddressMap(customers.map(customer => customer.id)),
+        loadCustomerContactMap(customers.map(customer => customer.id)),
+        loadOrderStats(customers.map(customer => customer.id)),
+      ]);
+
+      const data = customers.map(customer => buildCustomerPayload(
+        {
+          ...customer,
+          address: addressMap.get(customer.id)?.address || customer.address || null,
+          addressesJson: addressMap.get(customer.id)?.addressesJson || null,
+          contactsJson: contactMap.get(customer.id)?.contactsJson || null,
         },
-      }),
-      prisma.customer.count({ where }),
-    ]);
+        orderStatsMap.get(customer.id),
+      ));
 
-    const [addressMap, contactMap, orderStatsMap] = await Promise.all([
-      loadCustomerAddressMap(customers.map(customer => customer.id)),
-      loadCustomerContactMap(customers.map(customer => customer.id)),
-      loadOrderStats(customers.map(customer => customer.id)),
-    ]);
-
-    const data = customers.map(customer => buildCustomerPayload(
-      {
-        ...customer,
-        address: addressMap.get(customer.id)?.address || customer.address || null,
-        addressesJson: addressMap.get(customer.id)?.addressesJson || null,
-        contactsJson: contactMap.get(customer.id)?.contactsJson || null,
-      },
-      orderStatsMap.get(customer.id),
-    ));
-
-    return {
-      data,
-      meta: {
-        page: resolved.page,
-        pageSize: resolved.pageSize,
-        total,
-        totalPages: Math.ceil(total / resolved.pageSize),
-      },
-    };
+      return {
+        data,
+        meta: {
+          page: resolved.page,
+          pageSize: resolved.pageSize,
+          total,
+          totalPages: Math.ceil(total / resolved.pageSize),
+        },
+      };
+    });
   },
 
   async getCustomerStats(req: AuthRequest) {
-    const customers = await prisma.customer.findMany({
+    const customers = await withReadOnlyDbRetry(() => prisma.customer.findMany({
       where: buildCustomerWhere(req),
       select: {
         id: true,
@@ -129,7 +134,7 @@ export const CustomerQueryService = {
         status: true,
         salespersonId: true,
       },
-    });
+    }));
 
     const publicPoolCustomers = customers.filter(customer => normalizePoolState(customer) === 'public').length;
     const internalPoolCustomers = customers.filter(customer => normalizePoolState(customer) === 'internal').length;

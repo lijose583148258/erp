@@ -70,13 +70,13 @@ it.each(['customer', 'address', 'contact', 'stats'])('recovers one P1017 at %s w
   for (const [args] of db.customer.findFirst.mock.calls) expect(args.where).toEqual(scopedWhere);
 });
 
-it('bounds consecutive stale-connection attempts and returns 500 rather than partial data', async () => {
+it('bounds consecutive stale-connection attempts and returns 503 rather than partial data', async () => {
   const error = closed(); db.customer.findMany.mockRejectedValue(error);
   const res = response(); await getCustomerById(request(), res as unknown as Response);
   expect(db.customer.findFirst).toHaveBeenCalledTimes(5);
-  expect(res.status).toHaveBeenCalledWith(500);
+  expect(res.status).toHaveBeenCalledWith(503);
   expect(res.json).toHaveBeenCalledTimes(1);
-  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: false }));
+  expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: false, errorCode: 'CUSTOMER_DATABASE_UNAVAILABLE' }));
   expect(logger.error).toHaveBeenCalledWith(expect.any(String), error);
 });
 

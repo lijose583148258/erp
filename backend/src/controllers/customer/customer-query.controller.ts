@@ -5,7 +5,18 @@ import { logger } from '../../utils/logger';
 import { CustomerQueryService } from '../../services/customer-query.service';
 import { loadCustomerForRequest, loadOrderStats } from './customer.persistence';
 import { buildCustomerPayload } from './customer.payload';
-import { withReadOnlyDbRetry } from '../../utils/readOnlyDbRetry';
+import { isClosedDbConnectionError, withReadOnlyDbRetry } from '../../utils/readOnlyDbRetry';
+
+function respondCustomerQueryError(res: Response, error: unknown) {
+  if (isClosedDbConnectionError(error)) {
+    return res.status(503).json({
+      success: false,
+      message: '数据库暂时不可用，请稍后重试',
+      errorCode: 'CUSTOMER_DATABASE_UNAVAILABLE',
+    } as ApiResponse);
+  }
+  return res.status(500).json({ success: false, message: '服务器内部错误' } as ApiResponse);
+}
 
 export async function getCustomers(req: AuthRequest, res: Response) {
     try {
@@ -18,10 +29,7 @@ export async function getCustomers(req: AuthRequest, res: Response) {
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户列表错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
+      return respondCustomerQueryError(res, error);
     }
   }
 
@@ -35,10 +43,7 @@ export async function getCustomerStats(req: AuthRequest, res: Response) {
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户统计错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
+      return respondCustomerQueryError(res, error);
     }
   }
 
@@ -68,9 +73,6 @@ export async function getCustomerById(req: AuthRequest, res: Response) {
       } as ApiResponse);
     } catch (error) {
       logger.error('获取客户详情错误:', error);
-      return res.status(500).json({
-        success: false,
-        message: '服务器内部错误',
-      } as ApiResponse);
+      return respondCustomerQueryError(res, error);
     }
   }
