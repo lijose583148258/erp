@@ -290,6 +290,9 @@ jobs:
       - name: Verify read-only reconnect boundary
         run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/controllers/customer/customer-read-recovery.test.ts backend/src/utils/dbRetry.test.ts backend/src/middleware/auth-read-recovery.test.ts backend/src/permissions/casbinAuthorization.test.ts backend/src/services/customer-query-read-recovery.test.ts backend/src/services/customer-query.service.test.ts backend/src/utils/readOnlyDbRetry.test.ts backend/src/routes/dashboard-read-recovery.test.ts backend/src/services/order-query-read-recovery.test.ts
 
+      - name: Verify bounded password computation
+        run: node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/auth-password-work.service.test.ts backend/src/controllers/auth-password-capacity.test.ts backend/src/services/auth-token-store.service.test.ts backend/src/routes/auth-rate-limit.test.ts backend/src/middleware/auth.test.ts backend/src/security/tokenAuthTime.test.ts
+
       - name: Verify payment event delivery boundaries
         run: |
           node backend/node_modules/jest/bin/jest.js --config backend/jest.config.ts --runInBand --runTestsByPath backend/src/services/payment-event-outbox.service.test.ts backend/src/services/webhook.service.test.ts backend/src/services/collection-state.service.test.ts backend/tests/realtime-event-dedup.test.ts

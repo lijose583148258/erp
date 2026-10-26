@@ -13,6 +13,8 @@ const primaryUrl = (process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/
 const secondaryUrl = (process.env.SECONDARY_APP_URL || process.env.APP_URL || 'http://127.0.0.1:5001/').replace(/\/$/, '');
 const runKey = String(process.env.GITHUB_RUN_ID || Date.now()) + '-' + String(process.env.GITHUB_RUN_ATTEMPT || 1);
 const password = crypto.randomBytes(24).toString('base64url') + 'Aa1!';
+// A separate read-only probe session must not be re-authenticated by the 20-login cohort.
+const existingReaderUsername = 'e20_reader_' + runKey;
 const reportPath = path.resolve(process.env.STAFF_AUDIT_REPORT_PATH || 'cloud-evidence/enterprise-20-staff-audit-v1.json');
 const primary = createConcurrencyApiClient({ apiBase: primaryUrl + '/api', runId: runKey });
 const secondary = createConcurrencyApiClient({ apiBase: secondaryUrl + '/api', runId: runKey });
@@ -124,6 +126,52 @@ async function createSalesCase(job, index, productMaterialId) {
   return { customer, order, evidence: { customerId: customer.id, orderId: order.id, orderNo: order.orderNo } };
 }
 
+async function loginWorkforceWithReadback() {
+  const existing = await primary.login(existingReaderUsername, password);
+  if (!existing?.token) throw new Error('existing-session login did not issue a token');
+  let polling = true;
+  const readbacks = [];
+  const sampler = (async () => {
+    do {
+      const client = readbacks.length % 2 ? secondary : primary;
+      const started = Date.now();
+      try {
+        const response = await client.apiFetch('/orders?page=1&pageSize=20', { timeoutMs: 10000 }, existing.token);
+        readbacks.push({ instance: client === primary ? 'primary' : 'secondary', status: response.status,
+          elapsedMs: Date.now() - started, errorCode: response.json?.errorCode || null });
+      } catch (error) {
+        readbacks.push({ instance: client === primary ? 'primary' : 'secondary', status: 0,
+          elapsedMs: Date.now() - started, error: String(error?.message || error).slice(0, 160) });
+      }
+      await new Promise(resolve => setTimeout(resolve, 20));
+    } while (polling);
+  })();
+  let result;
+  try {
+    result = await Promise.allSettled(positions.map(async (p) => {
+      const login = await primary.login(p.username, password);
+      if (!login?.token || login?.user?.role !== p.role) throw new Error('login identity or role mismatch for ' + p.job);
+      sessions.set(p.job, login);
+    }));
+  } finally {
+    polling = false;
+    await sampler;
+    report.loginReadbacks = readbacks;
+  }
+  const errors = result.flatMap((item, index) => item.status === 'rejected' ? [positions[index].job + ': ' + item.reason?.message] : []);
+  if (errors.length) throw new Error(errors.join('; '));
+  if (readbacks.length < 2 || !readbacks.some(row => row.instance === 'primary') || !readbacks.some(row => row.instance === 'secondary')) {
+    throw new Error('existing-session reads did not cover both nodes during concurrent logins');
+  }
+  if (readbacks.some(row => row.status !== 200)) throw new Error('existing-session read failed during logins: ' + JSON.stringify(readbacks.filter(row => row.status !== 200)));
+  const sorted = readbacks.map(row => row.elapsedMs).sort((a, b) => a - b);
+  const p95Ms = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))];
+  report.loginReadbackP95Ms = p95Ms;
+  // Preserve the existing HA soak's two-second p95 budget during password load as well.
+  if (p95Ms >= 2000) throw new Error('existing-session read p95 exceeded the two-second HA budget during logins: ' + p95Ms);
+  return { evidence: { distinctSessions: sessions.size, existingSessionReadbacks: readbacks, p95Ms, p95LimitMs: 2000 } };
+}
+
 async function main() {
   save();
   await step('provision_20_distinct_accounts', positions.map((p) => p.job), async () => {
@@ -131,17 +179,11 @@ async function main() {
       await Promise.all(positions.slice(i, i + 5).map((p) =>
         ensureUiAuditUser({ username: p.username, password, role: p.role, segment: 'direct' })));
     }
-    return { evidence: { provisioned: positions.length } };
+    await ensureUiAuditUser({ username: existingReaderUsername, password, role: 'admin', segment: 'direct' });
+    return { evidence: { provisioned: positions.length, separateExistingSessionProbe: existingReaderUsername } };
   });
   await step('20_independent_logins', positions.map((p) => p.job), async () => {
-    const result = await Promise.allSettled(positions.map(async (p) => {
-      const login = await primary.login(p.username, password);
-      if (!login?.token || login?.user?.role !== p.role) throw new Error('login identity or role mismatch for ' + p.job);
-      sessions.set(p.job, login);
-    }));
-    const errors = result.flatMap((item, index) => item.status === 'rejected' ? [positions[index].job + ': ' + item.reason?.message] : []);
-    if (errors.length) throw new Error(errors.join('; '));
-    return { evidence: { distinctSessions: sessions.size } };
+    return loginWorkforceWithReadback();
   });
   if (sessions.size !== 20) throw new Error('20 independent sessions were not established');
 

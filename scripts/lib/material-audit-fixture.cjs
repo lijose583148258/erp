@@ -6,19 +6,22 @@ async function ensureReleasedMaterial({
   category = 'raw_material',
   shelfLifeDays = 365,
 }) {
-  const query = await request(`/materials?q=${encodeURIComponent(code)}&status=active&limit=20`);
+  // MaterialMasterService stores codes as trim().toUpperCase(). Match that
+  // identity before lookup as well as creation, including repeated fixture use.
+  const normalizedCode = String(code || '').trim().toUpperCase();
+  const query = await request(`/materials?q=${encodeURIComponent(normalizedCode)}&status=active&limit=20`);
   if (!query.ok) {
     throw new Error(`material fixture query failed: ${query.status} ${JSON.stringify(query.json)}`);
   }
   const data = query.json?.data;
   const rows = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : [];
-  const existing = rows.find(item => String(item.code) === code);
+  const existing = rows.find(item => String(item.code) === normalizedCode);
   if (existing) return existing;
 
   const created = await request('/materials', {
     method: 'POST',
     data: {
-      code,
+      code: normalizedCode,
       nameZh: name,
       nameEn: name,
       nameVi: name,

@@ -1,4 +1,4 @@
-import bcrypt from 'bcryptjs';
+import { comparePassword, hashPassword } from './auth-password-work.service';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { writeAuthAuditLog } from './auth-audit.service';
@@ -32,12 +32,12 @@ export async function changeOwnPassword(input: ChangePasswordInput) {
     throw new AuthPasswordError(404, '用户不存在');
   }
 
-  const isOldPasswordValid = await bcrypt.compare(input.oldPassword, user.passwordHash);
+  const isOldPasswordValid = await comparePassword(input.oldPassword, user.passwordHash);
   if (!isOldPasswordValid) {
     throw new AuthPasswordError(400, '原密码错误');
   }
 
-  const passwordHash = await bcrypt.hash(input.newPassword, 12);
+  const passwordHash = await hashPassword(input.newPassword);
   await prisma.user.update({
     where: { id: input.userId },
     data: {

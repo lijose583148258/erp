@@ -6,6 +6,140 @@ const vm = require('node:vm');
 const catalog = require('./config/enterprise-round2-v1.json');
 const { createRound2Runner } = require('./lib/enterprise-round2-runner.cjs');
 const { raceBrowserActor } = require('./lib/enterprise-round2-inventory-browser.cjs');
+const { ensureReleasedMaterial } = require('./lib/material-audit-fixture.cjs');
+
+function workforceLoginHarness(readFailure) {
+  const source = fs.readFileSync(path.join(__dirname, 'enterprise-20-staff-audit-v1.cjs'), 'utf8');
+  const start = source.indexOf('async function loginWorkforceWithReadback()');
+  const end = source.indexOf('async function main()', start);
+  assert(start >= 0 && end > start);
+  const positions = Array.from({ length: 20 }, (_, i) => ({ job: `job${i}`, username: `user${i}`, role: i ? 'sales' : 'admin' }));
+  const sessions = new Map(), report = {}, reads = [];
+  let release, logins = 0;
+  const barrier = new Promise(resolve => { release = resolve; });
+  const primary = { login: async username => {
+    logins += 1;
+    if (logins === 1) { assert.equal(username, 'separate-reader'); return { token: 'existing-session' }; }
+    await barrier;
+    return { token: `new-${username}`, user: { role: positions.find(p => p.username === username).role } };
+  } };
+  const secondary = {};
+  for (const [instance, client] of [['primary', primary], ['secondary', secondary]]) client.apiFetch = async (endpoint, options, token) => {
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(logins, 21, 'all 20 password logins must be in flight before the reader completes');
+    assert.equal(endpoint, '/orders?page=1&pageSize=20'); assert.equal(token, 'existing-session'); assert.equal(options.timeoutMs, 10000);
+    reads.push(instance);
+    if (reads.length === 2) release();
+    if (readFailure && readFailure !== 'slow' && reads.length === 1) {
+      if (readFailure === 'network') throw new Error('synthetic transport failure');
+      return { status: 503, json: { errorCode: 'AUTH_TOKEN_STORE_UNAVAILABLE' } };
+    }
+    return { status: 200, json: {} };
+  };
+  // Keep real Promise scheduling, but make the sampler's 20 ms pause deterministic and fast.
+  let clock = 0;
+  const run = vm.runInNewContext(source.slice(start, end) + '; loginWorkforceWithReadback;', {
+    positions, primary, secondary, sessions, report, password: 'synthetic-only', existingReaderUsername: 'separate-reader',
+    Date: readFailure === 'slow' ? { now: () => (clock += 3000) } : Date,
+    setTimeout: callback => setImmediate(callback),
+  });
+  return { run, sessions, report, reads, getLogins: () => logins };
+}
+
+test('20-login audit reads existing-session orders on both nodes while all password requests are in flight', async () => {
+  const h = workforceLoginHarness(); const result = await h.run();
+  assert.equal(h.getLogins(), 21); assert.equal(h.sessions.size, 20);
+  assert.equal(result.evidence.distinctSessions, 20); assert.deepEqual(h.reads, ['primary', 'secondary']);
+  assert.equal(h.report.loginReadbacks.length, 2); assert(h.report.loginReadbacks.every(row => row.status === 200));
+});
+
+test('20-login audit keeps one transient authentication 503 as a failure even when later reads pass', async () => {
+  const h = workforceLoginHarness('503');
+  await assert.rejects(h.run(), /existing-session read failed during logins/);
+  assert.equal(h.sessions.size, 20); assert.deepEqual(h.reads, ['primary', 'secondary']);
+  assert.equal(h.report.loginReadbacks[0].status, 503); assert.equal(h.report.loginReadbacks[1].status, 200);
+});
+
+test('20-login audit preserves a transport failure and still joins the sampler before failing', async () => {
+  const h = workforceLoginHarness('network');
+  await assert.rejects(h.run(), /existing-session read failed during logins/);
+  assert.equal(h.sessions.size, 20); assert.equal(h.report.loginReadbacks[0].status, 0);
+  assert.match(h.report.loginReadbacks[0].error, /synthetic transport failure/);
+});
+
+test('20-login audit retains the existing two-second HA p95 budget instead of accepting slow 200 responses', async () => {
+  const h = workforceLoginHarness('slow');
+  await assert.rejects(h.run(), /p95 exceeded the two-second HA budget/);
+  assert.equal(h.sessions.size, 20); assert(h.report.loginReadbacks.every(row => row.status === 200));
+  assert.equal(h.report.loginReadbackP95Ms, 3000);
+});
+
+test('material fixture reuses the actual uppercase row for a lowercase run key without another POST', async () => {
+  const code = 'E20-FG-pilotb520d3320261026T015649Z-1';
+  const existing = { id: 49, code: code.toUpperCase(), status: 'active' }, calls = [];
+  const result = await ensureReleasedMaterial({ code, name: 'Synthetic fixture', request: async (url, options) => {
+    calls.push({ url, options }); return { ok: true, status: 200, json: { data: [existing] } };
+  } });
+  assert.strictEqual(result, existing); assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, `/materials?q=${encodeURIComponent(existing.code)}&status=active&limit=20`);
+  assert.equal(calls[0].options, undefined);
+});
+
+test('material fixture trims the lookup identity and preserves nested-list exact reuse', async () => {
+  const existing = { id: 50, code: 'RM-ACR/001', status: 'active' }, calls = [];
+  const result = await ensureReleasedMaterial({ code: '  rm-acr/001  ', name: 'Keep Name Case', request: async (url, options) => {
+    calls.push({ url, options }); return { ok: true, status: 200, json: { data: { items: [existing] } } };
+  } });
+  assert.strictEqual(result, existing); assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, '/materials?q=RM-ACR%2F001&status=active&limit=20');
+});
+
+test('material fixture creates canonical identity only when no exact row exists and does not reuse prefix matches', async () => {
+  const calls = [];
+  const result = await ensureReleasedMaterial({ code: ' rm-001 ', name: 'Keep Name Case', unit: 'kg', request: async (url, options) => {
+    calls.push({ url, options });
+    if (!options) return { ok: true, status: 200, json: { data: [{ id: 99, code: 'RM-001-OTHER' }, { id: 98, code: 'PREFIX-RM-001' }] } };
+    return { ok: true, status: 201, json: { data: { id: 51, ...options.data } } };
+  } });
+  assert.equal(calls.length, 2); assert.equal(calls[1].url, '/materials'); assert.equal(calls[1].options.method, 'POST');
+  assert.equal(calls[1].options.data.code, 'RM-001'); assert.equal(result.id, 51);
+  assert.equal(result.nameZh, 'Keep Name Case'); assert.equal(result.baseUnit, 'kg');
+});
+
+test('material fixture repeated use in one run creates once despite server uppercase normalization', async () => {
+  const rows = [], calls = [];
+  const request = async (url, options) => {
+    calls.push({ url, options });
+    if (!options) return { ok: true, status: 200, json: { data: rows } };
+    const code = options.data.code.trim().toUpperCase();
+    if (rows.some(row => row.code === code)) return { ok: false, status: 409, json: { message: 'duplicate code' } };
+    const material = { id: 52, ...options.data, code }; rows.push(material);
+    return { ok: true, status: 201, json: { data: material } };
+  };
+  const input = { request, code: 'E20-FG-pilotb520d3320261026T015649Z-1', name: 'Synthetic fixture', category: 'finished_good' };
+  const first = await ensureReleasedMaterial(input), second = await ensureReleasedMaterial(input);
+  assert.strictEqual(first, second); assert.equal(calls.filter(call => call.options?.method === 'POST').length, 1);
+  assert.equal(calls.filter(call => !call.options).length, 2);
+});
+
+test('material fixture normalization preserves full distinct run keys instead of truncating uniqueness', async () => {
+  const codes = ['E20-RM-pilotb520d3320261026T015649Z-1-01', 'E20-RM-pilotb520d3320261026T015650Z-1-01'];
+  const created = [];
+  for (const code of codes) await ensureReleasedMaterial({ code, name: code, request: async (_url, options) => {
+    if (!options) return { ok: true, status: 200, json: { data: [] } };
+    created.push(options.data.code); return { ok: true, status: 201, json: { data: { id: created.length, ...options.data } } };
+  } });
+  assert.deepEqual(created, codes.map(code => code.toUpperCase())); assert.notEqual(created[0], created[1]);
+});
+
+test('material fixture still propagates a genuine create conflict without reuse or write replay', async () => {
+  const calls = [];
+  await assert.rejects(ensureReleasedMaterial({ code: 'rm-001', name: 'Synthetic fixture', request: async (url, options) => {
+    calls.push({ url, options }); return options ? { ok: false, status: 409, json: { message: 'actual conflict' } }
+      : { ok: true, status: 200, json: { data: [] } };
+  } }), /material fixture create failed: 409/);
+  assert.equal(calls.length, 2); assert.equal(calls.filter(call => call.options?.method === 'POST').length, 1);
+});
 
 // Exercise the real producer up to its first fixture boundary. This proves
 // cohort ownership, not a successful business chain or workforce acceptance.

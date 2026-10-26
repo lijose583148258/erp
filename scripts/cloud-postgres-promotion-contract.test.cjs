@@ -19,6 +19,15 @@ test('cloud reconnect gate executes actual customer/order lists and previous rea
   }
 });
 
+test('cloud password gate covers bounded work, online routes and existing session safeguards', () => {
+  const workflow = fs.readFileSync(require('node:path').join(__dirname, '../.github/workflows/enterprise-cloud-sandbox.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const command = workflow.match(/- name: Verify bounded password computation\n\s+run: ([^\n]+)/)?.[1] || '';
+  for (const file of ['services/auth-password-work.service.test.ts', 'controllers/auth-password-capacity.test.ts',
+    'services/auth-token-store.service.test.ts', 'routes/auth-rate-limit.test.ts', 'middleware/auth.test.ts', 'security/tokenAuthTime.test.ts']) {
+    assert(command.split(/\s+/).includes(`backend/src/${file}`), `Cloud password command must execute ${file}`);
+  }
+});
+
 test('promotion audit verdict and name cannot be overwritten by detail fields', () => {
   const checkSource = source.slice(source.indexOf('const check ='), source.indexOf('const compose ='));
   const report = { checks: [] };

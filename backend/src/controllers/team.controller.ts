@@ -1,5 +1,5 @@
 ﻿import { Response } from 'express';
-import bcrypt from 'bcryptjs';
+import { hashPassword, PasswordWorkCapacityError } from '../services/auth-password-work.service';
 import prisma from '../config/database';
 import { logger } from '../utils/logger';
 import { AuthRequest } from '../middleware/auth';
@@ -106,7 +106,7 @@ export class TeamController {
                 return res.status(400).json({ success: false, message: '用户名已存在' });
             }
 
-            const passwordHash = await bcrypt.hash(password, 12);
+            const passwordHash = await hashPassword(password);
             const resolvedSegment = resolveUserSegment(role, segment);
 
             const user = await prisma.user.create({
@@ -152,6 +152,9 @@ export class TeamController {
                 message: '团队成员创建成功',
             });
         } catch (error) {
+            if (error instanceof PasswordWorkCapacityError) {
+                return res.status(503).json({ success: false, message: '密码计算服务繁忙，请稍后重试', errorCode: 'PASSWORD_WORK_CAPACITY' });
+            }
             logger.error('创建团队成员错误:', error);
             return res.status(500).json({ success: false, message: '服务器内部错误' });
         }
